@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-02
-status: created
+status: done
 ---
 
 # 008: Local Embedding、hybrid retrieval、Context Builderを実装する
