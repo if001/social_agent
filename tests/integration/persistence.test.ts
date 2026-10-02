@@ -8,6 +8,7 @@ import { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from
 import { PostgresEventTransaction } from "../../src/infrastructure/persistence/event-transaction.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
 import { PostgresMemoryRetriever } from "../../src/infrastructure/persistence/postgres-memory-retriever.js";
+import { PostgresScheduleRepository } from "../../src/infrastructure/persistence/postgres-schedule-repository.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = process.env.TEST_POSTGRES_URL ?? sample.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
@@ -98,5 +99,13 @@ describeDatabase("PostgreSQL persistence", () => {
     const found = await retriever.retrieve("a", "typescript", unit, 5, { kinds: ["semantic"] });
     expect(found.map(({ id }) => id)).toEqual(["memory-a1"]);
     expect(found.every(({ agentId }) => agentId === "a")).toBe(true);
+  });
+
+  it("claims each due intention once across scheduler instances", async () => {
+    await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status,next_review_at) VALUES ('due-1','a','Review goal','Due','active','2026-01-01')");
+    const first = new PostgresScheduleRepository(pool); const second = new PostgresScheduleRepository(pool);
+    const claims = await Promise.all([first.claimDue(new Date("2026-01-02T00:00:00Z"), 10), second.claimDue(new Date("2026-01-02T00:00:00Z"), 10)]);
+    expect(claims.flat().map(({ id }) => id)).toEqual(["due-1"]);
+    await first.complete("due-1", null); expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
   });
 });
