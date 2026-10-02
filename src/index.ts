@@ -41,3 +41,6 @@ export { createFileTools } from "./infrastructure/tools/file-tools.js";
 export { Scheduler } from "./application/scheduler.js";
 export type { InternalEventRuntime, ScheduleRepository, ScheduledTarget, SchedulerOptions } from "./application/scheduler.js";
 export { PostgresScheduleRepository } from "./infrastructure/persistence/postgres-schedule-repository.js";
+export { LongTermReviewService, ReviewInputSchema, ReviewOutputSchema, compactNaturalLanguage } from "./application/long-term-review.js";
+export type { LongTermReviewRepository, ReviewCommit, ReviewHarness, ReviewInput, ReviewOutput } from "./application/long-term-review.js";
+export { PostgresLongTermReviewRepository } from "./infrastructure/persistence/postgres-long-term-review.js";
