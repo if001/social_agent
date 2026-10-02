@@ -44,3 +44,6 @@ export { PostgresScheduleRepository } from "./infrastructure/persistence/postgre
 export { LongTermReviewService, ReviewInputSchema, ReviewOutputSchema, compactNaturalLanguage } from "./application/long-term-review.js";
 export type { LongTermReviewRepository, ReviewCommit, ReviewHarness, ReviewInput, ReviewOutput } from "./application/long-term-review.js";
 export { PostgresLongTermReviewRepository } from "./infrastructure/persistence/postgres-long-term-review.js";
+export { createAgentSendTool } from "./infrastructure/tools/agent-send-tool.js";
+export type { AgentMessageProvenance, AgentSendOptions } from "./infrastructure/tools/agent-send-tool.js";
+export type { DeadLetter } from "./infrastructure/queue/addressed-file-queue.js";

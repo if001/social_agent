@@ -55,6 +55,15 @@ describe("MessageQueue contract", () => {
     await eventually(() => { expect(received).toBe(true); });
   });
 
+  it("lists dead-letter reasons and requeues a valid envelope", async () => {
+    const queue = new AddressedFileQueue(root, { maxAttempts: 1, retryDelayMs: () => 0, now: fixedNow });
+    subscriptions.push(queue.subscribe("a", () => Promise.reject(new Error("fail")), controller.signal)); await queue.publish(messageFixture({ destination: "a" }));
+    await eventually(async () => { expect(await queue.inspectDeadLetters("a")).toHaveLength(1); }); controller.abort(); await Promise.all(subscriptions);
+    const dead = (await queue.inspectDeadLetters("a"))[0]; expect(dead?.reason).toBe("attempt-limit"); await queue.requeueDeadLetter("a", dead?.file ?? "");
+    controller = new AbortController(); let delivered = false; subscriptions = [queue.subscribe("a", () => { delivered = true; controller.abort(); return Promise.resolve(); }, controller.signal)];
+    await eventually(() => { expect(delivered).toBe(true); });
+  });
+
   it("encodes malicious destinations under the configured root", async () => {
     const queue = new AddressedFileQueue(root, { now: fixedNow }); await queue.publish(messageFixture({ destination: "../../outside" }));
     expect(await queue.listDeadLetters("../../outside")).toEqual([]);
