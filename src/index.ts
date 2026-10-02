@@ -38,3 +38,6 @@ export { ToolLoop } from "./application/tool-loop.js";
 export type { ToolTrace } from "./application/tool-loop.js";
 export { createWebTools } from "./infrastructure/tools/web-tools.js";
 export { createFileTools } from "./infrastructure/tools/file-tools.js";
+export { Scheduler } from "./application/scheduler.js";
+export type { InternalEventRuntime, ScheduleRepository, ScheduledTarget, SchedulerOptions } from "./application/scheduler.js";
+export { PostgresScheduleRepository } from "./infrastructure/persistence/postgres-schedule-repository.js";

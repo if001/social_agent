@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-02
-status: created
+status: done
 ---
 
 # 011: Scheduler、Intention、自律行動を実装する
