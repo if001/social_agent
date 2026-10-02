@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-02
-status: created
+status: done
 ---
 
 # 009: Agent Runtimeの縦スライスとTerminal UIを実装する

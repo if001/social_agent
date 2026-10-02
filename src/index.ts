@@ -28,3 +28,7 @@ export { PostgresMemoryRetriever } from "./infrastructure/persistence/postgres-m
 export type { RetrievalFilter } from "./infrastructure/persistence/postgres-memory-retriever.js";
 export { ContextBuilder } from "./application/context-builder.js";
 export type { ContextBudget, ContextSource } from "./application/context-builder.js";
+export { AgentRuntime, OutboxDispatcher } from "./application/agent-runtime.js";
+export type { AgentRuntimeOptions, PendingOutput, RuntimePersistence } from "./application/agent-runtime.js";
+export { TerminalAdapter } from "./infrastructure/ui/terminal-adapter.js";
+export type { TerminalMessage } from "./infrastructure/ui/terminal-adapter.js";
