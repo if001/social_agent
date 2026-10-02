@@ -18,3 +18,7 @@ export { StateUpdateService } from "./application/state-update-service.js";
 export type { StateChange, StateUpdateResult } from "./application/state-update-service.js";
 export { PostgresEventTransaction } from "./infrastructure/persistence/event-transaction.js";
 export type { CommitEventInput } from "./infrastructure/persistence/event-transaction.js";
+export { ScriptedAgentHarness } from "./application/scripted-agent-harness.js";
+export type { ScriptedStep } from "./application/scripted-agent-harness.js";
+export { DeepAgentHarness, checkOllamaChatCapability, createOllamaDeepAgentInvoker } from "./infrastructure/agent/deep-agent-harness.js";
+export type { DeepAgentHarnessOptions, DeepAgentInvoker, DeepAgentResult, OllamaDeepAgentConfig } from "./infrastructure/agent/deep-agent-harness.js";
