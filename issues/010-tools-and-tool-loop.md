@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-02
-status: created
+status: done
 ---
 
 # 010: Tool Registry、Web／File Tool、Tool Loopを実装する
