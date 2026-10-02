@@ -52,7 +52,8 @@ export type { DiscordAdapterOptions, DiscordGateway, DiscordInboundMessage, Disc
 export { DiscordJsGateway } from "./infrastructure/ui/discord-js-gateway.js";
 export { backupTargets, createArtifactMetadata, healthSnapshot, initializeAgent, listDeadLetters, requeueDeadLetter } from "./operations/operations.js";
 export type { AgentSeed, ArtifactMetadata, HealthSnapshot } from "./operations/operations.js";
-export { evaluateHardAssertions, runEvaluation } from "./evaluation/runner.js";
+export { evaluateHardAssertions, recordHumanReview, runEvaluation } from "./evaluation/runner.js";
+export type { HumanReview } from "./evaluation/runner.js";
 export { evaluationScenarios } from "./evaluation/scenarios.js";
 export { OllamaEvaluator, OllamaScenarioExecutor } from "./evaluation/ollama-live.js";
 export type { EvaluationPacket, EvaluationScenario, EvaluatorAdapter, HardAssertionResult, RubricRating, ScenarioExecutor, ScenarioResult } from "./evaluation/types.js";

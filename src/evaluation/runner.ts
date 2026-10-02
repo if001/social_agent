@@ -20,6 +20,12 @@ export function evaluateHardAssertions(result: ScenarioResult): readonly HardAss
 }
 const semanticPass = (rubric: Readonly<Record<string, "pass" | "weak" | "fail">>): boolean => Object.values(rubric).every((rating) => rating !== "fail") && Object.values(rubric).filter((rating) => rating === "weak").length <= 1;
 export type EvaluationSummary = { readonly groupId: string; readonly packets: readonly EvaluationPacket[]; readonly scenarios: readonly { readonly id: string; readonly hardPass: boolean; readonly semanticPasses: number; readonly passed: boolean }[]; readonly passed: boolean };
+export type HumanReview = { readonly scenarioId: string; readonly repetition: number; readonly reviewer: string; readonly decision: "pass" | "fail"; readonly notes: string; readonly reviewedAt: string };
+
+export async function recordHumanReview(groupDirectory: string, review: HumanReview): Promise<void> {
+  const safeScenario = review.scenarioId.replaceAll(/[^A-Za-z0-9_-]/gu, "_");
+  await writeFile(join(groupDirectory, `human-review-${safeScenario}-${String(review.repetition)}.json`), JSON.stringify(redactSecrets(review), null, 2), { flag: "wx" });
+}
 
 export async function runEvaluation(options: { readonly scenarios: readonly EvaluationScenario[]; readonly repetitions: number; readonly executor: ScenarioExecutor; readonly evaluator: EvaluatorAdapter; readonly artifactRoot: string; readonly metadata: ArtifactMetadata; readonly signal: AbortSignal }): Promise<EvaluationSummary> {
   const groupId = `${options.metadata.createdAt.replaceAll(/[:.]/gu, "-")}-${randomUUID()}`; const directory = join(options.artifactRoot, groupId); await mkdir(directory, { recursive: false }); const packets: EvaluationPacket[] = [];
