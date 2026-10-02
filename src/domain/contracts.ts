@@ -153,11 +153,12 @@ export const AgentCoreInputSchema = z.object({
   dynamicState: DynamicStateSchema,
   socialContext: z.array(SocialContextSchema),
   memories: z.array(MemorySchema),
+  intentions: z.array(IntentionSchema),
   availableTools: z.array(z.object({ name: Id, description: NaturalLanguage, inputSchema: z.record(z.string(), z.unknown()) })),
   runtimeConstraints: z.array(NaturalLanguage),
   limits: RunLimitsSchema
 }).superRefine((value, context) => {
-  const owners = [value.self.id, value.dynamicState.agentId, ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId)];
+  const owners = [value.self.id, value.dynamicState.agentId, ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId), ...value.intentions.map((item) => item.agentId)];
   if (owners.some((owner) => owner !== value.run.agentId)) context.addIssue({ code: "custom", message: "context contains data owned by another agent" });
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;

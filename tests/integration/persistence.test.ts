@@ -7,6 +7,7 @@ import { Pool } from "pg";
 import { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "../../src/infrastructure/persistence/postgres.js";
 import { PostgresEventTransaction } from "../../src/infrastructure/persistence/event-transaction.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
+import { PostgresMemoryRetriever } from "../../src/infrastructure/persistence/postgres-memory-retriever.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = process.env.TEST_POSTGRES_URL ?? sample.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
@@ -87,5 +88,15 @@ describeDatabase("PostgreSQL persistence", () => {
     })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await pool.query("SELECT 1 FROM message_receipts WHERE message_id='incoming-conflict'")).rowCount).toBe(0);
     expect((await pool.query("SELECT 1 FROM events WHERE id='event-conflict'")).rowCount).toBe(0);
+  });
+
+  it("combines lexical and vector retrieval with filters and agent isolation", async () => {
+    const unit = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
+    const opposite = Array.from({ length: 768 }, (_, index) => index === 1 ? 1 : 0);
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding,embedding_model) VALUES ('memory-a1','a','semantic','typescript architecture','Relevant','2026-01-02',$1::vector,'test'),('memory-a2','a','episodic','unrelated note','Relevant','2026-01-01',$2::vector,'test'),('memory-b1','b','semantic','typescript secret','Relevant','2026-01-03',$1::vector,'test')", [`[${unit.join(",")}]`, `[${opposite.join(",")}]`]);
+    const retriever = new PostgresMemoryRetriever(pool);
+    const found = await retriever.retrieve("a", "typescript", unit, 5, { kinds: ["semantic"] });
+    expect(found.map(({ id }) => id)).toEqual(["memory-a1"]);
+    expect(found.every(({ agentId }) => agentId === "a")).toBe(true);
   });
 });
