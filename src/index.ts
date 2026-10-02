@@ -47,3 +47,6 @@ export { PostgresLongTermReviewRepository } from "./infrastructure/persistence/p
 export { createAgentSendTool } from "./infrastructure/tools/agent-send-tool.js";
 export type { AgentMessageProvenance, AgentSendOptions } from "./infrastructure/tools/agent-send-tool.js";
 export type { DeadLetter } from "./infrastructure/queue/addressed-file-queue.js";
+export { DiscordAdapter } from "./infrastructure/ui/discord-adapter.js";
+export type { DiscordAdapterOptions, DiscordGateway, DiscordInboundMessage, DiscordReplyContext } from "./infrastructure/ui/discord-adapter.js";
+export { DiscordJsGateway } from "./infrastructure/ui/discord-js-gateway.js";
