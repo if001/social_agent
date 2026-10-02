@@ -5,6 +5,8 @@ import { parse } from "dotenv";
 import { Pool } from "pg";
 
 import { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "../../src/infrastructure/persistence/postgres.js";
+import { PostgresEventTransaction } from "../../src/infrastructure/persistence/event-transaction.js";
+import { messageFixture } from "../../src/testing/contract-fixtures.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = process.env.TEST_POSTGRES_URL ?? sample.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
@@ -57,5 +59,33 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(withAgentLock(pool, 4242, () => Promise.resolve(undefined))).rejects.toMatchObject({ code: "CONFLICT" });
     release(); await first;
     await expect(withAgentLock(pool, 4242, () => Promise.resolve("ok"))).resolves.toBe("ok");
+  });
+
+  it("commits receipt, event, state trace and outbox atomically and deduplicates", async () => {
+    const transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
+    const input = {
+      destination: "agent:a", messageId: "incoming-1",
+      event: { id: "event-1", agentId: "a", kind: "user-message", observation: { summary: "hello" }, source: "terminal", occurredAt: new Date() },
+      run: { id: "run-1", inputStateVersion: 1, startedAt: new Date(), result: { action: "respond" } },
+      stateValues: { mood: "Attentive" },
+      changes: [{ id: "change-1", target: "mood", operation: "set" as const, before: "Focused", after: "Attentive", reason: "Greeting", evidenceIds: ["event-1"] }],
+      outbox: [messageFixture({ id: "outbox-1", destination: "terminal" })]
+    };
+    await expect(transaction.commit(input)).resolves.toBe("committed");
+    await expect(transaction.commit(input)).resolves.toBe("duplicate");
+    expect((await pool.query<{ status: string }>("SELECT status FROM message_receipts WHERE message_id='incoming-1'")).rows[0]?.status).toBe("completed");
+    expect((await pool.query<{ reason: string }>("SELECT reason FROM state_changes WHERE id='change-1'")).rows[0]?.reason).toBe("Greeting");
+    expect((await pool.query("SELECT id FROM outbox_messages WHERE id='outbox-1'")).rowCount).toBe(1);
+  });
+
+  it("leaves no partial records after a version conflict", async () => {
+    const transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
+    await expect(transaction.commit({
+      destination: "agent:a", messageId: "incoming-conflict",
+      event: { id: "event-conflict", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date() },
+      run: { id: "run-conflict", inputStateVersion: 0, startedAt: new Date(), result: {} }, stateValues: { mood: "Wrong" }, changes: [], outbox: []
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await pool.query("SELECT 1 FROM message_receipts WHERE message_id='incoming-conflict'")).rowCount).toBe(0);
+    expect((await pool.query("SELECT 1 FROM events WHERE id='event-conflict'")).rowCount).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-02
-status: created
+status: done
 ---
 
 # 006: State Update ServiceとEvent transactionを実装する

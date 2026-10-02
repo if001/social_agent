@@ -14,3 +14,7 @@ export { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from
 export * as persistenceSchema from "./infrastructure/persistence/schema.js";
 export { AddressedFileQueue } from "./infrastructure/queue/addressed-file-queue.js";
 export type { FileQueueOptions } from "./infrastructure/queue/addressed-file-queue.js";
+export { StateUpdateService } from "./application/state-update-service.js";
+export type { StateChange, StateUpdateResult } from "./application/state-update-service.js";
+export { PostgresEventTransaction } from "./infrastructure/persistence/event-transaction.js";
+export type { CommitEventInput } from "./infrastructure/persistence/event-transaction.js";
