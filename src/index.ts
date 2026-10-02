@@ -50,3 +50,5 @@ export type { DeadLetter } from "./infrastructure/queue/addressed-file-queue.js"
 export { DiscordAdapter } from "./infrastructure/ui/discord-adapter.js";
 export type { DiscordAdapterOptions, DiscordGateway, DiscordInboundMessage, DiscordReplyContext } from "./infrastructure/ui/discord-adapter.js";
 export { DiscordJsGateway } from "./infrastructure/ui/discord-js-gateway.js";
+export { backupTargets, createArtifactMetadata, healthSnapshot, initializeAgent, listDeadLetters, requeueDeadLetter } from "./operations/operations.js";
+export type { AgentSeed, ArtifactMetadata, HealthSnapshot } from "./operations/operations.js";
