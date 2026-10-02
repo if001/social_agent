@@ -1,0 +1,43 @@
+import { writeFile } from "node:fs/promises";
+
+import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
+import { loadConfig } from "../../src/config/config.js";
+import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
+import { redactSecrets } from "../../src/observability/redaction.js";
+import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
+
+const required = `BOT_ID=sample\nPOSTGRES_URL=postgres://sample\nADMIN_POSTGRES_URL=postgres://admin\nSIMPLE_CLIENT_BASE_URL=http://web\nOLLAMA_BASE_URL=https://chat\nOLLAMA_API_KEY=sample-key\nOLLAMA_CHAT_MODEL=chat\nOLLAMA_EMBEDDING_BASE_URL=http://embedding\nOLLAMA_EMBEDDING_MODEL=embed\nOLLAMA_EMBEDDING_DIMENSION=768\n`;
+
+describe("configuration and lifecycle", () => {
+  it("loads sample, then .env, then process overrides", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
+    await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");
+    const config = await loadConfig({ cwd, environment: { BOT_ID: "process" } });
+    expect(config.botId).toBe("process"); expect(config.chat.model).toBe("local-model"); expect(config.embedding.dimension).toBe(768);
+    await scope.close();
+  });
+
+  it("rejects invalid URLs, dimensions, mixed endpoints and partial Discord settings", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
+    await expect(loadConfig({ cwd, environment: { SIMPLE_CLIENT_BASE_URL: "file:///tmp", OLLAMA_EMBEDDING_DIMENSION: "0" } })).rejects.toThrow();
+    await expect(loadConfig({ cwd, environment: { OLLAMA_EMBEDDING_BASE_URL: "https://chat" } })).rejects.toThrow();
+    await expect(loadConfig({ cwd, environment: { DISCORD_BOT_TOKEN: "token" } })).rejects.toThrow();
+    await scope.close();
+  });
+
+  it("redacts secrets recursively", () => {
+    expect(redactSecrets({ OLLAMA_API_KEY: "key", nested: { discordToken: "token", safe: "yes" } })).toEqual({ OLLAMA_API_KEY: "[REDACTED]", nested: { discordToken: "[REDACTED]", safe: "yes" } });
+  });
+
+  it("provides deterministic clock and IDs", () => {
+    const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); clock.advance(1_000);
+    expect(clock.now().toISOString()).toBe("2026-01-01T00:00:01.000Z");
+    const ids = new SequenceIdGenerator(["one"]); expect(ids.next()).toBe("one"); expect(() => { ids.next(); }).toThrow("exhausted");
+  });
+
+  it("enforces lifecycle transitions and refuses new work while stopping", () => {
+    const lifecycle = new ProcessLifecycle(); expect(() => { lifecycle.assertAccepting(); }).toThrow();
+    lifecycle.transition("ready"); lifecycle.assertAccepting(); lifecycle.transition("degraded"); lifecycle.transition("stopping");
+    expect(lifecycle.signal.aborted).toBe(true); expect(() => { lifecycle.assertAccepting(); }).toThrow(); lifecycle.transition("stopped");
+  });
+});
