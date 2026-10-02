@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-02
-status: created
+status: done
 ---
 
 # 004: PostgreSQL、migration、Repository基盤を実装する

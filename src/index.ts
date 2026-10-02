@@ -10,3 +10,5 @@ export { ProcessLifecycle } from "./bootstrap/lifecycle.js";
 export type { LifecycleState } from "./bootstrap/lifecycle.js";
 export { FixedClock, SequenceIdGenerator, SystemClock, UuidGenerator } from "./infrastructure/system.js";
 export { redactSecrets } from "./observability/redaction.js";
+export { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "./infrastructure/persistence/postgres.js";
+export * as persistenceSchema from "./infrastructure/persistence/schema.js";
