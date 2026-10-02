@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "base_skill": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "82d0ebc32ef78ecc1032e5a0f3ac3ab97dcaee43fa92249e96f6d05edd39aab0"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+# Issues
+
+`docs/IMPLEMENTATION_PLAN.md` を実行可能な17件のIssueへ分割した一覧である。各Issueでは、合意済みの公開境界に対して失敗するテストを先に追加し、最小実装、test pass、作業単位のrefactorの順で進める。
+
+| ID | Issue | Dependencies |
+|---|---|---|
+| 001 | [Project foundationとtest harness](001-project-foundation.md) | なし |
+| 002 | [Domain modelとPort契約](002-domain-contracts.md) | 001 |
+| 003 | [Configurationとprocess lifecycle](003-configuration-lifecycle.md) | 001, 002 |
+| 004 | [PostgreSQLとRepository基盤](004-persistence-foundation.md) | 002, 003 |
+| 005 | [Addressed File Queue](005-addressed-file-queue.md) | 002, 003 |
+| 006 | [State UpdateとEvent transaction](006-state-update-transaction.md) | 002, 004 |
+| 007 | [Agent HarnessとOllama Cloud](007-agent-harness-ollama-cloud.md) | 002, 003 |
+| 008 | [Embedding、Retrieval、Context Builder](008-memory-retrieval-context.md) | 002, 004 |
+| 009 | [Agent RuntimeとTerminal UI](009-runtime-terminal.md) | 002–008 |
+| 010 | [Tool Registry、Web／File Tool、Tool Loop](010-tools-and-tool-loop.md) | 005, 007, 009 |
+| 011 | [Schedulerと自律行動](011-scheduler-autonomy.md) | 006, 009 |
+| 012 | [Long-term Reviewとcompaction](012-long-term-review.md) | 006, 008, 009, 011 |
+| 013 | [Multi-bot通信と復旧](013-multi-bot-recovery.md) | 005, 009, 010 |
+| 014 | [Discord Adapter](014-discord-adapter.md) | 005, 009 |
+| 015 | [決定的System suiteと運用CLI](015-system-suite-operations.md) | 010–014 |
+| 016 | [Live Ollama Scenario Evaluation](016-live-llm-evaluation.md) | 015 |
+| 017 | [Evaluation Store、Soak、完成判定](017-soak-release-gate.md) | 016、Manual Smoke |
+
+004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
+
