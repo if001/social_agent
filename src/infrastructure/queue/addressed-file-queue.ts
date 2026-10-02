@@ -12,6 +12,7 @@ export type FileQueueOptions = {
   readonly retryDelayMs?: (attempt: number) => number;
   readonly now?: () => Date;
 };
+export type DeadLetter = { readonly file: string; readonly messageId?: string; readonly reason: string };
 
 const encode = (value: string): string => Buffer.from(value).toString("base64url");
 
@@ -129,5 +130,25 @@ export class AddressedFileQueue implements MessageQueue {
   async listDeadLetters(destination: string): Promise<readonly string[]> {
     await this.#prepare(destination);
     return (await readdir(this.#directory(destination, "dead"))).sort();
+  }
+
+  async inspectDeadLetters(destination: string): Promise<readonly DeadLetter[]> {
+    return (await this.listDeadLetters(destination)).map((file) => {
+      const parts = file.slice(0, -5).split(".");
+      let messageId: string | undefined; let reason = "unknown";
+      try { if (parts[0] !== undefined) messageId = Buffer.from(parts[0], "base64url").toString(); } catch { /* malformed dead-letter filename */ }
+      try { if (parts[1] !== undefined) reason = Buffer.from(parts[1], "base64url").toString(); } catch { /* malformed reason */ }
+      return { file, ...(messageId === undefined ? {} : { messageId }), reason };
+    });
+  }
+
+  async requeueDeadLetter(destination: string, file: string): Promise<void> {
+    if (basename(file) !== file || !file.endsWith(".json")) throw new Error("Invalid dead-letter filename");
+    await this.#prepare(destination); const source = join(this.#directory(destination, "dead"), file);
+    const envelope = MessageEnvelopeSchema.parse(JSON.parse(await readFile(source, "utf8")));
+    const revived = { ...envelope, attempt: 0, availableAt: this.#now().toISOString() };
+    const target = join(this.#directory(destination, "pending"), `${encode(envelope.id)}.json`);
+    try { await this.#atomicCreate(target, JSON.stringify(revived)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    await unlink(source);
   }
 }

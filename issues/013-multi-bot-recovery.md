@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-02
-status: created
+status: done
 ---
 
 # 013: Multi-bot通信、冪等性、障害復旧を実装する
