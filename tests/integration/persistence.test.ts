@@ -112,6 +112,7 @@ describeDatabase("PostgreSQL persistence", () => {
   });
 
   it("loads a complete Agent Core context from PostgreSQL without crossing Agent ownership", async () => {
+    await pool.query("UPDATE agent_families SET base_instruction='' WHERE id='family'");
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,description) VALUES ('social-a','a','owner','Trusted'),('social-b','b','owner','Private') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('context-intention-a','a','Reply carefully','Conversation','active'),('context-intention-b','b','Keep private','Private','active') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
@@ -131,6 +132,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.intentions.map(({ id }) => id)).not.toContain("context-intention-b");
     expect(input.memories.every(({ agentId }) => agentId === "a")).toBe(true);
     expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"], relatedIntentionIds: ["context-intention-a"] });
+    expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
   });
 
   it("holds one process lock per Agent and drains loops during shutdown", async () => {

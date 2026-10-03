@@ -22,4 +22,14 @@ describe("ST-05 bot communication", () => {
     await new OutboxDispatcher(persistence, queue).dispatch(); const terminal: string[] = []; const terminalController = new AbortController(); const receiving = queue.subscribe("terminal", (message) => { terminal.push(String(message.payload.text)); terminalController.abort(); return Promise.resolve(); }, terminalController.signal); await receiving;
     expect(terminal).toEqual(["I heard that from agent A"]); controller.abort(); await running; await scope.close();
   });
+
+  it("does not route a reply-less agent message to the default UI destination", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
+    const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.agentId = event.agentId; input.self.id = event.agentId; input.dynamicState.agentId = event.agentId; return input; });
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "discord:agent-a", queue, harness: new ScriptedAgentHarness([{ interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "respond", content: "No further reply is needed" } }]), persistence, ids: new SequenceIdGenerator(["event-a"]), now: () => clock.now() });
+    await queue.publish({ id: "reply-without-route", destination: "agent-a", source: "agent-b", sentAt: clock.now().toISOString(), availableAt: clock.now().toISOString(), expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 1, payload: { type: "agent-message", senderAgentId: "agent-b", content: "Acknowledged", provenance: { runId: "run-b" } } });
+    const controller = new AbortController(); const running = runtime.start(controller.signal); await eventually(() => { expect(persistence.events).toHaveLength(1); });
+    await expect(persistence.pendingOutbox(10)).resolves.toHaveLength(0);
+    controller.abort(); await running; await scope.close();
+  });
 });

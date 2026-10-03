@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: doing
+status: done
 ---
 
 # 033: 2つのDiscord botを起動して往復と復旧を確認する
@@ -24,11 +24,11 @@ status: doing
 
 ## Acceptance criteria
 
-- [ ] 異なるAgent IDの2 processが同時にreadyになる。
-- [ ] 各Discord入力へ対応するAgentが応答し、状態とMemoryが混線しない。
-- [ ] bot間情報を伝聞として扱い、送信元provenanceを保持する。
-- [ ] 片方の停止と再起動でMessageを欠落・重複適用しない。
-- [ ] Manual Smoke結果と未解決リスクが記録される。
+- [x] 異なるAgent IDの2 processが同時にreadyになる。
+- [x] 各Discord入力へ対応するAgentが応答し、状態とMemoryが混線しない。
+- [x] bot間情報を伝聞として扱い、送信元provenanceを保持する。
+- [x] 片方の停止と再起動でMessageを欠落・重複適用しない。
+- [x] Manual Smoke結果と未解決リスクが記録される。
 
 ## Dependencies
 
@@ -42,7 +42,11 @@ status: doing
 - 2026-10-03: 1体目の起動時、Chat Ollama endpointには到達したが、configured Chat modelが利用可能model一覧に存在しないためStop conditionで停止した。2体目とDiscord Manual Smokeは未実施。
 - 2026-10-03: 指定された更新後のChat modelをprocess環境変数として明示して再試行したが、同じく利用可能model一覧に存在せず停止した。
 - 起動失敗時cleanupがDB Poolを二重closeして元エラーを隠す問題を修正し、回帰テストを追加した。
+- 2026-10-03: 更新後のChat modelで2 processが同時起動し、DB lock 2件を確認した。
+- 2026-10-03: bot間Discordメンション、ユーザーから各botへのメンション、停止中`agent_send`、再起動回収、receipt重複抑止、状態／Memory分離、graceful shutdownを確認した。
+- 詳細結果: [Two Discord Bot Manual Smoke Result](../docs/MANUAL_SMOKE_RESULT_2026-10-03.md)
 
-## Current blocker
+## Resolved blockers
 
-- 各process設定の`OLLAMA_CHAT_MODEL`が、Chat Ollama endpointの利用可能modelと一致する必要がある。
+- Chat model名をOllamaの利用可能modelと一致させた。
+- 空のFamily base instructionによるContext Schema失敗を修正した。
