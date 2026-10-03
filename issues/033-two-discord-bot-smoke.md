@@ -1,0 +1,36 @@
+---
+created_at: 2026-10-03
+status: created
+---
+
+# 033: 2つのDiscord botを起動して往復と復旧を確認する
+
+## Goal
+
+異なるDiscord資格情報とAgent IDを持つ2 processを共有DB／Queue上で起動し、実利用開始に必要なManual Smokeを完了する。
+
+## Scope
+
+- migrationと2 Agent初期化から起動までの手順を`docs/MANUAL_SMOKE.md`へ確定する。
+- 2 botを同一channelまたは構成済みchannelで起動する。
+- 各botへの入力、応答、状態・Memory分離、bot間provenanceを確認する。
+- 片方停止中の配送、再起動後処理、重複抑止、graceful shutdownを確認する。
+- 実行時の接続先、model、build、開始終了、障害を秘密値なしで記録する。
+
+## Stop conditions
+
+- DB、Chat Ollama、Embedding Ollamaへ接続できない場合は作業を止める。
+- Discord資格情報またはallowlistが不足する場合は、秘密値の提示を求めず必要な設定名だけを報告する。
+
+## Acceptance criteria
+
+- [ ] 異なるAgent IDの2 processが同時にreadyになる。
+- [ ] 各Discord入力へ対応するAgentが応答し、状態とMemoryが混線しない。
+- [ ] bot間情報を伝聞として扱い、送信元provenanceを保持する。
+- [ ] 片方の停止と再起動でMessageを欠落・重複適用しない。
+- [ ] Manual Smoke結果と未解決リスクが記録される。
+
+## Dependencies
+
+- 032
+

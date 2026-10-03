@@ -31,5 +31,11 @@
 | 025 | [回帰検証とLive評価](025-evaluation-and-regression.md) | 024 |
 | 026 | [残り6 Scenarioの単発Live確認](026-remaining-live-scenarios.md) | 016、025 |
 | 027 | [必要時の反復Live評価](027-statistical-live-evaluation.md) | 026 |
+| 028 | [2 bot起動docs整合](028-align-two-bot-startup-docs.md) | なし |
+| 029 | [2 bot起動の実装差分調査](029-audit-two-bot-startup-implementation.md) | 028 |
+| 030 | [複数bot起動設定とCLI](030-multi-bot-runtime-configuration.md) | 029 |
+| 031 | [本番Contextとcomposition](031-production-agent-context-and-composition.md) | 030 |
+| 032 | [Bot Host lifecycle](032-bot-host-lifecycle.md) | 031 |
+| 033 | [2 Discord bot Manual Smoke](033-two-discord-bot-smoke.md) | 032 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
