@@ -19,6 +19,10 @@ export type DeepAgentHarnessOptions = {
 };
 
 type ProposalIssue = { readonly code: "invalid_reference"; readonly path: readonly PropertyKey[]; readonly message: string };
+function errorToolExecutions(error: unknown): readonly ToolExecutionRecord[] {
+  if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause) || !Array.isArray(error.cause.toolExecutions)) return [];
+  return error.cause.toolExecutions as ToolExecutionRecord[];
+}
 function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["output"]): ProposalIssue[] {
   const memoryIds = new Set(input.memories.map(({ id }) => id));
   const intentionIds = new Set(input.intentions.map(({ id }) => id));
@@ -48,26 +52,28 @@ export class DeepAgentHarness implements AgentHarness {
     for (const tool of input.availableTools) if (!this.options.registeredToolNames.has(tool.name)) throw new DomainError("VALIDATION", `Unknown tool: ${tool.name}`);
     const timeout = AbortSignal.timeout(input.limits.deadlineMs);
     const combined = AbortSignal.any([signal, timeout]);
-    let raw: unknown; let validationIssues: unknown;
+    let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = [];
     for (let attempt = 0; attempt <= this.#maxRepairs; attempt += 1) {
       try {
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input })
           : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input, validationIssues, invalidOutput: raw });
         const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls });
+        observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
           const referenceIssues = proposalReferenceIssues(input, parsed.data);
-          if (referenceIssues.length === 0) return { output: parsed.data, toolExecutions: [...(result.toolExecutions ?? [])] };
+          if (referenceIssues.length === 0) return { output: parsed.data, toolExecutions: observedToolExecutions };
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
       } catch (error) {
-        if (combined.aborted) throw new DomainError(signal.aborted ? "ABORTED" : "TIMEOUT", "Agent run was interrupted", { cause: error });
-        throw new DomainError("EXTERNAL", "Agent provider failed", { cause: error });
+        observedToolExecutions.push(...errorToolExecutions(error));
+        if (combined.aborted) throw new DomainError(signal.aborted ? "ABORTED" : "TIMEOUT", "Agent run was interrupted", { cause: { providerError: error, toolExecutions: observedToolExecutions } });
+        throw new DomainError("EXTERNAL", "Agent provider failed", { cause: { providerError: error, toolExecutions: observedToolExecutions } });
       }
     }
-    throw new DomainError("VALIDATION", `Agent returned invalid structured output: ${JSON.stringify(validationIssues)}`);
+    throw new DomainError("VALIDATION", `Agent returned invalid structured output: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions } });
   }
 }
 
@@ -165,8 +171,10 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
       const toolExecutions: ToolExecutionRecord[] = [];
       const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, options, toolExecutions, config.now);
       const agent = createDeepAgent({ model, tools: tools as DeepAgentToolsOption, responseFormat: providerStrategy(AgentCoreOutputSchema), systemPrompt: agentCoreSystemPrompt });
-      const result = await agent.invoke({ messages: [...input.messages] }, options);
-      return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions };
+      try {
+        const result = await agent.invoke({ messages: [...input.messages] }, options);
+        return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions };
+      } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions } }); }
     }
   };
 }

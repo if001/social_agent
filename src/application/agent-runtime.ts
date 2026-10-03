@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
 import { StateUpdateService, type StateUpdateResult } from "./state-update-service.js";
-import { type AgentCoreInput, type AgentCoreOutput, type DomainEvent, type MessageEnvelope } from "../domain/contracts.js";
+import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user-message"), text: z.string().min(1), replyContext: z.record(z.string(), z.unknown()).optional() }),
@@ -13,7 +13,8 @@ export type PendingOutput = { readonly envelope: MessageEnvelope };
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput>;
-  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, output: AgentCoreOutput, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
+  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
+  recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
 }
@@ -39,13 +40,19 @@ export class AgentRuntime {
     const payload = IncomingPayload.parse(message.payload);
     const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind: payload.type === "user-message" ? "user-message" : "external", occurredAt: this.options.now().toISOString(), payload: payload.type === "user-message" ? { text: payload.text } : { senderAgentId: payload.senderAgentId, reportedContent: payload.content, provenance: payload.provenance }, causationId: message.id, correlationId: message.id };
     const input = await this.options.persistence.loadInput(event);
-    const result = await this.options.harness.run(input, signal);
+    let result: AgentRunResult;
+    try { result = await this.options.harness.run(input, signal); }
+    catch (error) {
+      const toolExecutions = error instanceof DomainError && typeof error.cause === "object" && error.cause !== null && "toolExecutions" in error.cause && Array.isArray(error.cause.toolExecutions) ? error.cause.toolExecutions as ToolExecutionRecord[] : [];
+      await this.options.persistence.recordFailure(message, event, input, error, toolExecutions);
+      throw error;
+    }
     const output = result.output;
-    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.transientStateUpdates);
+    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.transientStateUpdates, input.socialContext);
     const outgoingDestination = message.replyTo ?? this.options.defaultOutputDestination;
     const agentReply = payload.type === "agent-message" && outgoingDestination === message.source;
     const outgoing: MessageEnvelope[] = output.action.type === "respond" ? [{ id: this.options.ids.next(), destination: outgoingDestination, source: message.destination, sentAt: this.options.now().toISOString(), availableAt: this.options.now().toISOString(), expiresAt: message.expiresAt, attempt: 0, hop: message.hop + (agentReply ? 1 : 0), payload: agentReply ? { type: "agent-message", senderAgentId: event.agentId, content: output.action.content, provenance: { causationId: message.id, runId: input.run.runId } } : { type: "agent-response", text: output.action.content, agentId: event.agentId, correlationId: message.id, ...(payload.type === "user-message" && payload.replyContext !== undefined ? { replyContext: payload.replyContext } : {}) } }] : [];
-    await this.options.persistence.commit(message, event, input, output, update, outgoing);
+    await this.options.persistence.commit(message, event, input, result, update, outgoing);
   }
 }
 

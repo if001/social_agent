@@ -35,7 +35,7 @@ describe("ST-01 Terminal round trip", () => {
   it("does not publish or mark an outbox record when publish fails", async () => {
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
-    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action", reason: "test" } }, { state: agentCoreInputFixture().dynamicState, changes: [] }, [message]);
+    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().dynamicState, changes: [] }, [message]);
     const queue = { publish: () => Promise.reject(new Error("down")), subscribe: () => Promise.resolve() };
     await expect(new OutboxDispatcher(persistence, queue).dispatch()).rejects.toThrow("down");
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);

@@ -1,4 +1,4 @@
-import type { MessageEnvelope } from "../../domain/contracts.js";
+import type { Candidate, Intention, Memory, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
 import type { StateChange } from "../../application/state-update-service.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
@@ -10,8 +10,15 @@ export type CommitEventInput = {
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, string>>;
   readonly changes: readonly (StateChange & { readonly id: string })[];
+  readonly memories?: readonly Memory[];
+  readonly intentionCreates?: readonly Intention[];
+  readonly intentionUpdates?: readonly Intention[];
+  readonly candidates?: readonly Candidate[];
+  readonly toolExecutions?: readonly (ToolExecutionRecord & { readonly id: string })[];
   readonly outbox: readonly MessageEnvelope[];
 };
+
+export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "intentionCreates" | "intentionUpdates" | "candidates" | "outbox"> & { readonly failureReason: string };
 
 export class PostgresEventTransaction {
   constructor(private readonly unitOfWork: PostgresUnitOfWork) {}
@@ -24,11 +31,41 @@ export class PostgresEventTransaction {
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.run.id, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
+      for (const change of input.changes.filter(({ target }) => target === "socialContext")) {
+        const value = change.after as { readonly subjectId?: string; readonly description?: string } | undefined;
+        if (value?.subjectId === undefined) throw new Error("Social Context change is missing subjectId");
+        if (change.operation === "remove") await client.query("DELETE FROM social_contexts WHERE agent_id=$1 AND subject_id=$2", [input.event.agentId, value.subjectId]);
+        else await client.query("INSERT INTO social_contexts(id,agent_id,subject_id,description) VALUES ($1,$2,$3,$4) ON CONFLICT (agent_id,subject_id) DO UPDATE SET description=EXCLUDED.description,updated_at=now()", [change.id, input.event.agentId, value.subjectId, value.description]);
+      }
+      for (const memory of input.memories ?? []) {
+        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,source_agent_id,evidence_event_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
+        for (const subjectId of memory.relatedSubjectIds) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [memory.id, subjectId]);
+        for (const intentionId of memory.relatedIntentionIds) await client.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ($1,$2)", [memory.id, intentionId]);
+      }
+      for (const intention of input.intentionCreates ?? []) await client.query("INSERT INTO intentions(id,agent_id,description,reason,status,next_review_at,superseded_by_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [intention.id, intention.agentId, intention.description, intention.reason, intention.status, intention.nextReviewAt ?? null, intention.supersededById ?? null, intention.createdAt, intention.updatedAt]);
+      for (const intention of input.intentionUpdates ?? []) await client.query("UPDATE intentions SET description=$3,reason=$4,status=$5,next_review_at=$6,superseded_by_id=$7,updated_at=$8 WHERE id=$1 AND agent_id=$2", [intention.id, intention.agentId, intention.description, intention.reason, intention.status, intention.nextReviewAt ?? null, intention.supersededById ?? null, intention.updatedAt]);
+      for (const candidate of input.candidates ?? []) {
+        await client.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)", [candidate.id, candidate.agentId, candidate.target, candidate.proposal, candidate.status, candidate.reason, candidate.createdAt]);
+        for (const memoryId of candidate.evidenceMemoryIds) await client.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ($1,$2)", [candidate.id, memoryId]);
+      }
+      await this.#insertToolExecutions(client, input.toolExecutions ?? []);
       for (const envelope of input.outbox) await client.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,$2,$3)", [envelope.id, input.event.agentId, JSON.stringify(envelope)]);
       await client.query("UPDATE agent_runs SET result=$2,finished_at=now() WHERE id=$1", [input.run.id, input.run.result]);
       await client.query("UPDATE events SET status='completed' WHERE id=$1", [input.event.id]);
       await client.query("UPDATE message_receipts SET status='completed',processed_at=now() WHERE destination=$1 AND message_id=$2", [input.destination, input.messageId]);
       return "committed";
     });
+  }
+
+  async recordFailure(input: FailedEventInput): Promise<void> {
+    await this.unitOfWork.transaction(async (client) => {
+      await client.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,$3,$4,$5,'failed',$6) ON CONFLICT (id) DO NOTHING", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.occurredAt]);
+      await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,failure_reason,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,now()) ON CONFLICT (id) DO UPDATE SET failure_reason=EXCLUDED.failure_reason,finished_at=EXCLUDED.finished_at", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.result, input.failureReason, input.run.startedAt]);
+      await this.#insertToolExecutions(client, input.toolExecutions ?? []);
+    });
+  }
+
+  async #insertToolExecutions(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], executions: readonly (ToolExecutionRecord & { readonly id: string })[]): Promise<void> {
+    for (const execution of executions) await client.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (run_id,tool_call_id) DO NOTHING", [execution.id, execution.runId, execution.eventId, execution.callId, execution.name, execution.input, execution.result ?? null, execution.error ?? null, execution.startedAt, execution.finishedAt]);
   }
 }
