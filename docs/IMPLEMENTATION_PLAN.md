@@ -391,6 +391,8 @@ CI providerはこの計画では固定しない。1〜4はローカルと任意�
 
 - `spec/personal-agent-concept-design-restructured-v2.md`
 - `spec/personal-agent-implementation-design-v2.md`
+- `docs/DESIGN_ALIGNMENT.md`
+- `docs/IMPLEMENTATION_AUDIT.md`
 - `docs/DOCUMENTATION_PLAN.md`
 - `docs/REQUIREMENTS.md`
 - `docs/ARCHITECTURE.md`

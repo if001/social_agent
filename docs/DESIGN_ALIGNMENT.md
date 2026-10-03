@@ -45,6 +45,8 @@ User Message, External, ordinary Internal, Time, System, and logical Tool Result
 
 ## 6. Known gaps and assigned work
 
+The code-level evidence and reachability analysis are recorded in `docs/IMPLEMENTATION_AUDIT.md`.
+
 | Gap | Resolution issue |
 |---|---|
 | Current code still uses persistence-shaped Memory/Intention/Candidate output and a final `tool` Action | 020 |
@@ -60,4 +62,3 @@ User Message, External, ordinary Internal, Time, System, and logical Tool Result
 Short live evaluation checks schema conformance, use of preloaded experience/current state, immediate Emotion/Desire semantics, optional persistent proposals, constraints, and final Action. Development begins with one Scenario and one run. It does not claim that Mood, Intention, Social Context, Self Narrative, or Acquired Disposition naturally formed over a few turns.
 
 Long-term formation is evaluated after real user interaction by combining user impressions, desired behavior, state snapshots, Candidate/Review evidence, and execution traces. No fixed number of days is mandatory. A dimension without enough evidence is recorded as `insufficient-observation` rather than forced into pass or fail.
-

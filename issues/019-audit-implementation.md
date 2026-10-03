@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 019: 確定したdocsと実装の対応を調査する
@@ -31,8 +31,8 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] 対象docsの要求と実装の対応、不足、担当Issueが追跡できる。
-- [ ] 後続Issueの範囲と順序が監査結果で更新される。
+- [x] 対象docsの要求と実装の対応、不足、担当Issueが追跡できる。
+- [x] 後続Issueの範囲と順序が監査結果で更新される。
 
 ## Tests
 
