@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: doing
 ---
 
 # 033: 2つのDiscord botを起動して往復と復旧を確認する
@@ -34,3 +34,14 @@ status: created
 
 - 032
 - 034
+
+## Execution log
+
+- 2026-10-03: `.env.ao`と`.env.aka`をprocess環境として検証し、必須設定とBot ID／Discord Queue destinationの分離を確認した。設定値と秘密値は記録していない。
+- 2026-10-03: 共有DBへのmigrationと2 Agentの冪等初期化に成功した。
+- 2026-10-03: 1体目の起動時、Chat Ollama endpointには到達したが、configured Chat modelが利用可能model一覧に存在しないためStop conditionで停止した。2体目とDiscord Manual Smokeは未実施。
+- 起動失敗時cleanupがDB Poolを二重closeして元エラーを隠す問題を修正し、回帰テストを追加した。
+
+## Current blocker
+
+- 各process設定の`OLLAMA_CHAT_MODEL`が、Chat Ollama endpointの利用可能modelと一致する必要がある。

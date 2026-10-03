@@ -91,6 +91,7 @@ export class BotHost {
     await this.#releaseLock();
     if (this.options.closePool === true) await this.options.pool.end();
     if (this.options.lifecycle.state === "stopping") this.options.lifecycle.transition("stopped");
+    this.#stopped = true;
   }
   async #restartable(run: () => Promise<void>, signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
