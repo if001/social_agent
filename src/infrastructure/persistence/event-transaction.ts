@@ -6,7 +6,7 @@ import type { PostgresUnitOfWork } from "./postgres.js";
 export type CommitEventInput = {
   readonly destination: string;
   readonly messageId: string;
-  readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date };
+  readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date; readonly causationId?: string; readonly correlationId?: string };
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly (StateChange & { readonly id: string })[];
@@ -26,7 +26,7 @@ export class PostgresEventTransaction {
     return this.unitOfWork.transaction(async (client) => {
       const reserved = await client.query("INSERT INTO message_receipts(destination,message_id,status) VALUES ($1,$2,'processing') ON CONFLICT DO NOTHING RETURNING message_id", [input.destination, input.messageId]);
       if (reserved.rowCount === 0) return "duplicate";
-      await client.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,$3,$4,$5,'processing',$6)", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.occurredAt]);
+      await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'processing',$8)", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.causationId ?? null, input.event.correlationId ?? null, input.event.occurredAt]);
       await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,started_at) VALUES ($1,$2,$3,$4,$5)", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.startedAt]);
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
@@ -50,7 +50,7 @@ export class PostgresEventTransaction {
         await client.query("UPDATE long_term_candidates SET review_after=LEAST(review_after,$3::timestamptz) WHERE agent_id=$1 AND target=$2 AND status='pending' AND ((SELECT count(*) FROM long_term_candidates WHERE agent_id=$1 AND target=$2 AND status='pending')>=3 OR EXISTS (SELECT 1 FROM candidate_evidence ce JOIN memories m ON m.id=ce.memory_id WHERE ce.candidate_id=$4 AND (m.retrieval_priority='critical' OR m.kind='self-related' AND m.importance ILIKE '%strong%')))", [candidate.agentId, candidate.target, candidate.createdAt, candidate.id]);
       }
       if (Array.isArray(input.stateValues.drives)) for (const drive of input.stateValues.drives.filter((value): value is string => typeof value === "string")) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()) ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [`drive:${input.event.agentId}:${drive}`, input.event.agentId, drive]);
-      await this.#insertToolExecutions(client, input.toolExecutions ?? []);
+      await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
       for (const envelope of input.outbox) await client.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,$2,$3)", [envelope.id, input.event.agentId, JSON.stringify(envelope)]);
       await client.query("UPDATE agent_runs SET result=$2,finished_at=now() WHERE id=$1", [input.run.id, input.run.result]);
       await client.query("UPDATE events SET status='completed' WHERE id=$1", [input.event.id]);
@@ -61,13 +61,19 @@ export class PostgresEventTransaction {
 
   async recordFailure(input: FailedEventInput): Promise<void> {
     await this.unitOfWork.transaction(async (client) => {
-      await client.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,$3,$4,$5,'failed',$6) ON CONFLICT (id) DO NOTHING", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.occurredAt]);
+      await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'failed',$8) ON CONFLICT (id) DO NOTHING", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.causationId ?? null, input.event.correlationId ?? null, input.event.occurredAt]);
       await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,failure_reason,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,now()) ON CONFLICT (id) DO UPDATE SET failure_reason=EXCLUDED.failure_reason,finished_at=EXCLUDED.finished_at", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.result, input.failureReason, input.run.startedAt]);
-      await this.#insertToolExecutions(client, input.toolExecutions ?? []);
+      await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
     });
   }
 
-  async #insertToolExecutions(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], executions: readonly (ToolExecutionRecord & { readonly id: string })[]): Promise<void> {
-    for (const execution of executions) await client.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (run_id,tool_call_id) DO NOTHING", [execution.id, execution.runId, execution.eventId, execution.callId, execution.name, execution.input, execution.result ?? null, execution.error ?? null, execution.startedAt, execution.finishedAt]);
+  async #insertToolExecutions(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], input: Pick<CommitEventInput, "event" | "run">, executions: readonly (ToolExecutionRecord & { readonly id: string })[]): Promise<void> {
+    for (const execution of executions) {
+      const resultEventId = `${execution.eventId}:tool-result:${execution.callId}`;
+      const raw = execution.ok ? execution.result : execution.error; const summary = JSON.stringify(raw ?? null).slice(0, 4_000) || "null";
+      const observation = { eventId: resultEventId, summary: `${execution.name} Tool Result: ${summary}`, facts: [`Tool: ${execution.name}`, execution.ok ? "Tool execution succeeded" : "Tool execution failed"], observedAt: execution.finishedAt, kind: "tool-result", actor: { id: execution.name, type: "tool" }, source: { type: "tool", id: execution.name, direct: false }, content: raw ?? null, provenance: { toolCallId: execution.callId, runId: execution.runId }, causationId: input.event.id, ...(input.event.correlationId === undefined ? {} : { correlationId: input.event.correlationId }) };
+      await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,'tool-result',$3,$4,$5,$6,'completed',$7) ON CONFLICT (id) DO NOTHING", [resultEventId, input.event.agentId, observation, execution.name, input.event.id, input.event.correlationId ?? null, execution.finishedAt]);
+      await client.query("INSERT INTO tool_executions(id,run_id,event_id,result_event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (run_id,tool_call_id) DO NOTHING", [execution.id, execution.runId, execution.eventId, resultEventId, execution.callId, execution.name, execution.input, execution.result ?? null, execution.error ?? null, execution.startedAt, execution.finishedAt]);
+    }
   }
 }

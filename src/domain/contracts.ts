@@ -73,7 +73,15 @@ export const ObservationSchema = z.object({
   eventId: Id,
   summary: NaturalLanguage,
   facts: z.array(NaturalLanguage),
-  observedAt: Instant
+  observedAt: Instant,
+  kind: EventKindSchema.optional(),
+  actor: z.object({ id: Id, type: z.enum(["human", "agent", "tool", "system", "unknown"]) }).optional(),
+  source: z.object({ type: z.enum(["terminal", "discord", "agent", "tool", "scheduler", "system", "unknown"]), id: Id.optional(), direct: z.boolean() }).optional(),
+  content: z.unknown().optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
+  provenance: z.record(z.string(), z.unknown()).optional(),
+  causationId: Id.optional(),
+  correlationId: Id.optional()
 });
 export type Observation = z.infer<typeof ObservationSchema>;
 

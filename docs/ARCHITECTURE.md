@@ -407,6 +407,10 @@ SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。�
 
 ## 6. 外部Messageと内部Event
 
+Eventは客観的な入力記録であり、ObservationはそのEventから決定的に構成する。ObservationはEvent kind、actor、source種別、content、transport context、provenance、causation／correlationを保持し、この段階では主観的意味を追加しない。Discordの人間投稿とbot投稿、Agent間Message、Scheduler Eventをactorとsourceで区別し、Agentから届いた内容は`direct: false`の報告として扱う。
+
+Tool呼び出しは親Eventとrunに結びつく実行記録に加え、`tool-result`の論理Eventを作る。論理Eventはtool call ID、run ID、親Event、correlationを保持するため、後続のMemory根拠と障害調査から同じ実行へ遡れる。Agent Contextへ渡すresultは検索とbudgetで制限し、資格情報を含む値はredaction対象とする。
+
 ### 6.1 Queueを通るもの
 
 - Terminal / DiscordからのUser Message

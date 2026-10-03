@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 041: EventとObservationの種類・出典・文脈を完全にする
@@ -31,10 +31,10 @@ specはUser Message、Tool Result、Time、External、Internal、System Eventを
 
 ## Acceptance criteria
 
-- [ ] 全Event種類をDomain、永続化、Observationで識別できる。
-- [ ] actor／source／provenance／correlationが保存後も失われない。
-- [ ] Tool Resultを同一runの判断根拠として追跡できる。
-- [ ] 他Agentの報告を自分の直接経験として表現しない。
+- [x] 全Event種類をDomain、永続化、Observationで識別できる。
+- [x] actor／source／provenance／correlationが保存後も失われない。
+- [x] Tool Resultを同一runの判断根拠として追跡できる。
+- [x] 他Agentの報告を自分の直接経験として表現しない。
 
 ## Tests
 

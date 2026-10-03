@@ -45,12 +45,14 @@ ALTER TABLE long_term_candidates ADD COLUMN IF NOT EXISTS review_lease_until tim
 CREATE INDEX IF NOT EXISTS long_term_candidates_review_due_idx ON long_term_candidates(status,review_after,review_lease_until);
 CREATE TABLE IF NOT EXISTS candidate_evidence (candidate_id text NOT NULL REFERENCES long_term_candidates(id) ON DELETE CASCADE, memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE, PRIMARY KEY(candidate_id,memory_id));
 CREATE TABLE IF NOT EXISTS events (id text PRIMARY KEY, agent_id text NOT NULL REFERENCES agents(id), kind text NOT NULL, observation jsonb NOT NULL, source text NOT NULL, correlation_id text, status text NOT NULL, occurred_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE events ADD COLUMN IF NOT EXISTS causation_id text;
 CREATE TABLE IF NOT EXISTS agent_runs (id text PRIMARY KEY, agent_id text NOT NULL REFERENCES agents(id), event_id text NOT NULL REFERENCES events(id), input_state_version integer NOT NULL, result jsonb, failure_reason text, started_at timestamptz NOT NULL, finished_at timestamptz);
 CREATE TABLE IF NOT EXISTS state_changes (id text PRIMARY KEY, run_id text NOT NULL REFERENCES agent_runs(id), target text NOT NULL, operation text NOT NULL, before jsonb, after jsonb, reason text NOT NULL, evidence_ids jsonb NOT NULL DEFAULT '[]', created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS tool_executions (id text PRIMARY KEY, run_id text NOT NULL REFERENCES agent_runs(id), event_id text NOT NULL REFERENCES events(id), tool_call_id text NOT NULL, tool text NOT NULL, input jsonb NOT NULL, result jsonb, error text, started_at timestamptz NOT NULL, finished_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(run_id,tool_call_id));
 ALTER TABLE tool_executions ADD COLUMN IF NOT EXISTS event_id text REFERENCES events(id);
 ALTER TABLE tool_executions ADD COLUMN IF NOT EXISTS started_at timestamptz;
 ALTER TABLE tool_executions ADD COLUMN IF NOT EXISTS finished_at timestamptz;
+ALTER TABLE tool_executions ADD COLUMN IF NOT EXISTS result_event_id text REFERENCES events(id);
 UPDATE tool_executions t SET event_id=r.event_id FROM agent_runs r WHERE t.run_id=r.id AND t.event_id IS NULL;
 UPDATE tool_executions SET started_at=created_at WHERE started_at IS NULL;
 UPDATE tool_executions SET finished_at=created_at WHERE finished_at IS NULL;
