@@ -36,6 +36,7 @@
 | 030 | [複数bot起動設定とCLI](030-multi-bot-runtime-configuration.md) | 029 |
 | 031 | [本番Contextとcomposition](031-production-agent-context-and-composition.md) | 030 |
 | 032 | [Bot Host lifecycle](032-bot-host-lifecycle.md) | 031 |
-| 033 | [2 Discord bot Manual Smoke](033-two-discord-bot-smoke.md) | 032 |
+| 033 | [2 Discord bot Manual Smoke](033-two-discord-bot-smoke.md) | 032、034 |
+| 034 | [Discord mention routing](034-discord-mention-routing.md) | 032、033の前提 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
