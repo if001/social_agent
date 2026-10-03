@@ -1,12 +1,16 @@
 import { ChatOllama } from "@langchain/ollama";
 import { createDeepAgent } from "deepagents";
-import { providerStrategy } from "langchain";
+import { providerStrategy, tool } from "langchain";
 
 import type { AgentHarness } from "../../application/ports.js";
-import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunResult } from "../../domain/contracts.js";
+import type { ToolRegistry } from "../../application/tool-registry.js";
+import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunResult, type ToolExecutionRecord } from "../../domain/contracts.js";
 
-export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown };
-export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: { readonly signal: AbortSignal; readonly recursionLimit: number }): Promise<DeepAgentResult>; }
+type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
+
+export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number };
+export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>; }
 
 export type DeepAgentHarnessOptions = {
   readonly invoker: DeepAgentInvoker;
@@ -50,12 +54,12 @@ export class DeepAgentHarness implements AgentHarness {
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input })
           : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input, validationIssues, invalidOutput: raw });
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls });
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
           const referenceIssues = proposalReferenceIssues(input, parsed.data);
-          if (referenceIssues.length === 0) return { output: parsed.data, toolExecutions: [] };
+          if (referenceIssues.length === 0) return { output: parsed.data, toolExecutions: [...(result.toolExecutions ?? [])] };
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
       } catch (error) {
@@ -67,7 +71,40 @@ export class DeepAgentHarness implements AgentHarness {
   }
 }
 
-export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly tools?: NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"] };
+export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly now?: () => Date };
+
+export type DeepAgentToolRunContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly signal: AbortSignal };
+export type DeepAgentRunTool = { invoke(input: Record<string, unknown>): Promise<unknown> };
+export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentToolRunContext, executions: ToolExecutionRecord[], now: () => Date = () => new Date()): readonly DeepAgentRunTool[] {
+  let toolCallCount = 0;
+  return registry.registered().map((registered) => tool(async (rawInput) => {
+    toolCallCount += 1;
+    const callId = `tool-${String(toolCallCount)}`;
+    const startedAt = now().toISOString();
+    if (context.signal.aborted) {
+      const finishedAt = now().toISOString();
+      executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: "Tool execution aborted", startedAt, finishedAt });
+      throw new DomainError("ABORTED", "Tool execution aborted");
+    }
+    if (toolCallCount > context.maxToolCalls) {
+      const finishedAt = now().toISOString();
+      executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: "Tool call limit exceeded", startedAt, finishedAt });
+      throw new DomainError("VALIDATION", "Tool call limit exceeded");
+    }
+    try {
+      const result = await registry.execute(registered.name, rawInput, { agentId: context.agentId, runId: context.runId, idempotencyKey: `${context.runId}:${callId}` }, context.signal);
+      const finishedAt = now().toISOString();
+      if (result.ok) executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt });
+      else executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
+      return JSON.stringify(result);
+    } catch (error) {
+      const finishedAt = now().toISOString();
+      const message = error instanceof Error ? error.message : "Tool failed";
+      executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: message, startedAt, finishedAt });
+      return JSON.stringify({ ok: false, error: message });
+    }
+  }, { name: registered.name, description: registered.description, schema: registered.schema }));
+}
 
 export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を持つソーシャルエージェントの通常Agent Coreです。
 
@@ -123,11 +160,13 @@ export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConf
 
 export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): DeepAgentInvoker {
   const model = new ChatOllama({ model: config.model, baseUrl: config.baseUrl, headers: { Authorization: `Bearer ${config.apiKey}` }, checkOrPullModel: false });
-  const agent = createDeepAgent({ model, tools: config.tools ?? [], responseFormat: providerStrategy(AgentCoreOutputSchema), systemPrompt: agentCoreSystemPrompt });
   return {
     async invoke(input, options) {
+      const toolExecutions: ToolExecutionRecord[] = [];
+      const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, options, toolExecutions, config.now);
+      const agent = createDeepAgent({ model, tools: tools as DeepAgentToolsOption, responseFormat: providerStrategy(AgentCoreOutputSchema), systemPrompt: agentCoreSystemPrompt });
       const result = await agent.invoke({ messages: [...input.messages] }, options);
-      return { structuredResponse: result.structuredResponse, messages: result.messages };
+      return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions };
     }
   };
 }
