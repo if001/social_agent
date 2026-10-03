@@ -82,10 +82,21 @@ export const MemorySchema = z.object({
   relatedSubjectIds: z.array(Id),
   relatedIntentionIds: z.array(Id),
   importance: NaturalLanguage,
+  retrievalPriority: z.enum(["low", "normal", "high", "critical"]).default("normal"),
   sourceAgentId: Id.optional(),
   evidenceEventIds: z.array(Id)
 });
 export type Memory = z.infer<typeof MemorySchema>;
+
+export const MemoryRetrievalTraceSchema = z.object({
+  memoryId: Id,
+  finalRank: z.number().int().positive(),
+  matchedBy: z.array(z.enum(["vector", "keyword", "subject", "intention", "recency"])),
+  kind: MemorySchema.shape.kind,
+  selected: z.boolean(),
+  exclusionReason: z.enum(["rank-limit", "category-diversity", "context-budget"]).optional()
+});
+export type MemoryRetrievalTrace = z.infer<typeof MemoryRetrievalTraceSchema>;
 
 export const IntentionStatusSchema = z.enum(["active", "completed", "dropped", "superseded"]);
 export const IntentionSchema = z.object({
@@ -195,6 +206,7 @@ export const AgentCoreInputSchema = z.object({
   dynamicState: DynamicStateSchema,
   socialContext: z.array(SocialContextSchema),
   memories: z.array(MemorySchema),
+  memoryRetrievalTrace: z.array(MemoryRetrievalTraceSchema).default([]),
   intentions: z.array(IntentionSchema),
   availableTools: z.array(z.object({ name: Id, description: NaturalLanguage, inputSchema: z.record(z.string(), z.unknown()) })),
   runtimeConstraints: z.array(NaturalLanguage),

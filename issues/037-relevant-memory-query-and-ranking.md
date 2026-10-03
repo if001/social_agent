@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 037: Relevant Memory Queryとrankingを設計どおり実装する
@@ -32,12 +32,12 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] specの4入力要素がquery／filter／rankingへ反映される。
-- [ ] 3種類のMemoryを意図した候補枠で取得できる。
-- [ ] token不足時にも関連度の高いMemoryが優先される。
-- [ ] 自然言語`significance`とは別の限定値`retrievalPriority`と、subject／intention関連がrankingへ反映される。
-- [ ] 各候補の候補化理由、最終順位、採用・除外理由をtraceできる。
-- [ ] Agent分離と安定したtie-breakを維持する。
+- [x] specの4入力要素がquery／filter／rankingへ反映される。
+- [x] 3種類のMemoryを意図した候補枠で取得できる。
+- [x] token不足時にも関連度の高いMemoryが優先される。
+- [x] 自然言語`significance`とは別の限定値`retrievalPriority`と、subject／intention関連がrankingへ反映される。
+- [x] 各候補の候補化理由、最終順位、採用・除外理由をtraceできる。
+- [x] Agent分離と安定したtie-breakを維持する。
 
 ## Tests
 

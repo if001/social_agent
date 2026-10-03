@@ -5,7 +5,7 @@ import { DomainError, type Candidate, type Memory } from "../../domain/contracts
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 
 type CandidateRow = QueryResultRow & { id: string; agent_id: string; target: Candidate["target"]; proposed_value: string; reason: string; status: Candidate["status"]; created_at: Date; evidence_ids: string[]; evidence_event_ids: string[] };
-type MemoryRow = QueryResultRow & { id: string; agent_id: string; kind: Memory["kind"]; content: string; importance: string; occurred_at: Date; source_agent_id: string | null; evidence_event_ids: string[] };
+type MemoryRow = QueryResultRow & { id: string; agent_id: string; kind: Memory["kind"]; content: string; importance: string; retrieval_priority: Memory["retrievalPriority"]; occurred_at: Date; source_agent_id: string | null; evidence_event_ids: string[] };
 
 export class PostgresLongTermReviewRepository implements LongTermReviewRepository {
   constructor(private readonly pool: Pool, private readonly nextId: () => string, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle) {}
@@ -15,7 +15,7 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
   }
   async loadEvidence(candidateIds: readonly string[]): Promise<readonly Memory[]> {
     const result = await this.pool.query<MemoryRow>("SELECT DISTINCT m.* FROM memories m JOIN candidate_evidence e ON e.memory_id=m.id WHERE e.candidate_id=ANY($1::text[]) ORDER BY m.id", [candidateIds]);
-    return result.rows.map((row) => ({ id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, createdAt: row.occurred_at.toISOString(), relatedSubjectIds: [], relatedIntentionIds: [], importance: row.importance, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids }));
+    return result.rows.map((row) => ({ id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, createdAt: row.occurred_at.toISOString(), relatedSubjectIds: [], relatedIntentionIds: [], importance: row.importance, retrievalPriority: row.retrieval_priority, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids }));
   }
   async loadCurrentValue(agentId: string, target: Candidate["target"]): Promise<string> {
     const column = target === "selfNarrative" ? "self_narrative" : "acquired_disposition";
@@ -34,7 +34,7 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
         const column = review.target === "selfNarrative" ? "self_narrative" : "acquired_disposition";
         await client.query(`UPDATE agent_states SET ${column}=$2,version=version+1,updated_at=now() WHERE agent_id=$1`, [review.agentId, review.after]);
         selfChangeMemoryId = this.nextId();
-        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids,embedding_status) VALUES ($1,$2,'self-change',$3,$4,now(),$5,'pending')", [selfChangeMemoryId, review.agentId, `Changed ${review.target} from: ${review.before}\nTo: ${review.after}`, review.reason, JSON.stringify(review.evidenceMemoryIds)]);
+        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,evidence_event_ids,embedding_status) VALUES ($1,$2,'self-change',$3,$4,'normal',now(),$5,'pending')", [selfChangeMemoryId, review.agentId, `Changed ${review.target} from: ${review.before}\nTo: ${review.after}`, review.reason, JSON.stringify(review.evidenceMemoryIds)]);
       }
       for (const decision of review.candidateDecisions) await client.query("UPDATE long_term_candidates SET status=$2,updated_at=now() WHERE id=$1", [decision.candidateId, decision.status]);
       await client.query("COMMIT");

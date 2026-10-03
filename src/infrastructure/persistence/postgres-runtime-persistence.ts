@@ -23,7 +23,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt) },
-      run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result },
+      run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { emotion: update.state.emotion, mood: update.state.mood, drive: update.state.drive, desire: update.state.desire },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       ...materialized,

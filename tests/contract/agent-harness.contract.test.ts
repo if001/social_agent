@@ -13,9 +13,11 @@ describe("AgentHarness contract", () => {
   });
 
   it("parses structured Deep Agent output", async () => {
-    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: output }) };
+    let prompt = "";
+    const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
     await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
+    expect(prompt).not.toContain("memoryRetrievalTrace");
   });
 
   it("repairs invalid output once and then stops", async () => {

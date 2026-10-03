@@ -346,11 +346,15 @@ Runtimeは検証済みMemoryをまず永続化し、EmbeddingをDB transaction�
 6. 関連する種類の予約枠と全体順位による残り枠を使った多様性選択
 7. 関連度順を維持したContext budgetによる切り詰め
 
+初期実装の順位統合はRRFの定数を`k = 60`とし、vector、keyword、subject、Intentionの各順位へ`1 / (k + rank)`を与える。recencyは`0.25 / (k + rank)`、`retrievalPriority`は`critical = +0.012`、`high = +0.006`、`normal = 0`、`low = -0.002`で調整する。同点は`occurredAt DESC, id ASC`で決定する。候補poolは要求件数の4倍または24件の大きい方を上限とする。
+
 `significance`は自然言語による意味記述として保持する。検索順位へ機械的に反映する場合は`low | normal | high | critical`等の限定値を持つ`retrievalPriority`を別に使用し、LLMの自然言語を直接数値化しない。scoreは検索順位のために使用し、Agentの価値判断や人格の数値Rewardには使わない。
 
-日本語keyword検索は、採用するtoken化または部分一致方式を固定datasetで検証する。PostgreSQL `simple`全文検索だけを十分な日本語recallの前提にせず、vectorが利用できない場合もkeyword、subject、Intention、新しさから候補を返す。
+日本語keyword検索はQueryへNFKC正規化と小文字化を行い、日本語を2文字単位、空白区切りの英数字を単語単位として最大32語抽出し、小文字化したMemory本文の部分一致で候補化する。PostgreSQL `simple`全文検索だけを十分な日本語recallの前提にせず、vectorが利用できない場合もkeyword、subject、Intention、新しさから候補を返す。
 
-Retrieverは各候補について最終順位、候補化した方式、選択・除外理由をtraceへ返す。Agent Coreには採用したMemory本文を渡し、詳細なranking traceはRuntimeの観測情報として保存してpromptを肥大化させない。Context BuilderはRetrieverの順位を維持し、件数合わせのために無関係な種類を追加しない。
+Episodic、Semantic、Self-relatedのうち、vector、keyword、subject、Intentionのいずれかに一致した種類には最大1件の予約枠を設け、残りを全体順位から埋める。recencyだけで候補になった種類を件数合わせで予約しない。Self Change Memoryは通常検索から除外する。
+
+Retrieverは各候補について最終順位、候補化した方式、選択・除外理由をtraceへ返す。Context Builderによる除外は`context-budget`として更新し、Agent run resultへ保存する。Agent Coreには採用したMemory本文だけを渡し、ranking traceをpromptへ含めない。Context BuilderはRetrieverの順位を維持し、件数合わせのために無関係な種類を追加しない。
 
 ### 5.9 State Update Service
 

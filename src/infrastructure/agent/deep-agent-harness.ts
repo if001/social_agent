@@ -58,9 +58,10 @@ export class DeepAgentHarness implements AgentHarness {
     let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = [];
     for (let attempt = 0; attempt <= this.#maxRepairs; attempt += 1) {
       try {
+        const promptInput = { ...input, memoryRetrievalTrace: undefined };
         const content = attempt === 0
-          ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input })
-          : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input, validationIssues, invalidOutput: raw });
+          ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
+          : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
         const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
@@ -136,7 +137,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 出力はAgentCoreOutputだけです:
 - interpretation.subjectiveMeaning: 今回のEventがこのAgentにとって持つ意味。意味づけが不要な場合だけ省略できます
 - internalChanges.transientStateUpdates: Emotion、Mood、Drive、Desire、Working Social Contextの更新提案。targetはemotion | mood | drive | desire | socialContext、operationはset | append | removeです。各要素はvalue、reason、evidenceIdsも持ちます
-- internalChanges.memoryProposals: 今回のEventで生じ、後の判断を変え得る具体的な出来事だけを保存するEpisodic Memory提案。kindはepisodicだけです。約束、予定、決定、感情的・関係上重要な出来事、重要なTool結果、Intentionの変化がなければ空配列にします。各要素はcontent、relatedSubjectIds、relatedIntentionIds、importance、任意のsourceAgentId、evidenceEventIdsも持ちます
+- internalChanges.memoryProposals: 今回のEventで生じ、後の判断を変え得る具体的な出来事だけを保存するEpisodic Memory提案。kindはepisodicだけです。約束、予定、決定、感情的・関係上重要な出来事、重要なTool結果、Intentionの変化がなければ空配列にします。各要素はcontent、relatedSubjectIds、relatedIntentionIds、自然言語のimportance、検索上の限定値retrievalPriority（low | normal | high | critical）、任意のsourceAgentId、evidenceEventIdsも持ちます
 - internalChanges.intentionProposals: Intention提案。新規はoperation=create、description、reason、任意のnextReviewAt。既存更新はoperation=update、入力に存在するintentionId、reasonと変更項目を持ち、statusを変える場合はactive | completed | dropped | supersededのいずれかです
 - internalChanges.longTermCandidates: 後でReviewする候補。targetはselfNarrative | acquiredDisposition | semanticMemory | selfRelatedMemoryのいずれかです。安定した知識や自己認識を通常runでMemoryとして確定せず、semanticMemoryまたはselfRelatedMemoryの候補にします。各要素はproposal、reason、evidenceMemoryIds、evidenceEventIdsを持ち、根拠を少なくとも1件指定します
 - action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-actionはreasonを持ちます。Tool利用はreasoning中に行い、最終actionへtoolを返しません
