@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 029: 2 bot起動docsと現実装の差分を調査する
@@ -19,11 +19,10 @@ Issue 028で確定した起動設計に対して、実行可能なentry pointか
 
 ## Acceptance criteria
 
-- [ ] docsの各起動責務について実装済み／部分実装／未実装がコード参照付きで示される。
-- [ ] 本番起動を妨げる不足が後続Issueへ漏れなく割り当てられる。
-- [ ] テスト用compositionを本番配線完成として扱わない。
+- [x] docsの各起動責務について実装済み／部分実装／未実装がコード参照付きで示される。
+- [x] 本番起動を妨げる不足が後続Issueへ漏れなく割り当てられる。
+- [x] テスト用compositionを本番配線完成として扱わない。
 
 ## Dependencies
 
 - 028
-
