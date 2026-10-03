@@ -236,7 +236,7 @@ interface ContextBuilder {
 
 - IdentityとShared / Initial Disposition
 - Observationに関連するAcquired Disposition、Values、Role、Self Narrative
-- 現在有効なEmotion、Mood、Drive、Desire、Intention
+- 現在有効なEmotion、Mood、複数Drive、複数Desire、Current Interests、Intention
 - Observationのsubjectに関係するSocial Context
 - hybrid retrievalで取得したMemory
 - 登録済みTool定義

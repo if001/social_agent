@@ -1,7 +1,7 @@
 import { StateUpdateService } from "../../src/application/state-update-service.js";
 import type { DynamicState } from "../../src/domain/contracts.js";
 
-const state: DynamicState = { agentId: "a", emotion: "Calm", mood: "Steady", drive: "Learn", desire: "Listen", updatedAt: "2026-01-01T00:00:00Z" };
+const state: DynamicState = { agentId: "a", emotion: "Calm", mood: "Steady", drives: ["Learn"], desires: ["Listen"], currentInterests: [], updatedAt: "2026-01-01T00:00:00Z" };
 
 describe("StateUpdateService", () => {
   const service = new StateUpdateService();
@@ -10,6 +10,12 @@ describe("StateUpdateService", () => {
     expect(result.state.mood).toBe("Encouraged");
     expect(result.changes).toEqual([{ target: "mood", operation: "set", before: "Steady", after: "Encouraged", reason: "Positive response", evidenceIds: ["event-1"] }]);
     expect(state.mood).toBe("Steady");
+  });
+  it("updates multiple drives, desires and current interests", () => {
+    const result = service.apply("a", state, [{ target: "drives", operation: "append", value: "Help", reason: "Need", evidenceIds: [] }, { target: "desires", operation: "set", value: ["Listen", "Clarify"], reason: "Conversation", evidenceIds: [] }, { target: "currentInterests", operation: "append", value: "Memory design", reason: "Relevant", evidenceIds: [] }]);
+    expect(result.state.drives).toEqual(["Learn", "Help"]);
+    expect(result.state.desires).toEqual(["Listen", "Clarify"]);
+    expect(result.state.currentInterests).toEqual(["Memory design"]);
   });
   it("rejects long-term, invalid Social Context values, invalid operations and another agent", () => {
     expect(() => service.apply("a", state, [{ target: "identity", operation: "set", value: "Changed", reason: "No", evidenceIds: [] }])).toThrow();

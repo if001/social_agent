@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 038: SelfとDynamic Stateの欠落要素を実装する
@@ -31,10 +31,10 @@ specのStableStateはInterests、Preferences、Raison d'être、複数Roleを持
 
 ## Acceptance criteria
 
-- [ ] specにあるSelf／State要素がdocs、Domain、DB、Contextで対応する。
-- [ ] 複数Drive／Desireを保持・更新できる。
-- [ ] Interests／Preferences／Raison d'être／Roleを適切なReview経路で更新できる。
-- [ ] 既存dataを保持したmigrationが再実行可能である。
+- [x] specにあるSelf／State要素がdocs、Domain、DB、Contextで対応する。
+- [x] 複数Drive／Desireを保持・更新できる。
+- [x] Interests／Preferences／Raison d'être／Roleを適切なReview経路で更新できる。
+- [x] 既存dataを保持したmigrationが再実行可能である。
 
 ## Tests
 
