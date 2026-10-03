@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
 import { StateUpdateService, type StateUpdateResult } from "./state-update-service.js";
-import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
+import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user-message"), text: z.string().min(1), replyContext: z.record(z.string(), z.unknown()).optional() }),
@@ -30,15 +30,28 @@ export class AgentRuntime {
     return this.options.queue.subscribe(this.options.destination, (message) => this.#serialize(() => this.#handle(message, signal)), signal);
   }
   async drain(): Promise<void> { await this.#tail; }
-  #serialize(work: () => Promise<void>): Promise<void> {
+  process(event: DomainEvent, signal: AbortSignal): Promise<AgentAction> {
+    return this.#serialize(async () => {
+      const occurredAt = new Date(event.occurredAt);
+      const message: MessageEnvelope = { id: `internal:${event.id}`, destination: event.agentId, source: "scheduler", sentAt: occurredAt.toISOString(), availableAt: occurredAt.toISOString(), expiresAt: new Date(occurredAt.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "internal-event", eventId: event.id } };
+      return this.#execute(message, event, signal, []);
+    });
+  }
+  #serialize<T>(work: () => Promise<T>): Promise<T> {
     const result = this.#tail.then(work, work);
-    this.#tail = result.catch(() => undefined);
+    this.#tail = result.then(() => undefined, () => undefined);
     return result;
   }
   async #handle(message: MessageEnvelope, signal: AbortSignal): Promise<void> {
     if (await this.options.persistence.hasReceipt(message.destination, message.id)) return;
     const payload = IncomingPayload.parse(message.payload);
     const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind: payload.type === "user-message" ? "user-message" : "external", occurredAt: this.options.now().toISOString(), payload: payload.type === "user-message" ? { text: payload.text } : { senderAgentId: payload.senderAgentId, reportedContent: payload.content, provenance: payload.provenance }, causationId: message.id, correlationId: message.id };
+    const outgoingDestination = message.replyTo ?? this.options.defaultOutputDestination;
+    const agentReply = payload.type === "agent-message" && outgoingDestination === message.source;
+    const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => action.type === "respond" ? [{ id: this.options.ids.next(), destination: outgoingDestination, source: message.destination, sentAt: this.options.now().toISOString(), availableAt: this.options.now().toISOString(), expiresAt: message.expiresAt, attempt: 0, hop: message.hop + (agentReply ? 1 : 0), payload: agentReply ? { type: "agent-message", senderAgentId: event.agentId, content: action.content, provenance: { causationId: message.id, runId: input.run.runId } } : { type: "agent-response", text: action.content, agentId: event.agentId, correlationId: message.id, ...(payload.type === "user-message" && payload.replyContext !== undefined ? { replyContext: payload.replyContext } : {}) } }] : [];
+    await this.#execute(message, event, signal, outgoing);
+  }
+  async #execute(message: MessageEnvelope, event: DomainEvent, signal: AbortSignal, outgoingFor: readonly MessageEnvelope[] | ((action: AgentAction, input: AgentCoreInput) => readonly MessageEnvelope[])): Promise<AgentAction> {
     const input = await this.options.persistence.loadInput(event);
     let result: AgentRunResult;
     try { result = await this.options.harness.run(input, signal); }
@@ -49,10 +62,9 @@ export class AgentRuntime {
     }
     const output = result.output;
     const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.transientStateUpdates, input.socialContext);
-    const outgoingDestination = message.replyTo ?? this.options.defaultOutputDestination;
-    const agentReply = payload.type === "agent-message" && outgoingDestination === message.source;
-    const outgoing: MessageEnvelope[] = output.action.type === "respond" ? [{ id: this.options.ids.next(), destination: outgoingDestination, source: message.destination, sentAt: this.options.now().toISOString(), availableAt: this.options.now().toISOString(), expiresAt: message.expiresAt, attempt: 0, hop: message.hop + (agentReply ? 1 : 0), payload: agentReply ? { type: "agent-message", senderAgentId: event.agentId, content: output.action.content, provenance: { causationId: message.id, runId: input.run.runId } } : { type: "agent-response", text: output.action.content, agentId: event.agentId, correlationId: message.id, ...(payload.type === "user-message" && payload.replyContext !== undefined ? { replyContext: payload.replyContext } : {}) } }] : [];
+    const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     await this.options.persistence.commit(message, event, input, result, update, outgoing);
+    return output.action;
   }
 }
 

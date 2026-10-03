@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 024: Eventを通常CoreとLong-term Reviewへ振り分ける
@@ -31,9 +31,9 @@ External・Time・Internal Eventを入口として、通常loopと長期Review�
 
 ## Acceptance criteria
 
-- [ ] 通常Eventは通常Core、long-term-reviewはReview Coreへ到達する。
-- [ ] Reviewと通常更新の競合や同一Eventの二重適用を防ぐ。
-- [ ] 再起動後も予約・Candidateを失わず再検討できる。
+- [x] 通常Eventは通常Core、long-term-reviewはReview Coreへ到達する。
+- [x] Reviewと通常更新の競合や同一Eventの二重適用を防ぐ。
+- [x] 再起動後も予約・Candidateを失わず再検討できる。
 
 ## Tests
 
