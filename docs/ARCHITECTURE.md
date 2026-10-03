@@ -411,6 +411,8 @@ Eventは客観的な入力記録であり、ObservationはそのEventから決�
 
 Tool呼び出しは親Eventとrunに結びつく実行記録に加え、`tool-result`の論理Eventを作る。論理Eventはtool call ID、run ID、親Event、correlationを保持するため、後続のMemory根拠と障害調査から同じ実行へ遡れる。Agent Contextへ渡すresultは検索とbudgetで制限し、資格情報を含む値はredaction対象とする。
 
+Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの再入を検査する。rateとcorrelationはPostgreSQLで全process間共有する。validation／permission違反は再試行せず理由付きdead-letterへ送り、外部障害だけをbackoff再試行する。ToolはFamily capabilityから作った`availableTools`だけをDeep Agentへ渡し、実行直前にもregistryのSchemaとidempotencyを検査する。状態、Memory、Candidateが参照する根拠IDは現在Eventまたは対象AgentのContext内に存在するものに限定する。
+
 ### 6.1 Queueを通るもの
 
 - Terminal / DiscordからのUser Message

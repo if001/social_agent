@@ -56,7 +56,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     invoker: createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry, now: () => clock.now() }),
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name))
   });
-  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, now: () => clock.now() });
+  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
   const reviewRepository = new PostgresLongTermReviewRepository(pool, () => ids.next(), memoryEmbedding);
   const review = new LongTermReviewService(reviewRepository, new LongTermReviewDeepAgentHarness(createOllamaLongTermReviewInvoker(config.chat)));
   const router = new AgentEventRouter(runtime, review);

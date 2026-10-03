@@ -9,7 +9,7 @@ import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunR
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[] };
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly allowedToolNames: ReadonlySet<string>; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>; }
 
 export type DeepAgentHarnessOptions = {
@@ -44,6 +44,12 @@ function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["
       if (id !== input.run.eventId) issues.push({ code: "invalid_reference", path: ["internalChanges", "longTermCandidates", index, "evidenceEventIds"], message: `Unknown Event reference: ${id}` });
     });
   });
+  output.internalChanges.transientStateUpdates.forEach((proposal, index) => { proposal.evidenceIds.forEach((id) => {
+    if (id !== input.run.eventId && !memoryIds.has(id)) issues.push({ code: "invalid_reference", path: ["internalChanges", "transientStateUpdates", index, "evidenceIds"], message: `Unknown evidence reference: ${id}` });
+  }); });
+  output.internalChanges.memoryProposals.forEach((proposal, index) => { proposal.evidenceEventIds.forEach((id) => {
+    if (id !== input.run.eventId) issues.push({ code: "invalid_reference", path: ["internalChanges", "memoryProposals", index, "evidenceEventIds"], message: `Unknown Event reference: ${id}` });
+  }); });
   return issues;
 }
 
@@ -62,7 +68,7 @@ export class DeepAgentHarness implements AgentHarness {
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
           : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, allowedToolNames: new Set(input.availableTools.map(({ name }) => name)), ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
@@ -83,11 +89,11 @@ export class DeepAgentHarness implements AgentHarness {
 
 export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly now?: () => Date };
 
-export type DeepAgentToolRunContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly signal: AbortSignal; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentToolRunContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly allowedToolNames?: ReadonlySet<string>; readonly signal: AbortSignal; readonly transport?: AgentCoreInput["run"]["transport"] };
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>): Promise<unknown> };
 export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentToolRunContext, executions: ToolExecutionRecord[], now: () => Date = () => new Date()): readonly DeepAgentRunTool[] {
   let toolCallCount = 0;
-  return registry.registered().map((registered) => tool(async (rawInput) => {
+  return registry.registered().filter(({ name }) => context.allowedToolNames?.has(name) ?? true).map((registered) => tool(async (rawInput) => {
     toolCallCount += 1;
     const callId = `tool-${String(toolCallCount)}`;
     const startedAt = now().toISOString();

@@ -13,11 +13,12 @@ describe("AgentHarness contract", () => {
   });
 
   it("parses structured Deep Agent output", async () => {
-    let prompt = "";
-    const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
+    let prompt = ""; let allowed: ReadonlySet<string> | undefined;
+    const invoker: DeepAgentInvoker = { invoke: (input, options) => { prompt = input.messages[0]?.content ?? ""; allowed = options.allowedToolNames; return Promise.resolve({ structuredResponse: output }); } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
     await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
     expect(prompt).not.toContain("memoryRetrievalTrace");
+    expect(allowed).toEqual(new Set());
   });
 
   it("repairs invalid output once and then stops", async () => {
@@ -41,6 +42,15 @@ describe("AgentHarness contract", () => {
     invalid.internalChanges.intentionProposals.push({ operation: "update", intentionId: "missing", status: "completed", reason: "Done" });
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
+    expect(calls).toBe(2);
+  });
+
+  it("repairs state and Memory proposals with invented evidence", async () => {
+    const invalid = structuredClone(output);
+    invalid.internalChanges.transientStateUpdates.push({ target: "mood", operation: "set", value: "calm", reason: "test", evidenceIds: ["foreign-event"] });
+    invalid.internalChanges.memoryProposals.push({ kind: "episodic", content: "invented", relatedSubjectIds: [], relatedIntentionIds: [], importance: "test", retrievalPriority: "normal", evidenceEventIds: ["foreign-event"] });
+    let calls = 0; const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
     expect(calls).toBe(2);
   });

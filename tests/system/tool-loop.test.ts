@@ -23,7 +23,8 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
       expect(String(result)).toContain("42");
       return { structuredResponse: finalOutput, toolExecutions: executions };
     } };
-    const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(agentCoreInputFixture(), new AbortController().signal);
+    const input = agentCoreInputFixture(); input.availableTools = [{ name: "lookup", description: "Look up a value", inputSchema: {} }];
+    const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
     expect(result.output.action).toEqual({ type: "respond", content: "The result is 42" });
     expect(result.toolExecutions).toEqual([{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: { query: "answer" }, ok: true, result: { answer: 42, idempotencyKey: "run-1:tool-1" }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]);
   });
