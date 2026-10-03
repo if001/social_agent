@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 039: Intention Triggerと自律Internal Eventを実装する
@@ -31,10 +31,10 @@ specはIntention Triggerとしてtime、event、idle、manual-reviewを定義し
 
 ## Acceptance criteria
 
-- [ ] 4種類のIntention Triggerが保存・復元・評価される。
-- [ ] persistent-drive等のInternal Eventが既存Stateから生成される。
-- [ ] 停止中にdueとなった対象が再起動後に1回だけ処理される。
-- [ ] Internal Eventの無限自己起動を防止できる。
+- [x] 4種類のIntention Triggerが保存・復元・評価される。
+- [x] persistent-drive等のInternal Eventが既存Stateから生成される。
+- [x] 停止中にdueとなった対象が再起動後に1回だけ処理される。
+- [x] Internal Eventの無限自己起動を防止できる。
 
 ## Tests
 

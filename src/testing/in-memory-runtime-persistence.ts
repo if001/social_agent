@@ -11,6 +11,7 @@ export class InMemoryRuntimePersistence implements RuntimePersistence {
   constructor(private readonly inputFactory: (event: DomainEvent) => AgentCoreInput | Promise<AgentCoreInput>) {}
   hasReceipt(destination: string, messageId: string): Promise<boolean> { return Promise.resolve(this.receipts.has(`${destination}:${messageId}`)); }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return Promise.resolve(this.inputFactory(event)); }
+  activateTriggers(): Promise<void> { return Promise.resolve(); }
   commit(message: MessageEnvelope, event: DomainEvent, _input: AgentCoreInput, _result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const key = `${message.destination}:${message.id}`;
     if (this.receipts.has(key)) return Promise.resolve("duplicate");

@@ -1,4 +1,4 @@
-import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, IntentionSchema, MessageEnvelopeSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, IntentionSchema, IntentionTriggerSchema, MessageEnvelopeSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 
 describe("domain contracts", () => {
@@ -20,6 +20,13 @@ describe("domain contracts", () => {
     expect(canTransitionIntention("active", "completed")).toBe(true);
     expect(canTransitionIntention("completed", "active")).toBe(false);
     expect(IntentionSchema.safeParse({ id: "i", agentId: "a", description: "Learn", status: "superseded", reason: "Refined", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }).success).toBe(false);
+  });
+
+  it("accepts all four intention trigger forms", () => {
+    expect(IntentionTriggerSchema.parse({ kind: "time", at: "2026-01-02T00:00:00Z" })).toMatchObject({ kind: "time" });
+    expect(IntentionTriggerSchema.parse({ kind: "event", eventKinds: ["user-message"], keywords: ["計画"] })).toMatchObject({ kind: "event" });
+    expect(IntentionTriggerSchema.parse({ kind: "idle", idleForMs: 60_000 })).toMatchObject({ kind: "idle" });
+    expect(IntentionTriggerSchema.parse({ kind: "manual-review" })).toMatchObject({ kind: "manual-review" });
   });
 
   it("rejects hop, attempt, TTL and ownership violations", () => {

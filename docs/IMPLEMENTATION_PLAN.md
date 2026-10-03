@@ -239,7 +239,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** 保存済み状態から再検討機会を生成し、ユーザー入力なしの行動を上限付きで実現する。
 
-**実装対象:** Intention lifecycle、`next_review_at`、due scan、Time / Internal Event、persistent Drive再評価、default output destination、Schedulerの開始停止と多重起動防止。
+**実装対象:** Intention lifecycle、time / event / idle / manual-review trigger、`next_review_at`、due scan、Time / Internal Event、persistent Drive再評価、default output destination、期限付きleaseとbackoff、Schedulerの開始停止と多重起動防止。
 
 **TDD / 検証:** Fake Clockでdue / not-due、status遷移、同じ対象の連続起動防止、停止中の起動拒否、Queueを経由しない内部Event、wait / no-actionの終端を検証する。ST-04で外部通知が必要なActionだけがQueueへ出ることを確認する。
 
