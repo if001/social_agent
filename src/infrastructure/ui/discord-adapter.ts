@@ -7,7 +7,9 @@ export interface DiscordGateway {
   start(handler: (message: DiscordInboundMessage) => Promise<void>, signal: AbortSignal): Promise<void>;
   send(context: DiscordReplyContext, content: string, idempotencyKey: string, signal: AbortSignal): Promise<void>;
 }
-export type DiscordAdapterOptions = { readonly gateway: DiscordGateway; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly agentId: string; readonly ownerIds: ReadonlySet<string>; readonly guildIds: ReadonlySet<string>; readonly channelIds: ReadonlySet<string>; readonly queueDestination?: string };
+export type DiscordAdapterOptions = { readonly gateway: DiscordGateway; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly agentId: string; readonly botUserId: string; readonly ownerIds: ReadonlySet<string>; readonly guildIds: ReadonlySet<string>; readonly channelIds: ReadonlySet<string>; readonly queueDestination?: string };
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
 export class DiscordAdapter {
   readonly #seen = new Set<string>();
@@ -15,9 +17,11 @@ export class DiscordAdapter {
   constructor(private readonly options: DiscordAdapterOptions) { this.#destination = options.queueDestination ?? "discord"; }
   startInbound(signal: AbortSignal): Promise<void> {
     return this.options.gateway.start(async (message) => {
-      if (message.isBot || !this.options.ownerIds.has(message.authorId) || !this.options.channelIds.has(message.channelId) || (message.guildId !== undefined && !this.options.guildIds.has(message.guildId)) || this.#seen.has(message.id)) return;
+      const mention = new RegExp(`<@!?${escapeRegExp(this.options.botUserId)}>`, "gu");
+      if (!mention.test(message.content) || (message.isBot && message.authorId === this.options.botUserId) || (!message.isBot && !this.options.ownerIds.has(message.authorId)) || !this.options.channelIds.has(message.channelId) || (message.guildId !== undefined && !this.options.guildIds.has(message.guildId)) || this.#seen.has(message.id)) return;
+      const content = message.content.replace(mention, " ").replace(/\s+/gu, " ").trim() || "メンションされました";
       this.#seen.add(message.id); const now = this.options.clock.now();
-      await this.options.queue.publish({ id: `discord:${message.id}`, destination: this.options.agentId, source: this.#destination, replyTo: this.#destination, sentAt: message.createdAt.toISOString(), availableAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "user-message", text: message.content, replyContext: { channelId: message.channelId, ...(message.threadId === undefined ? {} : { threadId: message.threadId }), messageId: message.id } } });
+      await this.options.queue.publish({ id: `discord:${message.id}`, destination: this.options.agentId, source: this.#destination, replyTo: this.#destination, sentAt: message.createdAt.toISOString(), availableAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "user-message", text: content, replyContext: { channelId: message.channelId, ...(message.threadId === undefined ? {} : { threadId: message.threadId }), messageId: message.id } } });
     }, signal);
   }
   startOutbound(signal: AbortSignal): Promise<void> {

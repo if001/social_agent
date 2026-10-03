@@ -190,7 +190,10 @@ Terminal Adapter:
 
 Discord Adapter:
 
-- 設定されたguild、channel、user等のallowlistに一致するMessageだけを受理する
+- 対象bot自身へのuser mention（`<@BOT_USER_ID>`または`<@!BOT_USER_ID>`）を含むMessageだけを受理し、Agentへ渡す本文から対象mentionを除去する
+- 人間のMessageは設定されたowner、guild、channel allowlistに一致する場合だけ受理する
+- 別botのMessageは対象mentionとguild、channel allowlistを満たす場合に受理し、対象bot自身による投稿は自己応答loopを防ぐため無視する
+- mentionだけのMessageは、空文字ではなく「メンションされました」というObservation用本文へ正規化する
 - Discord Message IDから安定したQueue Message IDを作り、重複受信を抑止する
 - `replyTo`にchannelとthreadを解決できるDiscord宛先IDを設定する
 - Discord宛て出力の送信失敗時はQueue handlerを失敗させ、再配送させる

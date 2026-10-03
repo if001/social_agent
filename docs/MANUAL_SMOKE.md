@@ -22,9 +22,10 @@ Run `pnpm verify` first. Use a dedicated database, shared queue root, separate f
 
 1. Configure owner, guild, and channel allowlists for a private test channel.
 2. Connect the Discord adapter to the same Agent used from Terminal.
-3. Send a channel message and a thread message. Confirm replies reach the matching channel/thread.
-4. Send from an unlisted user/channel and confirm no Agent Event is created.
-5. Disconnect networking, send an outbound response, reconnect, and confirm queued delivery resumes once.
+3. Mention the target bot in a channel message and a thread message. Confirm only the mentioned bot replies to the matching channel/thread and that its raw mention ID is absent from Agent input.
+4. Send a message with no mention, a mention of only the other bot, and a target mention from an unlisted human user/channel. Confirm no Agent Event is created.
+5. Make bot A mention bot B and confirm only bot B processes it. Confirm bot A does not react to its own post.
+6. Disconnect networking, send an outbound response, reconnect, and confirm queued delivery resumes once.
 
 ## Multiple bots
 
