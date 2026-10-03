@@ -14,6 +14,9 @@ import { LongTermReviewService } from "../../src/application/long-term-review.js
 import { PostgresRuntimePersistence } from "../../src/infrastructure/persistence/postgres-runtime-persistence.js";
 import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
+import { PostgresAgentContextLoader } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
+import { FakeEmbeddingProvider } from "../../src/infrastructure/embedding/ollama-embedding.js";
+import { ToolRegistry } from "../../src/application/tool-registry.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = process.env.TEST_POSTGRES_URL ?? sample.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
@@ -104,6 +107,28 @@ describeDatabase("PostgreSQL persistence", () => {
     const found = await retriever.retrieve("a", "typescript", unit, 5, { kinds: ["semantic"] });
     expect(found.map(({ id }) => id)).toEqual(["memory-a1"]);
     expect(found.every(({ agentId }) => agentId === "a")).toBe(true);
+  });
+
+  it("loads a complete Agent Core context from PostgreSQL without crossing Agent ownership", async () => {
+    await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,description) VALUES ('social-a','a','owner','Trusted'),('social-b','b','owner','Private') ON CONFLICT DO NOTHING");
+    await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('context-intention-a','a','Reply carefully','Conversation','active'),('context-intention-b','b','Keep private','Private','active') ON CONFLICT DO NOTHING");
+    await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
+    await pool.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ('memory-a1','context-intention-a') ON CONFLICT DO NOTHING");
+    const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
+    const loader = new PostgresAgentContextLoader({
+      pool, ids: new SequenceIdGenerator(["context-run"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry([]),
+      budget: { maxTokens: 10_000, maxMemories: 10, maxSocialContexts: 10 },
+      limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
+    });
+    const input = await loader.load({ id: "context-event", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello", transport: { hop: 2, expiresAt: "2026-01-02T00:00:00Z", replyTo: "discord:a" } } });
+    expect(input.run).toMatchObject({ runId: "context-run", agentId: "a", transport: { hop: 2, replyTo: "discord:a" } });
+    expect(input.self.id).toBe("a");
+    expect(input.socialContext.map(({ id }) => id)).toContain("social-a");
+    expect(input.socialContext.map(({ id }) => id)).not.toContain("social-b");
+    expect(input.intentions.map(({ id }) => id)).toContain("context-intention-a");
+    expect(input.intentions.map(({ id }) => id)).not.toContain("context-intention-b");
+    expect(input.memories.every(({ agentId }) => agentId === "a")).toBe(true);
+    expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"], relatedIntentionIds: ["context-intention-a"] });
   });
 
   it("claims each due intention once across scheduler instances", async () => {

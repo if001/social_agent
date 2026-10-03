@@ -9,7 +9,7 @@ import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunR
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[] };
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>; }
 
 export type DeepAgentHarnessOptions = {
@@ -58,7 +58,7 @@ export class DeepAgentHarness implements AgentHarness {
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input })
           : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input, validationIssues, invalidOutput: raw });
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
@@ -79,7 +79,7 @@ export class DeepAgentHarness implements AgentHarness {
 
 export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly now?: () => Date };
 
-export type DeepAgentToolRunContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly signal: AbortSignal };
+export type DeepAgentToolRunContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly signal: AbortSignal; readonly transport?: AgentCoreInput["run"]["transport"] };
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>): Promise<unknown> };
 export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentToolRunContext, executions: ToolExecutionRecord[], now: () => Date = () => new Date()): readonly DeepAgentRunTool[] {
   let toolCallCount = 0;
@@ -98,7 +98,8 @@ export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentT
       throw new DomainError("VALIDATION", "Tool call limit exceeded");
     }
     try {
-      const result = await registry.execute(registered.name, rawInput, { agentId: context.agentId, runId: context.runId, idempotencyKey: `${context.runId}:${callId}` }, context.signal);
+      const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };
+      const result = await registry.execute(registered.name, rawInput, { agentId: context.agentId, runId: context.runId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }) }, context.signal);
       const finishedAt = now().toISOString();
       if (result.ok) executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt });
       else executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
