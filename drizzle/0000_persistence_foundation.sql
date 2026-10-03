@@ -10,11 +10,18 @@ CREATE TABLE IF NOT EXISTS social_contexts (id text PRIMARY KEY, agent_id text N
 CREATE TABLE IF NOT EXISTS intentions (id text PRIMARY KEY, agent_id text NOT NULL REFERENCES agents(id) ON DELETE CASCADE, description text NOT NULL, reason text NOT NULL, trigger jsonb, status text NOT NULL CHECK(status IN ('active','completed','dropped','superseded')), next_review_at timestamptz, superseded_by_id text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS intentions_agent_status_idx ON intentions(agent_id,status);
 CREATE TABLE IF NOT EXISTS memories (id text PRIMARY KEY, agent_id text NOT NULL REFERENCES agents(id) ON DELETE CASCADE, kind text NOT NULL, content text NOT NULL, importance text NOT NULL, occurred_at timestamptz NOT NULL, embedding vector(768), embedding_model text, source_agent_id text, evidence_event_ids jsonb NOT NULL DEFAULT '[]', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_dimension integer;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_status text NOT NULL DEFAULT 'pending';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_error text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_last_attempt_at timestamptz;
+UPDATE memories SET embedding_status='ready',embedding_dimension=COALESCE(embedding_dimension,768) WHERE embedding IS NOT NULL AND embedding_status<>'ready';
+CREATE INDEX IF NOT EXISTS memories_embedding_status_idx ON memories(embedding_status,agent_id);
 CREATE INDEX IF NOT EXISTS memories_agent_kind_idx ON memories(agent_id,kind);
 CREATE INDEX IF NOT EXISTS memories_content_fts_idx ON memories USING gin(to_tsvector('simple',content));
 CREATE TABLE IF NOT EXISTS memory_subjects (memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE, subject_id text NOT NULL, PRIMARY KEY(memory_id,subject_id));
 CREATE TABLE IF NOT EXISTS memory_intentions (memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE, intention_id text NOT NULL REFERENCES intentions(id) ON DELETE CASCADE, PRIMARY KEY(memory_id,intention_id));
 CREATE TABLE IF NOT EXISTS long_term_candidates (id text PRIMARY KEY, agent_id text NOT NULL REFERENCES agents(id) ON DELETE CASCADE, target text NOT NULL, proposed_value text NOT NULL, status text NOT NULL, reason text NOT NULL, review_after timestamptz, review_lease_until timestamptz, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE long_term_candidates ADD COLUMN IF NOT EXISTS evidence_event_ids jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE long_term_candidates ADD COLUMN IF NOT EXISTS review_after timestamptz;
 ALTER TABLE long_term_candidates ADD COLUMN IF NOT EXISTS review_lease_until timestamptz;
 CREATE INDEX IF NOT EXISTS long_term_candidates_review_due_idx ON long_term_candidates(status,review_after,review_lease_until);

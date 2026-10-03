@@ -64,6 +64,8 @@ describe("AgentHarness contract", () => {
   it("describes the purpose, inputs and complete proposal output in Japanese", () => {
     expect(agentCoreSystemPrompt).toContain("目的:");
     expect(agentCoreSystemPrompt).toContain("memoryProposals");
+    expect(agentCoreSystemPrompt).toContain("kindはepisodicだけ");
+    expect(agentCoreSystemPrompt).toContain("semanticMemoryまたはselfRelatedMemoryの候補");
     expect(agentCoreSystemPrompt).toContain("保存用ID");
     expect(agentCoreSystemPrompt).toContain("空配列[]");
   });

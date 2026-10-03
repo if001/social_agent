@@ -38,14 +38,14 @@ export class PostgresEventTransaction {
         else await client.query("INSERT INTO social_contexts(id,agent_id,subject_id,description) VALUES ($1,$2,$3,$4) ON CONFLICT (agent_id,subject_id) DO UPDATE SET description=EXCLUDED.description,updated_at=now()", [change.id, input.event.agentId, value.subjectId, value.description]);
       }
       for (const memory of input.memories ?? []) {
-        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,source_agent_id,evidence_event_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
+        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
         for (const subjectId of memory.relatedSubjectIds) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [memory.id, subjectId]);
         for (const intentionId of memory.relatedIntentionIds) await client.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ($1,$2)", [memory.id, intentionId]);
       }
       for (const intention of input.intentionCreates ?? []) await client.query("INSERT INTO intentions(id,agent_id,description,reason,status,next_review_at,superseded_by_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [intention.id, intention.agentId, intention.description, intention.reason, intention.status, intention.nextReviewAt ?? null, intention.supersededById ?? null, intention.createdAt, intention.updatedAt]);
       for (const intention of input.intentionUpdates ?? []) await client.query("UPDATE intentions SET description=$3,reason=$4,status=$5,next_review_at=$6,superseded_by_id=$7,updated_at=$8 WHERE id=$1 AND agent_id=$2", [intention.id, intention.agentId, intention.description, intention.reason, intention.status, intention.nextReviewAt ?? null, intention.supersededById ?? null, intention.updatedAt]);
       for (const candidate of input.candidates ?? []) {
-        await client.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)", [candidate.id, candidate.agentId, candidate.target, candidate.proposal, candidate.status, candidate.reason, candidate.createdAt]);
+        await client.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,evidence_event_ids,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)", [candidate.id, candidate.agentId, candidate.target, candidate.proposal, candidate.status, candidate.reason, JSON.stringify(candidate.evidenceEventIds), candidate.createdAt]);
         for (const memoryId of candidate.evidenceMemoryIds) await client.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ($1,$2)", [candidate.id, memoryId]);
       }
       await this.#insertToolExecutions(client, input.toolExecutions ?? []);

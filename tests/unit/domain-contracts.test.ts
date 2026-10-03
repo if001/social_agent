@@ -12,7 +12,8 @@ describe("domain contracts", () => {
   });
 
   it("keeps natural-language state and candidate evidence", () => {
-    expect(CandidateSchema.safeParse({ id: "c", agentId: "a", target: "selfNarrative", proposal: "I increasingly value patient inquiry", reason: "Repeated experiences", evidenceMemoryIds: [], status: "pending", createdAt: "2026-01-01T00:00:00Z" }).success).toBe(false);
+    expect(CandidateSchema.safeParse({ id: "c", agentId: "a", target: "selfNarrative", proposal: "I increasingly value patient inquiry", reason: "Repeated experiences", evidenceMemoryIds: [], evidenceEventIds: [], status: "pending", createdAt: "2026-01-01T00:00:00Z" }).success).toBe(false);
+    expect(CandidateSchema.safeParse({ id: "c", agentId: "a", target: "semanticMemory", proposal: "The user prefers concise plans", reason: "Explicit statement", evidenceMemoryIds: [], evidenceEventIds: ["event-1"], status: "pending", createdAt: "2026-01-01T00:00:00Z" }).success).toBe(true);
   });
 
   it("enforces intention transitions", () => {
@@ -43,6 +44,7 @@ describe("domain contracts", () => {
     expect(parsed.internalChanges.memoryProposals[0]).not.toHaveProperty("id");
     expect(parsed.internalChanges.intentionProposals[0]).not.toHaveProperty("createdAt");
     expect(parsed.internalChanges.longTermCandidates[0]).not.toHaveProperty("status");
+    expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { ...parsed.internalChanges, memoryProposals: [{ ...parsed.internalChanges.memoryProposals[0], kind: "semantic" }] } }).success).toBe(false);
   });
 
   it("requires valid existing intention update references", () => {

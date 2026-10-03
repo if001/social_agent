@@ -26,6 +26,7 @@ export type { ScriptedStep } from "./application/scripted-agent-harness.js";
 export { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, createDeepAgentTools, createOllamaDeepAgentInvoker } from "./infrastructure/agent/deep-agent-harness.js";
 export type { DeepAgentHarnessOptions, DeepAgentInvoker, DeepAgentResult, DeepAgentRunTool, DeepAgentToolRunContext, OllamaDeepAgentConfig } from "./infrastructure/agent/deep-agent-harness.js";
 export { FakeEmbeddingProvider, OllamaEmbeddingProvider, checkOllamaEmbeddingCapability } from "./infrastructure/embedding/ollama-embedding.js";
+export { PostgresMemoryEmbeddingLifecycle } from "./infrastructure/persistence/postgres-memory-embedding.js";
 export type { EmbeddingMetadata } from "./infrastructure/embedding/ollama-embedding.js";
 export { PostgresMemoryRetriever } from "./infrastructure/persistence/postgres-memory-retriever.js";
 export type { RetrievalFilter } from "./infrastructure/persistence/postgres-memory-retriever.js";

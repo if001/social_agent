@@ -5,6 +5,7 @@ import type { IdGenerator } from "../../application/ports.js";
 import type { StateUpdateResult } from "../../application/state-update-service.js";
 import { canTransitionIntention, DomainError, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Intention, type Memory, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
+import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 import { PostgresUnitOfWork } from "./postgres.js";
 
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput>;
@@ -12,14 +13,14 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool)); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool)); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
 
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const materialized = this.#materialize(event, input, result);
-    return this.#transaction.commit({
+    const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result },
@@ -28,6 +29,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       ...materialized,
       outbox: outgoing
     });
+    if (committed === "committed" && materialized.memories.length > 0) await this.memoryEmbedding?.embedMemoryIds(event.agentId, materialized.memories.map(({ id }) => id));
+    return committed;
   }
 
   async recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void> {
@@ -49,7 +52,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
 
   #materialize(event: DomainEvent, input: AgentCoreInput, result: AgentRunResult): { readonly memories: readonly Memory[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[]; readonly toolExecutions: readonly (ToolExecutionRecord & { readonly id: string })[] } {
     const occurredAt = event.occurredAt;
-    const memories = result.output.internalChanges.memoryProposals.map((proposal): Memory => ({ id: this.ids.next(), agentId: event.agentId, createdAt: occurredAt, ...proposal }));
+    const uniqueMemoryProposals = [...new Map(result.output.internalChanges.memoryProposals.map((proposal) => [`${proposal.kind}\u0000${proposal.content.trim()}\u0000${proposal.sourceAgentId ?? ""}`, proposal])).values()];
+    const memories = uniqueMemoryProposals.map((proposal): Memory => ({ id: this.ids.next(), agentId: event.agentId, createdAt: occurredAt, ...proposal, evidenceEventIds: [...new Set([...proposal.evidenceEventIds, event.id])] }));
     const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
     const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
     for (const proposal of result.output.internalChanges.intentionProposals) {
@@ -62,9 +66,11 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       }
     }
     const memoryIds = new Set(input.memories.map(({ id }) => id));
-    const candidates = result.output.internalChanges.longTermCandidates.map((proposal): Candidate => {
+    const uniqueCandidateProposals = [...new Map(result.output.internalChanges.longTermCandidates.map((proposal) => [`${proposal.target}\u0000${proposal.proposal.trim()}`, proposal])).values()];
+    const candidates = uniqueCandidateProposals.map((proposal): Candidate => {
       if (proposal.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Candidate evidence is absent from input context");
-      return { id: this.ids.next(), agentId: event.agentId, ...proposal, status: "pending", createdAt: occurredAt };
+      const evidenceEventIds = [...new Set([...proposal.evidenceEventIds, event.id])];
+      return { id: this.ids.next(), agentId: event.agentId, ...proposal, evidenceEventIds, status: "pending", createdAt: occurredAt };
     });
     return { memories, intentionCreates, intentionUpdates, candidates, toolExecutions: this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() })) };
   }

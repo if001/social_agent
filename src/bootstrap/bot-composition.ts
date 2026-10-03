@@ -12,6 +12,7 @@ import { LongTermReviewDeepAgentHarness, createOllamaLongTermReviewInvoker } fro
 import { OllamaEmbeddingProvider } from "../infrastructure/embedding/ollama-embedding.js";
 import { PostgresAgentContextLoader } from "../infrastructure/persistence/postgres-agent-context-loader.js";
 import { PostgresLongTermReviewRepository } from "../infrastructure/persistence/postgres-long-term-review.js";
+import { PostgresMemoryEmbeddingLifecycle } from "../infrastructure/persistence/postgres-memory-embedding.js";
 import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgres-runtime-persistence.js";
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
 import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
@@ -42,19 +43,21 @@ export function createBotComposition(options: BotCompositionOptions) {
       ...(context.transport?.replyTo === undefined ? {} : { replyTo: context.transport.replyTo })
     }) })
   ]);
+  const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
+  const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, embeddingProvider, config.embedding.model);
   const contextLoader = new PostgresAgentContextLoader({
     pool, ids, tools: toolRegistry,
-    embedding: new OllamaEmbeddingProvider(config.embedding),
+    embedding: embeddingProvider,
     budget: { maxTokens: 24_000, maxMemories: 24, maxSocialContexts: 24 },
     limits
   });
-  const persistence = new PostgresRuntimePersistence(pool, (event) => contextLoader.load(event), ids, () => clock.now());
+  const persistence = new PostgresRuntimePersistence(pool, (event) => contextLoader.load(event), ids, () => clock.now(), memoryEmbedding);
   const harness = new DeepAgentHarness({
     invoker: createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry, now: () => clock.now() }),
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name))
   });
   const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, now: () => clock.now() });
-  const reviewRepository = new PostgresLongTermReviewRepository(pool, () => ids.next());
+  const reviewRepository = new PostgresLongTermReviewRepository(pool, () => ids.next(), memoryEmbedding);
   const review = new LongTermReviewService(reviewRepository, new LongTermReviewDeepAgentHarness(createOllamaLongTermReviewInvoker(config.chat)));
   const router = new AgentEventRouter(runtime, review);
   const outbox = new OutboxDispatcher(persistence, queue);

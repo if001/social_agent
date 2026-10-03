@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 036: Memory生成・Embedding lifecycleとbackfillを実装する
@@ -33,14 +33,14 @@ DBには`embedding vector(768)`と`embedding_model`があるが、通常CoreのM
 
 ## Acceptance criteria
 
-- [ ] 新規Memoryに正しいdimensionのEmbeddingとmodel識別子が保存される。
-- [ ] 通常runが重要なEpisodic Memoryだけを保存し、Semantic／Self-relatedを直接確定しない。
-- [ ] MemoryとCandidateから根拠Event／Memoryおよび出典を追跡でき、重複提案を再保存しない。
-- [ ] Self Change Memoryにも同じ処理が適用される。
-- [ ] 未Embedding Memoryだけを冪等にbackfillできる。
-- [ ] 別AgentのMemoryを更新しない。
-- [ ] provider失敗時の状態と再試行方法が明確である。
-- [ ] Embedding外部呼び出し中にMemory保存transactionを保持しない。
+- [x] 新規Memoryに正しいdimensionのEmbeddingとmodel識別子が保存される。
+- [x] 通常runが重要なEpisodic Memoryだけを保存し、Semantic／Self-relatedを直接確定しない。
+- [x] MemoryとCandidateから根拠Event／Memoryおよび出典を追跡でき、重複提案を再保存しない。
+- [x] Self Change Memoryにも同じ処理が適用される。
+- [x] 未Embedding Memoryだけを冪等にbackfillできる。
+- [x] 別AgentのMemoryを更新しない。
+- [x] provider失敗時の状態と再試行方法が明確である。
+- [x] Embedding外部呼び出し中にMemory保存transactionを保持しない。
 
 ## Tests
 

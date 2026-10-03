@@ -554,6 +554,7 @@ type AgentCoreInput = {
     occurredAt: string
   }
   observation: Observation
+  recentObservations: Observation[]
   self: RelevantSelf
   dynamicState: RelevantDynamicState
   socialContext: SocialContext[]
@@ -577,6 +578,8 @@ type AgentCoreOutput = {
 `FinalAction`はrespond、wait、refuse、no-actionを表現する。Tool callはDeep Agents内部loopの中間操作であり、最終Actionには含めない。Harnessは`AgentCoreOutput`と、通常コードが観測した`ToolExecutionRecord[]`を`AgentRunResult`としてRuntimeへ返す。
 
 `MemoryProposal`、新規`IntentionProposal`、`LongTermUpdateCandidateProposal`は意味内容と根拠を持つが、保存用ID、作成時刻、所有Agent IDを持たない。既存Intention等を更新する提案は、入力Contextに存在する対象IDだけを参照できる。
+
+`recentObservations`は現在Eventより前の同一Agentの完了済みObservationを古い順に最大6件保持し、代名詞や省略の解決だけに使う。通常Coreは現在Eventを中心にEpisodic Memoryを提案し、直近履歴に含まれる同じ出来事を再保存しない。
 
 Schema不適合時は、同じraw outputを添えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。
 
