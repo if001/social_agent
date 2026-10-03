@@ -15,7 +15,7 @@ export const longTermReviewSystemPrompt = `あなたはソーシャルエージ�
 入力:
 - candidates: 同じAgentかつ同じtargetに属するpending Candidate
 - evidence: Candidateが参照する実在Memory
-- currentValue: 現在のSelf NarrativeまたはAcquired Disposition
+- currentValue: 対象に対応する現在の長期状態、または既存のSemantic／Self-related Memory
 
 出力:
 - decisions: CandidateごとにcandidateId、decision、reasonを1件ずつ返します。decisionはKEEP、UPDATE、MERGE、DROPのいずれかです
@@ -31,6 +31,9 @@ export const longTermReviewSystemPrompt = `あなたはソーシャルエージ�
 - 入力にないCandidate ID、Memory ID、経験を作りません
 - decisionsは全Candidateを重複なく1回ずつ判断します
 - 単発経験だけでAcquired Dispositionを安易に変更しません
+- Self Narrativeを先に更新し、Acquired Dispositionは反復または強い根拠がある場合だけ更新します
+- Role、Raison d'être、長期Preference／Interestも重複を統合し、簡潔な値にします
+- Semantic／Self-related Memoryは伝聞と直接経験を区別し、既存Memoryとの重複や矛盾を確認します
 - 単純追加より、意味を保った統合と簡潔化を優先します
 - ID、時刻、所有者、保存済みという事実を生成しません
 - ReviewOutput以外の説明文を返しません`;
