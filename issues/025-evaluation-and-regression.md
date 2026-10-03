@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 025: 新しいフローの回帰検証と1シナリオ1回のLive評価を行う
@@ -33,9 +33,13 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] 新契約・Tool・通常更新・Reviewの回帰検証結果が記録される。
-- [ ] 1シナリオ×1回で期待型と期待内容を個別に判定できる。
-- [ ] 残差分と016・017の未完了事項が追跡でき、未検証をdoneにしない。
+- [x] 新契約・Tool・通常更新・Reviewの回帰検証結果が記録される。
+- [x] 1シナリオ×1回で期待型と期待内容を個別に判定できる。
+- [x] 残差分と016・017の未完了事項が追跡でき、未検証をdoneにしない。
+
+## Result
+
+EV-01 version 2.0.0を1回実行した。Live groupは`2026-10-03T10-22-24-447Z-4107a32f-efda-4d3d-bcdf-61d504b6fff6`。2体ともschemaに適合し、Hard assertion 6項目とSemantic rubric 5項目がすべてpassした。詳細、所要時間、016・017の残作業は[Implementation Audit](../docs/IMPLEMENTATION_AUDIT.md#8-issue-025-verification-record)へ記録した。
 
 ## Tests
 

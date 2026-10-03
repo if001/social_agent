@@ -1,6 +1,6 @@
 import { ChatOllama } from "@langchain/ollama";
 import { createDeepAgent } from "deepagents";
-import { providerStrategy, tool } from "langchain";
+import { tool } from "langchain";
 
 import type { AgentHarness } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
@@ -130,11 +130,11 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 
 出力はAgentCoreOutputだけです:
 - interpretation.subjectiveMeaning: 今回のEventがこのAgentにとって持つ意味。意味づけが不要な場合だけ省略できます
-- internalChanges.transientStateUpdates: Emotion、Mood、Drive、Desire、Working Social Contextの更新提案。各要素はtarget、operation、value、reason、evidenceIdsを持ちます
-- internalChanges.memoryProposals: 保存価値のあるMemory提案。各要素はkind、content、relatedSubjectIds、relatedIntentionIds、importance、任意のsourceAgentId、evidenceEventIdsを持ちます
-- internalChanges.intentionProposals: Intention提案。新規はoperation=create、description、reason、任意のnextReviewAt。既存更新はoperation=update、入力に存在するintentionId、reasonと変更項目を持ちます
-- internalChanges.longTermCandidates: 長期状態を後でReviewする候補。各要素はtarget、proposal、reason、1件以上のevidenceMemoryIdsを持ちます
-- action: respond、wait、refuse、no-actionのいずれか1つ。Tool利用はreasoning中に行い、最終actionへtoolを返しません
+- internalChanges.transientStateUpdates: Emotion、Mood、Drive、Desire、Working Social Contextの更新提案。targetはemotion | mood | drive | desire | socialContext、operationはset | append | removeです。各要素はvalue、reason、evidenceIdsも持ちます
+- internalChanges.memoryProposals: 保存価値のあるMemory提案。kindはepisodic | semantic | self-related | self-changeのいずれかです。各要素はcontent、relatedSubjectIds、relatedIntentionIds、importance、任意のsourceAgentId、evidenceEventIdsも持ちます
+- internalChanges.intentionProposals: Intention提案。新規はoperation=create、description、reason、任意のnextReviewAt。既存更新はoperation=update、入力に存在するintentionId、reasonと変更項目を持ち、statusを変える場合はactive | completed | dropped | supersededのいずれかです
+- internalChanges.longTermCandidates: 長期状態を後でReviewする候補。targetはselfNarrative | acquiredDispositionのいずれかです。各要素はproposal、reason、1件以上のevidenceMemoryIdsも持ちます
+- action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-actionはreasonを持ちます。Tool利用はreasoning中に行い、最終actionへtoolを返しません
 
 時間スケール:
 - EmotionとDesireは今回のEventに対する短期状態です
@@ -170,10 +170,19 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     async invoke(input, options) {
       const toolExecutions: ToolExecutionRecord[] = [];
       const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, options, toolExecutions, config.now);
-      const agent = createDeepAgent({ model, tools: tools as DeepAgentToolsOption, responseFormat: providerStrategy(AgentCoreOutputSchema), systemPrompt: agentCoreSystemPrompt });
+      const agent = createDeepAgent({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt });
       try {
         const result = await agent.invoke({ messages: [...input.messages] }, options);
-        return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions };
+        const messages = result.messages as unknown[];
+        const last = messages.at(-1);
+        const content: unknown = typeof last === "object" && last !== null && "content" in last ? last.content : undefined;
+        const blocks: readonly unknown[] = Array.isArray(content) ? content as unknown[] : [];
+        const text = typeof content === "string" ? content : blocks.flatMap((block): string[] => typeof block === "object" && block !== null && "text" in block && typeof block.text === "string" ? [block.text] : []).join("\n");
+        const fenced = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/iu.exec(text.trim());
+        const json = fenced?.[1]?.trim() ?? text.trim();
+        let structuredResponse: unknown = text;
+        try { structuredResponse = JSON.parse(json); } catch { /* Harness repair receives the invalid text. */ }
+        return { structuredResponse, messages, toolExecutions };
       } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions } }); }
     }
   };
