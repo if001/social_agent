@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 022: Runtimeで提案とTool実行記録を確定する
@@ -32,9 +32,9 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] 有効な提案だけが対象Agentへ保存され、通常処理から長期状態を直接変更できない。
-- [ ] Tool実行から出力・Memoryまで根拠を追跡できる。
-- [ ] 不正出力や重複受信で状態更新・配送・Tool副作用が重複しない。
+- [x] 有効な提案だけが対象Agentへ保存され、通常処理から長期状態を直接変更できない。
+- [x] Tool実行から出力・Memoryまで根拠を追跡できる。
+- [x] 不正出力や重複受信で状態更新・配送・Tool副作用が重複しない。
 
 ## Tests
 

@@ -1,0 +1,77 @@
+import type { Pool, QueryResultRow } from "pg";
+
+import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
+import type { IdGenerator } from "../../application/ports.js";
+import type { StateUpdateResult } from "../../application/state-update-service.js";
+import { canTransitionIntention, DomainError, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Intention, type Memory, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { PostgresEventTransaction } from "./event-transaction.js";
+import { PostgresUnitOfWork } from "./postgres.js";
+
+type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput>;
+type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
+
+export class PostgresRuntimePersistence implements RuntimePersistence {
+  readonly #transaction: PostgresEventTransaction;
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool)); }
+
+  async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
+  loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
+
+  async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
+    const materialized = this.#materialize(event, input, result);
+    return this.#transaction.commit({
+      destination: message.destination, messageId: message.id,
+      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt) },
+      run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result },
+      stateValues: { emotion: update.state.emotion, mood: update.state.mood, drive: update.state.drive, desire: update.state.desire },
+      changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
+      ...materialized,
+      outbox: outgoing
+    });
+  }
+
+  async recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void> {
+    const validatedTools = this.#validateTools(input, toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
+    await this.#transaction.recordFailure({
+      destination: message.destination, messageId: message.id,
+      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt) },
+      run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: null },
+      toolExecutions: validatedTools,
+      failureReason: error instanceof Error ? error.message : "Agent run failed"
+    });
+  }
+
+  async pendingOutbox(limit: number): Promise<readonly PendingOutput[]> {
+    const result = await this.pool.query<OutboxRow>("SELECT id,envelope FROM outbox_messages WHERE status='pending' AND available_at<=now() ORDER BY created_at,id LIMIT $1", [limit]);
+    return result.rows.map(({ envelope }) => ({ envelope }));
+  }
+  async markOutboxSent(id: string): Promise<void> { await this.pool.query("UPDATE outbox_messages SET status='sent',sent_at=now() WHERE id=$1", [id]); }
+
+  #materialize(event: DomainEvent, input: AgentCoreInput, result: AgentRunResult): { readonly memories: readonly Memory[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[]; readonly toolExecutions: readonly (ToolExecutionRecord & { readonly id: string })[] } {
+    const occurredAt = event.occurredAt;
+    const memories = result.output.internalChanges.memoryProposals.map((proposal): Memory => ({ id: this.ids.next(), agentId: event.agentId, createdAt: occurredAt, ...proposal }));
+    const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
+    const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
+    for (const proposal of result.output.internalChanges.intentionProposals) {
+      if (proposal.operation === "create") intentionCreates.push({ id: this.ids.next(), agentId: event.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.nextReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt }) });
+      else {
+        const current = intentionsById.get(proposal.intentionId); if (current === undefined) throw new DomainError("VALIDATION", `Unknown intention: ${proposal.intentionId}`);
+        const status = proposal.status ?? current.status;
+        if (status !== current.status && !canTransitionIntention(current.status, status)) throw new DomainError("VALIDATION", `Invalid intention transition: ${current.status} -> ${status}`);
+        intentionUpdates.push({ ...current, description: proposal.description ?? current.description, status, reason: proposal.reason, updatedAt: occurredAt, ...(proposal.nextReviewAt === null ? { nextReviewAt: undefined } : proposal.nextReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt }), ...(proposal.supersededByIntentionId === undefined ? {} : { supersededById: proposal.supersededByIntentionId }) });
+      }
+    }
+    const memoryIds = new Set(input.memories.map(({ id }) => id));
+    const candidates = result.output.internalChanges.longTermCandidates.map((proposal): Candidate => {
+      if (proposal.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Candidate evidence is absent from input context");
+      return { id: this.ids.next(), agentId: event.agentId, ...proposal, status: "pending", createdAt: occurredAt };
+    });
+    return { memories, intentionCreates, intentionUpdates, candidates, toolExecutions: this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() })) };
+  }
+
+  #validateTools(input: AgentCoreInput, executions: readonly ToolExecutionRecord[]): readonly ToolExecutionRecord[] {
+    const allowed = new Set(input.availableTools.map(({ name }) => name));
+    for (const execution of executions) if (execution.runId !== input.run.runId || execution.eventId !== input.run.eventId || !allowed.has(execution.name)) throw new DomainError("VALIDATION", "Tool execution does not belong to this run or is not allowed");
+    return executions;
+  }
+}
