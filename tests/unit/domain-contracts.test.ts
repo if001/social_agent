@@ -1,5 +1,6 @@
 import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, IntentionSchema, IntentionTriggerSchema, MessageEnvelopeSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
+import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
 describe("domain contracts", () => {
   it("represents every action and review decision", () => {
@@ -27,6 +28,14 @@ describe("domain contracts", () => {
     expect(IntentionTriggerSchema.parse({ kind: "event", eventKinds: ["user-message"], keywords: ["計画"] })).toMatchObject({ kind: "event" });
     expect(IntentionTriggerSchema.parse({ kind: "idle", idleForMs: 60_000 })).toMatchObject({ kind: "idle" });
     expect(IntentionTriggerSchema.parse({ kind: "manual-review" })).toMatchObject({ kind: "manual-review" });
+  });
+
+  it("maps every Event kind to an objective, provenance-aware Observation", () => {
+    for (const kind of ["user-message", "tool-result", "time", "external", "internal", "system"] as const) {
+      const observation = observationFromEvent({ id: `event-${kind}`, agentId: "a", kind, occurredAt: "2026-01-01T00:00:00Z", payload: { text: "reported fact", actorId: "actor", actorType: kind === "external" ? "agent" : "human", sourceType: kind === "external" ? "agent" : "terminal", provenance: { channel: "test" } }, causationId: "cause", correlationId: "correlation" });
+      expect(observation).toMatchObject({ kind, actor: { id: "actor" }, causationId: "cause", correlationId: "correlation", content: { text: "reported fact" } });
+      expect(observation.source?.direct).toBe(kind !== "external" && kind !== "tool-result");
+    }
   });
 
   it("rejects hop, attempt, TTL and ownership violations", () => {

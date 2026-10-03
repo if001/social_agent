@@ -35,7 +35,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const materialized = this.#materialize(event, input, result);
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
-      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt) },
+      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { emotion: update.state.emotion, mood: update.state.mood, drives: update.state.drives, desires: update.state.desires, current_interests: update.state.currentInterests },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
@@ -50,7 +50,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const validatedTools = this.#validateTools(input, toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     await this.#transaction.recordFailure({
       destination: message.destination, messageId: message.id,
-      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt) },
+      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: null },
       toolExecutions: validatedTools,
       failureReason: error instanceof Error ? error.message : "Agent run failed"

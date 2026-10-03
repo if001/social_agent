@@ -291,7 +291,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["memory-new", "intention-new", "candidate-new", "tool-record", "state-change", "social-change"]), () => new Date(fixtureInstant), memoryEmbedding);
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
-    const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" } };
+    const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
       output: { interpretation: {}, internalChanges: {
         transientStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext" as const, operation: "set" as const, value: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }],
@@ -309,6 +309,9 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM memories WHERE evidence_event_ids ? 'runtime-event' AND content='A useful exchange'")).rows[0]?.count).toBe("1");
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM long_term_candidates WHERE proposed_value='I follow through'")).rows[0]?.count).toBe("1");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
+    expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
+    expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
+    expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-1");
     expect((await pool.query<{ description: string }>("SELECT description FROM social_contexts WHERE agent_id='a' AND subject_id='owner'")).rows[0]?.description).toBe("Trusted collaborator");
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
   });
