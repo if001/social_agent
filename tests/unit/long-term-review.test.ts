@@ -10,7 +10,7 @@ const output = (decision: "KEEP" | "UPDATE" | "MERGE" | "DROP", value?: string):
 
 describe("LongTermReviewService", () => {
   it.each([
-    ["KEEP", undefined, "kept"], ["UPDATE", "I value patience", "applied"], ["MERGE", "I learn patiently", "merged"], ["DROP", undefined, "dropped"]
+    ["KEEP", undefined, "pending"], ["UPDATE", "I value patience", "applied"], ["MERGE", "I learn patiently", "merged"], ["DROP", undefined, "dropped"]
   ] as const)("handles %s", async (decision, value, status) => {
     const commits: ReviewCommit[] = []; const service = new LongTermReviewService(repository(commits), { review: () => Promise.resolve(output(decision, value)) });
     await service.review("candidate", new AbortController().signal); expect(commits[0]?.candidateDecisions[0]?.status).toBe(status); expect(commits[0]?.after).toBe(value);

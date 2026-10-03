@@ -27,6 +27,7 @@ ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_status text NOT NULL DEF
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_error text;
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_last_attempt_at timestamptz;
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS retrieval_priority text NOT NULL DEFAULT 'normal';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS evidence_memory_ids jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_embedding_status_check;
 ALTER TABLE memories ADD CONSTRAINT memories_embedding_status_check CHECK(embedding_status IN ('pending','ready','failed'));
 ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_retrieval_priority_check;

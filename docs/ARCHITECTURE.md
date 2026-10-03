@@ -399,7 +399,9 @@ SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。�
 
 出力はKEEP、UPDATE、MERGE、DROPの判断、更新後の値、理由、根拠Memory IDを含む。Semantic / Self-related Memory Candidateについては、Memoryの作成・既存Memoryへの統合・訂正・破棄を同じ判断形式で返す。Zodで検証後、長期状態またはMemoryの更新、Candidateの解決状態、必要なSelf Change Memoryを同一transactionで保存する。
 
-単純追加よりMERGEを優先する。Review後も長期状態が設定上限を超える場合は、意味を維持するcompactionを再度提案させる。
+対象はSelf Narrative、Acquired Disposition、Role、Raison d'être、長期Preference／Interest、Semantic／Self-related Memoryとする。Candidate作成時は原則24時間後をReview時刻とし、同一targetが3件以上、criticalな根拠、強いSelf-related Memory、明示された矛盾のいずれかでは即時対象にする。KEEPはpendingのまま7日後へ再scheduleし、UPDATE／MERGE／DROPだけを解決済みにする。
+
+単純追加よりMERGEを優先する。配列型の長期状態も統合済みの簡潔な値へ置換し、Review後も長期状態が設定上限を超える場合は、意味を維持するcompactionを再度提案させる。確定したMemoryとSelf Change Memoryは根拠Memory IDを保持する。
 
 通常Agent CoreとLong-term Review Coreは、同じmodelやAdapterを共有してもよいが、入力契約、出力Schema、prompt、起動Eventを分離する。通常Agent CoreはLong-term Candidateまでを提案し、長期状態を確定しない。
 

@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 040: Long-term Candidate対象・Trigger・Compactionを完成する
@@ -32,12 +32,12 @@ specのLong-term CandidateはSelf Narrative、Acquired Disposition、Role、Rais
 
 ## Acceptance criteria
 
-- [ ] specの全Long-term targetをCandidateから確定更新まで扱える。
-- [ ] Candidate作成直後に無条件Reviewされない。
-- [ ] KEEP／UPDATE／MERGE／DROPが次回scheduleと整合する。
-- [ ] compactionが意味を保持し、長期状態の単純追記を防ぐ。
-- [ ] Self Change Memoryが変更前後と根拠を保持する。
-- [ ] Semantic／Self-related Memoryが単発の推測から確定されず、根拠Memoryまで追跡できる。
+- [x] specの全Long-term targetをCandidateから確定更新まで扱える。
+- [x] Candidate作成直後に無条件Reviewされない。
+- [x] KEEP／UPDATE／MERGE／DROPが次回scheduleと整合する。
+- [x] compactionが意味を保持し、長期状態の単純追記を防ぐ。
+- [x] Self Change Memoryが変更前後と根拠を保持する。
+- [x] Semantic／Self-related Memoryが単発の推測から確定されず、根拠Memoryまで追跡できる。
 
 ## Tests
 

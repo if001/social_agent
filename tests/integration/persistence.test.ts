@@ -258,6 +258,23 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
   });
 
+  it("reviews list-valued state and grounded memory targets without immediate re-claim", async () => {
+    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,review_after) VALUES ('candidate-role','a','role','Research partner','pending','Repeated collaboration','2026-01-01'),('candidate-semantic','a','semanticMemory','The user prefers concise plans','pending','Explicit repeated preference','2026-01-01')");
+    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-role','memory-a1'),('candidate-semantic','memory-a1')");
+    const ids = ["role-change-memory", "semantic-grounded-memory"];
+    const repository = new PostgresLongTermReviewRepository(pool, () => ids.shift() ?? "unexpected");
+    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-role", decision: "UPDATE", reason: "Stable role" }], stateUpdate: { value: "Research partner", reason: "Stable role", evidenceMemoryIds: ["memory-a1"] } }) }).review("candidate-role", new AbortController().signal);
+    expect((await pool.query<{ roles: string[] }>("SELECT roles FROM agent_states WHERE agent_id='a'")).rows[0]?.roles).toEqual(["Research partner"]);
+    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-semantic", decision: "UPDATE", reason: "Grounded fact" }], stateUpdate: { value: "The user prefers concise plans", reason: "Grounded fact", evidenceMemoryIds: ["memory-a1"] } }) }).review("candidate-semantic", new AbortController().signal);
+    expect((await pool.query<{ evidence_memory_ids: string[] }>("SELECT evidence_memory_ids FROM memories WHERE id='semantic-grounded-memory' AND kind='semantic'")).rows[0]?.evidence_memory_ids).toEqual(["memory-a1"]);
+
+    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,review_after) VALUES ('candidate-keep','a','longTermInterest','Distributed systems','pending','Needs more evidence','2026-01-01')");
+    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-keep','memory-a1')");
+    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-keep", decision: "KEEP", reason: "Wait for repetition" }] }) }).review("candidate-keep", new AbortController().signal);
+    const kept = (await pool.query<{ status: string; review_after: Date }>("SELECT status,review_after FROM long_term_candidates WHERE id='candidate-keep'")).rows[0];
+    expect(kept?.status).toBe("pending"); expect(kept?.review_after).toBeInstanceOf(Date);
+  });
+
   it("materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('proposal-evidence','a','self-related','Repeated follow-through','Relevant',now(),'[]')");
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('existing-intention','a','Old goal','Existing','active')");

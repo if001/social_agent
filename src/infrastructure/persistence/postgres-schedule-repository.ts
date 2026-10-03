@@ -16,7 +16,7 @@ export class PostgresScheduleRepository implements ScheduleRepository {
       const remainingAfterIntentions = Math.max(0, limit - intentions.rows.length);
       const autonomous = remainingAfterIntentions === 0 ? { rows: [] as DueAutonomousRow[] } : await client.query<DueAutonomousRow>(`WITH due AS (SELECT id FROM autonomous_schedules WHERE next_due_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) AND ($4::text IS NULL OR agent_id=$4) ORDER BY next_due_at,id FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE autonomous_schedules s SET lease_until=$3,updated_at=now() FROM due WHERE s.id=due.id RETURNING s.id,s.agent_id,s.kind,s.reason`, [now, remainingAfterIntentions, leasedUntil, this.agentId ?? null]);
       const remaining = Math.max(0, remainingAfterIntentions - autonomous.rows.length);
-      const candidates = remaining === 0 ? { rows: [] as DueCandidateRow[] } : await client.query<DueCandidateRow>("SELECT id,agent_id,target,reason FROM long_term_candidates WHERE status='pending' AND target IN ('selfNarrative','acquiredDisposition') AND review_after IS NOT NULL AND review_after<=$1 AND (review_lease_until IS NULL OR review_lease_until<=$1) AND ($3::text IS NULL OR agent_id=$3) ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT $2", [now, remaining, this.agentId ?? null]);
+      const candidates = remaining === 0 ? { rows: [] as DueCandidateRow[] } : await client.query<DueCandidateRow>("SELECT id,agent_id,target,reason FROM long_term_candidates WHERE status='pending' AND review_after IS NOT NULL AND review_after<=$1 AND (review_lease_until IS NULL OR review_lease_until<=$1) AND ($3::text IS NULL OR agent_id=$3) ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT $2", [now, remaining, this.agentId ?? null]);
       if (candidates.rows.length > 0) await client.query("UPDATE long_term_candidates SET review_lease_until=$2,updated_at=now() WHERE id=ANY($1::text[])", [candidates.rows.map(({ id }) => id), leasedUntil]);
       await client.query("COMMIT");
       const grouped = new Map<string, DueCandidateRow[]>();
@@ -29,7 +29,7 @@ export class PostgresScheduleRepository implements ScheduleRepository {
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
   async complete(target: ScheduledTarget, nextReviewAt: Date | null): Promise<void> {
-    if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,review_after=NULL,updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds ?? [target.id]]); return; }
+    if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds ?? [target.id]]); return; }
     if (target.kind === "persistent-drive") { await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=COALESCE($2,now()+interval '1 day'),updated_at=now() WHERE id=$1", [target.id, nextReviewAt]); return; }
     await this.pool.query("UPDATE intentions SET next_review_at=$2,updated_at=now() WHERE id=$1", [target.id, nextReviewAt]);
   }

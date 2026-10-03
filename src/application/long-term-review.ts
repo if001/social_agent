@@ -36,7 +36,7 @@ export class LongTermReviewService {
     const decisionIds = output.decisions.map(({ candidateId }) => candidateId);
     if (new Set(decisionIds).size !== candidateIds.length || candidateIds.some((id) => !decisionIds.includes(id))) throw new DomainError("VALIDATION", "Review output must decide every Candidate exactly once");
     if (output.stateUpdate?.evidenceMemoryIds.some((id) => !requiredEvidence.has(id)) === true) throw new DomainError("VALIDATION", "Review update references evidence outside the reviewed Candidates");
-    const statuses = ({ KEEP: "kept", UPDATE: "applied", MERGE: "merged", DROP: "dropped" } as const);
+    const statuses = ({ KEEP: "pending", UPDATE: "applied", MERGE: "merged", DROP: "dropped" } as const);
     await this.repository.commit({ candidateDecisions: output.decisions.map(({ candidateId, decision }) => ({ candidateId, status: statuses[decision] })), agentId: first.agentId, target: first.target, before: currentValue, ...(output.stateUpdate === undefined ? {} : { after: output.stateUpdate.value }), reason: output.stateUpdate?.reason ?? output.decisions.map(({ reason }) => reason).join("; "), evidenceMemoryIds: output.stateUpdate?.evidenceMemoryIds ?? [...requiredEvidence] });
     return output;
   }
