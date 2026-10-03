@@ -19,10 +19,10 @@ All LLM output is a proposal. Runtime assigns storage IDs, timestamps, and owner
 | Document | Primary spec basis | Review result and action |
 |---|---|---|
 | `DOCUMENTATION_PLAN.md` | Implementation design 1–3, 29 | Confirms that spec is authoritative and docs record concrete implementation choices. |
-| `REQUIREMENTS.md` | Concept design 3–23; implementation design 4, 18–26, 29–30 | Updated proposal ownership, normal/Review separation, internal Tool loop, and durable Tool execution record requirements. |
-| `ARCHITECTURE.md` | Implementation design 18–26, 29–31 | Updated Core result, final Action, Tool responsibility, Runtime persistence, and Review boundaries. |
-| `TEST_STRATEGY.md` | Implementation design 32 plus Requirements acceptance criteria | Updated ST-03/ST-07 and regression scope; separates short observable evaluation from long-term user evaluation. |
-| `IMPLEMENTATION_PLAN.md` | All docs above | Adds Issues 018–025 before resuming IP-16 and IP-17. |
+| `REQUIREMENTS.md` | Concept design 3–23; implementation design 4, 16–26, 29–30 | Defines proposal ownership, the three Memory purposes, normal/Review generation boundaries, internal Tool loop, and durable execution records. |
+| `ARCHITECTURE.md` | Implementation design 16–26, 29–31 | Defines Memory generation and Embedding lifecycle, relevant retrieval, Core result, Tool responsibility, Runtime persistence, and Review boundaries. |
+| `TEST_STRATEGY.md` | Implementation design 32 plus Requirements acceptance criteria | Covers Memory generation/retrieval failure paths, ST-03/ST-07, and separates short observable evaluation from long-term user evaluation. |
+| `IMPLEMENTATION_PLAN.md` | All docs above | Maps the remaining implementation gaps to Issues 035–042 before resuming IP-16 and IP-17. |
 | `MANUAL_SMOKE.md` | Implementation design 21–26 | Adds same-run Tool trace and separate Long-term Review observations. |
 | `web_tool.md` | Implementation design 26, 29–30 | Keeps the provider contract and clarifies the internal Tool execution boundary. |
 
@@ -33,7 +33,9 @@ All LLM output is a proposal. Runtime assigns storage IDs, timestamps, and owner
 | Subjective Meaning | proposes | may reinterpret evidence for review | validates output shape and traces run |
 | Emotion, Desire | proposes when affected by the Event | does not update | validates and persists |
 | Mood, Drive, Intention, Working Social Context | proposes only when persistence is meaningful | reads relevant context | validates lifecycle and persists |
-| Memory | proposes semantic content and evidence links | proposes Self Change Memory content | assigns ID/time/owner and persists |
+| Episodic Memory | proposes important concrete experiences from the current Event | reads as review evidence | validates duplication/evidence, assigns ID/time/owner/source, and persists |
+| Semantic / Self-related Memory | creates evidence-backed Candidate; does not directly confirm inferred knowledge or self-recognition | creates, merges, corrects, or rejects after reviewing evidence | validates ownership/evidence and persists the decision |
+| Self Change Memory | does not create | proposes an audit record when long-term state changes | assigns metadata and atomically persists it with the state change |
 | Self Narrative, Acquired Disposition | creates Candidate only | KEEP/UPDATE/MERGE/DROP | validates evidence and persists atomically |
 | Role, Raison d'être, long-term preference/interest | creates Candidate only | specified by primary design but outside the current implemented schema | remains unresolved until the contract is extended deliberately |
 | Tool execution | chooses and consumes result within the run | normally unavailable unless separately registered | enforces capability and records execution |
@@ -56,6 +58,9 @@ The code-level evidence and reachability analysis are recorded in `docs/IMPLEMEN
 | Runtime/Scheduler routing to the normal or Review Core is incomplete | 024 |
 | Evaluation fixtures and live evaluation still use the old contract | 025, then resume 016 and 017 |
 | Primary design includes Role, Raison d'être, and long-term preference/interest, while the current Candidate schema only supports Self Narrative and Acquired Disposition | Resolve the exact initial implementation scope in 019; do not silently claim support |
+| Persisted Memory has no complete Embedding lifecycle and normal saves leave vectors empty | 036 |
+| Retrieval omits current state, Intention, and Social Context and loses relevance order in Context Builder | 037 |
+| Semantic / Self-related Memory confirmation requires Review schema and flow support | 040 |
 
 ## 7. Evaluation boundary
 

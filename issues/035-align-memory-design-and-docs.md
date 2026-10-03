@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 035: Memory設計とdocsの契約をspecへ整合する
@@ -31,10 +31,10 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] specのMemory／Retrieval要件とdocsの対応表がある。
-- [ ] 保存から検索、Context投入までのデータフローがdocsで一意に読める。
-- [ ] 3種類と`self-change`の関係が明記される。
-- [ ] Issue 036、037の実装境界と完了条件がdocsから導ける。
+- [x] specのMemory／Retrieval要件とdocsの対応表がある。
+- [x] 保存から検索、Context投入までのデータフローがdocsで一意に読める。
+- [x] 3種類と`self-change`の関係が明記される。
+- [x] Issue 036、037の実装境界と完了条件がdocsから導ける。
 
 ## Tests
 

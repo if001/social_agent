@@ -279,12 +279,21 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 
 ### 9.3 Hybrid Memory Retrieval
 
+- 通常Eventの重要な出来事だけがEpisodic Memoryとして0件以上提案され、直近ターンの再処理で重複保存されない
+- Semantic / Self-relatedは通常runで確定されず、根拠付きCandidateからReviewを経て作成・統合・訂正される
+- Self Change Memoryが通常Retrievalの3種類の候補枠へ混入しない
+- Memory本文を保存後、Embedding状態が`pending`から`ready`へ遷移する
+- provider失敗時にMemory本文を失わず`failed`となり、冪等なbackfillで`ready`へ復旧する
 - Agent、type、subject、Intention、時刻filterが機能する
-- lexical一致とvector類似の双方を結果へ反映する
+- Observation、Dynamic State、Active Intention、Working Social Contextの各要素だけを変えたとき、対応する候補と順位が変化する
+- 日本語keyword一致とvector類似の双方を結果へ反映する
+- Embedding未生成またはprovider障害時もkeyword、関連ID、新しさによるfallback結果を返す
 - 別Agentの高類似Memoryを返さない
+- 種類別予約枠が無関係なMemoryを件数合わせで採用せず、残り枠を全体順位から選ぶ
 - top KとContext budgetを超えない
 - embedding model / dimension不一致を検出する
-- 同じdatasetで順位が安定する
+- 同じdatasetで順位とtie-breakが安定し、Context BuilderがRetrieverの関連度順を変更しない
+- 各候補の候補化理由、最終順位、採用または除外理由をtraceできる
 
 ### 9.4 Addressed File Queue
 
