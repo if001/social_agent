@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 031: 本番Context LoaderとAgent依存関係を構成する
@@ -19,12 +19,27 @@ PostgreSQLの保存状態と現在Eventから実際のAgent Core入力を構築�
 
 ## Acceptance criteria
 
-- [ ] 実DBのAgent状態から`AgentCoreInput`を構築できる。
-- [ ] 通常Eventが通常Core、Review EventがReview Coreへ到達する。
-- [ ] Tool実行記録と提案が既存transactionへ保存される。
-- [ ] 2 AgentのContextが分離される。
+- [x] 実DBのAgent状態から`AgentCoreInput`を構築できる。
+- [x] 通常Eventが通常Core、Review EventがReview Coreへ到達する。
+- [x] Tool実行記録と提案が既存transactionへ保存される。
+- [x] 2 AgentのContextが分離される。
+
+## Implementation notes
+
+- PostgreSQLのAgent、Family、Dynamic State、Social Context、Memory、Intentionから`AgentCoreInput`を構築する本番Loaderを追加した。
+- Observationを検索queryとしてEmbeddingを生成し、Agent IDで分離したMemory retrievalとContext budgetを適用する。
+- Web、File、`agent_send`を登録したTool Registry、通常Core、Runtime persistence、Review Core、Event Router、Outboxをproduction compositionで結線した。
+- 受信Envelopeのhop、TTL、reply先をrun transportとしてTool実行へ渡し、`agent_send`の循環制限と返信経路を維持する。
+
+## Tests
+
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm test`（62件）
+- `.env`の`POSTGRES_URL`を使用した`pnpm test:integration`（11件）
+- `pnpm test:system`（13件）
+
 
 ## Dependencies
 
 - 030
-

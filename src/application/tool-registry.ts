@@ -3,7 +3,12 @@ import { z } from "zod";
 import { DomainError } from "../domain/contracts.js";
 import type { ToolResult } from "./ports.js";
 
-export type ToolExecutionContext = { readonly agentId: string; readonly runId: string; readonly idempotencyKey: string };
+export type ToolExecutionContext = {
+  readonly agentId: string;
+  readonly runId: string;
+  readonly idempotencyKey: string;
+  readonly transport?: { readonly hop: number; readonly expiresAt: string; readonly replyTo?: string };
+};
 export type RegisteredTool<T = unknown> = { readonly name: string; readonly description: string; readonly schema: z.ZodType<T>; execute(input: T, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> };
 
 export class ToolRegistry {

@@ -30,6 +30,8 @@ export type { EmbeddingMetadata } from "./infrastructure/embedding/ollama-embedd
 export { PostgresMemoryRetriever } from "./infrastructure/persistence/postgres-memory-retriever.js";
 export type { RetrievalFilter } from "./infrastructure/persistence/postgres-memory-retriever.js";
 export { ContextBuilder } from "./application/context-builder.js";
+export { createBotComposition } from "./bootstrap/bot-composition.js";
+export { PostgresAgentContextLoader, observationFromEvent } from "./infrastructure/persistence/postgres-agent-context-loader.js";
 export type { ContextBudget, ContextSource } from "./application/context-builder.js";
 export { AgentRuntime, OutboxDispatcher } from "./application/agent-runtime.js";
 export type { AgentRuntimeOptions, PendingOutput, RuntimePersistence } from "./application/agent-runtime.js";

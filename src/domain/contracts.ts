@@ -176,7 +176,13 @@ export const LongTermCandidateProposalSchema = z.object({
 });
 
 export const AgentCoreInputSchema = z.object({
-  run: z.object({ runId: Id, eventId: Id, agentId: Id, occurredAt: Instant }),
+  run: z.object({
+    runId: Id,
+    eventId: Id,
+    agentId: Id,
+    occurredAt: Instant,
+    transport: z.object({ hop: z.number().int().min(0).max(32), expiresAt: Instant, replyTo: Id.optional() }).optional()
+  }),
   observation: ObservationSchema,
   self: AgentSchema,
   dynamicState: DynamicStateSchema,
