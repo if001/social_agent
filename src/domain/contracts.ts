@@ -119,12 +119,15 @@ export const ReviewDecisionSchema = z.enum(["KEEP", "UPDATE", "MERGE", "DROP"]);
 export const CandidateSchema = z.object({
   id: Id,
   agentId: Id,
-  target: z.enum(["selfNarrative", "acquiredDisposition"]),
+  target: z.enum(["selfNarrative", "acquiredDisposition", "semanticMemory", "selfRelatedMemory"]),
   proposal: NaturalLanguage,
   reason: NaturalLanguage,
-  evidenceMemoryIds: z.array(Id).min(1),
+  evidenceMemoryIds: z.array(Id),
+  evidenceEventIds: z.array(Id).default([]),
   status: z.enum(["pending", "kept", "applied", "merged", "dropped"]),
   createdAt: Instant
+}).superRefine((value, context) => {
+  if (value.evidenceMemoryIds.length === 0 && value.evidenceEventIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "candidate requires Memory or Event evidence" });
 });
 export type Candidate = z.infer<typeof CandidateSchema>;
 
@@ -146,7 +149,7 @@ export const StateUpdateProposalSchema = z.object({
   evidenceIds: z.array(Id)
 });
 
-export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, createdAt: true });
+export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, createdAt: true, kind: true }).extend({ kind: z.literal("episodic") });
 
 const CreateIntentionProposalSchema = z.object({
   operation: z.literal("create"),
@@ -172,7 +175,10 @@ export const LongTermCandidateProposalSchema = z.object({
   target: CandidateSchema.shape.target,
   proposal: NaturalLanguage,
   reason: NaturalLanguage,
-  evidenceMemoryIds: z.array(Id).min(1)
+  evidenceMemoryIds: z.array(Id),
+  evidenceEventIds: z.array(Id).default([])
+}).superRefine((value, context) => {
+  if (value.evidenceMemoryIds.length === 0 && value.evidenceEventIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "candidate requires Memory or Event evidence" });
 });
 
 export const AgentCoreInputSchema = z.object({
@@ -184,6 +190,7 @@ export const AgentCoreInputSchema = z.object({
     transport: z.object({ hop: z.number().int().min(0).max(32), expiresAt: Instant, replyTo: Id.optional() }).optional()
   }),
   observation: ObservationSchema,
+  recentObservations: z.array(ObservationSchema).default([]),
   self: AgentSchema,
   dynamicState: DynamicStateSchema,
   socialContext: z.array(SocialContextSchema),

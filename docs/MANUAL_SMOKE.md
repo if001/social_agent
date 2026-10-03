@@ -11,6 +11,12 @@ Run `pnpm verify` first. Use a dedicated database, shared queue root, separate f
 5. Start `pnpm bot:start --env-file .env.bot-a` and `pnpm bot:start --env-file .env.bot-b` in separate processes.
 6. Confirm both report `ready`. If DB, Chat Ollama, or Embedding Ollama capability checks fail, stop the smoke test.
 
+Memory with `pending` or `failed` Embedding can be retried without displaying environment values:
+
+```sh
+pnpm ops memory:backfill [agent-id] [limit]
+```
+
 ## Terminal
 
 1. Use one of the initialized smoke Agents.

@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, DomainError, type AgentCoreInput, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, DomainError, ObservationSchema, type AgentCoreInput, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
 
@@ -15,6 +15,7 @@ type AgentRow = QueryResultRow & {
 type SocialRow = QueryResultRow & { id: string; agent_id: string; subject_id: string; description: string; updated_at: Date };
 type IntentionRow = QueryResultRow & { id: string; agent_id: string; description: string; reason: string; status: Intention["status"]; next_review_at: Date | null; superseded_by_id: string | null; created_at: Date; updated_at: Date };
 type LinkRow = QueryResultRow & { memory_id: string; value: string };
+type RecentEventRow = QueryResultRow & { observation: unknown };
 
 export type PostgresAgentContextLoaderOptions = {
   readonly pool: Pool;
@@ -25,6 +26,7 @@ export type PostgresAgentContextLoaderOptions = {
   readonly limits: RunLimits;
   readonly retrievalLimit?: number;
   readonly embeddingTimeoutMs?: number;
+  readonly recentObservationLimit?: number;
 };
 
 function text(value: unknown): string | undefined { return typeof value === "string" && value.trim() !== "" ? value : undefined; }
@@ -59,11 +61,13 @@ export class PostgresAgentContextLoader {
     if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${event.agentId}`);
 
     const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);
-    const [vectors, socialResult, intentionResult] = await Promise.all([
+    const [vectors, socialResult, intentionResult, recentResult] = await Promise.all([
       this.options.embedding.embed([observation.summary], embeddingSignal),
       this.options.pool.query<SocialRow>("SELECT id,agent_id,subject_id,description,updated_at FROM social_contexts WHERE agent_id=$1 ORDER BY updated_at DESC,id", [event.agentId]),
-      this.options.pool.query<IntentionRow>("SELECT id,agent_id,description,reason,status,next_review_at,superseded_by_id,created_at,updated_at FROM intentions WHERE agent_id=$1 AND status='active' ORDER BY created_at,id", [event.agentId])
+      this.options.pool.query<IntentionRow>("SELECT id,agent_id,description,reason,status,next_review_at,superseded_by_id,created_at,updated_at FROM intentions WHERE agent_id=$1 AND status='active' ORDER BY created_at,id", [event.agentId]),
+      this.options.pool.query<RecentEventRow>("SELECT observation FROM events WHERE agent_id=$1 AND status='completed' ORDER BY occurred_at DESC,id DESC LIMIT $2", [event.agentId, this.options.recentObservationLimit ?? 6])
     ]);
+    const recentObservations = recentResult.rows.flatMap(({ observation: value }) => { const parsed = ObservationSchema.safeParse(value); return parsed.success ? [parsed.data] : []; }).reverse();
     const memories = await this.#retriever.retrieve(event.agentId, observation.summary, vectors[0] ?? [], this.options.retrievalLimit ?? this.options.budget.maxMemories);
     const enrichedMemories = await this.#loadMemoryLinks(memories);
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, description: row.description, updatedAt: row.updated_at.toISOString() }));
@@ -74,7 +78,7 @@ export class PostgresAgentContextLoader {
     const runTransport = transport(event);
     return AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
-      observation,
+      observation, recentObservations,
       self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, initialDisposition: agent.initial_disposition, acquiredDisposition: agent.acquired_disposition, values: agent.values, role: agent.role, selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
       dynamicState: { agentId: agent.id, emotion: agent.emotion, mood: agent.mood, drive: agent.drive, desire: agent.desire, updatedAt: agent.state_updated_at.toISOString() },
       socialContext, memories: enrichedMemories, intentions, availableTools: [...availableTools],

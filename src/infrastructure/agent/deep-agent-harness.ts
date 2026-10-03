@@ -40,6 +40,9 @@ function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["
     proposal.evidenceMemoryIds.forEach((id) => {
       if (!memoryIds.has(id)) issues.push({ code: "invalid_reference", path: ["internalChanges", "longTermCandidates", index, "evidenceMemoryIds"], message: `Unknown Memory reference: ${id}` });
     });
+    proposal.evidenceEventIds.forEach((id) => {
+      if (id !== input.run.eventId) issues.push({ code: "invalid_reference", path: ["internalChanges", "longTermCandidates", index, "evidenceEventIds"], message: `Unknown Event reference: ${id}` });
+    });
   });
   return issues;
 }
@@ -121,6 +124,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 入力:
 - run: run、Event、対象Agent、発生時刻
 - observation: 今回観測した出来事と確認済みの事実
+- recentObservations: 代名詞や省略を解決するための直近の出来事。新しい出来事として重複保存しません
 - self: Identity、Disposition、Values、Role、Self Narrative、Self Continuity
 - dynamicState: 現在のEmotion、Mood、Drive、Desire
 - socialContext: 対象Agentが持つ関係認識
@@ -132,9 +136,9 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 出力はAgentCoreOutputだけです:
 - interpretation.subjectiveMeaning: 今回のEventがこのAgentにとって持つ意味。意味づけが不要な場合だけ省略できます
 - internalChanges.transientStateUpdates: Emotion、Mood、Drive、Desire、Working Social Contextの更新提案。targetはemotion | mood | drive | desire | socialContext、operationはset | append | removeです。各要素はvalue、reason、evidenceIdsも持ちます
-- internalChanges.memoryProposals: 保存価値のあるMemory提案。kindはepisodic | semantic | self-related | self-changeのいずれかです。各要素はcontent、relatedSubjectIds、relatedIntentionIds、importance、任意のsourceAgentId、evidenceEventIdsも持ちます
+- internalChanges.memoryProposals: 今回のEventで生じ、後の判断を変え得る具体的な出来事だけを保存するEpisodic Memory提案。kindはepisodicだけです。約束、予定、決定、感情的・関係上重要な出来事、重要なTool結果、Intentionの変化がなければ空配列にします。各要素はcontent、relatedSubjectIds、relatedIntentionIds、importance、任意のsourceAgentId、evidenceEventIdsも持ちます
 - internalChanges.intentionProposals: Intention提案。新規はoperation=create、description、reason、任意のnextReviewAt。既存更新はoperation=update、入力に存在するintentionId、reasonと変更項目を持ち、statusを変える場合はactive | completed | dropped | supersededのいずれかです
-- internalChanges.longTermCandidates: 長期状態を後でReviewする候補。targetはselfNarrative | acquiredDispositionのいずれかです。各要素はproposal、reason、1件以上のevidenceMemoryIdsも持ちます
+- internalChanges.longTermCandidates: 後でReviewする候補。targetはselfNarrative | acquiredDisposition | semanticMemory | selfRelatedMemoryのいずれかです。安定した知識や自己認識を通常runでMemoryとして確定せず、semanticMemoryまたはselfRelatedMemoryの候補にします。各要素はproposal、reason、evidenceMemoryIds、evidenceEventIdsを持ち、根拠を少なくとも1件指定します
 - action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-actionはreasonを持ちます。Tool利用はreasoning中に行い、最終actionへtoolを返しません
 
 時間スケール:
@@ -146,6 +150,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - 入力にない事実を作りません
 - MemoryやIntentionのIDを根拠・更新対象に使う場合は入力に存在するIDだけを使います
 - 他Agentから聞いた情報を対象Agent自身の直接経験として扱いません
+- 直近の対話は今回の出来事の文脈解決に使い、同じ出来事を別のMemoryとして繰り返し提案しません
 - 全状態を毎回変更せず、不要な各提案配列は空配列[]にします
 - 新規Memory、Intention、Candidateに保存用ID、所有Agent ID、作成時刻、statusを生成しません
 - 状態変更は提案であり、保存済みだと主張しません

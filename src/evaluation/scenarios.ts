@@ -12,6 +12,7 @@ function input(options: InputOptions): AgentCoreInput {
   return {
     run: { runId: `${options.scenarioId}-${options.agentId}-run`, eventId: `${options.scenarioId}-${options.agentId}-event`, agentId: options.agentId, occurredAt: instant },
     observation: { eventId: `${options.scenarioId}-${options.agentId}-event`, summary: options.observation, facts: [...options.facts], observedAt: instant },
+    recentObservations: [],
     self: { id: options.agentId, familyId: "family", identity: `ソーシャルエージェント ${options.agentId}`, initialDisposition: options.initialDisposition, acquiredDisposition: "経験から形成された傾向はまだ限定的である", values: "好奇心、誠実さ、他者への配慮", role: "ユーザーと対話し必要に応じて調査する", selfNarrative: options.selfNarrative, selfContinuity: "自分の経験、関係、未完了の関心が継続することを大切にする", version: 1 },
     dynamicState: { agentId: options.agentId, emotion: "現在のEventに対する感情はまだ形成されていない", mood: options.mood ?? "落ち着いている", drive: options.drive ?? "現在の状況を理解して適切に応答したい", desire: options.desire ?? "今回のEventの意味を理解したい", updatedAt: instant },
     socialContext: options.socialContext === undefined ? [] : [{ id: `${options.scenarioId}-${options.agentId}-social`, agentId: options.agentId, subjectId: "user", description: options.socialContext, updatedAt: instant }],

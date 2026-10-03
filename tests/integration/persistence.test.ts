@@ -19,9 +19,10 @@ import { FakeEmbeddingProvider } from "../../src/infrastructure/embedding/ollama
 import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { BotHost } from "../../src/bootstrap/bot-host.js";
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
+import { PostgresMemoryEmbeddingLifecycle } from "../../src/infrastructure/persistence/postgres-memory-embedding.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
-const databaseUrl = process.env.TEST_POSTGRES_URL ?? sample.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
+const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
 const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
 
 describeDatabase("PostgreSQL persistence", () => {
@@ -111,12 +112,29 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(found.every(({ agentId }) => agentId === "a")).toBe(true);
   });
 
+  it("embeds pending Memory after persistence and backfills failures without crossing Agent ownership", async () => {
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('embedding-a','family','Embedding A','Calm'),('embedding-b','family','Embedding B','Calm')");
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('embedding-memory-a','embedding-a','episodic','remember a','Relevant',now(),'pending'),('embedding-memory-b','embedding-b','episodic','remember b','Relevant',now(),'pending')");
+    const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
+    const lifecycle = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "remember a": vector, "remember b": vector }), "fake-embed");
+    await expect(lifecycle.embedMemoryIds("embedding-a", ["embedding-memory-a", "embedding-memory-b"])).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
+    expect((await pool.query<{ embedding_status: string; embedding_model: string; embedding_dimension: number }>("SELECT embedding_status,embedding_model,embedding_dimension FROM memories WHERE id='embedding-memory-a'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "fake-embed", embedding_dimension: 768 });
+    expect((await pool.query<{ embedding_status: string }>("SELECT embedding_status FROM memories WHERE id='embedding-memory-b'")).rows[0]?.embedding_status).toBe("pending");
+    await expect(lifecycle.embedMemoryIds("embedding-a", ["embedding-memory-a"])).resolves.toEqual({ attempted: 0, ready: 0, failed: 0 });
+
+    const failing = new PostgresMemoryEmbeddingLifecycle(pool, { dimension: 768, embed: () => Promise.reject(new Error("provider unavailable")) }, "fake-embed");
+    await expect(failing.embedMemoryIds("embedding-b", ["embedding-memory-b"])).resolves.toEqual({ attempted: 1, ready: 0, failed: 1 });
+    expect((await pool.query<{ embedding_status: string; embedding_error: string }>("SELECT embedding_status,embedding_error FROM memories WHERE id='embedding-memory-b'")).rows[0]).toEqual({ embedding_status: "failed", embedding_error: "provider unavailable" });
+    await expect(lifecycle.backfill({ agentId: "embedding-b" })).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
+  });
+
   it("loads a complete Agent Core context from PostgreSQL without crossing Agent ownership", async () => {
     await pool.query("UPDATE agent_families SET base_instruction='' WHERE id='family'");
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,description) VALUES ('social-a','a','owner','Trusted'),('social-b','b','owner','Private') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('context-intention-a','a','Reply carefully','Conversation','active'),('context-intention-b','b','Keep private','Private','active') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ('memory-a1','context-intention-a') ON CONFLICT DO NOTHING");
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('recent-a','a','user-message',$1,'test','completed','2026-01-01'),('recent-b','b','user-message',$2,'test','completed','2026-01-01')", [JSON.stringify({ eventId: "recent-a", summary: "previous exchange", facts: ["prior context"], observedAt: fixtureInstant }), JSON.stringify({ eventId: "recent-b", summary: "private exchange", facts: ["other agent"], observedAt: fixtureInstant })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const loader = new PostgresAgentContextLoader({
       pool, ids: new SequenceIdGenerator(["context-run"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry([]),
@@ -132,6 +150,8 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.intentions.map(({ id }) => id)).not.toContain("context-intention-b");
     expect(input.memories.every(({ agentId }) => agentId === "a")).toBe(true);
     expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"], relatedIntentionIds: ["context-intention-a"] });
+    expect(input.recentObservations.map(({ eventId }) => eventId)).toContain("recent-a");
+    expect(input.recentObservations.map(({ eventId }) => eventId)).not.toContain("recent-b");
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
   });
 
@@ -171,11 +191,15 @@ describeDatabase("PostgreSQL persistence", () => {
   it("updates long-term state, candidate and self-change memory atomically", async () => {
     await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-ok','a','selfNarrative','More patient','pending','Evidence'),('candidate-fail','a','selfNarrative','Should rollback','pending','Evidence')");
     await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-ok','memory-a1'),('candidate-fail','memory-a1')");
-    const repository = new PostgresLongTermReviewRepository(pool, () => "review-memory");
+    const selfChangeContent = "Changed selfNarrative from: Growing\nTo: I learn with patience";
+    const selfChangeVector = Array.from({ length: 768 }, (_, index) => index === 2 ? 1 : 0);
+    const selfChangeEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ [selfChangeContent]: selfChangeVector }), "review-fake");
+    const repository = new PostgresLongTermReviewRepository(pool, () => "review-memory", selfChangeEmbedding);
     const service = new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-ok", decision: "UPDATE", reason: "Repeated experience" }], stateUpdate: { value: "I learn with patience", reason: "Repeated experience", evidenceMemoryIds: ["memory-a1"] } }) });
     await service.review("candidate-ok", new AbortController().signal);
     expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
     expect((await pool.query("SELECT 1 FROM memories WHERE id='review-memory' AND kind='self-change'")).rowCount).toBe(1);
+    expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='review-memory'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "review-fake" });
     const failing = new LongTermReviewService(new PostgresLongTermReviewRepository(pool, () => "review-memory"), { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-fail", decision: "UPDATE", reason: "Test rollback" }], stateUpdate: { value: "Should rollback", reason: "Test rollback", evidenceMemoryIds: ["memory-a1"] } }) });
     await expect(failing.review("candidate-fail", new AbortController().signal)).rejects.toBeTruthy();
     expect((await pool.query<{ status: string }>("SELECT status FROM long_term_candidates WHERE id='candidate-fail'")).rows[0]?.status).toBe("pending");
@@ -193,22 +217,27 @@ describeDatabase("PostgreSQL persistence", () => {
     input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", createdAt: fixtureInstant, relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", evidenceEventIds: [] }];
     input.intentions = [{ id: "existing-intention", agentId: "a", description: "Old goal", status: "active", reason: "Existing", createdAt: fixtureInstant, updatedAt: fixtureInstant }];
     input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["memory-new", "intention-new", "candidate-new", "tool-record", "state-change", "social-change"]), () => new Date(fixtureInstant));
+    const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
+    const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["memory-new", "intention-new", "candidate-new", "tool-record", "state-change", "social-change"]), () => new Date(fixtureInstant), memoryEmbedding);
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" } };
     const result = {
       output: { interpretation: {}, internalChanges: {
         transientStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext" as const, operation: "set" as const, value: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }],
-        memoryProposals: [{ kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", evidenceEventIds: ["runtime-event"] }],
+        memoryProposals: [{ kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", evidenceEventIds: ["runtime-event"] }, { kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", evidenceEventIds: ["runtime-event"] }],
         intentionProposals: [{ operation: "create" as const, description: "Follow up", reason: "Still relevant" }, { operation: "update" as const, intentionId: "existing-intention", status: "completed" as const, reason: "Finished" }],
-        longTermCandidates: [{ target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"] }]
+        longTermCandidates: [{ target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }, { target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }]
       }, action: { type: "respond" as const, content: "Hello" } },
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
     await expect(persistence.commit(message, event, input, result, { state: { ...input.dynamicState, mood: "Attentive" }, changes: [{ target: "mood", operation: "set", before: input.dynamicState.mood, after: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", before: undefined, after: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }] }, [])).resolves.toBe("committed");
     expect((await pool.query<{ agent_id: string }>("SELECT agent_id FROM memories WHERE id='memory-new'")).rows[0]?.agent_id).toBe("a");
+    expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='memory-new'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
     expect((await pool.query<{ status: string }>("SELECT status FROM intentions WHERE id='existing-intention'")).rows[0]?.status).toBe("completed");
     expect((await pool.query<{ agent_id: string; status: string }>("SELECT agent_id,status FROM long_term_candidates WHERE id='candidate-new'")).rows[0]).toMatchObject({ agent_id: "a", status: "pending" });
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM memories WHERE evidence_event_ids ? 'runtime-event' AND content='A useful exchange'")).rows[0]?.count).toBe("1");
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM long_term_candidates WHERE proposed_value='I follow through'")).rows[0]?.count).toBe("1");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ description: string }>("SELECT description FROM social_contexts WHERE agent_id='a' AND subject_id='owner'")).rows[0]?.description).toBe("Trusted collaborator");
   });
