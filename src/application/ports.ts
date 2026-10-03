@@ -1,4 +1,4 @@
-import type { Agent, AgentCoreInput, AgentCoreOutput, DomainEvent, Memory, MessageEnvelope } from "../domain/contracts.js";
+import type { Agent, AgentCoreInput, AgentRunResult, DomainEvent, Memory, MessageEnvelope } from "../domain/contracts.js";
 
 export interface Clock { now(): Date; }
 export interface IdGenerator { next(): string; }
@@ -15,7 +15,7 @@ export interface MemoryRepository {
   list(agentId: string): Promise<readonly Memory[]>;
 }
 export interface UnitOfWork { transaction<T>(work: () => Promise<T>): Promise<T>; }
-export interface AgentHarness { run(input: AgentCoreInput, signal: AbortSignal): Promise<AgentCoreOutput>; }
+export interface AgentHarness { run(input: AgentCoreInput, signal: AbortSignal): Promise<AgentRunResult>; }
 export interface EmbeddingProvider { readonly dimension: number; embed(texts: readonly string[], signal: AbortSignal): Promise<readonly (readonly number[])[]>; }
 export interface MemoryRetriever { retrieve(agentId: string, query: string, limit: number): Promise<readonly Memory[]>; }
 export interface ToolDefinition { readonly name: string; readonly description: string; readonly inputSchema: Readonly<Record<string, unknown>>; }
