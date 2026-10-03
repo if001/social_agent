@@ -8,10 +8,25 @@ import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 describe("tools", () => {
+  it("exposes each registered input schema to the Agent", () => {
+    const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), execute: () => Promise.resolve({ ok: true }) }]);
+    expect(registry.definitions()[0]?.inputSchema).toMatchObject({ type: "object", required: ["value"] });
+  });
+
   it("rejects unknown tools and invalid input before side effects", async () => {
     let calls = 0; const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), execute: () => { calls += 1; return Promise.resolve({ ok: true }); } }]);
     await expect(registry.execute("missing", {}, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(registry.execute("known", {}, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" }); expect(calls).toBe(0);
+  });
+
+  it("returns the same execution for a repeated idempotency key and rejects conflicting input", async () => {
+    let calls = 0;
+    const registry = new ToolRegistry([{ name: "write", description: "Write", schema: z.object({ value: z.string() }), execute: () => { calls += 1; return Promise.resolve({ ok: true, value: calls }); } }]);
+    const context = { agentId: "a", runId: "r", idempotencyKey: "r:tool-1" };
+    await expect(registry.execute("write", { value: "same" }, context, new AbortController().signal)).resolves.toEqual({ ok: true, value: 1 });
+    await expect(registry.execute("write", { value: "same" }, context, new AbortController().signal)).resolves.toEqual({ ok: true, value: 1 });
+    await expect(registry.execute("write", { value: "different" }, context, new AbortController().signal)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(calls).toBe(1);
   });
 
   it("validates web request, response, URL, size and fixed service origin", async () => {
@@ -36,11 +51,11 @@ describe("tools", () => {
 
   it("keeps read, write and delete inside real roots including symlinks", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const outside = await temporaryDirectory(scope); await mkdir(join(root, "sub")); await writeFile(join(outside, "secret"), "secret"); await symlink(outside, join(root, "escape"));
-    const registry = new ToolRegistry(createFileTools([root])); const context = { agentId: "a", runId: "r", idempotencyKey: "k" }; const signal = new AbortController().signal;
-    await registry.execute("file_write", { root: 0, path: "sub/note", content: "hello" }, context, signal); expect(await readFile(join(root, "sub/note"), "utf8")).toBe("hello");
-    await expect(registry.execute("file_read", { root: 0, path: "../outside" }, context, signal)).rejects.toMatchObject({ code: "VALIDATION" });
-    await expect(registry.execute("file_read", { root: 0, path: join(outside, "secret") }, context, signal)).rejects.toMatchObject({ code: "VALIDATION" });
-    await expect(registry.execute("file_read", { root: 0, path: "escape/secret" }, context, signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    const registry = new ToolRegistry(createFileTools([root])); const context = (idempotencyKey: string) => ({ agentId: "a", runId: "r", idempotencyKey }); const signal = new AbortController().signal;
+    await registry.execute("file_write", { root: 0, path: "sub/note", content: "hello" }, context("write"), signal); expect(await readFile(join(root, "sub/note"), "utf8")).toBe("hello");
+    await expect(registry.execute("file_read", { root: 0, path: "../outside" }, context("read-parent"), signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(registry.execute("file_read", { root: 0, path: join(outside, "secret") }, context("read-absolute"), signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(registry.execute("file_read", { root: 0, path: "escape/secret" }, context("read-symlink"), signal)).rejects.toMatchObject({ code: "VALIDATION" });
     await scope.close();
   });
 });

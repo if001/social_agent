@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 021: Tool実行をDeep Agent内部へ統一する
@@ -33,9 +33,9 @@ Deep Agent内部Tool実行と最終actionによる外部ToolLoopが混在して�
 
 ## Acceptance criteria
 
-- [ ] Tool要求から結果の再入力・最終出力まで内部loopで完了する。
-- [ ] 不許可Tool、回数超過、期限超過を実行境界で防げる。
-- [ ] 成功・失敗・途中終了の履歴を取得できる。
+- [x] Tool要求から結果の再入力・最終出力まで内部loopで完了する。
+- [x] 不許可Tool、回数超過、期限超過を実行境界で防げる。
+- [x] 成功・失敗・途中終了の履歴を取得できる。
 
 ## Tests
 
