@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
 
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
-import { loadConfig } from "../../src/config/config.js";
+import { assertDistinctBotConfigs, loadConfig } from "../../src/config/config.js";
+import { loadBotStartConfig, parseBotStartArguments } from "../../src/bootstrap/bot-start.js";
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { redactSecrets } from "../../src/observability/redaction.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
@@ -14,6 +15,34 @@ describe("configuration and lifecycle", () => {
     await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");
     const config = await loadConfig({ cwd, environment: { BOT_ID: "process" } });
     expect(config.botId).toBe("process"); expect(config.chat.model).toBe("local-model"); expect(config.embedding.dimension).toBe(768);
+    await scope.close();
+  });
+
+  it("loads process-specific bot files after .env and keeps bot destinations distinct", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
+    await writeFile(`${cwd}/.env.sample`, required);
+    await writeFile(`${cwd}/.env`, "BOT_ID=local\n");
+    const discord = "DISCORD_BOT_TOKEN=secret\nDISCORD_BOT_USER_ID=user\nDISCORD_OWNER_IDS=owner,owner\nDISCORD_CHANNEL_IDS=channel\n";
+    await writeFile(`${cwd}/.env.bot-a`, `BOT_ID=bot-a\n${discord}`);
+    await writeFile(`${cwd}/.env.bot-b`, `BOT_ID=bot-b\n${discord}`);
+    const first = await loadBotStartConfig(["--env-file", ".env.bot-a"], { cwd, environment: {} });
+    const second = await loadBotStartConfig(["--env-file", ".env.bot-b"], { cwd, environment: {} });
+    if (first.discord === undefined) throw new Error("missing first Discord config");
+    const firstDiscord = first.discord;
+    expect(first).toMatchObject({ botId: "bot-a", familyId: "default", defaultOutputDestination: "discord:bot-a", discord: { ownerIds: ["owner"], channelIds: ["channel"], queueDestination: "discord:bot-a" } });
+    expect(second.discord?.queueDestination).toBe("discord:bot-b");
+    expect(() => { assertDistinctBotConfigs([first, second]); }).not.toThrow();
+    expect(() => { assertDistinctBotConfigs([first, { ...second, botId: "bot-a" }]); }).toThrow("BOT_ID");
+    expect(() => { assertDistinctBotConfigs([first, { ...second, discord: firstDiscord }]); }).toThrow("DISCORD_QUEUE_DESTINATION");
+    await scope.close();
+  });
+
+  it("validates the bot:start argument and required Discord allowlist contract", async () => {
+    expect(parseBotStartArguments([])).toEqual({});
+    expect(() => parseBotStartArguments(["--unknown"])).toThrow("Usage");
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
+    await expect(loadBotStartConfig([], { cwd, environment: {} })).rejects.toThrow("Discord configuration");
+    await expect(loadBotStartConfig([], { cwd, environment: { DISCORD_BOT_TOKEN: "do-not-print", DISCORD_BOT_USER_ID: "user", DISCORD_CHANNEL_IDS: "channel" } })).rejects.toThrow("DISCORD_OWNER_IDS");
     await scope.close();
   });
 
