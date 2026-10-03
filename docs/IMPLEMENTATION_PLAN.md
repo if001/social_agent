@@ -193,13 +193,23 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** 現在の判断に必要な状態とMemoryだけを、個体分離とContext budgetを守ってAgent Coreへ渡す。
 
-**実装対象:** Fake Embedding Provider、`OLLAMA_EMBEDDING_BASE_URL`・`OLLAMA_EMBEDDING_MODEL`・`OLLAMA_EMBEDDING_DIMENSION`を使うローカルOllama Embedding Provider、model metadata、返却dimension検証、PostgreSQL全文検索 + pgvector + metadata filter、順位調整、MemoryQuery、関連Self / dynamic state / Social Context / Intentionの選択、category上限、安定したtie-break、budget切り詰め。
+**実装対象:** 次の2段階に分ける。
 
-**TDD / 検証:** 固定vectorと既知datasetでfilter、lexical / semantic双方、別Agent除外、model / dimension不一致、top K、budget、選択の安定性を検証する。Context Builderは返却されたpublic inputだけをassertする。
+1. **Memory保存・Embedding（Issue 036）:** Episodic Memoryを通常runで保存し、Semantic / Self-related CandidateをReviewで確定する生成経路、`pending | ready | failed`のEmbedding状態、transaction外のEmbedding生成、model / dimension metadata、冪等backfill、provider障害時のfallback可能な保存を実装する。
+2. **Relevant Memory Query・Context（Issue 037）:** Observation、Dynamic State、Active Intention、Working Social Contextから決定的な`MemoryQuery`を構築し、agent / metadata filter、vector / 日本語keyword / subject / intention候補pool、正規化または順位統合、recency / retrieval priority、種類別予約枠、安定したtie-break、関連度順を維持するbudget切り詰めを実装する。
 
-**完了条件:** 全Memoryや全長期状態を無条件に投入せず、検索結果と採用理由をtraceでき、同じ入力とfixtureから安定したContextを構築できる。
+**TDD / 検証:** 固定vectorと日本語を含む既知datasetでfilter、lexical / semantic双方、別Agent除外、Embedding未生成とprovider障害、model / dimension不一致、3種類の選択、top K、budget、順位維持、選択の安定性を検証する。Context Builderは返却されたpublic inputとRetrieverの順位が保たれることをassertする。
+
+**完了条件:** Memory本文はEmbedding障害時にも失われず再生成できる。全Memoryや全長期状態を無条件に投入せず、検索結果と採用・除外理由をtraceでき、同じ入力とfixtureから安定したContextを構築できる。
 
 **依存:** IP-02、IP-04。
+
+| specの一次要件 | docs上の契約 | 実装Issue |
+|---|---|---|
+| §16 3種類のMemory | FR-ME-01〜02、Architecture 5.8 Memory生成経路 | 036（生成・保存・Embedding）、040（Reviewでの確定） |
+| §17 4入力からRelevant Memory Query | FR-ME-03、Architecture 5.8 Relevant Memory Query | 037 |
+| §17 上位候補だけをContextへ投入 | FR-ME-04、Architecture 5.5 / 5.8 | 037 |
+| §18 関連情報を選択したAgent Core Input | FR-ME-04、Architecture 9 Agent Core契約 | 037、038 |
 
 ### IP-09: Agent Runtimeの最初の縦スライスとTerminal UI
 
@@ -241,7 +251,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** 経験を根拠付きで長期状態へ昇格し、個体化と状態肥大化抑止を両立する。
 
-**実装対象:** Candidate保存とevidence、専用Review input / prompt / output、KEEP / UPDATE / MERGE / DROP、Self Narrative優先更新、Acquired Disposition更新制約、Self Change Memory、Candidate解決、長期状態compaction、review trigger。
+**実装対象:** Candidate保存とevidence、専用Review input / prompt / output、KEEP / UPDATE / MERGE / DROP、根拠付きSemantic / Self-related Memoryの作成・統合・訂正、Self Narrative優先更新、Acquired Disposition更新制約、Self Change Memory、Candidate解決、長期状態compaction、review trigger。
 
 **TDD / 検証:** Scripted Review Harnessで各判断、根拠所有権、単発通常Eventからの直接変更拒否、transaction rollback、重複状態のMERGE、上限超過時compactionを検証する。根拠Memoryまで追跡可能なbefore / afterをassertする。
 

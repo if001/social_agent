@@ -242,7 +242,7 @@ interface ContextBuilder {
 - 登録済みTool定義
 - Runtimeの残りstep数、deadline、ファイル許可範囲等の制約
 
-長期状態や全Memoryを無条件に投入しない。各カテゴリに件数上限を設け、最終的にmodelのContext budget内へ収める。
+長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
 
 ### 5.6 Agent Harness
 
@@ -304,6 +304,12 @@ Web Tool Adapterは `docs/web_tool.md` のrequest / responseをZodで検証し�
 
 Memory保存と検索を担当する。
 
+#### Memory生成経路
+
+通常Agent Coreは現在のEventを中心に、直近の対話を文脈解決へ使い、具体的な出来事をEpisodic Memoryとして0件以上提案する。SemanticとSelf-relatedについては、通常runでは確定Memoryではなく、主張、理由、根拠Event / Memory IDを持つLong-term Candidateを提案する。Long-term Reviewは複数の根拠と既存Memoryを照合し、Semantic Memoryの作成・統合・訂正とSelf-related Memoryの作成・統合・訂正を確定する。
+
+Self Change MemoryはLong-term Reviewが長期状態を変更した事実を表す派生・監査記録であり、Episodic、Semantic、Self-relatedと並ぶ認知上の第4用途にはしない。既存の永続化上の`self-change`識別子は維持できるが、通常Retrievalの3種類の候補枠から除外する。
+
 ```ts
 interface MemoryRepository {
   save(memory: Memory): Promise<void>
@@ -320,18 +326,31 @@ interface EmbeddingProvider {
 }
 ```
 
-`OllamaEmbeddingAdapter`は `OLLAMA_EMBEDDING_BASE_URL` のローカルOllamaを使ってMemory contentとqueryをembeddingする。modelと期待dimensionは `OLLAMA_EMBEDDING_MODEL` と `OLLAMA_EMBEDDING_DIMENSION` から読み、返却vectorの次元を保存前に検証する。Chat用のOllama Cloud接続やAPI keyは使用しない。検索は次を組み合わせる。
+#### Embedding lifecycle
+
+Runtimeは検証済みMemoryをまず永続化し、EmbeddingをDB transaction外で生成する。Memoryは`pending`、`ready`、`failed`のEmbedding状態を持ち、失敗時もMemory本文と出典を失わない。成功時はvector、model ID、dimensionを一組として保存する。`pending`と`failed`は冪等なbackfill対象とし、modelまたはdimensionの変更時も再生成できるようにする。Self Change Memoryを含むすべての保存経路が同じlifecycleを使う。
+
+`OllamaEmbeddingAdapter`は `OLLAMA_EMBEDDING_BASE_URL` のローカルOllamaを使ってMemory contentとqueryをembeddingする。modelと期待dimensionは `OLLAMA_EMBEDDING_MODEL` と `OLLAMA_EMBEDDING_DIMENSION` から読み、返却vectorの次元を保存前に検証する。Chat用のOllama Cloud接続やAPI keyは使用しない。
+
+#### Relevant Memory Queryと候補選択
+
+初期実装では追加のLLM呼び出しを行わず、Observation、関連するDynamic State、Active Intention、Working Social Contextの上限付きフィールドから、決定的な`MemoryQuery`を構築する。全状態を検索文へ連結せず、検索語、subject ID、Intention ID、kind、時刻範囲等を分離して表現する。
+
+検索は次の段階で行う。
 
 1. `agent_id`による個体分離
 2. Memory type、related subject、Intention、時刻範囲等のmetadata filter
-3. PostgreSQL全文検索によるlexical score
-4. pgvectorによるsemantic similarity
-5. 新しさと明示的なsignificanceを含む順位調整
-6. 種別ごとの上限とContext budgetによる切り詰め
+3. vector、keyword、subject関連、Intention関連から候補poolを構築
+4. score尺度を正規化するか、Reciprocal Rank Fusion等で各候補poolの順位を統合
+5. 新しさと、機械判定用に限定値で保持する`retrievalPriority`による順位調整
+6. 関連する種類の予約枠と全体順位による残り枠を使った多様性選択
+7. 関連度順を維持したContext budgetによる切り詰め
 
-scoreは検索順位のために使用し、Agentの価値判断や人格の数値Rewardには使わない。
+`significance`は自然言語による意味記述として保持する。検索順位へ機械的に反映する場合は`low | normal | high | critical`等の限定値を持つ`retrievalPriority`を別に使用し、LLMの自然言語を直接数値化しない。scoreは検索順位のために使用し、Agentの価値判断や人格の数値Rewardには使わない。
 
-Embedding modelまたは次元数を変更する場合に再生成できるよう、各embeddingにmodel IDとdimensionを記録する。
+日本語keyword検索は、採用するtoken化または部分一致方式を固定datasetで検証する。PostgreSQL `simple`全文検索だけを十分な日本語recallの前提にせず、vectorが利用できない場合もkeyword、subject、Intention、新しさから候補を返す。
+
+Retrieverは各候補について最終順位、候補化した方式、選択・除外理由をtraceへ返す。Agent Coreには採用したMemory本文を渡し、詳細なranking traceはRuntimeの観測情報として保存してpromptを肥大化させない。Context BuilderはRetrieverの順位を維持し、件数合わせのために無関係な種類を追加しない。
 
 ### 5.9 State Update Service
 
@@ -369,10 +388,10 @@ SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。�
 
 - 現在のSelf NarrativeとAcquired Disposition
 - pending Candidate
-- Candidateが参照するSelf-related Memory
+- Candidateが参照するEpisodic、Semantic、Self-related Memory
 - 関係するSocial Context
 
-出力はKEEP、UPDATE、MERGE、DROPの判断、更新後の値、理由、根拠Memory IDを含む。Zodで検証後、長期状態更新、Candidateの解決状態、Self Change Memoryを同一transactionで保存する。
+出力はKEEP、UPDATE、MERGE、DROPの判断、更新後の値、理由、根拠Memory IDを含む。Semantic / Self-related Memory Candidateについては、Memoryの作成・既存Memoryへの統合・訂正・破棄を同じ判断形式で返す。Zodで検証後、長期状態またはMemoryの更新、Candidateの解決状態、必要なSelf Change Memoryを同一transactionで保存する。
 
 単純追加よりMERGEを優先する。Review後も長期状態が設定上限を超える場合は、意味を維持するcompactionを再度提案させる。
 
@@ -588,7 +607,7 @@ PostgreSQLを次の正本とする。
 | `agent_states` | Stable / Dynamic State、Self Narrative、version、更新時刻 |
 | `social_contexts` | subjectごとの現在認識 |
 | `intentions` | goal、reason、trigger、status、next review |
-| `memories` | type、content、significance、occurredAt、embedding、embedding model |
+| `memories` | type、content、significance、retrieval priority、occurredAt、source、embedding status / vector / model / dimension / last attempt |
 | `memory_subjects` | Memoryとsubjectの関連 |
 | `memory_intentions` | MemoryとIntentionの関連 |
 | `long_term_candidates` | target、proposed value、status、reason、review時刻、期限付きlease |

@@ -148,17 +148,35 @@ Tool実行結果は論理的なTool Result Eventとして同じDeep Agent runへ
 
 システムはEpisodic、Semantic、Self-related Memoryを論理的に区別し、内容、作成時刻、関連主体、関連Intention、重要性の意味記述を保持できなければならない。
 
+- Episodic Memoryは、Agentが経験した具体的な出来事、会話、約束、Tool実行結果、Intentionの開始・変更・完了等を表す。
+- Semantic Memoryは、明示された安定的な事実、または複数の経験から根拠付きで一般化した知識を表す。
+- Self-related Memoryは、複数の経験とAgent自身の行動から形成された、役割、傾向、得意・不得意、重視すること等の自己認識を表す。
+
+Long-term Reviewによる長期状態の変更履歴であるSelf Change Memoryは、第4の一般的なMemory用途ではない。変更前後と根拠を追跡する派生・監査記録として扱い、通常検索で3種類へ設ける候補枠の対象外とする。
+
 #### FR-ME-02: Memory作成
 
 すべてのEventを無条件に記憶するのではなく、Agent CoreがMemory作成案とその理由を提示し、Runtimeが妥当性を検証して保存しなければならない。
+
+通常Agent Coreは、現在のEventを中心に、Observation、直近の対話、Tool実行結果、Active Intention、Working Social Contextを使ってEpisodic Memoryを0件以上提案する。直近の対話は文脈解決に使い、同じ出来事を毎回再保存してはならない。後続の判断を変え得る約束、予定、決定、感情的または関係上重要な出来事、Toolで得た重要な結果、Intentionの変化を主な保存対象とする。
+
+通常Agent Coreは、SemanticおよびSelf-related Memoryを直ちに確定せず、主張、理由、根拠EventまたはMemoryを含むCandidateとして提案する。明示された安定的事実は少ない根拠でもSemantic Memoryへ確定できるが、推測による一般化と自己認識はLong-term Reviewが複数の独立した経験、既存Memoryとの重複・矛盾、一時的なEmotionやMoodだけで説明できないことを確認して確定する。
+
+LLMはMemoryの意味内容と根拠を提案し、RuntimeはID、所有Agent、作成時刻、出典を付与してSchema、参照所有権、重複を検証する。Embedding生成の失敗によって検証済みMemory自体を失ってはならない。
 
 #### FR-ME-03: 関連Memory検索
 
 Observation、現在状態、Active Intention、Social Context等から検索条件を作り、現在の判断に関連するMemoryを取得できなければならない。すべてのMemoryを毎回Agent Coreへ渡してはならない。
 
+初期実装の検索条件は通常コードで決定的に構築し、LLMによるQuery生成を必須としない。候補は所有Agent、時刻、kind等で分離・絞り込み、意味類似、語句一致、関連subject、関連Intention、新しさ、明示的な検索優先度を根拠として順位づける。尺度の異なるraw scoreを根拠なく直接加算してはならない。
+
+Embedding未生成またはEmbedding Provider障害時も、語句一致、関連ID、新しさによるAgent単位のfallback検索を継続できなければならない。検索結果について、候補となった理由、最終順位、採用または除外理由を追跡できなければならない。
+
 #### FR-ME-04: Context構築
 
 Context BuilderはAgent Coreへ渡すSelf、Disposition、動的状態、Social Context、Intention、Memory、Tool、実行制約を選択し、入力サイズを制御しなければならない。
+
+Memory Retrieverが確定した関連度順をContext Builderが新しさ等の別基準で並べ替えてはならない。3種類のMemoryは、関連する種類の予約枠と全体順位による残り枠を組み合わせ、件数を満たすためだけに無関係なMemoryを投入せず、最終的にContext budget内へ収める。
 
 #### FR-ME-05: 個体間分離
 

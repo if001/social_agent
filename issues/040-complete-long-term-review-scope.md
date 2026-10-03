@@ -13,6 +13,7 @@ specのLong-term CandidateはSelf Narrative、Acquired Disposition、Role、Rais
 
 - specの§21–23をdocsと照合し、対象、trigger、Review Input、compaction契約を先に修正する。
 - Role、Raison d'être、Long-term Preference／InterestのCandidateとReview更新を実装する。
+- 根拠付きSemantic／Self-related Memory Candidateを評価し、既存Memoryとの重複・矛盾を確認して作成・統合・訂正する。
 - Candidate数、経過時間、Memory種別／重要度、状態不整合に基づくReview eligibilityを実装する。
 - KEEP Candidateの次回Review、類似CandidateのMERGE、重複DROPを実装する。
 - Self Narrative／Acquired Disposition等の肥大化を防ぐcompactionを実装する。
@@ -36,6 +37,7 @@ specのLong-term CandidateはSelf Narrative、Acquired Disposition、Role、Rais
 - [ ] KEEP／UPDATE／MERGE／DROPが次回scheduleと整合する。
 - [ ] compactionが意味を保持し、長期状態の単純追記を防ぐ。
 - [ ] Self Change Memoryが変更前後と根拠を保持する。
+- [ ] Semantic／Self-related Memoryが単発の推測から確定されず、根拠Memoryまで追跡できる。
 
 ## Tests
 

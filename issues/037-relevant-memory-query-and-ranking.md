@@ -13,7 +13,7 @@ status: created
 
 - Issue 035のdocs契約を確認し、実装前にranking式とfallbackをdocsへ反映する。
 - Observation、Dynamic State、Active Intention、Social Contextから決定的なRelevant Memory Queryを構築する。
-- keyword／vector／recency／importance／kind／subject／intention関連を合成した候補選択を実装する。
+- keyword／vector／subject／intentionから候補poolを作り、順位統合後にrecency／retrieval priority／kindを反映する候補選択を実装する。
 - Episodic、Semantic、Self-relatedが必要に応じてContextへ入る種類別候補枠を実装する。
 - Retrieverの関連度順をContext budget適用後まで保持する。
 - 日本語keyword検索の方式またはvector中心のfallbackを確定する。
@@ -27,7 +27,7 @@ status: created
 ## Implementation notes
 
 - query入力に秘密値や他Agentの状態を含めない。
-- scoreの尺度が異なる要素を単純加算せず、正規化または段階選択を定義する。
+- scoreの尺度が異なる要素を単純加算せず、正規化またはReciprocal Rank Fusion等の順位統合を定義する。
 - Embedding障害時にもAgent単位のkeyword／recency fallbackで処理可能にする。
 
 ## Acceptance criteria
@@ -35,7 +35,8 @@ status: created
 - [ ] specの4入力要素がquery／filter／rankingへ反映される。
 - [ ] 3種類のMemoryを意図した候補枠で取得できる。
 - [ ] token不足時にも関連度の高いMemoryが優先される。
-- [ ] `importance`とsubject／intention関連がrankingへ反映される。
+- [ ] 自然言語`significance`とは別の限定値`retrievalPriority`と、subject／intention関連がrankingへ反映される。
+- [ ] 各候補の候補化理由、最終順位、採用・除外理由をtraceできる。
 - [ ] Agent分離と安定したtie-breakを維持する。
 
 ## Tests
