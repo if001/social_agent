@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 032: Bot Hostの常駐loopとgraceful shutdownを実装する
@@ -19,12 +19,27 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] `bot:start`から全componentが到達可能になる。
-- [ ] 同一Agentの二重process起動を拒否する。
-- [ ] 一時的なDiscord／Web障害で復旧可能な処理を失わない。
-- [ ] graceful shutdown後に未完了処理を再起動で回収できる。
+- [x] `bot:start`から全componentが到達可能になる。
+- [x] 同一Agentの二重process起動を拒否する。
+- [x] 一時的なDiscord／Web障害で復旧可能な処理を失わない。
+- [x] graceful shutdown後に未完了処理を再起動で回収できる。
 
 ## Dependencies
 
 - 031
 
+## Implementation notes
+
+- DB、対象Agent、Chat Ollama、Embedding Ollamaを検査してからreadyへ遷移するBot Hostを追加した。
+- Agent ID由来のPostgreSQL advisory lockを専用connectionで保持し、同一Agentの二重起動を拒否する。
+- Runtime、Scheduler、Outbox、Discord inbound／outboundを常駐loopとして起動し、一時失敗時はdegradedへ遷移して再試行する。
+- SIGINT／SIGTERMで受付を中断し、loop停止、Runtime drain、lock解放、DB切断を順に実行する。
+- Schedulerのclaimをprocessが所有するAgent IDに限定した。
+
+## Tests
+
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm test`（62件）
+- `.env`の`POSTGRES_URL`を使用した`pnpm test:integration`（12件）
+- `pnpm test:system`（13件）

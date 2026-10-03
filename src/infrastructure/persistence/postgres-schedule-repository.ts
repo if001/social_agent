@@ -6,14 +6,14 @@ type DueIntentionRow = QueryResultRow & { id: string; agent_id: string; descript
 type DueCandidateRow = QueryResultRow & { id: string; agent_id: string; target: string; reason: string };
 
 export class PostgresScheduleRepository implements ScheduleRepository {
-  constructor(private readonly pool: Pool, private readonly leaseMs = 60_000) {}
+  constructor(private readonly pool: Pool, private readonly leaseMs = 60_000, private readonly agentId?: string) {}
   async claimDue(now: Date, limit: number): Promise<readonly ScheduledTarget[]> {
     const client = await this.pool.connect(); const leasedUntil = new Date(now.getTime() + this.leaseMs);
     try {
       await client.query("BEGIN");
-      const intentions = await client.query<DueIntentionRow>(`WITH due AS (SELECT id FROM intentions WHERE status='active' AND next_review_at IS NOT NULL AND next_review_at <= $1 ORDER BY next_review_at,id FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE intentions i SET next_review_at=$3,updated_at=now() FROM due WHERE i.id=due.id RETURNING i.id,i.agent_id,i.description`, [now, limit, leasedUntil]);
+      const intentions = await client.query<DueIntentionRow>(`WITH due AS (SELECT id FROM intentions WHERE status='active' AND next_review_at IS NOT NULL AND next_review_at <= $1 AND ($4::text IS NULL OR agent_id=$4) ORDER BY next_review_at,id FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE intentions i SET next_review_at=$3,updated_at=now() FROM due WHERE i.id=due.id RETURNING i.id,i.agent_id,i.description`, [now, limit, leasedUntil, this.agentId ?? null]);
       const remaining = Math.max(0, limit - intentions.rows.length);
-      const candidates = remaining === 0 ? { rows: [] as DueCandidateRow[] } : await client.query<DueCandidateRow>("SELECT id,agent_id,target,reason FROM long_term_candidates WHERE status='pending' AND (review_after IS NULL OR review_after<=$1) AND (review_lease_until IS NULL OR review_lease_until<=$1) ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT $2", [now, remaining]);
+      const candidates = remaining === 0 ? { rows: [] as DueCandidateRow[] } : await client.query<DueCandidateRow>("SELECT id,agent_id,target,reason FROM long_term_candidates WHERE status='pending' AND (review_after IS NULL OR review_after<=$1) AND (review_lease_until IS NULL OR review_lease_until<=$1) AND ($3::text IS NULL OR agent_id=$3) ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT $2", [now, remaining, this.agentId ?? null]);
       if (candidates.rows.length > 0) await client.query("UPDATE long_term_candidates SET review_lease_until=$2,updated_at=now() WHERE id=ANY($1::text[])", [candidates.rows.map(({ id }) => id), leasedUntil]);
       await client.query("COMMIT");
       const grouped = new Map<string, DueCandidateRow[]>();
