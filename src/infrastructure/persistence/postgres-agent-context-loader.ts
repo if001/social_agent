@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, DomainError, ObservationSchema, type AgentCoreInput, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, DomainError, IntentionTriggerSchema, ObservationSchema, type AgentCoreInput, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
@@ -14,7 +14,7 @@ type AgentRow = QueryResultRow & {
   shared_disposition: string; capabilities: unknown; base_instruction: string;
 };
 type SocialRow = QueryResultRow & { id: string; agent_id: string; subject_id: string; description: string; updated_at: Date };
-type IntentionRow = QueryResultRow & { id: string; agent_id: string; description: string; reason: string; status: Intention["status"]; next_review_at: Date | null; superseded_by_id: string | null; created_at: Date; updated_at: Date };
+type IntentionRow = QueryResultRow & { id: string; agent_id: string; description: string; reason: string; trigger: unknown; status: Intention["status"]; next_review_at: Date | null; superseded_by_id: string | null; created_at: Date; updated_at: Date };
 type LinkRow = QueryResultRow & { memory_id: string; value: string };
 type RecentEventRow = QueryResultRow & { observation: unknown };
 
@@ -64,12 +64,12 @@ export class PostgresAgentContextLoader {
 
     const [socialResult, intentionResult, recentResult] = await Promise.all([
       this.options.pool.query<SocialRow>("SELECT id,agent_id,subject_id,description,updated_at FROM social_contexts WHERE agent_id=$1 ORDER BY updated_at DESC,id", [event.agentId]),
-      this.options.pool.query<IntentionRow>("SELECT id,agent_id,description,reason,status,next_review_at,superseded_by_id,created_at,updated_at FROM intentions WHERE agent_id=$1 AND status='active' ORDER BY created_at,id", [event.agentId]),
+      this.options.pool.query<IntentionRow>("SELECT id,agent_id,description,reason,trigger,status,next_review_at,superseded_by_id,created_at,updated_at FROM intentions WHERE agent_id=$1 AND status='active' ORDER BY created_at,id", [event.agentId]),
       this.options.pool.query<RecentEventRow>("SELECT observation FROM events WHERE agent_id=$1 AND status='completed' ORDER BY occurred_at DESC,id DESC LIMIT $2", [event.agentId, this.options.recentObservationLimit ?? 6])
     ]);
     const recentObservations = recentResult.rows.flatMap(({ observation: value }) => { const parsed = ObservationSchema.safeParse(value); return parsed.success ? [parsed.data] : []; }).reverse();
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, description: row.description, updatedAt: row.updated_at.toISOString() }));
-    const intentions: Intention[] = intentionResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, description: row.description, reason: row.reason, status: row.status, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), ...(row.next_review_at === null ? {} : { nextReviewAt: row.next_review_at.toISOString() }), ...(row.superseded_by_id === null ? {} : { supersededById: row.superseded_by_id }) }));
+    const intentions: Intention[] = intentionResult.rows.map((row) => { const trigger = IntentionTriggerSchema.safeParse(row.trigger); return { id: row.id, agentId: row.agent_id, description: row.description, reason: row.reason, ...(trigger.success ? { trigger: trigger.data } : {}), status: row.status, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), ...(row.next_review_at === null ? {} : { nextReviewAt: row.next_review_at.toISOString() }), ...(row.superseded_by_id === null ? {} : { supersededById: row.superseded_by_id }) }; });
     const dynamicState = { agentId: agent.id, emotion: agent.emotion, mood: agent.mood, drives: texts(agent.drives), desires: texts(agent.desires), currentInterests: texts(agent.current_interests), updatedAt: agent.state_updated_at.toISOString() };
     const memoryQuery = buildRelevantMemoryQuery({ observation, dynamicState, intentions, socialContext });
     const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);

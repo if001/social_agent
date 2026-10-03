@@ -14,6 +14,7 @@ export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput>;
   commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
+  activateTriggers(event: DomainEvent): Promise<void>;
   recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
@@ -64,7 +65,8 @@ export class AgentRuntime {
     const output = result.output;
     const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.transientStateUpdates, input.socialContext);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
-    await this.options.persistence.commit(message, event, input, result, update, outgoing);
+    const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
+    if (committed === "committed") await this.options.persistence.activateTriggers(event);
     return output.action;
   }
 }

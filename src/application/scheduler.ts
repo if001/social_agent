@@ -25,7 +25,7 @@ export class Scheduler {
       this.#running.add(targetKey);
       try {
         const occurredAt = this.options.clock.now();
-        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, ...(target.candidateIds === undefined ? {} : { candidateIds: target.candidateIds }) } };
+        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.candidateIds === undefined ? {} : { candidateIds: target.candidateIds }) } };
         const action = await this.options.runtime.process(event, signal);
         if (action.type === "respond") {
           const now = this.options.clock.now();

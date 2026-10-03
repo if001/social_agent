@@ -382,7 +382,9 @@ botプロセス内で、そのAgentだけを対象に定期評価する。
 - 保留Candidateがある場合のLong-term Review起動
 - Mood等の時間経過による再評価機会の生成
 
-SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntentionの`next_review_at`更新とCandidateの期限付きleaseをtransaction内で取得する。失敗時はleaseを解放するため、再起動後にも未処理対象を再取得できる。
+Intention triggerは`time`、`event`、`idle`、`manual-review`の4種類とする。`time`は指定時刻、`event`はEvent種類と任意keyword、`idle`はAgentの最後の非Scheduler Eventからの無活動時間、`manual-review`は対象Intention IDを持つSystem/Internal Eventで`next_review_at`を設定する。Scheduler自身が生成したEventではtriggerを再評価せず、自己起動loopを防ぐ。
+
+SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntention、persistent Drive、Candidateを期限付きleaseで取得する。停止中に期限を迎えた対象も再起動時に取得し、成功後は次回時刻を設定、失敗時は短いbackoffを設定してleaseを解放する。外部Queueへ送るのは最終Actionが`respond`の場合だけとする。
 
 ### 5.11 Long-term Review Service
 

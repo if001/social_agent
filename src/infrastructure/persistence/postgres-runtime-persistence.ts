@@ -3,7 +3,7 @@ import type { Pool, QueryResultRow } from "pg";
 import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
 import type { StateUpdateResult } from "../../application/state-update-service.js";
-import { canTransitionIntention, DomainError, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Intention, type Memory, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { canTransitionIntention, DomainError, IntentionTriggerSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Intention, type Memory, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 import { PostgresUnitOfWork } from "./postgres.js";
@@ -17,6 +17,19 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
+  async activateTriggers(event: DomainEvent): Promise<void> {
+    if (event.payload.schedulerGenerated === true) return;
+    const result = await this.pool.query<{ id: string; trigger: unknown }>("SELECT id,trigger FROM intentions WHERE agent_id=$1 AND status='active' AND trigger IS NOT NULL", [event.agentId]);
+    const payload = JSON.stringify(event.payload).toLocaleLowerCase("ja");
+    for (const row of result.rows) {
+      const parsed = IntentionTriggerSchema.safeParse(row.trigger); if (!parsed.success) continue;
+      const trigger = parsed.data; let due: Date | undefined;
+      if (trigger.kind === "idle") due = new Date(new Date(event.occurredAt).getTime() + trigger.idleForMs);
+      if (trigger.kind === "event" && trigger.eventKinds.includes(event.kind) && (trigger.keywords.length === 0 || trigger.keywords.some((keyword) => payload.includes(keyword.toLocaleLowerCase("ja"))))) due = new Date(event.occurredAt);
+      if (trigger.kind === "manual-review" && (event.kind === "system" || event.kind === "internal") && event.payload.manualReviewIntentionId === row.id) due = new Date(event.occurredAt);
+      if (due !== undefined) await this.pool.query("UPDATE intentions SET next_review_at=$2,updated_at=now() WHERE id=$1", [row.id, due]);
+    }
+  }
 
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const materialized = this.#materialize(event, input, result);
@@ -57,7 +70,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
     const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
     for (const proposal of result.output.internalChanges.intentionProposals) {
-      if (proposal.operation === "create") intentionCreates.push({ id: this.ids.next(), agentId: event.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.nextReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt }) });
+      if (proposal.operation === "create") intentionCreates.push({ id: this.ids.next(), agentId: event.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(proposal.nextReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt }) });
       else {
         const current = intentionsById.get(proposal.intentionId); if (current === undefined) throw new DomainError("VALIDATION", `Unknown intention: ${proposal.intentionId}`);
         const status = proposal.status ?? current.status;

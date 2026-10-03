@@ -103,12 +103,20 @@ export const MemoryRetrievalTraceSchema = z.object({
 export type MemoryRetrievalTrace = z.infer<typeof MemoryRetrievalTraceSchema>;
 
 export const IntentionStatusSchema = z.enum(["active", "completed", "dropped", "superseded"]);
+export const IntentionTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("time"), at: Instant }),
+  z.object({ kind: z.literal("event"), eventKinds: z.array(EventKindSchema).min(1), keywords: z.array(NaturalLanguage).default([]) }),
+  z.object({ kind: z.literal("idle"), idleForMs: z.number().int().positive() }),
+  z.object({ kind: z.literal("manual-review") })
+]);
+export type IntentionTrigger = z.infer<typeof IntentionTriggerSchema>;
 export const IntentionSchema = z.object({
   id: Id,
   agentId: Id,
   description: NaturalLanguage,
   status: IntentionStatusSchema,
   reason: NaturalLanguage,
+  trigger: IntentionTriggerSchema.optional(),
   createdAt: Instant,
   updatedAt: Instant,
   nextReviewAt: Instant.optional(),
@@ -170,6 +178,7 @@ const CreateIntentionProposalSchema = z.object({
   operation: z.literal("create"),
   description: NaturalLanguage,
   reason: NaturalLanguage,
+  trigger: IntentionTriggerSchema.optional(),
   nextReviewAt: Instant.optional()
 });
 const UpdateIntentionProposalSchema = z.object({
