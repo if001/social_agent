@@ -1,72 +1,73 @@
 # Implementation Audit
 
-## 1. Scope
+## 1. Scope and rule
 
-This audit compares the implementation reachable from `src/` entry points with `REQUIREMENTS.md`, `ARCHITECTURE.md`, and `DESIGN_ALIGNMENT.md`. A class or isolated test is not treated as complete production wiring unless an executable composition path constructs and invokes it.
+Audit date: 2026-10-03. Baseline: `main` after Issue 028.
 
-Audit date: 2026-10-03. Baseline: Issue 025 after Issues 018–024.
+This audit compares code reachable from executable entry points with `spec/`, `REQUIREMENTS.md`, `ARCHITECTURE.md`, and `IMPLEMENTATION_PLAN.md`. A class export or test-only composition is not counted as production wiring.
 
 ## 2. Reachable entry points
 
-`src/cli.ts` is the only executable entry point. It supports migration, Agent initialization, dead-letter listing, and dead-letter requeue. It does not construct a Bot Host, Agent Runtime, UI Adapter, Deep Agent, Tool Registry, Scheduler, or Long-term Review worker.
+`src/cli.ts` is the only executable entry point. It supports `migrate`, `agent:init`, `dead:list`, and `dead:requeue`. It reads DB URLs directly from `process.env`; it does not call `loadConfig()` and has no `bot:start` command.
 
-`src/index.ts` exports the components as a library. Tests compose them directly, but there is no production composition root that connects the exported parts. Therefore Terminal/Discord conversation, autonomous scheduling, Tool use, and Long-term Review are not currently reachable as one running application.
+`src/evaluation/run-live.ts` is an evaluation entry point. It constructs a Deep Agent for isolated Scenario evaluation, not a persistent bot process.
 
-## 3. Requirement-to-implementation matrix
+No executable entry point currently constructs an `AgentRuntime`, production Context Loader, Tool Registry, `AgentEventRouter`, `Scheduler`, `OutboxDispatcher`, `DiscordAdapter`, or process lifecycle as one running application. Two Discord bots therefore cannot yet be started from the repository scripts.
 
-| Area | Implementation evidence | Existing verification | Status | Gap / assigned Issue |
-|---|---|---|---|---|
-| Domain input/output | `src/domain/contracts.ts` defines Agent, state, Memory, Intention, Candidate, Core input/output | domain and Harness contract tests | Implemented | Output separates interpretation, proposals, and final Action; persistence metadata is Runtime-owned. |
-| Normal Core adapter | `DeepAgentHarness` invokes `createDeepAgent`, validates output and Context references, enforces deadline, and supports one repair | Harness contract tests and EV-01 Live run | Implemented | Ollamaのprovider固有structured outputには依存せず、最終JSONをZod検証する。日本語promptに各fieldとenumを明記した。 |
-| Tool Registry and providers | Registry, Web, File, and `agent_send` implementations expose validated JSON schemas and idempotent execution | Tool unit tests and multi-bot test | Implemented as components | Executable Bot Host composition remains before Manual Smoke. |
-| Tool loop | Registered Tools are converted to LangChain tools inside each Deep Agent run; final output contains no Tool Action | ST-03 internal-loop tests | Internal loop implemented in 021 | Runtime persistence of observed execution records remains for 022. |
-| Runtime message handling | `AgentRuntime` consumes user/agent messages and Internal Events, calls `AgentHarness`, applies proposals, and creates respond outbox messages | Terminal, Discord, multi-bot and Internal Event system tests | Implemented as components | Executable Bot Host composition remains before Manual Smoke. |
-| Runtime PostgreSQL persistence | `PostgresRuntimePersistence` materializes proposals and commits state, Working Social Context, Memory, Intention, Candidate/evidence, Tool records, receipt, run, and outbox | transaction and Runtime integration tests | Implemented in 022 | Production composition remains for 024. |
-| Proposal metadata | Runtime persistence assigns owner, IDs, timestamps and initial status after validating Context references and Intention transitions | unit and PostgreSQL integration tests | Implemented in 020/022 | Review-specific output remains for 023. |
-| Scheduler | `Scheduler` creates Internal Events; PostgreSQL repository leases due Intentions and grouped Candidates | unit, integration, system tests | Implemented as components | Executable scheduling loop remains before Manual Smoke. |
-| Long-term Review | Separate Japanese Review Core evaluates grouped same-Agent/same-target Candidates, returns four decisions and one consolidated state update, and commits state/Candidate/Self Change Memory atomically | unit, integration and routing tests | Implemented | Initial targets remain Self Narrative and Acquired Disposition as explicitly scoped. |
-| Event routing | Queue Runtime maps user/agent messages; Scheduler constructs Internal Events; `AgentEventRouter` serializes per Agent and selects normal versus Review Core | system and PostgreSQL lease tests | Implemented as components | Cross-process conflicts are rejected by DB version/Candidate status checks. |
-| Observability | Logger/redaction helpers exist; Harness has no domain Tool record return on main | unit coverage is limited | Partial | Run-linked Tool execution persistence and failure boundary in 021/022. |
-| Evaluation | Versioned scenarios, hard assertions, semantic evaluator, resumable artifacts and Live runner use the new Core contract | deterministic evaluation tests and EV-01 × 1 Live run | Development gate implemented | Full EV-01–EV-07 × 5 remains in Issue 016. |
-| Operations/UI | Queue, Terminal, Discord, lifecycle, health helpers and ops CLI exist | contract/system tests | Partial | No executable Bot Host command wires all components. This blocks the Manual Smoke and must be resolved before Issue 017 completion. |
+## 3. Startup responsibility matrix
 
-## 4. Persistence details
+| Responsibility | Implementation evidence | Status | Gap / Issue |
+|---|---|---|---|
+| Process-specific configuration | `loadConfig()` merges `.env.sample`, `.env`, and `process.env`; current schema has one `BOT_ID` and one Discord token/channel/user triple | Partial | No `--env-file`, owner/guild/channel lists, per-bot Discord destination, loop intervals, or autonomous output destination. Issue 030. |
+| CLI startup | `src/cli.ts` exposes operational commands | Missing | No `bot:start`, startup argument parser, signal handling, or readiness output. Issues 030 and 032. |
+| DB migration and Agent initialization | `migrate()` and `initializeAgent()` are reachable through `pnpm ops` | Implemented | Migration correctly remains separate from bot startup. |
+| Agent ownership lock | `withAgentLock()` holds a PostgreSQL session advisory lock for a callback | Component only | No stable Agent-to-lock-key mapping and no Bot Host call that holds the lock for process lifetime. Issue 032. |
+| Production Context Loader | `ContextBuilder` validates owner and applies budgets; `PostgresMemoryRetriever` retrieves memories | Missing composition | No DB loader builds `AgentCoreInput` from Agent, Family, state, social contexts, intentions, retrieval, Tool definitions, constraints, and run limits. Issue 031. |
+| Normal Agent Core | `DeepAgentHarness` and `createOllamaDeepAgentInvoker()` execute the Japanese normal prompt and internal Tool loop | Implemented component | Not constructed by a bot entry point. Issue 031. |
+| Tool Registry | Web, File, and `agent_send` factories plus `ToolRegistry` exist | Implemented component | No production registration or per-run provenance provider. Issue 031. |
+| Runtime persistence | `PostgresRuntimePersistence` commits proposals, state changes, Tool records, receipt, run, and outbox | Implemented component | Requires the missing production input loader and composition. Issue 031. |
+| Long-term Review | Review Harness, service, PostgreSQL repository, and router exist | Implemented component | Not constructed by a bot entry point. Issue 031. |
+| Scheduler | `Scheduler.tick()` and `PostgresScheduleRepository` support due Intention and Candidate leasing | Implemented component | No recurring loop, backoff, or lifecycle integration. Issue 032. |
+| Outbox | `OutboxDispatcher.dispatch()` publishes pending DB outbox records | Implemented component | No recurring loop, retry cadence, or shutdown integration. Issue 032. |
+| File Queue recovery | `AddressedFileQueue` supports addressed consumers, retries, and lease recovery | Implemented component | Recovery is exercised in tests but not started by a Bot Host. Issue 032. |
+| Discord inbound/outbound | `DiscordAdapter` and `DiscordJsGateway` exist and have contract/system tests | Implemented component | Default outbound destination is the shared literal `discord`; production configuration must use `discord:<BOT_ID>` to avoid cross-consumption. Issues 030–032. |
+| Lifecycle and shutdown | `ProcessLifecycle` owns an AbortSignal and state transitions; `AgentRuntime.drain()` exists | Partial | No coordinator stops consumers, drains runs, releases DB/Discord/Agent lock, and reports `stopped`. Issue 032. |
+| Capability checks | Chat capability check exists; embedding calls validate result dimension | Partial | No Bot Host startup sequence checks DB, Agent existence, Chat model, and Embedding model/dimension before `ready`. Issue 032. |
+| Two-bot smoke | Manual steps are documented after Issue 028 | Not runnable | Depends on Issues 030–032, then verified in Issue 033. |
 
-The schema already defines `tool_executions`, Memory, Intention, Candidate, evidence, Event, run, state change, receipt, and outbox tables. Schema presence does not imply that normal Runtime writes them. `PostgresEventTransaction.commit` currently writes receipts, Events, runs, dynamic state values, state changes, and outbox only.
+## 4. Shared and isolated resources
 
-Long-term Review has a separate atomic repository transaction, but the normal flow does not save the Candidate and evidence that would feed it. Tool execution rows are defined but not inserted by a reachable flow. The next migrations must preserve existing data and add columns only when the new execution record contract requires them.
+| Shared between bot processes | Isolated per process / Agent |
+|---|---|
+| PostgreSQL database and schema | `BOT_ID` and held Agent advisory lock |
+| Queue root on the same host | Agent input destination (`BOT_ID`) |
+| Ollama Chat and Embedding endpoints | Discord token, bot user ID, allowlists |
+| Web Tool endpoint | Discord outbound destination (`discord:<BOT_ID>`) |
+| build artifact and Family records | Agent state, Memory, Intentions, Candidates |
 
-## 5. Test interpretation
+The database queries and Context Builder generally filter by Agent ID. The missing production Context Loader must preserve that property across every query. The File Queue can safely share a root because destinations have separate directories and claims use atomic rename; both Discord processes must not subscribe to the same outbound destination.
 
-The existing tests show that individual components can satisfy their local contracts. They do not establish the documented end-to-end production flow because most system tests construct in-memory persistence, scripted Harnesses, or the standalone ToolLoop directly. In particular:
+## 5. Failure and restart gaps
 
-- `tests/system/tool-loop.test.ts` verifies the implementation being retired, not the selected Deep Agent internal loop.
-- `tests/system/internal-event.test.ts` verifies Scheduler delegation to a stub runtime, not routing to Long-term Review.
-- Runtime UI tests verify queue and outbox behavior with an in-memory persistence adapter, not PostgreSQL proposal persistence.
-- Long-term Review integration tests invoke the service directly, not through an Internal Event.
+- Invalid configuration is validated by `loadConfig()`, but CLI operations bypass it and bot startup does not exist.
+- A second process for the same Agent is only rejected when callers explicitly use `withAgentLock()`; no executable caller does.
+- Runtime message commit, Queue retry, DB outbox, and Candidate leases support recovery locally, but no host coordinates them as a process.
+- Discord gateway errors inside inbound callbacks are swallowed to keep the gateway alive; production observability and degraded-state reporting are absent.
+- Scheduler stops on the first thrown target error in a tick; the host must catch, report, and continue according to bounded backoff.
+- Outbox dispatch has no process loop or backoff. A publish failure leaves the DB row pending, which is recoverable once a host retries it.
+- `ProcessLifecycle` aborts on `stopping`, but no transition to `stopped` is orchestrated after all tasks and resources finish.
 
-## 6. Ordered remediation
+## 6. Existing verification and its limits
 
-1. Issue 020 changes the public proposal and final Action contracts and updates the Japanese prompts and test fixtures.
-2. Issue 021 adapts registered Tools into the Deep Agent internal loop, enforces limits, and returns observed execution records.
-3. Issue 022 creates the PostgreSQL Runtime persistence path and commits validated proposals and Tool records with Runtime-assigned metadata.
-4. Issue 023 supplies the separate Review Harness/prompt and completes supported Review semantics. Initial executable targets remain Self Narrative and Acquired Disposition; Role, Raison d'être, and long-term preference/interest stay explicitly unsupported until their state representation and tests are designed.
-5. Issue 024 routes normal versus `long-term-review` Events, leases due Candidates, and provides restart-safe retry behavior.
-6. Issue 025 updates all regression/evaluation paths, performs one Scenario × one run, and records remaining work before Issues 016 and 017 resume.
+Unit, contract, integration, and system tests establish component behavior, including Discord mapping, Deep Agent Tool execution, PostgreSQL proposal persistence, Scheduler leasing, queue recovery, and bot-to-bot provenance. They compose dependencies directly with fakes or test fixtures. They do not prove that a real command constructs or operates a bot process.
 
-## 7. Issue 016 and 017 relationship
+The real EV-01 run proves the configured Ollama Chat and Embedding services can be reached for evaluation. It does not prove Discord, continuous scheduling, outbox delivery, or process shutdown.
 
-Issue 016 is complete at the development gate: Issue 025 ported its runner to the new contract and EV-01 × 1 passed Schema, all hard assertions, and all semantic rubric items. Remaining Scenario-specific flow validation is tracked by Issue 026. Repeated statistical evaluation is tracked separately by Issue 027 and is run only after the release model and Prompt are fixed.
+## 7. Ordered remediation
 
-Issue 017 remains dependent on Issues 016 and 026, an executable Bot Host composition, and Manual Smoke. Issue 027 is a separate release-confidence activity rather than a prerequisite for real-use feedback. Its fixed-duration gate was removed in Issue 018; long-term formation will use real-interaction feedback with `insufficient-observation` for unsupported judgments.
+1. Issue 030 adds process-specific configuration, safe secret handling, and the `bot:start` CLI contract.
+2. Issue 031 adds the production PostgreSQL Context Loader and constructs normal Core, Tools, persistence, Review, router, and Runtime.
+3. Issue 032 adds the Bot Host, capability checks, Agent lifetime lock, Scheduler/Outbox/UI loops, signal handling, drain, and resource release.
+4. Issue 033 initializes and starts two real Discord bot processes, performs Manual Smoke, and records restart behavior and unresolved risks.
 
-## 8. Issue 025 verification record
-
-- Live group: `2026-10-03T10-22-24-447Z-4107a32f-efda-4d3d-bcdf-61d504b6fff6`
-- Scenario: EV-01 version 2.0.0, one repetition
-- Input: one shared appreciation Event for two Agents with different Self Narrative and supporting Memory
-- Expected observation: individual differences in subjective meaning or Action traceable to each Agent's supplied experience
-- Result: schema valid for both Agents; all six hard assertions passed; all five semantic rubric items passed; overall passed
-- Normal Core timing: Agent A 82,687 ms, Agent B 85,876 ms; zero Tool calls; neither output required the Harness repair call
-- Evaluator timing was approximately 98 seconds. The Live run read `.env` through `loadConfig`; no secret value is stored in the summary metadata.
-- Local artifact: `artifacts/evaluation/2026-10-03T10-22-24-447Z-4107a32f-efda-4d3d-bcdf-61d504b6fff6/` (gitignored)
+Issue 026 remains the separate Scenario-coverage task. Issue 027 is optional repeated statistical evaluation after model and prompt freeze. Issue 017 starts real-use feedback after the executable Bot Host and Manual Smoke exist.
