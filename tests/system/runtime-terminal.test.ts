@@ -17,8 +17,8 @@ describe("ST-01 Terminal round trip", () => {
     const terminal = new TerminalAdapter(queue, clock, new SequenceIdGenerator(["input-1", "input-2"]));
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.observation.eventId = event.id; return input; });
     const harness = new ScriptedAgentHarness([
-      { stateUpdates: [{ target: "mood", operation: "set", value: "Engaged", reason: "Conversation", evidenceIds: [] }], memoryUpdates: [], intentionUpdates: [], longTermCandidates: [], action: { type: "respond", content: "First" } },
-      { stateUpdates: [], memoryUpdates: [], intentionUpdates: [], longTermCandidates: [], action: { type: "respond", content: "Second" } }
+      { interpretation: {}, internalChanges: { transientStateUpdates: [{ target: "mood", operation: "set", value: "Engaged", reason: "Conversation", evidenceIds: [] }], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "respond", content: "First" } },
+      { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "respond", content: "Second" } }
     ]);
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness, persistence, ids: new SequenceIdGenerator(["event-1", "output-1", "event-2", "output-2"]), now: () => clock.now() });
     const controller = new AbortController(); const responses: string[] = [];
@@ -35,7 +35,7 @@ describe("ST-01 Terminal round trip", () => {
   it("does not publish or mark an outbox record when publish fails", async () => {
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
-    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { stateUpdates: [], memoryUpdates: [], intentionUpdates: [], longTermCandidates: [], action: { type: "no-action", reason: "test" } }, { state: agentCoreInputFixture().dynamicState, changes: [] }, [message]);
+    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action", reason: "test" } }, { state: agentCoreInputFixture().dynamicState, changes: [] }, [message]);
     const queue = { publish: () => Promise.reject(new Error("down")), subscribe: () => Promise.resolve() };
     await expect(new OutboxDispatcher(persistence, queue).dispatch()).rejects.toThrow("down");
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);

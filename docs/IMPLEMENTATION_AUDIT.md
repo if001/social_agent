@@ -16,8 +16,8 @@ Audit date: 2026-10-03. Baseline: `main` after Issue 018.
 
 | Area | Implementation evidence | Existing verification | Status | Gap / assigned Issue |
 |---|---|---|---|---|
-| Domain input/output | `src/domain/contracts.ts` defines Agent, state, Memory, Intention, Candidate, Core input/output | domain and Harness contract tests | Partial | Output is persistence-shaped, includes final `tool`, and Candidate supports only Self Narrative/Acquired Disposition. Redesign in 020. |
-| Normal Core adapter | `DeepAgentHarness` invokes `createDeepAgent`, validates output, enforces deadline, and supports one repair | Harness contract tests | Partial | Prompt is minimal; Harness returns only output; no production construction. Update contract in 020 and composition in 024. |
+| Domain input/output | `src/domain/contracts.ts` defines Agent, state, Memory, Intention, Candidate, Core input/output | domain and Harness contract tests | Contract updated in 020 | Output separates interpretation, proposals, and final Action; persistence metadata is Runtime-owned. Candidate targets remain limited pending 023. |
+| Normal Core adapter | `DeepAgentHarness` invokes `createDeepAgent`, validates output and Context references, enforces deadline, and supports one repair | Harness contract tests | Contract updated in 020 | Japanese prompt and `AgentRunResult` are present; internal Tool records and production construction remain for 021/024. |
 | Tool Registry and providers | Registry, Web, File, and `agent_send` implementations exist | Tool unit tests and multi-bot test | Partial | Registry is not converted to Deep Agent tools in a production path. Input schemas exposed to Core are empty. Resolve in 021. |
 | Tool loop | Standalone `ToolLoop` repeatedly handles final `action.type=tool`; `createDeepAgent` can independently receive tools | isolated ST-03-style test | Conflicting implementations | Replace with the internal Deep Agent loop, enforce limits, collect execution records, retire standalone final-action loop in 021. |
 | Runtime message handling | `AgentRuntime` consumes user/agent messages, calls `AgentHarness`, applies dynamic state, and creates respond outbox messages | Terminal, Discord, multi-bot system tests using in-memory persistence | Partial | Calls Harness directly, has no Tool records, handles only respond externally, and does not expose Internal Event processing. Update in 022/024. |
@@ -59,4 +59,3 @@ The existing tests show that individual components can satisfy their local contr
 Issue 016 remains incomplete and unmerged because its prior evaluation adapter targets the old Core contract and did not prove the selected production flow. Its work is preserved on `issue/016-live-llm-evaluation` and in the named WIP stash. Issue 025 must port rather than blindly merge that implementation.
 
 Issue 017 remains dependent on a valid Issue 016 result and Manual Smoke. Its fixed-duration gate was removed in Issue 018; long-term formation will use real-interaction feedback with `insufficient-observation` for unsupported judgments.
-

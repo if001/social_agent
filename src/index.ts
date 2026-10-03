@@ -34,8 +34,6 @@ export { TerminalAdapter } from "./infrastructure/ui/terminal-adapter.js";
 export type { TerminalMessage } from "./infrastructure/ui/terminal-adapter.js";
 export { ToolRegistry } from "./application/tool-registry.js";
 export type { RegisteredTool, ToolExecutionContext } from "./application/tool-registry.js";
-export { ToolLoop } from "./application/tool-loop.js";
-export type { ToolTrace } from "./application/tool-loop.js";
 export { createWebTools } from "./infrastructure/tools/web-tools.js";
 export { createFileTools } from "./infrastructure/tools/file-tools.js";
 export { Scheduler } from "./application/scheduler.js";
