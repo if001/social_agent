@@ -15,8 +15,9 @@
     "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
     "test:system": "vitest run --config vitest.system.config.ts --passWithNoTests",
     "test:evaluation": "vitest run --config vitest.evaluation.config.ts --passWithNoTests",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:integration && pnpm test:system",
-    "ops": "tsx src/cli.ts"
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:integration && pnpm test:system && pnpm test:evaluation",
+    "ops": "tsx src/cli.ts",
+    "eval:llm": "tsx src/evaluation/run-live.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

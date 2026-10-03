@@ -4,7 +4,7 @@
 
 This audit compares the implementation reachable from `src/` entry points with `REQUIREMENTS.md`, `ARCHITECTURE.md`, and `DESIGN_ALIGNMENT.md`. A class or isolated test is not treated as complete production wiring unless an executable composition path constructs and invokes it.
 
-Audit date: 2026-10-03. Baseline: `main` after Issue 018.
+Audit date: 2026-10-03. Baseline: Issue 025 after Issues 018–024.
 
 ## 2. Reachable entry points
 
@@ -16,19 +16,19 @@ Audit date: 2026-10-03. Baseline: `main` after Issue 018.
 
 | Area | Implementation evidence | Existing verification | Status | Gap / assigned Issue |
 |---|---|---|---|---|
-| Domain input/output | `src/domain/contracts.ts` defines Agent, state, Memory, Intention, Candidate, Core input/output | domain and Harness contract tests | Contract updated in 020 | Output separates interpretation, proposals, and final Action; persistence metadata is Runtime-owned. Candidate targets remain limited pending 023. |
-| Normal Core adapter | `DeepAgentHarness` invokes `createDeepAgent`, validates output and Context references, enforces deadline, and supports one repair | Harness contract tests | Contract updated in 020 | Japanese prompt and `AgentRunResult` are present; internal Tool records and production construction remain for 021/024. |
-| Tool Registry and providers | Registry, Web, File, and `agent_send` implementations expose validated JSON schemas and idempotent execution | Tool unit tests and multi-bot test | Adapter updated in 021 | Production composition remains for 024 and durable idempotency records for 022. |
+| Domain input/output | `src/domain/contracts.ts` defines Agent, state, Memory, Intention, Candidate, Core input/output | domain and Harness contract tests | Implemented | Output separates interpretation, proposals, and final Action; persistence metadata is Runtime-owned. |
+| Normal Core adapter | `DeepAgentHarness` invokes `createDeepAgent`, validates output and Context references, enforces deadline, and supports one repair | Harness contract tests and EV-01 Live run | Implemented | Ollamaのprovider固有structured outputには依存せず、最終JSONをZod検証する。日本語promptに各fieldとenumを明記した。 |
+| Tool Registry and providers | Registry, Web, File, and `agent_send` implementations expose validated JSON schemas and idempotent execution | Tool unit tests and multi-bot test | Implemented as components | Executable Bot Host composition remains before Manual Smoke. |
 | Tool loop | Registered Tools are converted to LangChain tools inside each Deep Agent run; final output contains no Tool Action | ST-03 internal-loop tests | Internal loop implemented in 021 | Runtime persistence of observed execution records remains for 022. |
-| Runtime message handling | `AgentRuntime` consumes user/agent messages, calls `AgentHarness`, applies dynamic state, and creates respond outbox messages | Terminal, Discord, multi-bot system tests using in-memory persistence | Partial | Calls Harness directly, has no Tool records, handles only respond externally, and does not expose Internal Event processing. Update in 022/024. |
+| Runtime message handling | `AgentRuntime` consumes user/agent messages and Internal Events, calls `AgentHarness`, applies proposals, and creates respond outbox messages | Terminal, Discord, multi-bot and Internal Event system tests | Implemented as components | Executable Bot Host composition remains before Manual Smoke. |
 | Runtime PostgreSQL persistence | `PostgresRuntimePersistence` materializes proposals and commits state, Working Social Context, Memory, Intention, Candidate/evidence, Tool records, receipt, run, and outbox | transaction and Runtime integration tests | Implemented in 022 | Production composition remains for 024. |
 | Proposal metadata | Runtime persistence assigns owner, IDs, timestamps and initial status after validating Context references and Intention transitions | unit and PostgreSQL integration tests | Implemented in 020/022 | Review-specific output remains for 023. |
-| Scheduler | `Scheduler` creates Internal Events; PostgreSQL repository leases due Intentions | unit, integration, isolated system test | Partial | Repository only claims Intentions; no production loop; `long-term-review` is passed to a generic runtime without routing. Resolve in 024. |
-| Long-term Review | Separate Japanese Review Core evaluates grouped same-Agent/same-target Candidates, returns four decisions and one consolidated state update, and commits state/Candidate/Self Change Memory atomically | unit and integration tests | Review flow implemented in 023 | Scheduler/Runtime routing remains for 024. Initial targets remain Self Narrative and Acquired Disposition as explicitly scoped. |
-| Event routing | Queue Runtime maps user/agent messages; Scheduler separately constructs internal events | separate system tests | Partial | No common normal-vs-review router or production host. Resolve in 024. |
+| Scheduler | `Scheduler` creates Internal Events; PostgreSQL repository leases due Intentions and grouped Candidates | unit, integration, system tests | Implemented as components | Executable scheduling loop remains before Manual Smoke. |
+| Long-term Review | Separate Japanese Review Core evaluates grouped same-Agent/same-target Candidates, returns four decisions and one consolidated state update, and commits state/Candidate/Self Change Memory atomically | unit, integration and routing tests | Implemented | Initial targets remain Self Narrative and Acquired Disposition as explicitly scoped. |
+| Event routing | Queue Runtime maps user/agent messages; Scheduler constructs Internal Events; `AgentEventRouter` serializes per Agent and selects normal versus Review Core | system and PostgreSQL lease tests | Implemented as components | Cross-process conflicts are rejected by DB version/Candidate status checks. |
 | Observability | Logger/redaction helpers exist; Harness has no domain Tool record return on main | unit coverage is limited | Partial | Run-linked Tool execution persistence and failure boundary in 021/022. |
-| Evaluation | Issue 016 implementation exists only on its unmerged branch; `main` has no `src/evaluation` | none reachable from baseline | Not on main | Port the useful runner work after new contracts, run deterministic regression and 1×1 Live evaluation in 025, then resume 016. |
-| Operations/UI | Queue, Terminal, Discord, lifecycle, health helpers and ops CLI exist | contract/system tests | Partial | No Bot Host command wires them. Composition and lifecycle in 024; Manual Smoke after 025. |
+| Evaluation | Versioned scenarios, hard assertions, semantic evaluator, resumable artifacts and Live runner use the new Core contract | deterministic evaluation tests and EV-01 × 1 Live run | Development gate implemented | Full EV-01–EV-07 × 5 remains in Issue 016. |
+| Operations/UI | Queue, Terminal, Discord, lifecycle, health helpers and ops CLI exist | contract/system tests | Partial | No executable Bot Host command wires all components. This blocks the Manual Smoke and must be resolved before Issue 017 completion. |
 
 ## 4. Persistence details
 
@@ -51,11 +51,22 @@ The existing tests show that individual components can satisfy their local contr
 2. Issue 021 adapts registered Tools into the Deep Agent internal loop, enforces limits, and returns observed execution records.
 3. Issue 022 creates the PostgreSQL Runtime persistence path and commits validated proposals and Tool records with Runtime-assigned metadata.
 4. Issue 023 supplies the separate Review Harness/prompt and completes supported Review semantics. Initial executable targets remain Self Narrative and Acquired Disposition; Role, Raison d'être, and long-term preference/interest stay explicitly unsupported until their state representation and tests are designed.
-5. Issue 024 adds the production composition root and routes normal versus `long-term-review` Events while running Scheduler and UI lifecycles.
+5. Issue 024 routes normal versus `long-term-review` Events, leases due Candidates, and provides restart-safe retry behavior.
 6. Issue 025 updates all regression/evaluation paths, performs one Scenario × one run, and records remaining work before Issues 016 and 017 resume.
 
 ## 7. Issue 016 and 017 relationship
 
-Issue 016 remains incomplete and unmerged because its prior evaluation adapter targets the old Core contract and did not prove the selected production flow. Its work is preserved on `issue/016-live-llm-evaluation` and in the named WIP stash. Issue 025 must port rather than blindly merge that implementation.
+Issue 016 remains incomplete. Issue 025 ported its runner, scenarios and artifacts to the new contract and proved EV-01 × 1. Issue 016 must still run all seven scenarios five times, resolve any scenario-specific failures, and apply the documented 4/5 semantic gate. The named WIP stash remains preserved until that comparison is complete.
 
-Issue 017 remains dependent on a valid Issue 016 result and Manual Smoke. Its fixed-duration gate was removed in Issue 018; long-term formation will use real-interaction feedback with `insufficient-observation` for unsupported judgments.
+Issue 017 remains dependent on a valid Issue 016 result, an executable Bot Host composition, and Manual Smoke. Its fixed-duration gate was removed in Issue 018; long-term formation will use real-interaction feedback with `insufficient-observation` for unsupported judgments.
+
+## 8. Issue 025 verification record
+
+- Live group: `2026-10-03T10-22-24-447Z-4107a32f-efda-4d3d-bcdf-61d504b6fff6`
+- Scenario: EV-01 version 2.0.0, one repetition
+- Input: one shared appreciation Event for two Agents with different Self Narrative and supporting Memory
+- Expected observation: individual differences in subjective meaning or Action traceable to each Agent's supplied experience
+- Result: schema valid for both Agents; all six hard assertions passed; all five semantic rubric items passed; overall passed
+- Normal Core timing: Agent A 82,687 ms, Agent B 85,876 ms; zero Tool calls; neither output required the Harness repair call
+- Evaluator timing was approximately 98 seconds. The Live run read `.env` through `loadConfig`; no secret value is stored in the summary metadata.
+- Local artifact: `artifacts/evaluation/2026-10-03T10-22-24-447Z-4107a32f-efda-4d3d-bcdf-61d504b6fff6/` (gitignored)
