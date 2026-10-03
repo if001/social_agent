@@ -32,3 +32,8 @@ export class FakeEmbeddingProvider implements EmbeddingProvider {
     }));
   }
 }
+
+export async function checkOllamaEmbeddingCapability(metadata: EmbeddingMetadata, fetcher: typeof fetch = fetch): Promise<void> {
+  const provider = new OllamaEmbeddingProvider(metadata, fetcher);
+  await provider.embed(["capability check"], AbortSignal.timeout(10_000));
+}

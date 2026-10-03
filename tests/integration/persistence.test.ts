@@ -17,6 +17,8 @@ import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contrac
 import { PostgresAgentContextLoader } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 import { FakeEmbeddingProvider } from "../../src/infrastructure/embedding/ollama-embedding.js";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
+import { BotHost } from "../../src/bootstrap/bot-host.js";
+import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = process.env.TEST_POSTGRES_URL ?? sample.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
@@ -129,6 +131,27 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.intentions.map(({ id }) => id)).not.toContain("context-intention-b");
     expect(input.memories.every(({ agentId }) => agentId === "a")).toBe(true);
     expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"], relatedIntentionIds: ["context-intention-a"] });
+  });
+
+  it("holds one process lock per Agent and drains loops during shutdown", async () => {
+    const blocked = (signal: AbortSignal): Promise<void> => new Promise((resolve) => { signal.addEventListener("abort", () => { resolve(); }, { once: true }); });
+    let drained = 0;
+    const createHost = (lifecycle: ProcessLifecycle): BotHost => new BotHost({
+      pool, agentId: "a", lifecycle, capabilityCheck: () => Promise.resolve(), retryDelayMs: 1,
+      runtime: { start: blocked, drain: () => { drained += 1; return Promise.resolve(); } },
+      scheduler: { tick: () => Promise.resolve(0) }, outbox: { dispatch: () => Promise.resolve(0) },
+      discord: { startInbound: blocked, startOutbound: blocked }, schedulerIntervalMs: 10_000, outboxIntervalMs: 10_000
+    });
+    const firstLifecycle = new ProcessLifecycle(); const first = createHost(firstLifecycle);
+    await first.start(); expect(firstLifecycle.state).toBe("ready");
+    const secondLifecycle = new ProcessLifecycle(); const second = createHost(secondLifecycle);
+    await expect(second.start()).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(secondLifecycle.state).toBe("stopped");
+    await first.stop();
+    expect(firstLifecycle.state).toBe("stopped"); expect(drained).toBe(1);
+    const restartedLifecycle = new ProcessLifecycle(); const restarted = createHost(restartedLifecycle);
+    await restarted.start(); await restarted.stop();
+    expect(restartedLifecycle.state).toBe("stopped");
   });
 
   it("claims each due intention once across scheduler instances", async () => {
