@@ -7,7 +7,7 @@ status: created
 
 ## Goal
 
-非決定的な意味判断が、経験に基づく個体性と制約遵守を実現するか評価する。
+非決定的な意味判断が、事前配置した経験・現在状態を適切に利用し、短期状態と制約を扱えるか評価する。
 
 ## Scope
 
@@ -24,9 +24,12 @@ status: created
 
 ## Acceptance criteria
 
+- [ ] 実際のAgent Coreへ入力し、評価専用PromptでAgentの振る舞いを模擬しない
+- [ ] 開発確認として1 Scenarioを1回実行し、Schemaと意味内容を確認できる
 - [ ] 7 Scenarioを独立初期状態から各5回実行できる
 - [ ] Hard assertionは全runで合格する
 - [ ] 各Scenarioで5回中4回以上がsemantic rubricの総合passとなる
+- [ ] 長期状態の自然な形成を短時間の合否条件に含めない
 - [ ] 入力、状態差分、根拠Memory、Tool traceを追跡できる
 - [ ] model、endpoint、prompt、build、configを記録し、API keyは除外する
 - [ ] 過去artifactを上書きせず、境界結果を人間reviewできる

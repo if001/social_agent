@@ -101,6 +101,8 @@ IP-10 + IP-11 + IP-12 + IP-13 + IP-14
 
 IP-04とIP-05、IP-07とIP-08、IP-10とIP-11は、前提となる契約が確定した後は並行実装できる。同じDomain SchemaやRuntime orchestrationを同時に変更する作業は直列化する。
 
+IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内部Tool Loopの境界へ既存実装を合わせる。追加作業はIssue 018〜025で追跡し、文書整合、実装監査、提案契約、Tool内部loop、Runtime保存、Long-term Review、Event振り分け、回帰評価の順に進める。Issue 025の1 Scenario × 1 runが成立した後にIP-16の全評価を再開する。
+
 ## 4. 作業単位
 
 ### IP-01: Project foundationとtest harness
@@ -285,25 +287,25 @@ IP-04とIP-05、IP-07とIP-08、IP-10とIP-11は、前提となる契約が確�
 
 ### IP-16: Live Ollama Scenario Evaluation
 
-**目的:** 非決定的な意味判断が、経験に基づく個体性と制約遵守を実現するか評価する。
+**目的:** 非決定的な意味判断が、事前配置した経験・現在状態に基づく個体性と制約遵守を実現するか短時間で評価する。
 
 **実装対象:** EV-01〜EV-07のversion付きfixture、scenario runner、hard assertion、semantic rubric、evaluation packet、Evaluator adapter、人間review入力、model / digest / Ollama / prompt / build / config metadata、artifact保存。
 
-**TDD / 検証:** runner、hard assertion、集計、artifact生成自体は固定fixtureで決定的にテストする。その後、各Scenarioを独立状態から5回実行する。Hard assertionは全run必須、semantic rubricは各Scenarioで5回中4回以上の総合passを必要とする。
+**TDD / 検証:** runner、hard assertion、集計、artifact生成自体は固定fixtureで決定的にテストする。実際のAgent Coreへ事前状態とEventを入力し、まず1 Scenarioを1回実行してSchemaと意味内容を確認した後、各Scenarioを独立状態から5回実行する。Hard assertionは全run必須、semantic rubricは各Scenarioで5回中4回以上の総合passを必要とする。長期状態が自然に形成される過程は合否対象にしない。
 
 **完了条件:** AC-01〜AC-07の結果を入力、状態差分、根拠Memory、Tool traceまで追跡できる。境界結果を人間がreviewでき、過去artifactを上書きしない。
 
 **依存:** IP-15。Ollama chat / embedding modelはこの作業の開始時に固定し、capability check結果とともに記録する。
 
-### IP-17: Evaluation Store、7日間Soak、完成判定
+### IP-17: Evaluation Store、実利用評価、完成判定
 
 **目的:** 実時間利用における個体化、自律性、安定性、データ成長、ユーザー体感を確認する。
 
 **実装対象:** Evaluation period、通常Memoryから分離したUser Feedback Store、feedback追加 / 一覧 / 修正 / export CLI、定期snapshot、期間集計、feedbackとtraceの照合、MarkdownまたはHTMLのSoak Report generator。
 
-**TDD / 検証:** report集計、秘密値除外、feedbackがAgent Contextへ入らないこと、期間比較をfixtureで検証する。24時間の予備Soakで収集とreportを確認した後、設定を固定した連続7日間の本Soakを行う。
+**TDD / 検証:** report集計、秘密値除外、feedbackがAgent Contextへ入らないこと、期間比較をfixtureで検証する。固定日数は設けず、ユーザーが実際に対話した評価期間について状態snapshot、関連trace、feedbackを記録する。
 
-**完了条件:** Test Strategy 12.7の全条件を満たし、各Agentに少なくとも1件のfeedbackと、一個体性・個体差・自律性に対するユーザー総合判定が記録される。Completion Gateの全項目と未解決リスクをSoak Reportに残す。
+**完了条件:** Test Strategy 12.7の記録条件を満たし、評価対象の各Agentに少なくとも1件のfeedbackがある。観測できた印象、望ましい振る舞い、判断材料が不足する項目、Completion Gateの全項目、未解決リスクをreportに残す。
 
 **依存:** IP-16、およびTerminal / Discord / 複数botのManual Smoke成功。
 
@@ -316,7 +318,7 @@ IP-04とIP-05、IP-07とIP-08、IP-10とIP-11は、前提となる契約が確�
 | M3: Capabilityと自律性 | IP-10〜IP-12 | Tool、自律再検討、長期個体化を決定的に検証できる |
 | M4: 全Adapterと復旧 | IP-13〜IP-15 | 複数bot、Discord、障害復旧を含む全System testが通る |
 | M5: 意味的受け入れ | IP-16 | 7 Scenarioのlive Ollama基準を満たす |
-| M6: 完成判定 | IP-17 | Manual Smokeと7日Soakを含むCompletion Gateを満たす |
+| M6: 完成判定 | IP-17 | Manual Smokeと実利用feedbackを含むCompletion Gateを満たす |
 
 各Milestoneでは、その時点で利用可能な`typecheck`、lint、Unit、Contract、Integration、System suiteをすべて通す。後続Milestoneの未実装機能を仮の成功扱いにしない。
 
@@ -380,7 +382,7 @@ IP-04とIP-05、IP-07とIP-08、IP-10とIP-11は、前提となる契約が確�
 4. ST-01〜ST-07が成功する
 5. EV-01〜EV-07がlive Ollamaの合格基準を満たす
 6. Terminal、Discord、複数botのManual Smokeが成功する
-7. 連続7日間の実時間Soakが合格する
+7. 実利用期間の安全条件を確認し、ユーザーfeedbackと未評価理由を記録する
 8. Soak Reportにユーザーの総合判定、変更履歴、未解決リスクが記録される
 
 CI providerはこの計画では固定しない。1〜4はローカルと任意のCIから同じcommandで自動実行可能にし、5〜8はmodel、資格情報、実時間、ユーザー評価を必要とするrelease evaluationとして明示的に実行する。
@@ -389,6 +391,8 @@ CI providerはこの計画では固定しない。1〜4はローカルと任意�
 
 - `spec/personal-agent-concept-design-restructured-v2.md`
 - `spec/personal-agent-implementation-design-v2.md`
+- `docs/DESIGN_ALIGNMENT.md`
+- `docs/IMPLEMENTATION_AUDIT.md`
 - `docs/DOCUMENTATION_PLAN.md`
 - `docs/REQUIREMENTS.md`
 - `docs/ARCHITECTURE.md`

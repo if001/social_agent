@@ -118,6 +118,8 @@ Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然
 
 Agent Coreは永続状態を直接変更せず、変更対象、操作、値、理由を含む更新案を返さなければならない。Runtimeは更新案を検証し、有効な変更だけを反映しなければならない。
 
+LLMが返す新規Memory、Intention、Long-term Candidateも提案として扱う。保存用ID、作成時刻、所有Agent IDは通常コードが検証後に付与し、LLMに保存済みという事実を決定させてはならない。
+
 ### 6.2 EventとAgent Loop
 
 #### FR-EV-01: Event種別
@@ -134,11 +136,11 @@ Agent Coreは、Observationと関連するSelf、Disposition、現在状態、Me
 
 #### FR-EV-04: Agent Action
 
-Agent Coreは少なくとも、応答、Tool利用、待機、人格上の拒否、何もしない、のいずれかを選択できなければならない。
+Agent CoreはToolを使うかをreasoning中に判断でき、Tool Loop完了後の最終Actionとして、応答、待機、人格上の拒否、何もしない、のいずれかを選択できなければならない。
 
 #### FR-EV-05: Tool Loop
 
-Tool実行結果は新しいTool Result EventとしてAgent Loopへ戻し、Agentが結果を再解釈して次の行動や状態更新を決められなければならない。
+Tool実行結果は論理的なTool Result Eventとして同じDeep Agent runへ戻し、Agentが結果を再解釈して次の行動や状態更新を決められなければならない。外部Queueまたは別runへの再投入は必要としない。
 
 ### 6.3 MemoryとContext
 
@@ -190,6 +192,8 @@ Runtimeは連続するInternal EventとTool Loopに対して構成可能な上�
 
 通常Eventでは長期状態を原則として直接変更せず、Long-term ReviewでCandidateと根拠Memoryを再評価しなければならない。
 
+通常Agent CoreとLong-term Review Coreは入力、出力Schema、prompt、起動Eventを分離しなければならない。同一modelまたはAdapterの共有は許容する。
+
 #### FR-LR-03: Review判断
 
 Long-term ReviewはCandidateを維持、反映、既存状態へ統合、または破棄できなければならない。単純追加だけでなく、重複するSelf NarrativeやAcquired Dispositionを統合できなければならない。
@@ -227,6 +231,14 @@ Web検索とWebページ取得を提供しなければならない。初期実�
 #### FR-TL-06: Tool交換
 
 Toolの定義、入力検証、実行結果は共通契約を持ち、個別Tool実装および同種のProviderを交換可能にしなければならない。
+
+#### FR-TL-07: Deep Agent内部Tool Loop
+
+登録済みToolの呼び出し、結果の再入力、後続reasoningは同一Deep Agent run内で完了しなければならない。Agent Coreの最終ActionにTool callを含め、Runtimeが同じ呼び出しを再実行する二重経路を作ってはならない。
+
+#### FR-TL-08: Tool実行記録
+
+RuntimeはTool名、検証済み入力、成否、結果または参照、実行時刻、run ID、event ID、冪等性キーを追跡できなければならない。最終構造化出力が不正でも、実際に発生した外部副作用の記録を失ってはならない。
 
 ### 6.7 UI
 

@@ -11,6 +11,9 @@ import { PostgresMemoryRetriever } from "../../src/infrastructure/persistence/po
 import { PostgresScheduleRepository } from "../../src/infrastructure/persistence/postgres-schedule-repository.js";
 import { PostgresLongTermReviewRepository } from "../../src/infrastructure/persistence/postgres-long-term-review.js";
 import { LongTermReviewService } from "../../src/application/long-term-review.js";
+import { PostgresRuntimePersistence } from "../../src/infrastructure/persistence/postgres-runtime-persistence.js";
+import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
+import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = process.env.TEST_POSTGRES_URL ?? sample.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
@@ -105,23 +108,73 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("claims each due intention once across scheduler instances", async () => {
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status,next_review_at) VALUES ('due-1','a','Review goal','Due','active','2026-01-01')");
+    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,review_after) VALUES ('due-candidate','a','selfNarrative','Review me','pending','Due','2026-01-01')");
     const first = new PostgresScheduleRepository(pool); const second = new PostgresScheduleRepository(pool);
     const claims = await Promise.all([first.claimDue(new Date("2026-01-02T00:00:00Z"), 10), second.claimDue(new Date("2026-01-02T00:00:00Z"), 10)]);
-    expect(claims.flat().map(({ id }) => id)).toEqual(["due-1"]);
-    await first.complete("due-1", null); expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
+    expect(claims.flat().map(({ id }) => id).sort()).toEqual(["due-1", "due-candidate"]);
+    await first.complete({ id: "due-1", agentId: "a", kind: "intention", reason: "Review goal" }, null);
+    await pool.query("UPDATE long_term_candidates SET status='kept' WHERE id='due-candidate'");
+    await first.complete({ id: "due-candidate", agentId: "a", kind: "long-term-review", reason: "Due", candidateIds: ["due-candidate"] }, null);
+    expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
   });
 
   it("updates long-term state, candidate and self-change memory atomically", async () => {
     await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-ok','a','selfNarrative','More patient','pending','Evidence'),('candidate-fail','a','selfNarrative','Should rollback','pending','Evidence')");
     await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-ok','memory-a1'),('candidate-fail','memory-a1')");
     const repository = new PostgresLongTermReviewRepository(pool, () => "review-memory");
-    const service = new LongTermReviewService(repository, { review: () => Promise.resolve({ decision: "UPDATE", value: "I learn with patience", reason: "Repeated experience" }) });
+    const service = new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-ok", decision: "UPDATE", reason: "Repeated experience" }], stateUpdate: { value: "I learn with patience", reason: "Repeated experience", evidenceMemoryIds: ["memory-a1"] } }) });
     await service.review("candidate-ok", new AbortController().signal);
     expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
     expect((await pool.query("SELECT 1 FROM memories WHERE id='review-memory' AND kind='self-change'")).rowCount).toBe(1);
-    const failing = new LongTermReviewService(new PostgresLongTermReviewRepository(pool, () => "review-memory"), { review: () => Promise.resolve({ decision: "UPDATE", value: "Should rollback", reason: "Test rollback" }) });
+    const failing = new LongTermReviewService(new PostgresLongTermReviewRepository(pool, () => "review-memory"), { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-fail", decision: "UPDATE", reason: "Test rollback" }], stateUpdate: { value: "Should rollback", reason: "Test rollback", evidenceMemoryIds: ["memory-a1"] } }) });
     await expect(failing.review("candidate-fail", new AbortController().signal)).rejects.toBeTruthy();
     expect((await pool.query<{ status: string }>("SELECT status FROM long_term_candidates WHERE id='candidate-fail'")).rows[0]?.status).toBe("pending");
     expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
+  });
+
+  it("materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('proposal-evidence','a','self-related','Repeated follow-through','Relevant',now(),'[]')");
+    await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('existing-intention','a','Old goal','Existing','active')");
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const input = agentCoreInputFixture();
+    input.run = { runId: "runtime-run", eventId: "runtime-event", agentId: "a", occurredAt: fixtureInstant };
+    input.self = { ...input.self, id: "a", version };
+    input.dynamicState = { ...input.dynamicState, agentId: "a" };
+    input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", createdAt: fixtureInstant, relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", evidenceEventIds: [] }];
+    input.intentions = [{ id: "existing-intention", agentId: "a", description: "Old goal", status: "active", reason: "Existing", createdAt: fixtureInstant, updatedAt: fixtureInstant }];
+    input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["memory-new", "intention-new", "candidate-new", "tool-record", "state-change", "social-change"]), () => new Date(fixtureInstant));
+    const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
+    const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" } };
+    const result = {
+      output: { interpretation: {}, internalChanges: {
+        transientStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext" as const, operation: "set" as const, value: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }],
+        memoryProposals: [{ kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", evidenceEventIds: ["runtime-event"] }],
+        intentionProposals: [{ operation: "create" as const, description: "Follow up", reason: "Still relevant" }, { operation: "update" as const, intentionId: "existing-intention", status: "completed" as const, reason: "Finished" }],
+        longTermCandidates: [{ target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"] }]
+      }, action: { type: "respond" as const, content: "Hello" } },
+      toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
+    };
+    await expect(persistence.commit(message, event, input, result, { state: { ...input.dynamicState, mood: "Attentive" }, changes: [{ target: "mood", operation: "set", before: input.dynamicState.mood, after: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", before: undefined, after: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }] }, [])).resolves.toBe("committed");
+    expect((await pool.query<{ agent_id: string }>("SELECT agent_id FROM memories WHERE id='memory-new'")).rows[0]?.agent_id).toBe("a");
+    expect((await pool.query<{ status: string }>("SELECT status FROM intentions WHERE id='existing-intention'")).rows[0]?.status).toBe("completed");
+    expect((await pool.query<{ agent_id: string; status: string }>("SELECT agent_id,status FROM long_term_candidates WHERE id='candidate-new'")).rows[0]).toMatchObject({ agent_id: "a", status: "pending" });
+    expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
+    expect((await pool.query<{ description: string }>("SELECT description FROM social_contexts WHERE agent_id='a' AND subject_id='owner'")).rows[0]?.description).toBe("Trusted collaborator");
+  });
+
+  it("records Tool side effects when final Agent output fails without marking the message complete", async () => {
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const input = agentCoreInputFixture();
+    input.run = { runId: "failed-run", eventId: "failed-event", agentId: "a", occurredAt: fixtureInstant };
+    input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" };
+    input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["failed-tool-record"]), () => new Date(fixtureInstant));
+    const message = messageFixture({ id: "failed-message", destination: "agent:a" });
+    const event = { id: "failed-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" } };
+    await persistence.recordFailure(message, event, input, new Error("invalid final output"), [{ callId: "tool-1", runId: "failed-run", eventId: "failed-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]);
+    expect((await pool.query<{ failure_reason: string }>("SELECT failure_reason FROM agent_runs WHERE id='failed-run'")).rows[0]?.failure_reason).toContain("invalid final output");
+    expect((await pool.query("SELECT 1 FROM tool_executions WHERE id='failed-tool-record'")).rowCount).toBe(1);
+    expect((await pool.query("SELECT 1 FROM message_receipts WHERE message_id='failed-message'")).rowCount).toBe(0);
   });
 });

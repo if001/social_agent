@@ -128,15 +128,15 @@ export const CandidateSchema = z.object({
 });
 export type Candidate = z.infer<typeof CandidateSchema>;
 
-export const ToolCallSchema = z.object({ id: Id, name: Id, input: z.record(z.string(), z.unknown()) });
-export const AgentActionSchema = z.discriminatedUnion("type", [
+export const FinalActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond"), content: NaturalLanguage }),
-  z.object({ type: z.literal("tool"), call: ToolCallSchema }),
   z.object({ type: z.literal("wait"), until: Instant.optional(), reason: NaturalLanguage }),
   z.object({ type: z.literal("refuse"), reason: NaturalLanguage, basis: z.enum(["personality", "system"]) }),
   z.object({ type: z.literal("no-action"), reason: NaturalLanguage })
 ]);
-export type AgentAction = z.infer<typeof AgentActionSchema>;
+export type FinalAction = z.infer<typeof FinalActionSchema>;
+export const AgentActionSchema = FinalActionSchema;
+export type AgentAction = FinalAction;
 
 export const StateUpdateProposalSchema = z.object({
   target: z.enum(["emotion", "mood", "drive", "desire", "socialContext"]),
@@ -144,6 +144,35 @@ export const StateUpdateProposalSchema = z.object({
   value: z.unknown(),
   reason: NaturalLanguage,
   evidenceIds: z.array(Id)
+});
+
+export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, createdAt: true });
+
+const CreateIntentionProposalSchema = z.object({
+  operation: z.literal("create"),
+  description: NaturalLanguage,
+  reason: NaturalLanguage,
+  nextReviewAt: Instant.optional()
+});
+const UpdateIntentionProposalSchema = z.object({
+  operation: z.literal("update"),
+  intentionId: Id,
+  description: NaturalLanguage.optional(),
+  status: IntentionStatusSchema.optional(),
+  reason: NaturalLanguage,
+  nextReviewAt: Instant.nullable().optional(),
+  supersededByIntentionId: Id.optional()
+}).superRefine((value, context) => {
+  if (value.status === "superseded" && value.supersededByIntentionId === undefined) context.addIssue({ code: "custom", path: ["supersededByIntentionId"], message: "superseded updates require supersededByIntentionId" });
+  if (value.status !== "superseded" && value.supersededByIntentionId !== undefined) context.addIssue({ code: "custom", path: ["supersededByIntentionId"], message: "supersededByIntentionId is only valid for superseded updates" });
+});
+export const IntentionProposalSchema = z.discriminatedUnion("operation", [CreateIntentionProposalSchema, UpdateIntentionProposalSchema]);
+
+export const LongTermCandidateProposalSchema = z.object({
+  target: CandidateSchema.shape.target,
+  proposal: NaturalLanguage,
+  reason: NaturalLanguage,
+  evidenceMemoryIds: z.array(Id).min(1)
 });
 
 export const AgentCoreInputSchema = z.object({
@@ -164,14 +193,36 @@ export const AgentCoreInputSchema = z.object({
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 
 export const AgentCoreOutputSchema = z.object({
-  subjectiveMeaning: NaturalLanguage.optional(),
-  stateUpdates: z.array(StateUpdateProposalSchema),
-  memoryUpdates: z.array(MemorySchema.omit({ id: true, createdAt: true })),
-  intentionUpdates: z.array(IntentionSchema),
-  longTermCandidates: z.array(CandidateSchema),
-  action: AgentActionSchema
+  interpretation: z.object({ subjectiveMeaning: NaturalLanguage.optional() }),
+  internalChanges: z.object({
+    transientStateUpdates: z.array(StateUpdateProposalSchema),
+    memoryProposals: z.array(MemoryProposalSchema),
+    intentionProposals: z.array(IntentionProposalSchema),
+    longTermCandidates: z.array(LongTermCandidateProposalSchema)
+  }),
+  action: FinalActionSchema
 });
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
+
+export const ToolExecutionRecordSchema = z.object({
+  callId: Id,
+  runId: Id,
+  eventId: Id,
+  name: Id,
+  input: z.record(z.string(), z.unknown()),
+  ok: z.boolean(),
+  result: z.unknown().optional(),
+  error: NaturalLanguage.optional(),
+  startedAt: Instant,
+  finishedAt: Instant
+}).superRefine((value, context) => {
+  if (value.ok && value.error !== undefined) context.addIssue({ code: "custom", path: ["error"], message: "successful Tool execution cannot contain an error" });
+  if (!value.ok && value.error === undefined) context.addIssue({ code: "custom", path: ["error"], message: "failed Tool execution requires an error" });
+});
+export type ToolExecutionRecord = z.infer<typeof ToolExecutionRecordSchema>;
+
+export const AgentRunResultSchema = z.object({ output: AgentCoreOutputSchema, toolExecutions: z.array(ToolExecutionRecordSchema) });
+export type AgentRunResult = z.infer<typeof AgentRunResultSchema>;
 
 export const MessageEnvelopeSchema = z.object({
   id: Id,
