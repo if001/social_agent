@@ -1,6 +1,6 @@
 # Issues
 
-`docs/IMPLEMENTATION_PLAN.md` を実行可能な17件のIssueへ分割した一覧である。各Issueでは、合意済みの公開境界に対して失敗するテストを先に追加し、最小実装、test pass、作業単位のrefactorの順で進める。
+`docs/IMPLEMENTATION_PLAN.md` を実行可能なIssueへ分割した一覧である。各Issueでは、合意済みの公開境界に対して失敗するテストを先に追加し、最小実装、test pass、作業単位のrefactorの順で進める。
 
 | ID | Issue | Dependencies |
 |---|---|---|
@@ -20,7 +20,7 @@
 | 014 | [Discord Adapter](014-discord-adapter.md) | 005, 009 |
 | 015 | [決定的System suiteと運用CLI](015-system-suite-operations.md) | 010–014 |
 | 016 | [Live Ollama Scenario Evaluation](016-live-llm-evaluation.md) | 015 |
-| 017 | [Evaluation Store、Soak、完成判定](017-soak-release-gate.md) | 016、Manual Smoke |
+| 017 | [Evaluation Store、Soak、完成判定](017-soak-release-gate.md) | 016、026、Manual Smoke |
 | 018 | [specとdocsの整合](018-align-design-documents.md) | なし |
 | 019 | [docsと実装の差分調査](019-audit-implementation.md) | 018 |
 | 020 | [通常Coreの提案契約](020-agent-proposal-contracts.md) | 019 |
@@ -29,5 +29,7 @@
 | 023 | [Long-term Reviewの独立フロー](023-long-term-review-flow.md) | 022 |
 | 024 | [Event振り分け](024-event-routing.md) | 023 |
 | 025 | [回帰検証とLive評価](025-evaluation-and-regression.md) | 024 |
+| 026 | [残り6 Scenarioの単発Live確認](026-remaining-live-scenarios.md) | 016、025 |
+| 027 | [必要時の反復Live評価](027-statistical-live-evaluation.md) | 026 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。

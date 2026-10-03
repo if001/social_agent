@@ -56,9 +56,9 @@ The existing tests show that individual components can satisfy their local contr
 
 ## 7. Issue 016 and 017 relationship
 
-Issue 016 remains incomplete. Issue 025 ported its runner, scenarios and artifacts to the new contract and proved EV-01 × 1. Issue 016 must still run all seven scenarios five times, resolve any scenario-specific failures, and apply the documented 4/5 semantic gate. The named WIP stash remains preserved until that comparison is complete.
+Issue 016 is complete at the development gate: Issue 025 ported its runner to the new contract and EV-01 × 1 passed Schema, all hard assertions, and all semantic rubric items. Remaining Scenario-specific flow validation is tracked by Issue 026. Repeated statistical evaluation is tracked separately by Issue 027 and is run only after the release model and Prompt are fixed.
 
-Issue 017 remains dependent on a valid Issue 016 result, an executable Bot Host composition, and Manual Smoke. Its fixed-duration gate was removed in Issue 018; long-term formation will use real-interaction feedback with `insufficient-observation` for unsupported judgments.
+Issue 017 remains dependent on Issues 016 and 026, an executable Bot Host composition, and Manual Smoke. Issue 027 is a separate release-confidence activity rather than a prerequisite for real-use feedback. Its fixed-duration gate was removed in Issue 018; long-term formation will use real-interaction feedback with `insufficient-observation` for unsupported judgments.
 
 ## 8. Issue 025 verification record
 

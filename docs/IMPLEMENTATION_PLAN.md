@@ -291,9 +291,9 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **実装対象:** EV-01〜EV-07のversion付きfixture、scenario runner、hard assertion、semantic rubric、evaluation packet、Evaluator adapter、人間review入力、model / digest / Ollama / prompt / build / config metadata、artifact保存。
 
-**TDD / 検証:** runner、hard assertion、集計、artifact生成自体は固定fixtureで決定的にテストする。実際のAgent Coreへ事前状態とEventを入力し、まず1 Scenarioを1回実行してSchemaと意味内容を確認した後、各Scenarioを独立状態から5回実行する。Hard assertionは全run必須、semantic rubricは各Scenarioで5回中4回以上の総合passを必要とする。長期状態が自然に形成される過程は合否対象にしない。
+**TDD / 検証:** runner、hard assertion、集計、artifact生成自体は固定fixtureで決定的にテストする。実際のAgent Coreへ事前状態とEventを入力し、代表Scenarioを1回実行してSchemaと意味内容を確認する。残りScenarioは現在の通常Core、Tool、Review、Runtime境界へ合わせた後、各1回確認する。5回反復と4/5判定はrelease候補固定後の別Issueとし、通常開発の完了条件には含めない。長期状態が自然に形成される過程は合否対象にしない。
 
-**完了条件:** AC-01〜AC-07の結果を入力、状態差分、根拠Memory、Tool traceまで追跡できる。境界結果を人間がreviewでき、過去artifactを上書きしない。
+**完了条件:** 評価基盤が入力、状態差分、根拠Memory、Tool traceを追跡でき、代表ScenarioのSchema、Hard assertion、意味内容を確認できる。残りScenarioの単発確認と反復評価は独立Issueで追跡する。境界結果を人間がreviewでき、過去artifactを上書きしない。
 
 **依存:** IP-15。Ollama chat / embedding modelはこの作業の開始時に固定し、capability check結果とともに記録する。
 
@@ -307,7 +307,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **完了条件:** Test Strategy 12.7の記録条件を満たし、評価対象の各Agentに少なくとも1件のfeedbackがある。観測できた印象、望ましい振る舞い、判断材料が不足する項目、Completion Gateの全項目、未解決リスクをreportに残す。
 
-**依存:** IP-16、およびTerminal / Discord / 複数botのManual Smoke成功。
+**依存:** IP-16、残りScenarioの単発確認、およびTerminal / Discord / 複数botのManual Smoke成功。反復統計評価は必須依存としない。
 
 ## 5. Milestoneと判定点
 
@@ -317,7 +317,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 | M2: 永続的な対話経路 | IP-04〜IP-09 | Terminal入力から冪等な状態確定と応答まで通る |
 | M3: Capabilityと自律性 | IP-10〜IP-12 | Tool、自律再検討、長期個体化を決定的に検証できる |
 | M4: 全Adapterと復旧 | IP-13〜IP-15 | 複数bot、Discord、障害復旧を含む全System testが通る |
-| M5: 意味的受け入れ | IP-16 | 7 Scenarioのlive Ollama基準を満たす |
+| M5: 意味的受け入れ | IP-16 | 評価基盤と代表Scenarioのlive Ollama開発ゲートを満たす |
 | M6: 完成判定 | IP-17 | Manual Smokeと実利用feedbackを含むCompletion Gateを満たす |
 
 各Milestoneでは、その時点で利用可能な`typecheck`、lint、Unit、Contract、Integration、System suiteをすべて通す。後続Milestoneの未実装機能を仮の成功扱いにしない。

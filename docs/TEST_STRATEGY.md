@@ -353,7 +353,7 @@ type EvaluationScenario = {
 }
 ```
 
-各Scenarioは実際のAgent Coreへ入力し、DBに事前配置した状態、Agent Coreの出力、適用後の状態差分を記録する。評価専用PromptにAgentの振る舞いを模擬させない。各Scenarioを独立した初期状態から5回実行する。model、prompt、retrieval、Scenarioを変更した場合は新しいevaluation run groupとして記録する。開発中は1 Scenarioを1回だけ実行し、Schemaと意味内容を確認してから全件を実行できる。
+各Scenarioは実際の対応Coreへ入力し、DBに事前配置した状態、Coreの出力、適用後の状態差分を記録する。評価専用PromptにAgentの振る舞いを模擬させない。通常の開発ゲートでは、まず代表Scenarioを1回実行してSchemaと意味内容を確認する。残りScenarioも責務境界を確認してから各1回実行する。5回反復はrelease候補のmodelとPromptを固定し、時間と費用を許容できる場合の統計評価として分離する。model、prompt、retrieval、Scenarioを変更した場合は新しいevaluation run groupとして記録する。
 
 ### 11.2 合格条件
 
@@ -368,7 +368,7 @@ Hard assertion:
 - Tool、step、hop、TTL、path制約を守る
 - 無限loopや未処理例外がない
 
-Hard assertionは全5 runで合格を必須とする。
+Hard assertionは実行した全runで合格を必須とする。
 
 Semantic rubric:
 
@@ -378,7 +378,7 @@ Semantic rubric:
 - 提案された変化が入力Eventと事前配置した状態に見合う
 - 固定的・ランダムなBehavior注入に見えない
 
-各項目を`pass / weak / fail`で評価し、Scenarioごとに5 run中4 run以上が総合`pass`であることを完成基準とする。`weak`の扱いと総合判定規則はScenario fixtureに明記する。
+各項目を`pass / weak / fail`で評価する。単発確認では結果と判断根拠を記録し、`fail`を未解決のまま完了しない。5回の統計評価を実施する場合は4 run以上が総合`pass`であることを基準とする。`weak`の扱いと総合判定規則はScenario fixtureに明記する。
 
 ### 11.3 評価方法
 

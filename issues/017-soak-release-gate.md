@@ -40,4 +40,5 @@ status: created
 ## Dependencies
 
 - 016
+- 026
 - Terminal、Discord、複数botのManual Smoke成功
