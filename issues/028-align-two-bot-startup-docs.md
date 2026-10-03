@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 028: specを基準に2 bot起動のdocsを整合させる
@@ -26,10 +26,10 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] specとの対応箇所と採用判断がdocsから追跡できる。
-- [ ] 2 botの起動コマンド、設定分離、共有資源、停止手順が一意に理解できる。
-- [ ] docs間でBot Host、Runtime、Scheduler、Discord、Outboxの責務が矛盾しない。
-- [ ] `.env.sample`以外のenvファイルを変更しない方針が明記される。
+- [x] specとの対応箇所と採用判断がdocsから追跡できる。
+- [x] 2 botの起動コマンド、設定分離、共有資源、停止手順が一意に理解できる。
+- [x] docs間でBot Host、Runtime、Scheduler、Discord、Outboxの責務が矛盾しない。
+- [x] `.env.sample`以外のenvファイルを変更しない方針が明記される。
 
 ## Tests
 
@@ -39,4 +39,3 @@ status: created
 
 - [概念設計](../spec/personal-agent-concept-design-restructured-v2.md)
 - [実装設計](../spec/personal-agent-implementation-design-v2.md) 27章ほか
-

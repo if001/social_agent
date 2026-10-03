@@ -262,7 +262,9 @@ DiscordからAgentへメッセージを送り、応答および必要な自律�
 
 #### FR-CF-01: 環境設定
 
-実行に必要な接続先、モデル、Discord資格情報、許可ディレクトリ、実行上限等を環境変数から設定できなければならない。`.env`を読み込めるものとし、`.env.sample`も設定入力として読み込める構成を許容する。
+実行に必要な接続先、モデル、Discord資格情報とallowlist、許可ディレクトリ、Queue宛先、Scheduler／Outbox間隔、実行上限等を環境変数から設定できなければならない。`.env.sample`と`.env`に加え、1 process分の設定fileを明示指定できなければならない。同じbuildを異なるBOT_IDとDiscord資格情報で複数起動でき、秘密値をlog、error、artifact、Agent Contextへ含めてはならない。
+
+設定の追加・説明変更は`.env.sample`へ反映しなければならない。アプリケーションは`.env`および明示指定された秘密設定fileを書き換えてはならない。
 
 #### FR-CF-02: 入出力検証
 
@@ -390,6 +392,14 @@ UI、Web検索、Memory Store、LLM、Embedding、Toolの交換が、AgentのSel
 1. プロセス再起動後も、各Agentの永続状態、Memory、Active Intention、未解決Candidateを復元できる。
 2. Schemaに適合しないLLM出力を与えても、永続状態の破損、範囲外Tool実行、未検証データの保存が起きない。
 3. Eventから状態更新とTool実行までの関連をログまたは永続記録で追跡できる。
+
+### AC-11: 2 bot process起動
+
+1. migrationを一度明示実行した後、異なるAgent IDとDiscord資格情報を持つ2 processを同じbuildから起動できる。
+2. 2 processはPostgreSQL、Queue root、Chat／Embedding／Web接続を共有しつつ、Agent入力、Discord出力、状態、Memoryを混線させない。
+3. 同じAgent IDの2 process目はconsumer開始前に終了する。
+4. SIGINTまたはSIGTERMで新規受付を停止し、処理中runをdrainまたは再配送可能な状態へ戻して接続とlockを解放する。
+5. 片方のprocessが停止している間のMessageを保持し、再起動後に欠落や状態の二重適用なく処理できる。
 
 ## 9. 対象外
 
