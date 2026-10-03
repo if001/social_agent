@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 030: 1 process 1 Agentの起動設定とCLI契約を実装する
@@ -19,12 +19,11 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] 2つの設定から異なるBOT_IDとDiscord資格情報を持つprocessを構成できる。
-- [ ] 不足・矛盾・同一BOT_IDの誤構成を外部接続前に拒否できる。
-- [ ] `.env`を変更せず、必要なsample項目は`.env.sample`だけへ追加される。
-- [ ] 秘密値が出力されないことをテストで確認できる。
+- [x] 2つの設定から異なるBOT_IDとDiscord資格情報を持つprocessを構成できる。
+- [x] 不足・矛盾・同一BOT_IDの誤構成を外部接続前に拒否できる。
+- [x] `.env`を変更せず、必要なsample項目は`.env.sample`だけへ追加される。
+- [x] 秘密値が出力されないことをテストで確認できる。
 
 ## Dependencies
 
 - 029
-
