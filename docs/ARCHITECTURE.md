@@ -31,7 +31,7 @@ Application / Domain層が必要とする契約をPortとして定義し、Infra
 
 ### A-04: LLMは提案し、Runtimeが確定する
 
-LLMはSubjective Meaning、状態更新、Memory、Intention、Actionを提案する。RuntimeはZod Schema、権限、参照整合性、状態version、ループ上限を検証し、DB transactionで確定する。
+LLMはSubjective Meaning、状態更新、Memory、Intention、Long-term Candidate、最終Actionを提案する。提案に保存用ID、作成時刻、所有Agent ID、保存済みという事実を生成させない。RuntimeはZod Schema、権限、参照整合性、状態version、ループ上限を検証し、IDと時刻を付与してDB transactionで確定する。
 
 ### A-05: 配送はat-least-once、処理は冪等にする
 
@@ -204,11 +204,11 @@ Discord Adapter:
 - Agent単位でEventを直列処理する
 - Context Builderを呼び出す
 - Agent Harnessを実行する
-- Tool Loopの回数、実行時間、利用可能Toolを制限する
+- Deep Agents Adapterへ利用可能Toolと機械的制限を渡し、Tool実行記録を受け取る
 - Agent Core Outputを検証する
 - 状態、Memory、Intention、Candidate、Event logをtransactionで保存する
 - 外部向けActionを宛先付きQueueへpublishする
-- Internal Event、Time Event、Tool ResultをRuntime内で再投入する
+- Internal EventとTime Eventを通常Agent CoreまたはLong-term Reviewへ振り分ける
 
 外部Message consumerのconcurrencyはbotごとに1とする。長時間Tool実行中も同じAgentの別Eventを並行処理しない。
 
@@ -254,6 +254,7 @@ interface AgentHarness {
 - Tool RegistryのToolだけをLangChain Toolへ変換して登録する
 - API key付きOllama Cloud Chat ModelをDeep Agentsへ注入する
 - 各Tool callとresultをRuntime traceへ通知する
+- Tool resultを同じDeep Agent runの次のreasoning stepへ返し、最終Actionまで内部loopを完了する
 - step上限とdeadlineを強制する
 - 最終結果を`AgentCoreOutputSchema`でparseする
 - Deep Agents / LangChain固有のmessage、tool、state型をDomain型へ変換する
@@ -339,7 +340,7 @@ Agent Coreの提案を検証し、transactionで適用する。
 - 長期状態を通常更新案から直接変更していないこと
 - `agent_state.version`が読み取り時と一致すること
 
-更新時はEvent log、状態更新、Memory、Intention、Candidate、Tool traceを1 transactionで保存する。version不一致時は古い提案を適用せず、現在状態からEventを再処理するかdead-letterに移す。
+更新時はEvent log、状態更新、Memory、Intention、Candidate、Tool実行記録を関連づけて保存する。LLM提案には保存用ID、時刻、所有Agent IDを要求せず、検証後にRuntimeが付与する。外部Toolの副作用はDB rollbackで取り消せないため、Tool実行記録は最終出力の検証失敗時にも失わない境界を設ける。version不一致時は古い提案を適用せず、現在状態からEventを再処理するかdead-letterに移す。
 
 ### 5.10 Scheduler
 
@@ -368,6 +369,8 @@ SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。�
 出力はKEEP、UPDATE、MERGE、DROPの判断、更新後の値、理由、根拠Memory IDを含む。Zodで検証後、長期状態更新、Candidateの解決状態、Self Change Memoryを同一transactionで保存する。
 
 単純追加よりMERGEを優先する。Review後も長期状態が設定上限を超える場合は、意味を維持するcompactionを再度提案させる。
+
+通常Agent CoreとLong-term Review Coreは、同じmodelやAdapterを共有してもよいが、入力契約、出力Schema、prompt、起動Eventを分離する。通常Agent CoreはLong-term Candidateまでを提案し、長期状態を確定しない。
 
 ## 6. 外部Messageと内部Event
 
@@ -484,6 +487,8 @@ Agent Harness
 
 Tool Resultは外部Queueへpublishしない。各callは`tool_executions`へ記録し、同じrun内の新しいObservationとしてDeep AgentsのTool Loopへ返す。
 
+実装設計26章の「Runtime → Tool → Tool Result Event」は論理的な責務の流れを示す。本実装ではDeep Agents AdapterがRuntimeからTool実行能力を委譲され、同一run内でこの流れを実行する。RuntimeはTool定義、権限、上限、deadline、冪等性を支配し、Adapterは呼び出しと結果の再入力を行う。Tool結果を外部Eventとして別runへ再投入しない。
+
 ### 8.3 bot間通信
 
 ```text
@@ -533,16 +538,20 @@ type AgentCoreInput = {
 }
 
 type AgentCoreOutput = {
-  subjectiveMeaning?: string
-  stateUpdates: StateUpdateProposal[]
-  memoryUpdates: MemoryProposal[]
-  intentionUpdates: IntentionUpdate[]
-  longTermCandidates: LongTermUpdateCandidateProposal[]
-  action: AgentAction
+  interpretation: { subjectiveMeaning?: string }
+  internalChanges: {
+    transientStateUpdates: StateUpdateProposal[]
+    memoryProposals: MemoryProposal[]
+    intentionProposals: IntentionProposal[]
+    longTermCandidates: LongTermUpdateCandidateProposal[]
+  }
+  action: FinalAction
 }
 ```
 
-Actionはrespond、tool、wait、refuse、no-actionを表現する。Deep AgentsがTool Loopを完了した後の最終Actionに加え、実行したTool traceもResultへ含める。
+`FinalAction`はrespond、wait、refuse、no-actionを表現する。Tool callはDeep Agents内部loopの中間操作であり、最終Actionには含めない。Harnessは`AgentCoreOutput`と、通常コードが観測した`ToolExecutionRecord[]`を`AgentRunResult`としてRuntimeへ返す。
+
+`MemoryProposal`、新規`IntentionProposal`、`LongTermUpdateCandidateProposal`は意味内容と根拠を持つが、保存用ID、作成時刻、所有Agent IDを持たない。既存Intention等を更新する提案は、入力Contextに存在する対象IDだけを参照できる。
 
 Schema不適合時は、同じraw outputを添えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。
 
@@ -751,6 +760,7 @@ HTTP health serverは今回実装しない。状態は構造化ログとTerminal
 - Deep Agentsの組み込みMemoryを人格状態の正本にする構成
 - 複数botが単一append fileをlockなしで共有するQueue
 - LLMがDBや永続状態を直接更新する構成
+- Deep Agents内部Tool Loopと、最終Actionの`tool`をRuntimeが再実行する二重構成
 - HTTP Event Ingress、専用Queue server、分散brokerの今回実装
 
 ## 19. 将来の拡張点
@@ -764,6 +774,7 @@ HTTP health serverは今回実装しない。状態は構造化ログとTerminal
 
 ## 20. 参照
 
+- `docs/DESIGN_ALIGNMENT.md`
 - `docs/REQUIREMENTS.md`
 - `docs/web_tool.md`
 - `spec/personal-agent-concept-design-restructured-v2.md`

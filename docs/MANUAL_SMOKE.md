@@ -26,3 +26,10 @@ Run `pnpm verify` first. Use a dedicated database, queue root, file root, Discor
 5. Inspect with `pnpm ops dead:list <queue-root> <destination>` and requeue with `pnpm ops dead:requeue <queue-root> <destination> <file>`.
 
 Record command versions, build revision, configuration without secrets, timestamps, Agent IDs, and observed results as the smoke artifact.
+
+## Tool trace and long-term review
+
+1. Trigger a registered Tool from a normal conversation and confirm the final user response is produced after the Tool result is consumed in the same Agent run.
+2. Confirm the Tool execution record contains the run and Event linkage without exposing credentials.
+3. Confirm a normal Event may create a Long-term Candidate but does not directly change Self Narrative or Acquired Disposition.
+4. Trigger a `long-term-review` Internal Event and confirm only the Review flow can apply a supported long-term change with evidence Memory.
