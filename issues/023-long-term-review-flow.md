@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 023: Long-term Reviewの独立した判断と保存を実装する
@@ -31,8 +31,8 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] 通常Coreとは独立してCandidateと実在する同一Agentの根拠を評価できる。
-- [ ] 4判断の意味、統合、長期状態更新とSelf Change Memoryが整合する。
+- [x] 通常Coreとは独立してCandidateと実在する同一Agentの根拠を評価できる。
+- [x] 4判断の意味、統合、長期状態更新とSelf Change Memoryが整合する。
 
 ## Tests
 

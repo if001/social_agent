@@ -118,11 +118,11 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-ok','a','selfNarrative','More patient','pending','Evidence'),('candidate-fail','a','selfNarrative','Should rollback','pending','Evidence')");
     await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-ok','memory-a1'),('candidate-fail','memory-a1')");
     const repository = new PostgresLongTermReviewRepository(pool, () => "review-memory");
-    const service = new LongTermReviewService(repository, { review: () => Promise.resolve({ decision: "UPDATE", value: "I learn with patience", reason: "Repeated experience" }) });
+    const service = new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-ok", decision: "UPDATE", reason: "Repeated experience" }], stateUpdate: { value: "I learn with patience", reason: "Repeated experience", evidenceMemoryIds: ["memory-a1"] } }) });
     await service.review("candidate-ok", new AbortController().signal);
     expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
     expect((await pool.query("SELECT 1 FROM memories WHERE id='review-memory' AND kind='self-change'")).rowCount).toBe(1);
-    const failing = new LongTermReviewService(new PostgresLongTermReviewRepository(pool, () => "review-memory"), { review: () => Promise.resolve({ decision: "UPDATE", value: "Should rollback", reason: "Test rollback" }) });
+    const failing = new LongTermReviewService(new PostgresLongTermReviewRepository(pool, () => "review-memory"), { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-fail", decision: "UPDATE", reason: "Test rollback" }], stateUpdate: { value: "Should rollback", reason: "Test rollback", evidenceMemoryIds: ["memory-a1"] } }) });
     await expect(failing.review("candidate-fail", new AbortController().signal)).rejects.toBeTruthy();
     expect((await pool.query<{ status: string }>("SELECT status FROM long_term_candidates WHERE id='candidate-fail'")).rows[0]?.status).toBe("pending");
     expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
