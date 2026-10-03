@@ -78,7 +78,7 @@ export class PostgresAgentContextLoader {
       self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, initialDisposition: agent.initial_disposition, acquiredDisposition: agent.acquired_disposition, values: agent.values, role: agent.role, selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
       dynamicState: { agentId: agent.id, emotion: agent.emotion, mood: agent.mood, drive: agent.drive, desire: agent.desire, updatedAt: agent.state_updated_at.toISOString() },
       socialContext, memories: enrichedMemories, intentions, availableTools: [...availableTools],
-      runtimeConstraints: [agent.base_instruction, `Family disposition: ${agent.shared_disposition}`, "Toolの結果と他Agentからの伝聞は出典を区別すること"],
+      runtimeConstraints: [agent.base_instruction.trim(), `Family disposition: ${agent.shared_disposition}`, "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),
       limits: this.options.limits
     }, this.options.budget));
   }
