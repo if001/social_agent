@@ -590,9 +590,12 @@ report generatorは、feedbackのcategoryと期間から関連signalを集める
 ### 複数bot
 
 - 異なる設定の2プロセスを起動できる
+- Agent入力destinationとDiscord outbound destinationがbotごとに分離される
+- DB、Queue、Chat／Embedding接続を共有しても状態とMemoryが混線しない
 - Agent AからBへ情報を送信できる
 - 片方停止中のMessageを再起動後に処理できる
 - 同じAgent IDの2プロセス目がlock取得に失敗する
+- SIGINT／SIGTERM後に新規受付を止め、処理中run、Outbox、Schedule対象を再開可能な状態にする
 
 ## 14. Acceptance Criteria Coverage
 

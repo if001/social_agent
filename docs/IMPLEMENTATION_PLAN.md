@@ -309,6 +309,18 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **依存:** IP-16、残りScenarioの単発確認、およびTerminal / Discord / 複数botのManual Smoke成功。反復統計評価は必須依存としない。
 
+### IP-18: Production Bot Hostと2 bot起動
+
+**目的:** 1 process＝1 Agentとして、異なるDiscord資格情報を持つ2 botを同じbuildから起動し、共有DB／Queue上で安全に運用する。
+
+**実装対象:** process別設定file、`bot:start` CLI、本番Context Loader、Tool／Runtime／Review composition、Scheduler／Outbox常駐loop、Discord inbound／outbound、Agent advisory lock、capability check、SIGINT／SIGTERMとgraceful drain。
+
+**TDD / 検証:** 設定と秘密値除外のUnit Test、実DBを使うContext分離Integration、Fake providerによるBot Host System Test、同一Agent二重起動拒否、停止・再起動復旧を先に検証する。最後に実Discord資格情報を使う2 processのManual Smokeを行う。DB、Chat Ollama、Embedding Ollamaへ接続できない場合はManual Smokeを停止する。
+
+**完了条件:** migrationと2 Agent初期化後、`pnpm bot:start --env-file <path>`を2 processで実行できる。各botのDiscord入出力、状態、Memoryが分離され、bot間provenance、Scheduler、Outbox、graceful shutdown、再起動復旧を確認できる。
+
+**依存:** IP-04〜IP-15、Issue 020〜025。実装順はIssue 028〜033で管理する。
+
 ## 5. Milestoneと判定点
 
 | Milestone | 含む作業 | 判定できること |
@@ -319,6 +331,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 | M4: 全Adapterと復旧 | IP-13〜IP-15 | 複数bot、Discord、障害復旧を含む全System testが通る |
 | M5: 意味的受け入れ | IP-16 | 評価基盤と代表Scenarioのlive Ollama開発ゲートを満たす |
 | M6: 完成判定 | IP-17 | Manual Smokeと実利用feedbackを含むCompletion Gateを満たす |
+| M7: 実運用起動 | IP-18 | 2つのDiscord botを同時起動し、停止・復旧を確認できる |
 
 各Milestoneでは、その時点で利用可能な`typecheck`、lint、Unit、Contract、Integration、System suiteをすべて通す。後続Milestoneの未実装機能を仮の成功扱いにしない。
 

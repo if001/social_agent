@@ -118,6 +118,7 @@ Bootstrap
 責務:
 
 - `.env.sample`、`.env`、`process.env`から設定を読み、Zodで検証する
+- `--env-file <path>`が指定された場合は`.env.sample → .env → 指定file → process.env`の順に上書きする
 - Agent IDに対するPostgreSQL advisory lockを取得する
 - DB接続、Queue、Ollama、Tool Registry、UI Adapterを構築する
 - Queue consumer、Scheduler、Discord接続、Terminal入力を開始する
@@ -125,6 +126,8 @@ Bootstrap
 - advisory lockと外部接続を解放する
 
 同じAgent IDで2プロセスが起動した場合、後から起動したプロセスは処理を開始せず終了する。
+
+起動順序は、設定検証、DB接続、Agent存在確認、Agent advisory lock、Chat／Embedding capability check、依存component構築、Queue復旧、consumer開始、`ready`遷移とする。migrationは複数processが競合しないよう`bot:start`から実行せず、事前に明示commandで適用する。
 
 ### 5.2 Message Queue
 
@@ -652,10 +655,10 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 設定の優先順位は次のとおりとする。後の値が前の値を上書きする。
 
 ```text
-.env.sample → .env → process.env
+.env.sample → .env → --env-fileで指定したprocess別file → process.env
 ```
 
-`.env.sample`は実行可能な既定値を持てるが、実資格情報をrepositoryへ保存しない。
+`.env.sample`は実行可能な既定値を持てるが、実資格情報をrepositoryへ保存しない。process別fileは`.env.bot-a`等としてrepository管理外に置ける。運用・自動化が`.env`またはprocess別fileを変更することはなく、設定項目の追加・説明変更は`.env.sample`だけに行う。
 
 主な設定群:
 
@@ -670,6 +673,18 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 - Scheduler: scan interval、review interval
 - Tool: file roots、`SIMPLE_CLIENT_BASE_URL`、Web timeout、response size
 - Output: autonomous actionのdefault destinations
+
+初期実装で2 bot起動に必要な設定名は次とする。
+
+| Group | Environment variables |
+|---|---|
+| bot | `BOT_ID`、`BOT_FAMILY_ID` |
+| Discord | `DISCORD_BOT_TOKEN`、`DISCORD_BOT_USER_ID`、`DISCORD_OWNER_IDS`、`DISCORD_GUILD_IDS`、`DISCORD_CHANNEL_IDS` |
+| UI destination | `DISCORD_QUEUE_DESTINATION`、`DEFAULT_OUTPUT_DESTINATION` |
+| loops | `SCHEDULER_INTERVAL_MS`、`OUTBOX_INTERVAL_MS` |
+| shared | `POSTGRES_URL`、`QUEUE_ROOT`、Chat／Embedding／Web設定 |
+
+ID一覧はcomma区切りで受け取り、空要素と重複を正規化する。Discordを有効にする場合はtoken、bot user ID、owner、channelを必須とする。Discord Queue destinationは既定で`discord:<BOT_ID>`とし、2つのDiscord Adapterが同じoutbound destinationを競合consumeしないようにする。Agent Runtimeの入力destinationは`BOT_ID`であり、bot間通信も相手の`BOT_ID`を宛先とする。
 
 設定全体をZodで検証し、不足または矛盾がある場合は外部接続を開始する前に終了する。
 
@@ -699,6 +714,18 @@ External dependencies
 
 同じbuild artifactを異なる設定で複数起動する。各プロセスは1つのAgent IDを所有する。Queue root、PostgreSQL、ローカルOllama Embedding、Ollama Cloud Chat、Web Tool Serviceを共有し、Queue destinationとDBの`agent_id`で分離する。
 
+標準起動形は次とする。
+
+```bash
+pnpm ops migrate
+pnpm ops agent:init bot-a default
+pnpm ops agent:init bot-b default
+pnpm bot:start --env-file .env.bot-a
+pnpm bot:start --env-file .env.bot-b
+```
+
+各process別fileは同じ共有接続先を持ち、`BOT_ID`、Discord資格情報、Discord allowlist、Discord Queue destinationだけを個体ごとに変える。秘密値を含む実ファイルはartifact、log、repositoryへ含めない。
+
 標準ファイルQueueは同一host上の複数プロセスを前提とする。別hostへ配置する場合は、MessageQueue Adapterをネットワーク対応brokerへ交換する。その際もRuntime、UI Adapter、Message Envelopeは変更しない。
 
 ### 14.3 Health
@@ -709,6 +736,7 @@ External dependencies
 - `ready`: Agent lock取得済みでQueueをconsume可能
 - `degraded`: DiscordやWeb等、一部Adapterが一時利用不能
 - `stopping`: 新規consumeを停止し処理中runをdrain中
+- `stopped`: consumer、Discord、DB、Agent lockを解放済み
 
 HTTP health serverは今回実装しない。状態は構造化ログとTerminalへ出力する。
 
