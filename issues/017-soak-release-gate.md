@@ -3,7 +3,7 @@ created_at: 2026-10-02
 status: created
 ---
 
-# 017: Evaluation Store、7日間Soak、完成判定を実施する
+# 017: Evaluation Store、実利用評価、完成判定を実施する
 
 ## Goal
 
@@ -14,7 +14,7 @@ status: created
 - Evaluation periodと通常Memoryから分離したFeedback Store
 - feedback追加 / 一覧 / 修正 / export CLI
 - 定期snapshot、期間集計、feedbackとtraceの照合
-- Soak Report generator、24時間予備Soak、連続7日間の本Soak
+- 実利用期間のreport generator、ユーザーフィードバックと関連traceの照合
 
 ## References
 
@@ -27,15 +27,15 @@ status: created
 - [ ] reportから開始・終了状態、Review根拠、自律行動、Tool、Queue、失敗を追跡できる
 - [ ] reportとartifactに秘密値を含めない
 - [ ] Terminal、Discord、複数botのManual Smokeが成功する
-- [ ] 連続7日間のSoakがTest Strategy 12.7を満たす
-- [ ] 各Agentに1件以上のfeedbackがあり、一個体性・個体差・自律性のユーザー総合判定を記録する
+- [ ] 固定日数によらない実利用期間についてTest Strategy 12.7の記録条件を満たす
+- [ ] 評価対象の各Agentに1件以上のfeedbackがあり、観測できた印象、望ましい振る舞い、判断材料が不足する項目を記録する
 - [ ] Completion Gate全項目と未解決リスクをSoak Reportへ記録する
 
 ## Tests
 
 - Feedback Store、期間集計、秘密値除外、期間比較、report生成のfixture test
-- 24時間予備Soak
-- 連続7日間のrelease Soak
+- 実利用期間の収集とreport生成
+- feedbackと関連conversation、Event、runの照合
 
 ## Dependencies
 

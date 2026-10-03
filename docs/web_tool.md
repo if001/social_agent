@@ -1,6 +1,8 @@
 web検索のサービスは以下です。
 SIMPLE_CLIENT_BASE_URLを環境変数から読み取ってください。
 
+このサービスはTool Registry経由でDeep Agentへ登録する。入力検証、deadline、呼び出し上限、実行記録はRuntimeが与えるTool実行境界で強制し、結果は同じDeep Agent runのreasoningへ返す。
+
 ## web_list
 queryで検索を行いリストを返却します。
 
