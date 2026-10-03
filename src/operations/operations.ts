@@ -11,7 +11,7 @@ export async function initializeAgent(pool: Pool, seed: AgentSeed): Promise<void
     await client.query("BEGIN");
     await client.query("INSERT INTO agent_families(id,name,shared_disposition,capabilities,base_instruction) VALUES ($1,$2,$3,'[]','') ON CONFLICT (id) DO NOTHING", [seed.familyId, seed.familyName, seed.sharedDisposition]);
     await client.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [seed.agentId, seed.familyId, seed.identity, seed.initialDisposition]);
-    await client.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,role,self_narrative,self_continuity,emotion,mood,drive,desire) VALUES ($1,'Still learning','To be discovered','Assistant','I am beginning','I continue through memory','Curious','Calm','Understand','Help') ON CONFLICT (agent_id) DO NOTHING", [seed.agentId]);
+    await client.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,role,roles,self_narrative,self_continuity,emotion,mood,drive,drives,desire,desires) VALUES ($1,'Still learning','To be discovered','Assistant','[\"Assistant\"]','I am beginning','I continue through memory','Curious','Calm','Understand','[\"Understand\"]','Help','[\"Help\"]') ON CONFLICT (agent_id) DO NOTHING", [seed.agentId]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }

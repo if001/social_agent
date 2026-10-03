@@ -9,8 +9,8 @@ import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
 
 type AgentRow = QueryResultRow & {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
-  acquired_disposition: string; values: string; role: string; self_narrative: string; self_continuity: string;
-  emotion: string; mood: string; drive: string; desire: string; version: number; state_updated_at: Date;
+  acquired_disposition: string; values: string; interests: unknown; preferences: unknown; roles: unknown; raison_detre: string | null; self_narrative: string; self_continuity: string;
+  emotion: string; mood: string; drives: unknown; desires: unknown; current_interests: unknown; version: number; state_updated_at: Date;
   shared_disposition: string; capabilities: unknown; base_instruction: string;
 };
 type SocialRow = QueryResultRow & { id: string; agent_id: string; subject_id: string; description: string; updated_at: Date };
@@ -31,6 +31,7 @@ export type PostgresAgentContextLoaderOptions = {
 };
 
 function text(value: unknown): string | undefined { return typeof value === "string" && value.trim() !== "" ? value : undefined; }
+function texts(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "") : []; }
 function transport(event: DomainEvent): AgentCoreInput["run"]["transport"] {
   const value = event.payload.transport;
   if (typeof value !== "object" || value === null) return undefined;
@@ -55,7 +56,7 @@ export class PostgresAgentContextLoader {
   async load(event: DomainEvent): Promise<AgentCoreInput> {
     const observation = observationFromEvent(event);
     const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
-      s.acquired_disposition,s.values,s.role,s.self_narrative,s.self_continuity,s.emotion,s.mood,s.drive,s.desire,s.version,s.updated_at AS state_updated_at,
+      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.emotion,s.mood,s.drives,s.desires,s.current_interests,s.version,s.updated_at AS state_updated_at,
       f.shared_disposition,f.capabilities,f.base_instruction
       FROM agents a JOIN agent_states s ON s.agent_id=a.id JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1`, [event.agentId]);
     const agent = agentResult.rows[0];
@@ -69,7 +70,7 @@ export class PostgresAgentContextLoader {
     const recentObservations = recentResult.rows.flatMap(({ observation: value }) => { const parsed = ObservationSchema.safeParse(value); return parsed.success ? [parsed.data] : []; }).reverse();
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, description: row.description, updatedAt: row.updated_at.toISOString() }));
     const intentions: Intention[] = intentionResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, description: row.description, reason: row.reason, status: row.status, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), ...(row.next_review_at === null ? {} : { nextReviewAt: row.next_review_at.toISOString() }), ...(row.superseded_by_id === null ? {} : { supersededById: row.superseded_by_id }) }));
-    const dynamicState = { agentId: agent.id, emotion: agent.emotion, mood: agent.mood, drive: agent.drive, desire: agent.desire, updatedAt: agent.state_updated_at.toISOString() };
+    const dynamicState = { agentId: agent.id, emotion: agent.emotion, mood: agent.mood, drives: texts(agent.drives), desires: texts(agent.desires), currentInterests: texts(agent.current_interests), updatedAt: agent.state_updated_at.toISOString() };
     const memoryQuery = buildRelevantMemoryQuery({ observation, dynamicState, intentions, socialContext });
     const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);
     let vectors: readonly (readonly number[])[] = [];
@@ -83,7 +84,7 @@ export class PostgresAgentContextLoader {
     return AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
       observation, recentObservations,
-      self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, initialDisposition: agent.initial_disposition, acquiredDisposition: agent.acquired_disposition, values: agent.values, role: agent.role, selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
+      self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, initialDisposition: agent.initial_disposition, acquiredDisposition: agent.acquired_disposition, values: agent.values, interests: texts(agent.interests), preferences: texts(agent.preferences), roles: texts(agent.roles), ...(agent.raison_detre === null ? {} : { raisonDetre: agent.raison_detre }), selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
       dynamicState,
       socialContext, memories: enrichedMemories, memoryRetrievalTrace: retrieval.trace, intentions, availableTools: [...availableTools],
       runtimeConstraints: [agent.base_instruction.trim(), `Family disposition: ${agent.shared_disposition}`, "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),

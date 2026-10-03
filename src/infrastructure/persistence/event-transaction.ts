@@ -8,7 +8,7 @@ export type CommitEventInput = {
   readonly messageId: string;
   readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date };
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly startedAt: Date; readonly result: unknown };
-  readonly stateValues: Readonly<Record<string, string>>;
+  readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly (StateChange & { readonly id: string })[];
   readonly memories?: readonly Memory[];
   readonly intentionCreates?: readonly Intention[];

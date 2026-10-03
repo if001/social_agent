@@ -27,7 +27,10 @@ export const AgentSchema = z.object({
   initialDisposition: NaturalLanguage,
   acquiredDisposition: NaturalLanguage,
   values: NaturalLanguage,
-  role: NaturalLanguage,
+  interests: z.array(NaturalLanguage),
+  preferences: z.array(NaturalLanguage),
+  roles: z.array(NaturalLanguage),
+  raisonDetre: NaturalLanguage.optional(),
   selfNarrative: NaturalLanguage,
   selfContinuity: NaturalLanguage,
   version: z.number().int().nonnegative()
@@ -38,8 +41,9 @@ export const DynamicStateSchema = z.object({
   agentId: Id,
   emotion: NaturalLanguage,
   mood: NaturalLanguage,
-  drive: NaturalLanguage,
-  desire: NaturalLanguage,
+  drives: z.array(NaturalLanguage),
+  desires: z.array(NaturalLanguage),
+  currentInterests: z.array(NaturalLanguage),
   updatedAt: Instant
 });
 export type DynamicState = z.infer<typeof DynamicStateSchema>;
@@ -130,7 +134,7 @@ export const ReviewDecisionSchema = z.enum(["KEEP", "UPDATE", "MERGE", "DROP"]);
 export const CandidateSchema = z.object({
   id: Id,
   agentId: Id,
-  target: z.enum(["selfNarrative", "acquiredDisposition", "semanticMemory", "selfRelatedMemory"]),
+  target: z.enum(["selfNarrative", "acquiredDisposition", "role", "raisonDetre", "longTermPreference", "longTermInterest", "semanticMemory", "selfRelatedMemory"]),
   proposal: NaturalLanguage,
   reason: NaturalLanguage,
   evidenceMemoryIds: z.array(Id),
@@ -153,7 +157,7 @@ export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
 
 export const StateUpdateProposalSchema = z.object({
-  target: z.enum(["emotion", "mood", "drive", "desire", "socialContext"]),
+  target: z.enum(["emotion", "mood", "drives", "desires", "currentInterests", "socialContext"]),
   operation: z.enum(["set", "append", "remove"]),
   value: z.unknown(),
   reason: NaturalLanguage,

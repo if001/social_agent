@@ -106,8 +106,8 @@ Agentは別のAgentへ情報を伝達できる。受信側はそれを自分自�
 
 システムは少なくとも次を区別して扱わなければならない。
 
-- 長期: Identity、Disposition、Values、Role、Self Narrative、Self Continuity
-- 中短期: Emotion、Mood、Drive、Desire、Intention、Social Context
+- 長期: Identity、Disposition、Values、Interests、Preferences、複数Role、Raison d'être、Self Narrative、Self Continuity
+- 中短期: Emotion、Mood、複数Drive、複数Desire、Current Interests、Intention、Social Context
 - Event処理中のみ: Observation、Retrieved Memory、Subjective Meaning、更新案、保留中のTool Call
 
 #### FR-AG-04: 自然言語状態

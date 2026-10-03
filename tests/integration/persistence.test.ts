@@ -37,6 +37,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,capabilities,base_instruction) VALUES ('family','Family','Curious','[]','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
     for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,role,self_narrative,self_continuity,emotion,mood,drive,desire) VALUES ($1,'Learning','Care','Helper','Growing','Continuous','Interested','Calm','Learn','Help')", [agentId]);
+    await migrate(pool);
   });
   afterAll(async () => {
     await pool.end();
@@ -51,6 +52,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Focused" })).resolves.toBe(1);
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
+    expect((await repository.find<{ roles: string[]; drives: string[]; desires: string[] }>("a"))).toMatchObject({ roles: ["Helper"], drives: ["Learn"], desires: ["Help"] });
   });
 
   it("rolls back event and outbox as one unit", async () => {
