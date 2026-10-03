@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-03
-status: created
+status: done
 ---
 
 # 034: Discord入力を対象botへのメンションで振り分ける
@@ -39,13 +39,13 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] ユーザーがbot Aだけをメンションすると、bot Aだけが入力Eventを作成する。
-- [ ] bot Aがbot Bだけをメンションすると、bot Bだけが入力Eventを作成する。
-- [ ] メンションがない投稿では、どのbotも入力Eventを作成しない。
-- [ ] 別botだけをメンションした投稿を対象外botが処理しない。
-- [ ] 対象bot自身の投稿による自己応答loopが発生しない。
-- [ ] owner、guild、channelの既存allowlistが意図したauthor種別に適用される。
-- [ ] Agentへ渡す本文に対象botの生メンションIDが残らない。
+- [x] ユーザーがbot Aだけをメンションすると、bot Aだけが入力Eventを作成する。
+- [x] bot Aがbot Bだけをメンションすると、bot Bだけが入力Eventを作成する。
+- [x] メンションがない投稿では、どのbotも入力Eventを作成しない。
+- [x] 別botだけをメンションした投稿を対象外botが処理しない。
+- [x] 対象bot自身の投稿による自己応答loopが発生しない。
+- [x] owner、guild、channelの既存allowlistが意図したauthor種別に適用される。
+- [x] Agentへ渡す本文に対象botの生メンションIDが残らない。
 
 ## Tests
 
@@ -67,3 +67,10 @@ status: created
 - [Architecture: Discord Adapter／複数bot](../docs/ARCHITECTURE.md)
 - [Manual Smoke](../docs/MANUAL_SMOKE.md)
 - 033の実施前提
+
+## Test results
+
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm test`（62件）
+- `pnpm test:system`（14件）
