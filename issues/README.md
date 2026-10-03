@@ -38,5 +38,13 @@
 | 032 | [Bot Host lifecycle](032-bot-host-lifecycle.md) | 031 |
 | 033 | [2 Discord bot Manual Smoke](033-two-discord-bot-smoke.md) | 032、034 |
 | 034 | [Discord mention routing](034-discord-mention-routing.md) | 032、033の前提 |
+| 035 | [Memory設計とdocs整合](035-align-memory-design-and-docs.md) | なし |
+| 036 | [Memory Embedding lifecycle](036-memory-embedding-lifecycle.md) | 035 |
+| 037 | [Relevant Memory Queryとranking](037-relevant-memory-query-and-ranking.md) | 035、036 |
+| 038 | [SelfとDynamic Stateの完全化](038-complete-self-and-dynamic-state-model.md) | なし |
+| 039 | [Intention Triggerと自律Event](039-intention-triggers-and-autonomous-events.md) | 038 |
+| 040 | [Long-term Review scopeの完全化](040-complete-long-term-review-scope.md) | 037、038 |
+| 041 | [EventとObservationのprovenance](041-event-observation-provenance.md) | なし |
+| 042 | [Runtime Safetyとlimit強制](042-runtime-safety-and-limit-enforcement.md) | 041 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
