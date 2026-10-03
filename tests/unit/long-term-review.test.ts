@@ -4,7 +4,7 @@ import type { Candidate, Memory } from "../../src/domain/contracts.js";
 
 const candidate: Candidate = { id: "candidate", agentId: "a", target: "selfNarrative", proposal: "I value patience", reason: "Repeated evidence", evidenceMemoryIds: ["memory"], evidenceEventIds: [], status: "pending", createdAt: "2026-01-01T00:00:00Z" };
 const candidate2: Candidate = { ...candidate, id: "candidate-2", proposal: "I verify before acting" };
-const memory: Memory = { id: "memory", agentId: "a", kind: "self-related", content: "I was patient", createdAt: "2026-01-01T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Strong evidence", evidenceEventIds: ["event"] };
+const memory: Memory = { id: "memory", agentId: "a", kind: "self-related", content: "I was patient", createdAt: "2026-01-01T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Strong evidence", retrievalPriority: "normal", evidenceEventIds: ["event"] };
 const repository = (commits: ReviewCommit[], evidence: readonly Memory[] = [memory], candidates: readonly Candidate[] = [candidate]): LongTermReviewRepository => ({ loadCandidates: (ids) => Promise.resolve(candidates.filter(({ id }) => ids.includes(id))), loadEvidence: () => Promise.resolve(evidence), loadCurrentValue: () => Promise.resolve("I learn"), commit: (review) => { commits.push(review); return Promise.resolve(); } });
 const output = (decision: "KEEP" | "UPDATE" | "MERGE" | "DROP", value?: string): ReviewOutput => ({ decisions: [{ candidateId: "candidate", decision, reason: "Reviewed evidence" }], ...(value === undefined ? {} : { stateUpdate: { value, reason: "Reviewed evidence", evidenceMemoryIds: ["memory"] } }) });
 

@@ -2,6 +2,7 @@ import { ContextBuilder } from "../../src/application/context-builder.js";
 import { FakeEmbeddingProvider, OllamaEmbeddingProvider } from "../../src/infrastructure/embedding/ollama-embedding.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import type { Memory } from "../../src/domain/contracts.js";
+import { buildRelevantMemoryQuery } from "../../src/application/memory-query.js";
 
 describe("embedding and context", () => {
   it("returns deterministic fake vectors and validates local dimensions", async () => {
@@ -18,9 +19,24 @@ describe("embedding and context", () => {
 
   it("enforces ownership, category caps, budget and stable tie breaks", () => {
     const input = agentCoreInputFixture();
-    const memory = (id: string, agentId = "agent-a"): Memory => ({ id, agentId, kind: "episodic", content: `Memory ${id}`, createdAt: "2026-01-01T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful", evidenceEventIds: [] });
-    const result = new ContextBuilder().build({ ...input, memories: [memory("b"), memory("a"), memory("foreign", "agent-b")] }, { maxTokens: 2_000, maxMemories: 1, maxSocialContexts: 1 });
-    expect(result.memories.map(({ id }) => id)).toEqual(["a"]);
+    const memory = (id: string, agentId = "agent-a"): Memory => ({ id, agentId, kind: "episodic", content: `Memory ${id}`, createdAt: "2026-01-01T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful", retrievalPriority: "normal", evidenceEventIds: [] });
+    const result = new ContextBuilder().build({ ...input, memories: [memory("b"), memory("a"), memory("foreign", "agent-b")], memoryRetrievalTrace: [{ memoryId: "b", finalRank: 1, matchedBy: ["keyword", "recency"], kind: "episodic", selected: true }, { memoryId: "a", finalRank: 2, matchedBy: ["recency"], kind: "episodic", selected: true }] }, { maxTokens: 2_000, maxMemories: 1, maxSocialContexts: 1 });
+    expect(result.memories.map(({ id }) => id)).toEqual(["b"]);
+    expect(result.memoryRetrievalTrace.find(({ memoryId }) => memoryId === "a")).toMatchObject({ selected: false, exclusionReason: "context-budget" });
     expect(() => new ContextBuilder().build({ ...input, memories: [] }, { maxTokens: 1, maxMemories: 1, maxSocialContexts: 1 })).toThrow("too small");
+  });
+
+  it("builds a bounded deterministic query from observation, state, intention and social context", () => {
+    const input = agentCoreInputFixture();
+    input.intentions = [{ id: "goal", agentId: input.run.agentId, description: "研究発表を支援する", status: "active", reason: "約束した", createdAt: input.run.occurredAt, updatedAt: input.run.occurredAt }];
+    input.socialContext = [{ id: "social", agentId: input.run.agentId, subjectId: "user", description: "発表準備を率直に相談する関係", updatedAt: input.run.occurredAt }];
+    input.dynamicState = { ...input.dynamicState, mood: "発表を慎重に支援したい" };
+    const query = buildRelevantMemoryQuery(input);
+    expect(query.text).toContain("発表を慎重に支援したい");
+    expect(query.text).toContain("研究発表を支援する");
+    expect(query.subjectIds).toEqual(["user"]);
+    expect(query.intentionIds).toEqual(["goal"]);
+    expect(query.keywords.length).toBeGreaterThan(0);
+    expect(buildRelevantMemoryQuery(input)).toEqual(query);
   });
 });

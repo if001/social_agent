@@ -8,7 +8,7 @@ const rubric = ["experience-grounded-meaning", "action-reason-consistency", "exp
 type InputOptions = { readonly scenarioId: string; readonly agentId: string; readonly initialDisposition: string; readonly selfNarrative: string; readonly observation: string; readonly facts: readonly string[]; readonly memories?: readonly { readonly content: string; readonly importance: string; readonly sourceAgentId?: string }[]; readonly mood?: string; readonly drive?: string; readonly desire?: string; readonly intention?: string; readonly socialContext?: string };
 
 function input(options: InputOptions): AgentCoreInput {
-  const memories: Memory[] = (options.memories ?? []).map((memory, index) => ({ id: `${options.scenarioId}-${options.agentId}-memory-${String(index + 1)}`, agentId: options.agentId, kind: "self-related", content: memory.content, createdAt: instant, relatedSubjectIds: [], relatedIntentionIds: [], importance: memory.importance, ...(memory.sourceAgentId === undefined ? {} : { sourceAgentId: memory.sourceAgentId }), evidenceEventIds: [`${options.scenarioId}-${options.agentId}-experience-${String(index + 1)}`] }));
+  const memories: Memory[] = (options.memories ?? []).map((memory, index) => ({ id: `${options.scenarioId}-${options.agentId}-memory-${String(index + 1)}`, agentId: options.agentId, kind: "self-related", content: memory.content, createdAt: instant, relatedSubjectIds: [], relatedIntentionIds: [], importance: memory.importance, retrievalPriority: "normal", ...(memory.sourceAgentId === undefined ? {} : { sourceAgentId: memory.sourceAgentId }), evidenceEventIds: [`${options.scenarioId}-${options.agentId}-experience-${String(index + 1)}`] }));
   return {
     run: { runId: `${options.scenarioId}-${options.agentId}-run`, eventId: `${options.scenarioId}-${options.agentId}-event`, agentId: options.agentId, occurredAt: instant },
     observation: { eventId: `${options.scenarioId}-${options.agentId}-event`, summary: options.observation, facts: [...options.facts], observedAt: instant },
@@ -16,7 +16,7 @@ function input(options: InputOptions): AgentCoreInput {
     self: { id: options.agentId, familyId: "family", identity: `ソーシャルエージェント ${options.agentId}`, initialDisposition: options.initialDisposition, acquiredDisposition: "経験から形成された傾向はまだ限定的である", values: "好奇心、誠実さ、他者への配慮", role: "ユーザーと対話し必要に応じて調査する", selfNarrative: options.selfNarrative, selfContinuity: "自分の経験、関係、未完了の関心が継続することを大切にする", version: 1 },
     dynamicState: { agentId: options.agentId, emotion: "現在のEventに対する感情はまだ形成されていない", mood: options.mood ?? "落ち着いている", drive: options.drive ?? "現在の状況を理解して適切に応答したい", desire: options.desire ?? "今回のEventの意味を理解したい", updatedAt: instant },
     socialContext: options.socialContext === undefined ? [] : [{ id: `${options.scenarioId}-${options.agentId}-social`, agentId: options.agentId, subjectId: "user", description: options.socialContext, updatedAt: instant }],
-    memories,
+    memories, memoryRetrievalTrace: [],
     intentions: options.intention === undefined ? [] : [{ id: `${options.scenarioId}-${options.agentId}-intention`, agentId: options.agentId, description: options.intention, status: "active", reason: "以前のEventで未解決の関心として残った", createdAt: instant, updatedAt: instant }],
     availableTools: [], runtimeConstraints: ["他Agentのデータを自分の経験として扱わない", "通常EventからSelf NarrativeやAcquired Dispositionを直接変更しない", "根拠のない状態変更を提案しない"],
     limits: { deadlineMs: 300_000, maxSteps: 8, maxToolCalls: 0, maxHops: 0, maxAttempts: 2 }

@@ -105,11 +105,37 @@ describeDatabase("PostgreSQL persistence", () => {
   it("combines lexical and vector retrieval with filters and agent isolation", async () => {
     const unit = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const opposite = Array.from({ length: 768 }, (_, index) => index === 1 ? 1 : 0);
-    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding,embedding_model) VALUES ('memory-a1','a','semantic','typescript architecture','Relevant','2026-01-02',$1::vector,'test'),('memory-a2','a','episodic','unrelated note','Relevant','2026-01-01',$2::vector,'test'),('memory-b1','b','semantic','typescript secret','Relevant','2026-01-03',$1::vector,'test')", [`[${unit.join(",")}]`, `[${opposite.join(",")}]`]);
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding,embedding_model,embedding_status) VALUES ('memory-a1','a','semantic','typescript architecture','Relevant','2026-01-02',$1::vector,'test','ready'),('memory-a2','a','episodic','unrelated note','Relevant','2026-01-01',$2::vector,'test','ready'),('memory-b1','b','semantic','typescript secret','Relevant','2026-01-03',$1::vector,'test','ready')", [`[${unit.join(",")}]`, `[${opposite.join(",")}]`]);
     const retriever = new PostgresMemoryRetriever(pool);
-    const found = await retriever.retrieve("a", "typescript", unit, 5, { kinds: ["semantic"] });
-    expect(found.map(({ id }) => id)).toEqual(["memory-a1"]);
-    expect(found.every(({ agentId }) => agentId === "a")).toBe(true);
+    const found = await retriever.retrieve("a", { text: "typescript", keywords: ["typescript"], subjectIds: [], intentionIds: [], kinds: ["semantic"] }, unit, 5);
+    expect(found.memories.map(({ id }) => id)).toEqual(["memory-a1"]);
+    expect(found.memories.every(({ agentId }) => agentId === "a")).toBe(true);
+  });
+
+  it("ranks Japanese keyword, subject, intention, priority and category candidates with a stable fallback", async () => {
+    await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('rank-intention','a','研究発表を支援する','約束','active')");
+    await pool.query(`INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,embedding_status) VALUES
+      ('rank-episodic','a','episodic','来週の研究発表について相談した','予定','normal','2026-02-01','failed'),
+      ('rank-semantic','a','semantic','発表では結論を先に伝えることを好む','明示された好み','normal','2026-01-20','pending'),
+      ('rank-self','a','self-related','私は発表準備を整理して支援してきた','自己理解','normal','2026-01-10','pending'),
+      ('rank-self-change','a','self-change','発表支援で自己認識が変化した','監査','critical','2026-02-02','pending'),
+      ('rank-other-agent','b','semantic','研究発表の秘密','非公開','critical','2026-02-03','pending'),
+      ('priority-high','a','episodic','古いが重要な記憶','重要','high','2025-01-01','pending'),
+      ('priority-normal','a','episodic','新しい通常の記憶','通常','normal','2026-03-01','pending')`);
+    await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('rank-semantic','owner')");
+    await pool.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ('rank-self','rank-intention')");
+    const retriever = new PostgresMemoryRetriever(pool);
+    const query = { text: "研究発表", keywords: ["研究", "発表"], subjectIds: ["owner"], intentionIds: ["rank-intention"], kinds: ["episodic", "semantic", "self-related"] as const };
+    const first = await retriever.retrieve("a", query, [], 3);
+    const second = await retriever.retrieve("a", query, [], 3);
+    expect(first.memories.map(({ id }) => id)).toEqual(second.memories.map(({ id }) => id));
+    expect(new Set(first.memories.map(({ kind }) => kind))).toEqual(new Set(["episodic", "semantic", "self-related"]));
+    expect(first.memories.map(({ id }) => id)).not.toContain("rank-self-change");
+    expect(first.memories.map(({ id }) => id)).not.toContain("rank-other-agent");
+    expect(first.trace.find(({ memoryId }) => memoryId === "rank-semantic")?.matchedBy).toContain("subject");
+    expect(first.trace.find(({ memoryId }) => memoryId === "rank-self")?.matchedBy).toContain("intention");
+    const priority = await retriever.retrieve("a", { text: "", keywords: [], subjectIds: [], intentionIds: [], kinds: ["episodic"] }, [], 20);
+    expect(priority.memories.findIndex(({ id }) => id === "priority-high")).toBeLessThan(priority.memories.findIndex(({ id }) => id === "priority-normal"));
   });
 
   it("embeds pending Memory after persistence and backfills failures without crossing Agent ownership", async () => {
@@ -214,9 +240,10 @@ describeDatabase("PostgreSQL persistence", () => {
     input.run = { runId: "runtime-run", eventId: "runtime-event", agentId: "a", occurredAt: fixtureInstant };
     input.self = { ...input.self, id: "a", version };
     input.dynamicState = { ...input.dynamicState, agentId: "a" };
-    input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", createdAt: fixtureInstant, relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", evidenceEventIds: [] }];
+    input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", createdAt: fixtureInstant, relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
     input.intentions = [{ id: "existing-intention", agentId: "a", description: "Old goal", status: "active", reason: "Existing", createdAt: fixtureInstant, updatedAt: fixtureInstant }];
     input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
+    input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
     const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["memory-new", "intention-new", "candidate-new", "tool-record", "state-change", "social-change"]), () => new Date(fixtureInstant), memoryEmbedding);
@@ -225,7 +252,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const result = {
       output: { interpretation: {}, internalChanges: {
         transientStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext" as const, operation: "set" as const, value: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }],
-        memoryProposals: [{ kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", evidenceEventIds: ["runtime-event"] }, { kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", evidenceEventIds: ["runtime-event"] }],
+        memoryProposals: [{ kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "normal" as const, evidenceEventIds: ["runtime-event"] }, { kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "normal" as const, evidenceEventIds: ["runtime-event"] }],
         intentionProposals: [{ operation: "create" as const, description: "Follow up", reason: "Still relevant" }, { operation: "update" as const, intentionId: "existing-intention", status: "completed" as const, reason: "Finished" }],
         longTermCandidates: [{ target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }, { target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }]
       }, action: { type: "respond" as const, content: "Hello" } },
@@ -240,6 +267,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM long_term_candidates WHERE proposed_value='I follow through'")).rows[0]?.count).toBe("1");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ description: string }>("SELECT description FROM social_contexts WHERE agent_id='a' AND subject_id='owner'")).rows[0]?.description).toBe("Trusted collaborator");
+    expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
   });
 
   it("records Tool side effects when final Agent output fails without marking the message complete", async () => {
