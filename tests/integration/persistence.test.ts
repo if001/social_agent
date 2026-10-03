@@ -216,6 +216,15 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
   });
 
+  it("shares correlation-loop and rate limits across Runtime instances", async () => {
+    const first = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const second = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const event = { id: "policy-event-1", agentId: "a", kind: "external" as const, occurredAt: fixtureInstant, payload: {}, correlationId: "shared-correlation" };
+    await expect(first.authorizeInbound(event, "policy-message-1", 10)).resolves.toBeUndefined();
+    await expect(second.authorizeInbound({ ...event, id: "policy-event-2" }, "policy-message-2", 10)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(second.authorizeInbound({ ...event, id: "policy-event-3", correlationId: "rate-correlation-1" }, "policy-message-3", 1)).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
   it("activates event, idle and manual intention triggers and leases persistent drives once", async () => {
     await pool.query(`INSERT INTO intentions(id,agent_id,description,reason,trigger,status)
       VALUES ('trigger-event','a','React to plans','Test',$1,'active'),

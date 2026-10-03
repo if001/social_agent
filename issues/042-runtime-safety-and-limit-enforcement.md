@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 042: Runtime Safety・Permission・実行上限を一貫して強制する
@@ -32,11 +32,11 @@ specはPersonality判断とSystem Safetyを分離し、権限、rate limit、自
 
 ## Acceptance criteria
 
-- [ ] specで通常コード責務とされた全上限に実装上の強制点がある。
-- [ ] Agent間Messageがmax hop／TTL／correlation loopを越えない。
-- [ ] capability外Toolと他Agent所有dataへのproposalを拒否する。
-- [ ] retryable／non-retryable failureがQueue動作と整合する。
-- [ ] System refusalをPersonality refusalと区別して監査できる。
+- [x] specで通常コード責務とされた全上限に実装上の強制点がある。
+- [x] Agent間Messageがmax hop／TTL／correlation loopを越えない。
+- [x] capability外Toolと他Agent所有dataへのproposalを拒否する。
+- [x] retryable／non-retryable failureがQueue動作と整合する。
+- [x] System refusalをPersonality refusalと区別して監査できる。
 
 ## Tests
 

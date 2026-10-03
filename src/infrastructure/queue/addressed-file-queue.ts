@@ -3,7 +3,7 @@ import { basename, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { MessageQueue } from "../../application/ports.js";
-import { MessageEnvelopeSchema, type MessageEnvelope } from "../../domain/contracts.js";
+import { DomainError, MessageEnvelopeSchema, type MessageEnvelope } from "../../domain/contracts.js";
 
 export type FileQueueOptions = {
   readonly maxAttempts?: number;
@@ -103,7 +103,8 @@ export class AddressedFileQueue implements MessageQueue {
       return false;
     }
     try { await handler(message); await unlink(path); }
-    catch {
+    catch (error) {
+      if (error instanceof DomainError && (error.code === "VALIDATION" || error.code === "NOT_FOUND")) { await this.#deadLetter(destination, path, `non-retryable-${error.code.toLowerCase()}`); return true; }
       const attempt = message.attempt + 1;
       if (attempt >= this.#maxAttempts) await this.#deadLetter(destination, path, "attempt-limit");
       else {

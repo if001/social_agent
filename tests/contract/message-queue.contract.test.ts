@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { AddressedFileQueue } from "../../src/infrastructure/queue/addressed-file-queue.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
+import { DomainError } from "../../src/domain/contracts.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 const encoded = (value: string): string => Buffer.from(value).toString("base64url");
@@ -38,6 +39,14 @@ describe("MessageQueue contract", () => {
     subscriptions.push(queue.subscribe("a", () => { calls += 1; return Promise.reject(new Error("fail")); }, controller.signal));
     await queue.publish(messageFixture({ destination: "a" }));
     await eventually(() => { expect(calls).toBe(2); }); await eventually(async () => { expect(await queue.listDeadLetters("a")).toHaveLength(1); });
+  });
+
+  it("dead-letters non-retryable policy failures immediately", async () => {
+    const queue = new AddressedFileQueue(root, { maxAttempts: 3, now: fixedNow }); let calls = 0;
+    subscriptions.push(queue.subscribe("a", () => { calls += 1; return Promise.reject(new DomainError("VALIDATION", "hop limit")); }, controller.signal));
+    await queue.publish(messageFixture({ destination: "a" }));
+    await eventually(async () => { expect((await queue.inspectDeadLetters("a"))[0]?.reason).toBe("non-retryable-validation"); });
+    expect(calls).toBe(1);
   });
 
   it("dead-letters invalid JSON and ignores duplicate IDs", async () => {
