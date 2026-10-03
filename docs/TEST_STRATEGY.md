@@ -185,6 +185,8 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - dueなIntentionだけからInternal Eventを生成する
 - pending Candidateがない場合にLong-term Reviewを起動しない
 - `next_review_at`更新により同じ対象を連続起動しない
+- CandidateをAgentとtargetごとにまとめ、期限付きleaseで複数Schedulerからの二重Reviewを防ぐ
+- 処理失敗時とlease期限切れ後に未処理対象を再取得できる
 - Runtimeへ直接Eventを渡し、File Queueへpublishしない
 - bot停止処理中に新しいrunを開始しない
 

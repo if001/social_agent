@@ -108,10 +108,14 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("claims each due intention once across scheduler instances", async () => {
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status,next_review_at) VALUES ('due-1','a','Review goal','Due','active','2026-01-01')");
+    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,review_after) VALUES ('due-candidate','a','selfNarrative','Review me','pending','Due','2026-01-01')");
     const first = new PostgresScheduleRepository(pool); const second = new PostgresScheduleRepository(pool);
     const claims = await Promise.all([first.claimDue(new Date("2026-01-02T00:00:00Z"), 10), second.claimDue(new Date("2026-01-02T00:00:00Z"), 10)]);
-    expect(claims.flat().map(({ id }) => id)).toEqual(["due-1"]);
-    await first.complete("due-1", null); expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
+    expect(claims.flat().map(({ id }) => id).sort()).toEqual(["due-1", "due-candidate"]);
+    await first.complete({ id: "due-1", agentId: "a", kind: "intention", reason: "Review goal" }, null);
+    await pool.query("UPDATE long_term_candidates SET status='kept' WHERE id='due-candidate'");
+    await first.complete({ id: "due-candidate", agentId: "a", kind: "long-term-review", reason: "Due", candidateIds: ["due-candidate"] }, null);
+    expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
   });
 
   it("updates long-term state, candidate and self-change memory atomically", async () => {

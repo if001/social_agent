@@ -353,7 +353,7 @@ botプロセス内で、そのAgentだけを対象に定期評価する。
 - 保留Candidateがある場合のLong-term Review起動
 - Mood等の時間経過による再評価機会の生成
 
-SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。多重起動はAgent advisory lockと、各対象レコードの`next_review_at`更新transactionで防ぐ。
+SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntentionの`next_review_at`更新とCandidateの期限付きleaseをtransaction内で取得する。失敗時はleaseを解放するため、再起動後にも未処理対象を再取得できる。
 
 ### 5.11 Long-term Review Service
 
@@ -585,7 +585,7 @@ PostgreSQLを次の正本とする。
 | `memories` | type、content、significance、occurredAt、embedding、embedding model |
 | `memory_subjects` | Memoryとsubjectの関連 |
 | `memory_intentions` | MemoryとIntentionの関連 |
-| `long_term_candidates` | target、proposed value、status、reason |
+| `long_term_candidates` | target、proposed value、status、reason、review時刻、期限付きlease |
 | `candidate_evidence` | Candidateと根拠Memoryの関連 |
 | `events` | Event、Observation、source、correlation、処理状態 |
 | `agent_runs` | input state version、結果、開始・終了、失敗理由 |

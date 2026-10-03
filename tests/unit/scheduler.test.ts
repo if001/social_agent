@@ -7,7 +7,7 @@ describe("Scheduler", () => {
   const target: ScheduledTarget = { id: "intention-1", agentId: "agent-a", kind: "intention", reason: "Due" };
   const setup = (action: { type: "no-action"; reason: string } | { type: "respond"; content: string } | { type: "wait"; reason: string; until?: string }) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const published: MessageEnvelope[] = []; let claimed = false; const completions: (Date | null)[] = [];
-    const repository = { claimDue: () => { if (claimed) return Promise.resolve([]); claimed = true; return Promise.resolve([target]); }, complete: (_id: string, next: Date | null) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() };
+    const repository = { claimDue: () => { if (claimed) return Promise.resolve([]); claimed = true; return Promise.resolve([target]); }, complete: (_target: ScheduledTarget, next: Date | null) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() };
     const scheduler = new Scheduler({ repository, runtime: { process: () => Promise.resolve(action) }, queue: { publish: (message) => { published.push(message); return Promise.resolve(); }, subscribe: () => Promise.resolve() }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event", "output"]), lifecycle, defaultDestination: () => "terminal", reviewIntervalMs: 60_000 });
     return { scheduler, lifecycle, published, completions };
   };
