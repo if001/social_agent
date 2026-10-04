@@ -11,7 +11,7 @@
 
 - [x] **Desireの終了・失効・Event境界を実装する。** 概念設計 §10と実装設計 §4、§13ではDesireは基本的に短期で、継続する方針はIntentionへ昇格する。現状は `desires` を永続配列として保存し、LLMが明示的にremoveしない限り残り続ける。発生Event、生成時刻、失効条件も保持していない（`DynamicStateSchema`、`StateUpdateService`、`agent_states.desires`）。
 
-- [ ] **Mood・Drive・Emotionの時間変化を起動するState Reviewを実装する。** 概念設計 §19は時間経過、Memory想起、新しい経験による変化を求め、実装設計 §24は `memory-recall`、`self-continuity`、`state-review` Internal Eventを定義する。現行Schedulerが生成するのはIntention、`persistent-drive`、`long-term-review`だけで、状態の減衰・再評価やMemory想起を起点にする処理がない（`src/application/scheduler.ts`、`src/infrastructure/persistence/postgres-schedule-repository.ts`）。
+- [x] **Mood・Drive・Emotionの時間変化を起動するState Reviewを実装する。** 概念設計 §19は時間経過、Memory想起、新しい経験による変化を求め、実装設計 §24は `memory-recall`、`self-continuity`、`state-review` Internal Eventを定義する。現行Schedulerが生成するのはIntention、`persistent-drive`、`long-term-review`だけで、状態の減衰・再評価やMemory想起を起点にする処理がない（`src/application/scheduler.ts`、`src/infrastructure/persistence/postgres-schedule-repository.ts`）。
 
 - [ ] **削除・置換されたDriveの自律Scheduleを停止する。** 概念設計 §23では現在のDrive等から自律行動が生じる。現状はcommit時の全Driveから `autonomous_schedules` を追加・更新する一方、Driveがremove/setで消えた際に既存Scheduleを削除・無効化しない。さらに`no-action`で次回時刻がnullでもRepository側の`COALESCE`により1日後へ再設定され、存在しない過去のDriveから行動が続き得る（`src/infrastructure/persistence/event-transaction.ts`、`postgres-schedule-repository.ts`）。
 

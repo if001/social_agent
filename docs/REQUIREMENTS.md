@@ -196,6 +196,8 @@ Intentionは少なくともActive、Completed、Dropped、Supersededを区別し
 
 Internal EventはRuntimeが保存済み状態と構成済みTriggerから生成しなければならない。Agent Coreが制限なく自分自身を再起動する仕組みにしてはならない。
 
+Runtimeは時間経過による状態再評価のため、Agentごとに有界な`state-review` Internal Eventを定期生成しなければならない。State ReviewはMood、Drive、Current Interestを再評価し、EmotionやDesireを過去Eventから復元してはならない。
+
 #### FR-AU-03: 自律的な判断
 
 Time Event、External Event、Internal EventまたはIntention Triggerを起点に、ユーザー入力なしでAgent Coreを起動できなければならない。起動後に実際に行動するか、延期するか、終了するかは現在状態を踏まえて判断しなければならない。
