@@ -390,6 +390,15 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
   });
 
+  it("derives reported Memory provenance from the validated Observation actor", async () => {
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const input = agentCoreInputFixture(); input.run = { runId: "reported-run", eventId: "reported-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.observation = { eventId: "reported-event", summary: "Agent B reported a library time", facts: ["Reported by B"], observedAt: fixtureInstant, actor: { id: "b", type: "agent" }, source: { type: "agent", id: "b", direct: true } };
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-memory"]), () => new Date(fixtureInstant));
+    const result = { output: { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [{ kind: "episodic" as const, content: "Agent B reported that the library opens at nine", relatedSubjectIds: ["b"], relatedIntentionIds: [], importance: "Reported information", retrievalPriority: "normal" as const, evidenceEventIds: ["reported-event"] }], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [] };
+    await persistence.commit(messageFixture({ id: "reported-message", destination: "a" }), { id: "reported-event", agentId: "a", kind: "external", occurredAt: fixtureInstant, payload: { senderAgentId: "b" } }, input, result, { state: input.dynamicState, changes: [] }, []);
+    expect((await pool.query<{ source_agent_id: string }>("SELECT source_agent_id FROM memories WHERE id='reported-memory'")).rows[0]?.source_agent_id).toBe("b");
+  });
+
   it("records Tool side effects when final Agent output fails without marking the message complete", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();

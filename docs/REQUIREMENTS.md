@@ -168,6 +168,8 @@ Long-term Reviewによる長期状態の変更履歴であるSelf Change Memory�
 
 LLMはMemoryの意味内容と根拠を提案し、RuntimeはID、所有Agent、作成時刻、出典を付与してSchema、参照所有権、重複を検証する。Embedding生成の失敗によって検証済みMemory自体を失ってはならない。
 
+Episodic Memory Proposalに送信元Agent IDを含めてはならない。Runtimeは検証済みObservationのactorとprovenanceから`sourceAgentId`を導出し、Agentからの伝聞にだけ付与する。LLMが出典識別子を決定してはならない。
+
 Webページ本文をMemory本文として保存してはならない。AgentがWeb調査を後続の判断へ残す場合、Episodic Memoryには「何について検索し、何を確認したか」という経験の概要を保存し、根拠となるWeb Snapshotを参照する。取得ページ本文、URL、取得時刻等はWeb Page Archiveで管理する。
 
 #### FR-ME-03: 関連Memory検索

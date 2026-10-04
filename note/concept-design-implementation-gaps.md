@@ -21,7 +21,7 @@
 
 - [x] **Tool Capabilityの空配列を「全Tool許可」と解釈しない。** 概念設計 §22と実装設計 §27、§30ではCapabilityとPermissionをFamily設定・Runtime制約として扱う。現状のContext LoaderはFamilyの`capabilities`が空の場合に全登録Toolを公開する。`initializeAgent`はFamilyを空配列で作るため、初期状態でWeb、ファイル書込・削除、Agent送信をすべて許可する（`PostgresAgentContextLoader.load`、`initializeAgent`、`createBotComposition`）。明示的な許可集合と安全な既定値が必要である。
 
-- [ ] **他Agent由来MemoryのprovenanceをRuntimeで検証する。** 概念設計 §13と実装設計 §28では「自分の経験」と「他Agentから聞いた情報」を区別する。現状はLLMがEpisodic Memory Proposalの任意の`sourceAgentId`を自由に設定でき、Runtimeは今回のObservationのactor/sender/provenanceと一致するか検証せず保存する（`MemoryProposalSchema`、`PostgresRuntimePersistence.#materialize`）。誤った直接経験または送信元を永続化できる。
+- [x] **他Agent由来MemoryのprovenanceをRuntimeで検証する。** 概念設計 §13と実装設計 §28では「自分の経験」と「他Agentから聞いた情報」を区別する。現状はLLMがEpisodic Memory Proposalの任意の`sourceAgentId`を自由に設定でき、Runtimeは今回のObservationのactor/sender/provenanceと一致するか検証せず保存する（`MemoryProposalSchema`、`PostgresRuntimePersistence.#materialize`）。誤った直接経験または送信元を永続化できる。
 
 ## 優先度: 中
 
