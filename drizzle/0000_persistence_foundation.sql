@@ -32,6 +32,9 @@ CREATE INDEX IF NOT EXISTS autonomous_schedules_due_idx ON autonomous_schedules(
 INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at)
 SELECT 'state-review:' || id,id,'state-review','時間経過によるMood、Drive、Current Interestの再評価',now()+interval '1 day' FROM agents
 ON CONFLICT (id) DO NOTHING;
+INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at)
+SELECT 'memory-recall:' || id,id,'memory-recall','現在の状態と未完了Intentionに関連するMemoryの再検討',now()+interval '7 days' FROM agents
+ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS memories (id text PRIMARY KEY, agent_id text NOT NULL REFERENCES agents(id) ON DELETE CASCADE, kind text NOT NULL, content text NOT NULL, importance text NOT NULL, occurred_at timestamptz NOT NULL, embedding vector(768), embedding_model text, source_agent_id text, evidence_event_ids jsonb NOT NULL DEFAULT '[]', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_dimension integer;
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_status text NOT NULL DEFAULT 'pending';

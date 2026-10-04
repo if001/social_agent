@@ -32,4 +32,11 @@ describe("Scheduler", () => {
     await scheduler.tick(new AbortController().signal);
     expect(completions[0]?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
   });
+  it("reschedules memory recall at its lower frequency", async () => {
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const completions: (Date | null)[] = [];
+    const recall: ScheduledTarget = { id: "memory-recall:agent-a", agentId: "agent-a", kind: "memory-recall", reason: "Recall" };
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([recall]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => Promise.resolve({ type: "no-action", reason: "Nothing relevant" }) }, queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", reviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 });
+    await scheduler.tick(new AbortController().signal);
+    expect(completions[0]?.toISOString()).toBe("2026-01-08T00:00:00.000Z");
+  });
 });

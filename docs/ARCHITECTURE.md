@@ -218,6 +218,8 @@ Discord Adapter:
 
 Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成し、時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interestを維持・変更・削除する機会を通常Agent Coreへ与える。Runtimeが固定規則で感情値を減衰させることはせず、時刻管理と再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
 
+各Agentは別に`memory-recall` Scheduleを1件持つ。既定では7日ごとにInternal Eventを生成し、通常のMemory Retrievalを現在状態とActive Intentionから実行する。Recall Eventは再検討の機会だけを与え、Memory選択、状態変更、Tool利用、外部Actionは通常Coreの判断に委ねる。
+
 `persistent-drive` Scheduleは保存後のDrive集合から導出する。状態commitと同じtransactionで、存在するDriveのScheduleをupsertし、集合から消えたDriveのScheduleを削除する。Scheduleを独立したDriveの複製として残してはならない。
 
 Idle Intentionの期限は、User MessageまたはExternal Eventを受理した時点を最終活動として、そのtransaction内で再計算する。Agent Coreの完了後まで更新を遅らせない。新規Idle Intentionは作成Eventの時刻から最初の期限を計算し、Scheduler自身が生成したInternal EventやSystem Eventでは最終活動を延長しない。
