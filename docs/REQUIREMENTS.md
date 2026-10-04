@@ -206,6 +206,8 @@ Internal EventはRuntimeが保存済み状態と構成済みTriggerから生成�
 
 Runtimeは時間経過による状態再評価のため、Agentごとに有界な`state-review` Internal Eventを定期生成しなければならない。State ReviewはMood、Drive、Current Interestを再評価し、EmotionやDesireを過去Eventから復元してはならない。
 
+Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood、Drive、Active Intention、Social Contextを検索条件として関連Memoryを通常Coreへ提示できなければならない。想起だけを理由に過去のEmotionをそのまま復元せず、現在にとっての意味と状態変更の要否を通常Coreが判断する。
+
 #### FR-AU-03: 自律的な判断
 
 Time Event、External Event、Internal EventまたはIntention Triggerを起点に、ユーザー入力なしでAgent Coreを起動できなければならない。起動後に実際に行動するか、延期するか、終了するかは現在状態を踏まえて判断しなければならない。

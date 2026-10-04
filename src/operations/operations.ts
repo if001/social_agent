@@ -13,6 +13,7 @@ export async function initializeAgent(pool: Pool, seed: AgentSeed): Promise<void
     await client.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [seed.agentId, seed.familyId, seed.identity, seed.initialDisposition]);
     await client.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,role,roles,self_narrative,self_continuity,mood,drives) VALUES ($1,'Still learning','To be discovered','Assistant','[\"Assistant\"]','I am beginning','I continue through memory','Calm','[]') ON CONFLICT (agent_id) DO NOTHING", [seed.agentId]);
     await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'state-review',$3,now()+interval '1 day') ON CONFLICT (id) DO NOTHING", [`state-review:${seed.agentId}`, seed.agentId, "時間経過によるMood、Drive、Current Interestの再評価"]);
+    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'memory-recall',$3,now()+interval '7 days') ON CONFLICT (id) DO NOTHING", [`memory-recall:${seed.agentId}`, seed.agentId, "現在の状態と未完了Intentionに関連するMemoryの再検討"]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }
