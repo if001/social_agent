@@ -51,7 +51,12 @@ export class PostgresEventTransaction {
         for (const memoryId of candidate.evidenceMemoryIds) await client.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ($1,$2)", [candidate.id, memoryId]);
         await client.query("UPDATE long_term_candidates SET review_after=LEAST(review_after,$3::timestamptz) WHERE agent_id=$1 AND target=$2 AND status='pending' AND ((SELECT count(*) FROM long_term_candidates WHERE agent_id=$1 AND target=$2 AND status='pending')>=3 OR EXISTS (SELECT 1 FROM candidate_evidence ce JOIN memories m ON m.id=ce.memory_id WHERE ce.candidate_id=$4 AND (m.retrieval_priority='critical' OR m.kind='self-related' AND m.importance ILIKE '%strong%')))", [candidate.agentId, candidate.target, candidate.createdAt, candidate.id]);
       }
-      if (Array.isArray(input.stateValues.drives)) for (const drive of input.stateValues.drives.filter((value): value is string => typeof value === "string")) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()) ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [`drive:${input.event.agentId}:${drive}`, input.event.agentId, drive]);
+      if (Array.isArray(input.stateValues.drives)) {
+        const drives = [...new Set(input.stateValues.drives.filter((value): value is string => typeof value === "string" && value.trim() !== "").map((value) => value.trim()))];
+        const scheduleIds = drives.map((drive) => `drive:${input.event.agentId}:${drive}`);
+        await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='persistent-drive' AND NOT (id=ANY($2::text[]))", [input.event.agentId, scheduleIds]);
+        for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()) ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.event.agentId, drive]);
+      }
       await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
       for (const envelope of input.outbox) await client.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,$2,$3)", [envelope.id, input.event.agentId, JSON.stringify(envelope)]);
       await client.query("UPDATE agent_runs SET result=$2,finished_at=now() WHERE id=$1", [input.run.id, input.run.result]);

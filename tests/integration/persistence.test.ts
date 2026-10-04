@@ -284,6 +284,14 @@ describeDatabase("PostgreSQL persistence", () => {
     await first.complete({ id: "drive:a:learn", agentId: "a", kind: "persistent-drive", reason: "Learn" }, new Date("2026-01-04T00:00:00Z"));
   });
 
+  it("removes autonomous schedules when their persistent drives disappear", async () => {
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('drive:a:obsolete','a','persistent-drive','obsolete',now()),('drive:a:keep','a','persistent-drive','keep',now())");
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const unit = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
+    await unit.commit({ destination: "a", messageId: "drive-sync-message", event: { id: "drive-sync-event", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date(fixtureInstant) }, run: { id: "drive-sync-run", inputStateVersion: version, startedAt: new Date(fixtureInstant), result: {} }, stateValues: { drives: ["keep", "new"] }, changes: [], outbox: [] });
+    expect((await pool.query<{ id: string }>("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='persistent-drive' ORDER BY id")).rows.map(({ id }) => id)).toEqual(["drive:a:keep", "drive:a:new"]);
+  });
+
   it("updates long-term state, candidate and self-change memory atomically", async () => {
     await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-ok','a','selfNarrative','More patient','pending','Evidence'),('candidate-fail','a','selfNarrative','Should rollback','pending','Evidence')");
     await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-ok','memory-a1'),('candidate-fail','memory-a1')");
