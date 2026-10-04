@@ -216,6 +216,8 @@ Runtimeは連続するInternal EventとTool Loopに対して構成可能な上�
 
 同種の経験の反復、強く意味を持つ経験、新しい自己理解、既存Self Narrativeとの継続的な矛盾、RoleやSocial Contextの変化等を、根拠Memory付きのLong-term Update Candidateとして保存できなければならない。
 
+Memory、関係、経験、継続中Intentionの維持や喪失に対する意味づけが長期的に変化した場合は、Self ContinuityもCandidateとLong-term Reviewを通じて更新できなければならない。通常Eventから直接更新してはならない。
+
 #### FR-LR-02: 通常更新との分離
 
 通常Eventでは長期状態を原則として直接変更せず、Long-term ReviewでCandidateと根拠Memoryを再評価しなければならない。

@@ -148,7 +148,7 @@ export const ReviewDecisionSchema = z.enum(["KEEP", "UPDATE", "MERGE", "DROP"]);
 export const CandidateSchema = z.object({
   id: Id,
   agentId: Id,
-  target: z.enum(["selfNarrative", "acquiredDisposition", "role", "raisonDetre", "longTermPreference", "longTermInterest", "semanticMemory", "selfRelatedMemory"]),
+  target: z.enum(["selfNarrative", "selfContinuity", "acquiredDisposition", "role", "raisonDetre", "longTermPreference", "longTermInterest", "semanticMemory", "selfRelatedMemory"]),
   proposal: NaturalLanguage,
   reason: NaturalLanguage,
   evidenceMemoryIds: z.array(Id),
