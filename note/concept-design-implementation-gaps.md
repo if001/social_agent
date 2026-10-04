@@ -15,7 +15,7 @@
 
 - [x] **削除・置換されたDriveの自律Scheduleを停止する。** 概念設計 §23では現在のDrive等から自律行動が生じる。現状はcommit時の全Driveから `autonomous_schedules` を追加・更新する一方、Driveがremove/setで消えた際に既存Scheduleを削除・無効化しない。さらに`no-action`で次回時刻がnullでもRepository側の`COALESCE`により1日後へ再設定され、存在しない過去のDriveから行動が続き得る（`src/infrastructure/persistence/event-transaction.ts`、`postgres-schedule-repository.ts`）。
 
-- [ ] **Idle Triggerを実際の無活動時間として判定する。** 実装設計 §14、§25では「時間ができた」「長期間放置された」ことが再評価契機になる。現状は通常Eventを受信するたび、そのEvent時刻に `idleForMs` を足してdueを設定するだけで、その後に活動があっても既存dueを取り消さない。そのため無活動ではない最中にもIdle Intentionが発火し得る（`PostgresRuntimePersistence.activateTriggers`）。
+- [x] **Idle Triggerを実際の無活動時間として判定する。** 実装設計 §14、§25では「時間ができた」「長期間放置された」ことが再評価契機になる。現状は通常Eventを受信するたび、そのEvent時刻に `idleForMs` を足してdueを設定するだけで、その後に活動があっても既存dueを取り消さない。そのため無活動ではない最中にもIdle Intentionが発火し得る（`PostgresRuntimePersistence.activateTriggers`）。
 
 - [ ] **Long-term ReviewでEvent根拠の内容も読み込む。** CandidateはMemoryまたはEventのどちらか一方を根拠にできるが、Review入力がロードするのは `candidate_evidence` に接続されたMemoryだけである。`evidenceEventIds`だけのCandidateは、元Observationを確認せずCandidate本文だけで長期SelfやMemoryを確定できてしまう（`LongTermCandidateProposalSchema`、`PostgresLongTermReviewRepository.loadEvidence`）。概念設計 §6、§13が意図する「経験の蓄積」に基づく更新として根拠が不足する。
 

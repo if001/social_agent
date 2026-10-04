@@ -220,6 +220,8 @@ Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定で�
 
 `persistent-drive` Scheduleは保存後のDrive集合から導出する。状態commitと同じtransactionで、存在するDriveのScheduleをupsertし、集合から消えたDriveのScheduleを削除する。Scheduleを独立したDriveの複製として残してはならない。
 
+Idle Intentionの期限は、User MessageまたはExternal Eventを受理した時点を最終活動として、そのtransaction内で再計算する。Agent Coreの完了後まで更新を遅らせない。新規Idle Intentionは作成Eventの時刻から最初の期限を計算し、Scheduler自身が生成したInternal EventやSystem Eventでは最終活動を延長しない。
+
 外部Message consumerのconcurrencyはbotごとに1とする。長時間Tool実行中も同じAgentの別Eventを並行処理しない。
 
 ### 5.5 Context Builder
