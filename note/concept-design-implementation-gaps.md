@@ -17,7 +17,7 @@
 
 - [x] **Idle Triggerを実際の無活動時間として判定する。** 実装設計 §14、§25では「時間ができた」「長期間放置された」ことが再評価契機になる。現状は通常Eventを受信するたび、そのEvent時刻に `idleForMs` を足してdueを設定するだけで、その後に活動があっても既存dueを取り消さない。そのため無活動ではない最中にもIdle Intentionが発火し得る（`PostgresRuntimePersistence.activateTriggers`）。
 
-- [ ] **Long-term ReviewでEvent根拠の内容も読み込む。** CandidateはMemoryまたはEventのどちらか一方を根拠にできるが、Review入力がロードするのは `candidate_evidence` に接続されたMemoryだけである。`evidenceEventIds`だけのCandidateは、元Observationを確認せずCandidate本文だけで長期SelfやMemoryを確定できてしまう（`LongTermCandidateProposalSchema`、`PostgresLongTermReviewRepository.loadEvidence`）。概念設計 §6、§13が意図する「経験の蓄積」に基づく更新として根拠が不足する。
+- [x] **Long-term ReviewでEvent根拠の内容も読み込む。** CandidateはMemoryまたはEventのどちらか一方を根拠にできるが、Review入力がロードするのは `candidate_evidence` に接続されたMemoryだけである。`evidenceEventIds`だけのCandidateは、元Observationを確認せずCandidate本文だけで長期SelfやMemoryを確定できてしまう（`LongTermCandidateProposalSchema`、`PostgresLongTermReviewRepository.loadEvidence`）。概念設計 §6、§13が意図する「経験の蓄積」に基づく更新として根拠が不足する。
 
 - [ ] **Tool Capabilityの空配列を「全Tool許可」と解釈しない。** 概念設計 §22と実装設計 §27、§30ではCapabilityとPermissionをFamily設定・Runtime制約として扱う。現状のContext LoaderはFamilyの`capabilities`が空の場合に全登録Toolを公開する。`initializeAgent`はFamilyを空配列で作るため、初期状態でWeb、ファイル書込・削除、Agent送信をすべて許可する（`PostgresAgentContextLoader.load`、`initializeAgent`、`createBotComposition`）。明示的な許可集合と安全な既定値が必要である。
 

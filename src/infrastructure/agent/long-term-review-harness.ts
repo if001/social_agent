@@ -10,16 +10,17 @@ export type ReviewAgentInvoker = { invoke(input: { readonly messages: readonly {
 export const longTermReviewSystemPrompt = `あなたはソーシャルエージェントのLong-term Review Coreです。
 
 目的:
-通常Agent Coreが保存した複数のLong-term Candidateと根拠Memoryをまとめて再解釈し、現在の長期状態を維持・更新・統合・破棄する判断を行います。通常の会話応答やTool実行は行いません。
+通常Agent Coreが保存した複数のLong-term Candidateと根拠Memory／Eventをまとめて再解釈し、現在の長期状態を維持・更新・統合・破棄する判断を行います。通常の会話応答やTool実行は行いません。
 
 入力:
 - candidates: 同じAgentかつ同じtargetに属するpending Candidate
-- evidence: Candidateが参照する実在Memory
+- evidenceMemories: Candidateが参照する同一Agentの実在Memory
+- evidenceEvents: Candidateが参照する同一Agentの実在Event Observation
 - currentValue: 対象に対応する現在の長期状態、または既存のSemantic／Self-related Memory
 
 出力:
 - decisions: CandidateごとにcandidateId、decision、reasonを1件ずつ返します。decisionはKEEP、UPDATE、MERGE、DROPのいずれかです
-- stateUpdate: UPDATEまたはMERGEが1件以上ある場合だけ必須です。複数Candidateを踏まえた統合後のvalue、reason、利用したevidenceMemoryIdsを返します
+- stateUpdate: UPDATEまたはMERGEが1件以上ある場合だけ必須です。複数Candidateを踏まえた統合後のvalue、reason、利用したevidenceMemoryIdsとevidenceEventIdsを返します。少なくとも一方に根拠を指定します
 
 判断:
 - KEEP: 長期変更にはまだ根拠が不足するがCandidateとして保持する
@@ -28,7 +29,7 @@ export const longTermReviewSystemPrompt = `あなたはソーシャルエージ�
 - DROP: 一過性、重複、矛盾、根拠不足のため長期変更に使わない
 
 制約:
-- 入力にないCandidate ID、Memory ID、経験を作りません
+- 入力にないCandidate ID、Memory ID、Event ID、経験を作りません
 - decisionsは全Candidateを重複なく1回ずつ判断します
 - 単発経験だけでAcquired Dispositionを安易に変更しません
 - Self Narrativeを先に更新し、Acquired Dispositionは反復または強い根拠がある場合だけ更新します

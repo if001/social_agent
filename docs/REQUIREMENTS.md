@@ -218,6 +218,8 @@ Runtimeは連続するInternal EventとTool Loopに対して構成可能な上�
 
 通常Agent CoreとLong-term Review Coreは入力、出力Schema、prompt、起動Eventを分離しなければならない。同一modelまたはAdapterの共有は許容する。
 
+Long-term ReviewはCandidateが参照するMemoryだけでなくEvent Observationも所有Agentを検証して読み込まなければならない。Eventだけを根拠に持つCandidateを、元Eventを読まずに確定してはならない。Reviewによる更新とSelf Change Memoryには、実際に採用したMemory IDとEvent IDをそれぞれ保存する。
+
 #### FR-LR-03: Review判断
 
 Long-term ReviewはCandidateを維持、反映、既存状態へ統合、または破棄できなければならない。単純追加だけでなく、重複するSelf NarrativeやAcquired Dispositionを統合できなければならない。
