@@ -220,6 +220,8 @@ UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`
 
 Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成し、時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interestを維持・変更・削除する機会を通常Agent Coreへ与える。Runtimeが固定規則で感情値を減衰させることはせず、時刻管理と再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
 
+Agent初期化時は、Role、Drive、Interest、Preferenceを空集合とし、Mood、Values、Acquired Disposition、Self Narrative、Self Continuityには「まだ形成されていない」という中立な自然言語を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Dispositionとして明示的に入力する。
+
 各Agentは別に`memory-recall` Scheduleを1件持つ。既定では7日ごとにInternal Eventを生成し、通常のMemory Retrievalを現在状態とActive Intentionから実行する。Recall Eventは再検討の機会だけを与え、Memory選択、状態変更、Tool利用、外部Actionは通常Coreの判断に委ねる。
 
 `persistent-drive` Scheduleは保存後のDrive集合から導出する。状態commitと同じtransactionで、存在するDriveのScheduleをupsertし、集合から消えたDriveのScheduleを削除する。Scheduleを独立したDriveの複製として残してはならない。

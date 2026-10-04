@@ -43,7 +43,7 @@
 
 ## 優先度: 低または設計判断が必要
 
-- [ ] **初期状態を固定的な行動傾向ではなく中立な未形成状態にする。** `initializeAgent`は全個体へEmotion=`Curious`、Drive=`Understand`、Desire=`Help`、Role=`Assistant`を設定する。概念設計 §3、§15、§16は好奇心、支援、役割をObservationとDispositionと経験から生じさせる方針であり、固定seedは初期から行動パターンを埋め込む。初期値を中立化するか、Family/Individual seedとして明示入力する必要がある。
+- [x] **初期状態を固定的な行動傾向ではなく中立な未形成状態にする。** `initializeAgent`は全個体へEmotion=`Curious`、Drive=`Understand`、Desire=`Help`、Role=`Assistant`を設定する。概念設計 §3、§15、§16は好奇心、支援、役割をObservationとDispositionと経験から生じさせる方針であり、固定seedは初期から行動パターンを埋め込む。初期値を中立化するか、Family/Individual seedとして明示入力する必要がある。
 
 - [ ] **Expectationを意味解釈Contextとして表現するか方針を決める。** 概念設計 §14はExpectationもSubjective Meaningの入力に含めるが、現行Domainに対応する状態や導出項目はない。IntentionやMemoryからLLMが暗黙に推論する方針ならprompt/docsへ明記し、独立して必要なら最小の自然言語表現を追加する。
 

@@ -5,14 +5,19 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS agent_families (id text PRIMARY KEY, name text NOT NULL, shared_disposition text NOT NULL, capabilities jsonb NOT NULL, base_instruction text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS agents (id text PRIMARY KEY, family_id text NOT NULL REFERENCES agent_families(id), identity text NOT NULL, initial_disposition text NOT NULL, config jsonb NOT NULL DEFAULT '{}', active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS agents_family_idx ON agents(family_id);
-CREATE TABLE IF NOT EXISTS agent_states (agent_id text PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, acquired_disposition text NOT NULL, values text NOT NULL, role text NOT NULL, self_narrative text NOT NULL, self_continuity text NOT NULL, mood text NOT NULL, version integer NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS agent_states (agent_id text PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, acquired_disposition text NOT NULL, values text NOT NULL, self_narrative text NOT NULL, self_continuity text NOT NULL, mood text NOT NULL, version integer NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE agent_states ADD COLUMN IF NOT EXISTS interests jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE agent_states ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE agent_states ADD COLUMN IF NOT EXISTS roles jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE agent_states ADD COLUMN IF NOT EXISTS raison_detre text;
 ALTER TABLE agent_states ADD COLUMN IF NOT EXISTS drives jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE agent_states ADD COLUMN IF NOT EXISTS current_interests jsonb NOT NULL DEFAULT '[]';
-UPDATE agent_states SET roles=jsonb_build_array(role) WHERE roles='[]'::jsonb AND btrim(role)<>'';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='agent_states' AND column_name='role') THEN
+    EXECUTE 'UPDATE agent_states SET roles=jsonb_build_array(role) WHERE roles=''[]''::jsonb AND btrim(role)<>''''';
+  END IF;
+END $$;
+ALTER TABLE agent_states DROP COLUMN IF EXISTS role;
 ALTER TABLE agent_states DROP COLUMN IF EXISTS emotion;
 ALTER TABLE agent_states DROP COLUMN IF EXISTS desire;
 ALTER TABLE agent_states DROP COLUMN IF EXISTS desires;

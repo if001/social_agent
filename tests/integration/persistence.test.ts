@@ -38,7 +38,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await migrate(pool);
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,capabilities,base_instruction) VALUES ('family','Family','Curious','[]','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
-    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,role,self_narrative,self_continuity,mood,drives) VALUES ($1,'Learning','Care','Helper','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
+    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,roles,self_narrative,self_continuity,mood,drives) VALUES ($1,'Learning','Care','[\"Helper\"]','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await migrate(pool);
   });
   afterAll(async () => {
