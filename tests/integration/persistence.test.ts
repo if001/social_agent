@@ -20,6 +20,8 @@ import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { BotHost } from "../../src/bootstrap/bot-host.js";
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../../src/infrastructure/persistence/postgres-memory-embedding.js";
+import { PostgresWebArchive, summarizeWebPage } from "../../src/infrastructure/persistence/postgres-web-archive.js";
+import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
@@ -154,6 +156,39 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(failing.embedMemoryIds("embedding-b", ["embedding-memory-b"])).resolves.toEqual({ attempted: 1, ready: 0, failed: 1 });
     expect((await pool.query<{ embedding_status: string; embedding_error: string }>("SELECT embedding_status,embedding_error FROM memories WHERE id='embedding-memory-b'")).rows[0]).toEqual({ embedding_status: "failed", embedding_error: "provider unavailable" });
     await expect(lifecycle.backfill({ agentId: "embedding-b" })).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
+  });
+
+  it("archives only fetched pages, deduplicates content, searches and enforces Agent ownership", async () => {
+    const markdown = "# Vector indexes\n\nHNSW provides fast approximate search."; const changed = `${markdown}\n\nIVFFlat requires training.`;
+    const summary = summarizeWebPage("Postgres vectors", markdown); const changedSummary = summarizeWebPage("Postgres vectors", changed);
+    const vector = Array.from({ length: 768 }, (_, index) => index === 3 ? 1 : 0);
+    const embedding = new FakeEmbeddingProvider({ [summary]: vector, [markdown]: vector, [changedSummary]: vector, [changed]: vector, "vector search": vector });
+    const archive = new PostgresWebArchive(pool, embedding, new SequenceIdGenerator(["resource-web", "snapshot-web", "resource-repeat", "snapshot-repeat", "resource-changed", "snapshot-changed"]), () => new Date("2026-04-01T00:00:00Z"), "web-fake");
+    const context = { agentId: "a", runId: "web-run", eventId: "web-event", toolCallId: "tool-1" };
+    const pageRegistry = new ToolRegistry(createWebTools("http://web.local", { archive, fetcher: () => Promise.resolve(new Response(JSON.stringify({ docs: [{ url: "https://EXAMPLE.com/article?b=2&a=1#top", title: "Postgres vectors", markdown }] }), { status: 200 })) }));
+    const pageResult = await pageRegistry.execute("web_page", { url: "https://example.com/article" }, { ...context, idempotencyKey: "web-run:tool-1" }, new AbortController().signal);
+    const first = (pageResult.value as { archivedSnapshots: { snapshotId: string; url: string; status: string }[] }).archivedSnapshots;
+    const repeated = await archive.archivePages([{ url: "https://example.com/article?a=1&b=2", title: "Postgres vectors", markdown }], { ...context, toolCallId: "tool-2" }, new AbortController().signal);
+    const latest = await archive.archivePages([{ url: "https://example.com/article?a=1&b=2", title: "Postgres vectors", markdown: changed }], { ...context, toolCallId: "tool-3" }, new AbortController().signal);
+    expect(first[0]?.snapshotId).toBe(repeated[0]?.snapshotId); expect(latest[0]?.snapshotId).not.toBe(first[0]?.snapshotId);
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM web_snapshots WHERE agent_id='a'")).rows[0]?.count).toBe("2");
+    const found = await archive.search("a", { query: "vector search", limit: 5 }, new AbortController().signal);
+    expect(found.map(({ snapshotId }) => snapshotId)).toContain(first[0]?.snapshotId);
+    await expect(archive.get("b", first[0]?.snapshotId ?? "", [0])).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await archive.get("a", first[0]?.snapshotId ?? "", [0], 20)).chunks[0]?.text.length).toBeLessThanOrEqual(20);
+
+    const beforeList = (await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM web_snapshots")).rows[0]?.count;
+    const registry = new ToolRegistry(createWebTools("http://web.local", { archive, fetcher: () => Promise.resolve(new Response(JSON.stringify({ query: "x", k: 1, results: [{ rank: 1, title: "Candidate", url: "https://example.com", snippet: "x" }] }), { status: 200 })) }));
+    await registry.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "list-run", eventId: "list-event", toolCallId: "tool-1", idempotencyKey: "list-run:tool-1" }, new AbortController().signal);
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM web_snapshots")).rows[0]?.count).toBe(beforeList);
+
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const input = agentCoreInputFixture(); input.run = { runId: "archive-memory-run", eventId: "archive-memory-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.availableTools = [{ name: "web_archive_get", description: "Archive", inputSchema: {} }];
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-memory", "archive-tool-record"]), () => new Date(fixtureInstant));
+    const toolExecution = { callId: "tool-1", runId: "archive-memory-run", eventId: "archive-memory-event", name: "web_archive_get", input: { snapshotId: first[0]?.snapshotId }, ok: true as const, result: { snapshotId: first[0]?.snapshotId }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
+    const runResult = { output: { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [{ kind: "episodic" as const, content: "Vector index options were investigated", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful research", retrievalPriority: "normal" as const, evidenceEventIds: ["archive-memory-event"], webSnapshotIds: [first[0]?.snapshotId ?? ""] }], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
+    await persistence.commit(messageFixture({ id: "archive-memory-message", destination: "a" }), { id: "archive-memory-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} }, input, runResult, { state: input.dynamicState, changes: [] }, []);
+    expect((await pool.query<{ snapshot_id: string }>("SELECT snapshot_id FROM memory_web_evidence WHERE memory_id='archive-memory'")).rows[0]?.snapshot_id).toBe(first[0]?.snapshotId);
   });
 
   it("loads a complete Agent Core context from PostgreSQL without crossing Agent ownership", async () => {

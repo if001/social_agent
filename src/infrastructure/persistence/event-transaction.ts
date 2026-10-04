@@ -11,6 +11,7 @@ export type CommitEventInput = {
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly (StateChange & { readonly id: string })[];
   readonly memories?: readonly Memory[];
+  readonly memoryWebEvidence?: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[];
   readonly intentionCreates?: readonly Intention[];
   readonly intentionUpdates?: readonly Intention[];
   readonly candidates?: readonly Candidate[];
@@ -18,7 +19,7 @@ export type CommitEventInput = {
   readonly outbox: readonly MessageEnvelope[];
 };
 
-export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "intentionCreates" | "intentionUpdates" | "candidates" | "outbox"> & { readonly failureReason: string };
+export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates" | "outbox"> & { readonly failureReason: string };
 
 export class PostgresEventTransaction {
   constructor(private readonly unitOfWork: PostgresUnitOfWork) {}
@@ -42,6 +43,7 @@ export class PostgresEventTransaction {
         for (const subjectId of memory.relatedSubjectIds) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [memory.id, subjectId]);
         for (const intentionId of memory.relatedIntentionIds) await client.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ($1,$2)", [memory.id, intentionId]);
       }
+      for (const evidence of input.memoryWebEvidence ?? []) for (const snapshotId of evidence.snapshotIds) await client.query("INSERT INTO memory_web_evidence(memory_id,snapshot_id) SELECT $1,s.id FROM web_snapshots s WHERE s.id=$2 AND s.agent_id=$3 ON CONFLICT DO NOTHING", [evidence.memoryId, snapshotId, input.event.agentId]);
       for (const intention of input.intentionCreates ?? []) await client.query("INSERT INTO intentions(id,agent_id,description,reason,trigger,status,next_review_at,superseded_by_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [intention.id, intention.agentId, intention.description, intention.reason, intention.trigger === undefined ? null : JSON.stringify(intention.trigger), intention.status, intention.nextReviewAt ?? (intention.trigger?.kind === "time" ? intention.trigger.at : null), intention.supersededById ?? null, intention.createdAt, intention.updatedAt]);
       for (const intention of input.intentionUpdates ?? []) await client.query("UPDATE intentions SET description=$3,reason=$4,status=$5,next_review_at=$6,superseded_by_id=$7,updated_at=$8 WHERE id=$1 AND agent_id=$2", [intention.id, intention.agentId, intention.description, intention.reason, intention.status, intention.nextReviewAt ?? null, intention.supersededById ?? null, intention.updatedAt]);
       for (const candidate of input.candidates ?? []) {
@@ -74,6 +76,7 @@ export class PostgresEventTransaction {
       const observation = { eventId: resultEventId, summary: `${execution.name} Tool Result: ${summary}`, facts: [`Tool: ${execution.name}`, execution.ok ? "Tool execution succeeded" : "Tool execution failed"], observedAt: execution.finishedAt, kind: "tool-result", actor: { id: execution.name, type: "tool" }, source: { type: "tool", id: execution.name, direct: false }, content: raw ?? null, provenance: { toolCallId: execution.callId, runId: execution.runId }, causationId: input.event.id, ...(input.event.correlationId === undefined ? {} : { correlationId: input.event.correlationId }) };
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,'tool-result',$3,$4,$5,$6,'completed',$7) ON CONFLICT (id) DO NOTHING", [resultEventId, input.event.agentId, observation, execution.name, input.event.id, input.event.correlationId ?? null, execution.finishedAt]);
       await client.query("INSERT INTO tool_executions(id,run_id,event_id,result_event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (run_id,tool_call_id) DO NOTHING", [execution.id, execution.runId, execution.eventId, resultEventId, execution.callId, execution.name, execution.input, execution.result ?? null, execution.error ?? null, execution.startedAt, execution.finishedAt]);
+      if (execution.name === "web_page" && execution.ok) await client.query("UPDATE web_snapshots SET tool_result_event_id=$3,updated_at=now() WHERE agent_id=$1 AND source_run_id=$2 AND source_tool_call_id=$4", [input.event.agentId, execution.runId, resultEventId, execution.callId]);
     }
   }
 }

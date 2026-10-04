@@ -44,7 +44,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
 
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
-    const materialized = this.#materialize(event, input, result);
+    const materialized = await this.#materialize(event, input, result);
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
@@ -75,10 +75,19 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async markOutboxSent(id: string): Promise<void> { await this.pool.query("UPDATE outbox_messages SET status='sent',sent_at=now() WHERE id=$1", [id]); }
 
-  #materialize(event: DomainEvent, input: AgentCoreInput, result: AgentRunResult): { readonly memories: readonly Memory[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[]; readonly toolExecutions: readonly (ToolExecutionRecord & { readonly id: string })[] } {
+  async #materialize(event: DomainEvent, input: AgentCoreInput, result: AgentRunResult): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[]; readonly toolExecutions: readonly (ToolExecutionRecord & { readonly id: string })[] }> {
     const occurredAt = event.occurredAt;
     const uniqueMemoryProposals = [...new Map(result.output.internalChanges.memoryProposals.map((proposal) => [`${proposal.kind}\u0000${proposal.content.trim()}\u0000${proposal.sourceAgentId ?? ""}`, proposal])).values()];
-    const memories = uniqueMemoryProposals.map((proposal): Memory => ({ id: this.ids.next(), agentId: event.agentId, createdAt: occurredAt, ...proposal, evidenceEventIds: [...new Set([...proposal.evidenceEventIds, event.id])] }));
+    const referencedSnapshotIds = [...new Set(uniqueMemoryProposals.flatMap(({ webSnapshotIds }) => webSnapshotIds ?? []))];
+    const toolResultStrings = new Set<string>(); const collectStrings = (value: unknown): void => { if (typeof value === "string") toolResultStrings.add(value); else if (Array.isArray(value)) for (const item of value) collectStrings(item); else if (typeof value === "object" && value !== null) for (const item of Object.values(value)) collectStrings(item); };
+    for (const execution of result.toolExecutions.filter(({ ok }) => ok)) collectStrings(execution.result);
+    if (referencedSnapshotIds.some((id) => !toolResultStrings.has(id))) throw new DomainError("VALIDATION", "Memory references a Web Snapshot not observed in this run");
+    if (referencedSnapshotIds.length > 0) {
+      const owned = await this.pool.query<{ id: string }>("SELECT id FROM web_snapshots WHERE agent_id=$1 AND id=ANY($2::text[])", [event.agentId, referencedSnapshotIds]);
+      if (owned.rows.length !== referencedSnapshotIds.length) throw new DomainError("VALIDATION", "Memory references a Web Snapshot owned by another Agent or missing");
+    }
+    const memories: Memory[] = []; const memoryWebEvidence: { memoryId: string; snapshotIds: readonly string[] }[] = [];
+    for (const proposal of uniqueMemoryProposals) { const { webSnapshotIds = [], ...memoryProposal } = proposal; const memory: Memory = { id: this.ids.next(), agentId: event.agentId, createdAt: occurredAt, ...memoryProposal, evidenceEventIds: [...new Set([...proposal.evidenceEventIds, event.id])] }; memories.push(memory); if (webSnapshotIds.length > 0) memoryWebEvidence.push({ memoryId: memory.id, snapshotIds: webSnapshotIds }); }
     const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
     const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
     for (const proposal of result.output.internalChanges.intentionProposals) {
@@ -97,7 +106,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       const evidenceEventIds = [...new Set([...proposal.evidenceEventIds, event.id])];
       return { id: this.ids.next(), agentId: event.agentId, ...proposal, evidenceEventIds, status: "pending", createdAt: occurredAt };
     });
-    return { memories, intentionCreates, intentionUpdates, candidates, toolExecutions: this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() })) };
+    return { memories, memoryWebEvidence, intentionCreates, intentionUpdates, candidates, toolExecutions: this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() })) };
   }
 
   #validateTools(input: AgentCoreInput, executions: readonly ToolExecutionRecord[]): readonly ToolExecutionRecord[] {

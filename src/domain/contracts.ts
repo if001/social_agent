@@ -180,7 +180,7 @@ export const StateUpdateProposalSchema = z.object({
   evidenceIds: z.array(Id)
 });
 
-export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, createdAt: true, kind: true }).extend({ kind: z.literal("episodic") });
+export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, createdAt: true, kind: true }).extend({ kind: z.literal("episodic"), webSnapshotIds: z.array(Id).optional() });
 
 const CreateIntentionProposalSchema = z.object({
   operation: z.literal("create"),
