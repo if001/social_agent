@@ -70,7 +70,7 @@ export class AgentRuntime {
       throw error;
     }
     const output = result.output;
-    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.transientStateUpdates, input.socialContext);
+    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.transientStateUpdates, input.socialContext, event.occurredAt);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     if (committed === "committed") await this.options.persistence.activateTriggers(event);

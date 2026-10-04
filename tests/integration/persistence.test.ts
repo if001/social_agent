@@ -38,7 +38,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await migrate(pool);
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,capabilities,base_instruction) VALUES ('family','Family','Curious','[]','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
-    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,role,self_narrative,self_continuity,mood,drives) VALUES ($1,'Learning','Care','Helper','Growing','Continuous','Calm','[\"Learn\"]')", [agentId]);
+    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,role,self_narrative,self_continuity,mood,drives) VALUES ($1,'Learning','Care','Helper','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await migrate(pool);
   });
   afterAll(async () => {
@@ -54,7 +54,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Focused" })).resolves.toBe(1);
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
-    expect((await repository.find<{ roles: string[]; drives: string[] }>("a"))).toMatchObject({ roles: ["Helper"], drives: ["Learn"] });
+    expect((await repository.find<{ roles: string[]; drives: { description: string }[] }>("a"))).toMatchObject({ roles: ["Helper"], drives: [{ description: "Learn" }] });
   });
 
   it("rolls back event and outbox as one unit", async () => {
@@ -297,7 +297,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('drive:a:obsolete','a','persistent-drive','obsolete',now()),('drive:a:keep','a','persistent-drive','keep',now())");
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const unit = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
-    await unit.commit({ destination: "a", messageId: "drive-sync-message", event: { id: "drive-sync-event", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date(fixtureInstant) }, run: { id: "drive-sync-run", inputStateVersion: version, startedAt: new Date(fixtureInstant), result: {} }, stateValues: { drives: ["keep", "new"] }, changes: [], outbox: [] });
+    await unit.commit({ destination: "a", messageId: "drive-sync-message", event: { id: "drive-sync-event", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date(fixtureInstant) }, run: { id: "drive-sync-run", inputStateVersion: version, startedAt: new Date(fixtureInstant), result: {} }, stateValues: { drives: [{ description: "keep" }, { description: "new" }] }, changes: [], outbox: [] });
     expect((await pool.query<{ id: string }>("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='persistent-drive' ORDER BY id")).rows.map(({ id }) => id)).toEqual(["drive:a:keep", "drive:a:new"]);
   });
 

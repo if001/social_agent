@@ -37,10 +37,12 @@ export const AgentSchema = z.object({
 });
 export type Agent = z.infer<typeof AgentSchema>;
 
+export const DriveSchema = z.object({ description: NaturalLanguage, sourceEvidenceIds: z.array(Id), since: Instant });
+export type Drive = z.infer<typeof DriveSchema>;
 export const DynamicStateSchema = z.object({
   agentId: Id,
   mood: NaturalLanguage,
-  drives: z.array(NaturalLanguage),
+  drives: z.array(DriveSchema),
   currentInterests: z.array(NaturalLanguage),
   updatedAt: Instant
 });
