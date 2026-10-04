@@ -41,6 +41,7 @@ export type { ContextBudget, ContextSource } from "./application/context-builder
 export { AgentRuntime, OutboxDispatcher } from "./application/agent-runtime.js";
 export type { AgentRuntimeOptions, PendingOutput, RuntimePersistence } from "./application/agent-runtime.js";
 export { AgentEventRouter } from "./application/agent-event-router.js";
+export { RuntimeEventPublisher } from "./application/runtime-event-publisher.js";
 export { TerminalAdapter } from "./infrastructure/ui/terminal-adapter.js";
 export type { TerminalMessage } from "./infrastructure/ui/terminal-adapter.js";
 export { ToolRegistry } from "./application/tool-registry.js";
