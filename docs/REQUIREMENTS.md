@@ -116,6 +116,8 @@ Social Contextは対象IDだけでなく、対象種別`user | agent | team | pr
 
 EmotionとDesireは現在のEventに対する解釈とActionへ反映するが、永続状態として次のEventへ持ち越さない。次のEventにも影響させる必要がある感情的傾向はMoodへ、継続して求めることはDriveへ、後で実行する方針はIntentionへ提案する。EmotionとDesireの提案はAgent RunとState Changeの監査記録へ残してよい。
 
+永続Driveは自然言語descriptionに加えて、発生根拠のEventまたはMemory IDと開始時刻をRuntimeが付与する。LLMは意味内容と根拠を提案し、時刻を生成しない。同じdescriptionのDriveを維持する場合は元の開始時刻を保持する。
+
 #### FR-AG-04: 自然言語状態
 
 Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然言語で表現できなければならない。固定カテゴリや単一の数値スコアだけに還元してはならない。

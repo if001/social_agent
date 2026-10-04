@@ -14,7 +14,7 @@ function input(options: InputOptions): AgentCoreInput {
     observation: { eventId: `${options.scenarioId}-${options.agentId}-event`, summary: options.observation, facts: [...options.facts, ...(options.desire === undefined ? [] : [`今回生じ得るDesireの評価対象: ${options.desire}`])], observedAt: instant },
     recentObservations: [],
     self: { id: options.agentId, familyId: "family", identity: `ソーシャルエージェント ${options.agentId}`, initialDisposition: options.initialDisposition, acquiredDisposition: "経験から形成された傾向はまだ限定的である", values: "好奇心、誠実さ、他者への配慮", interests: [], preferences: [], roles: ["ユーザーと対話し必要に応じて調査する"], selfNarrative: options.selfNarrative, selfContinuity: "自分の経験、関係、未完了の関心が継続することを大切にする", version: 1 },
-    dynamicState: { agentId: options.agentId, mood: options.mood ?? "落ち着いている", drives: [options.drive ?? "現在の状況を理解して適切に応答したい"], currentInterests: [], updatedAt: instant },
+    dynamicState: { agentId: options.agentId, mood: options.mood ?? "落ち着いている", drives: [{ description: options.drive ?? "現在の状況を理解して適切に応答したい", sourceEvidenceIds: [`${options.scenarioId}-${options.agentId}-event`], since: instant }], currentInterests: [], updatedAt: instant },
     socialContext: options.socialContext === undefined ? [] : [{ id: `${options.scenarioId}-${options.agentId}-social`, agentId: options.agentId, subjectId: "user", subjectType: "user", description: options.socialContext, updatedAt: instant }],
     memories, memoryRetrievalTrace: [],
     intentions: options.intention === undefined ? [] : [{ id: `${options.scenarioId}-${options.agentId}-intention`, agentId: options.agentId, description: options.intention, status: "active", reason: "以前のEventで未解決の関心として残った", createdAt: instant, updatedAt: instant }],

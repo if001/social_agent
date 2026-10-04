@@ -1,7 +1,7 @@
 import { StateUpdateService } from "../../src/application/state-update-service.js";
 import type { DynamicState } from "../../src/domain/contracts.js";
 
-const state: DynamicState = { agentId: "a", mood: "Steady", drives: ["Learn"], currentInterests: [], updatedAt: "2026-01-01T00:00:00Z" };
+const state: DynamicState = { agentId: "a", mood: "Steady", drives: [{ description: "Learn", sourceEvidenceIds: ["old-event"], since: "2026-01-01T00:00:00Z" }], currentInterests: [], updatedAt: "2026-01-01T00:00:00Z" };
 
 describe("StateUpdateService", () => {
   const service = new StateUpdateService();
@@ -12,8 +12,8 @@ describe("StateUpdateService", () => {
     expect(state.mood).toBe("Steady");
   });
   it("updates multiple drives, desires and current interests", () => {
-    const result = service.apply("a", state, [{ target: "drives", operation: "append", value: "Help", reason: "Need", evidenceIds: [] }, { target: "desires", operation: "set", value: ["Listen", "Clarify"], reason: "Conversation", evidenceIds: [] }, { target: "currentInterests", operation: "append", value: "Memory design", reason: "Relevant", evidenceIds: [] }]);
-    expect(result.state.drives).toEqual(["Learn", "Help"]);
+    const result = service.apply("a", state, [{ target: "drives", operation: "append", value: "Help", reason: "Need", evidenceIds: ["event-new"] }, { target: "desires", operation: "set", value: ["Listen", "Clarify"], reason: "Conversation", evidenceIds: [] }, { target: "currentInterests", operation: "append", value: "Memory design", reason: "Relevant", evidenceIds: [] }]);
+    expect(result.state.drives).toEqual([{ description: "Learn", sourceEvidenceIds: ["old-event"], since: "2026-01-01T00:00:00Z" }, { description: "Help", sourceEvidenceIds: ["event-new"], since: "2026-01-01T00:00:00Z" }]);
     expect(result.state).not.toHaveProperty("desires");
     expect(result.changes.find(({ target }) => target === "desires")).toMatchObject({ before: [], after: ["Listen", "Clarify"] });
     expect(result.state.currentInterests).toEqual(["Memory design"]);

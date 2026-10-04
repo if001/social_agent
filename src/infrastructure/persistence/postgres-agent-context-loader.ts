@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, DomainError, IntentionTriggerSchema, ObservationSchema, type AgentCoreInput, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, DomainError, DriveSchema, IntentionTriggerSchema, ObservationSchema, type AgentCoreInput, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
@@ -32,6 +32,7 @@ export type PostgresAgentContextLoaderOptions = {
 
 function text(value: unknown): string | undefined { return typeof value === "string" && value.trim() !== "" ? value : undefined; }
 function texts(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "") : []; }
+function drives(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = DriveSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
 function transport(event: DomainEvent): AgentCoreInput["run"]["transport"] {
   const value = event.payload.transport;
   if (typeof value !== "object" || value === null) return undefined;
@@ -74,7 +75,7 @@ export class PostgresAgentContextLoader {
     const recentObservations = recentResult.rows.flatMap(({ observation: value }) => { const parsed = ObservationSchema.safeParse(value); return parsed.success ? [parsed.data] : []; }).reverse();
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, subjectType: row.subject_type, description: row.description, updatedAt: row.updated_at.toISOString() }));
     const intentions: Intention[] = intentionResult.rows.map((row) => { const trigger = IntentionTriggerSchema.safeParse(row.trigger); return { id: row.id, agentId: row.agent_id, description: row.description, reason: row.reason, ...(trigger.success ? { trigger: trigger.data } : {}), status: row.status, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), ...(row.next_review_at === null ? {} : { nextReviewAt: row.next_review_at.toISOString() }), ...(row.superseded_by_id === null ? {} : { supersededById: row.superseded_by_id }) }; });
-    const dynamicState = { agentId: agent.id, mood: agent.mood, drives: texts(agent.drives), currentInterests: texts(agent.current_interests), updatedAt: agent.state_updated_at.toISOString() };
+    const dynamicState = { agentId: agent.id, mood: agent.mood, drives: drives(agent.drives), currentInterests: texts(agent.current_interests), updatedAt: agent.state_updated_at.toISOString() };
     const memoryQuery = buildRelevantMemoryQuery({ observation, dynamicState, intentions, socialContext });
     const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);
     let vectors: readonly (readonly number[])[] = [];

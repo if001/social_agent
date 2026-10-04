@@ -17,6 +17,8 @@ ALTER TABLE agent_states DROP COLUMN IF EXISTS emotion;
 ALTER TABLE agent_states DROP COLUMN IF EXISTS desire;
 ALTER TABLE agent_states DROP COLUMN IF EXISTS desires;
 ALTER TABLE agent_states DROP COLUMN IF EXISTS drive;
+UPDATE agent_states SET drives=COALESCE((SELECT jsonb_agg(CASE WHEN jsonb_typeof(item)='string' THEN jsonb_build_object('description',item #>> '{}','sourceEvidenceIds','[]'::jsonb,'since',to_jsonb(agent_states.updated_at)) ELSE item END) FROM jsonb_array_elements(agent_states.drives) item),'[]'::jsonb)
+WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(agent_states.drives) item WHERE jsonb_typeof(item)='string');
 CREATE TABLE IF NOT EXISTS social_contexts (id text PRIMARY KEY, agent_id text NOT NULL REFERENCES agents(id) ON DELETE CASCADE, subject_id text NOT NULL, subject_type text NOT NULL CHECK(subject_type IN ('user','agent','team','project','organization')), description text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(agent_id, subject_id));
 ALTER TABLE social_contexts ADD COLUMN IF NOT EXISTS subject_type text;
 UPDATE social_contexts SET subject_type='user' WHERE subject_type IS NULL;

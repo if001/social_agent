@@ -14,13 +14,13 @@ export type StateChange = {
 export type StateUpdateResult = { readonly state: DynamicState; readonly changes: readonly StateChange[] };
 
 const persistentScalarTargets = new Set(["mood"]);
-const persistentCollectionTargets = new Set(["drives", "currentInterests"]);
+const persistentCollectionTargets = new Set(["currentInterests"]);
 const transientScalarTargets = new Set(["emotion"]);
 const transientCollectionTargets = new Set(["desires"]);
 const SocialContextValue = z.object({ subjectId: z.string().min(1), subjectType: z.enum(["user", "agent", "team", "project", "organization"]).optional(), description: z.string().min(1).optional() });
 
 export class StateUpdateService {
-  apply(agentId: string, state: DynamicState, proposals: readonly unknown[], socialContexts: readonly SocialContext[] = []): StateUpdateResult {
+  apply(agentId: string, state: DynamicState, proposals: readonly unknown[], socialContexts: readonly SocialContext[] = [], occurredAt = state.updatedAt): StateUpdateResult {
     if (state.agentId !== agentId) throw new DomainError("VALIDATION", "Cannot update another agent's state");
     const next: Record<string, unknown> = { ...state };
     const transient: Record<string, unknown> = { desires: [] as string[] };
@@ -32,6 +32,18 @@ export class StateUpdateService {
         if (proposal.operation !== "remove" && (value.description === undefined || value.subjectType === undefined)) throw new DomainError("VALIDATION", "Social Context set/append requires subjectType and description");
         const before = socialContexts.find(({ subjectId }) => subjectId === value.subjectId);
         changes.push({ target: proposal.target, operation: proposal.operation, before, after: proposal.operation === "remove" ? { subjectId: value.subjectId } : value, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+        continue;
+      }
+      if (proposal.target === "drives") {
+        const before = [...state.drives];
+        const descriptions = (Array.isArray(proposal.value) ? proposal.value : [proposal.value]).filter((value): value is string => typeof value === "string" && value.trim() !== "").map((value) => value.trim());
+        if (descriptions.length === 0) throw new DomainError("VALIDATION", "Invalid operation for drives");
+        const existing = new Map((next.drives as DynamicState["drives"]).map((drive) => [drive.description, drive]));
+        const materialize = (description: string) => existing.get(description) ?? { description, sourceEvidenceIds: [...proposal.evidenceIds], since: occurredAt };
+        if (proposal.operation === "set") next.drives = [...new Set(descriptions)].map(materialize);
+        if (proposal.operation === "append") next.drives = [...existing.values(), ...descriptions.filter((description) => !existing.has(description)).map(materialize)];
+        if (proposal.operation === "remove") next.drives = [...existing.values()].filter(({ description }) => !descriptions.includes(description));
+        changes.push({ target: proposal.target, operation: proposal.operation, before, after: next.drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
         continue;
       }
       const scalar = persistentScalarTargets.has(proposal.target) || transientScalarTargets.has(proposal.target);
