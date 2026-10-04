@@ -218,6 +218,8 @@ Runtimeは連続するInternal EventとTool Loopに対して構成可能な上�
 
 Memory、関係、経験、継続中Intentionの維持や喪失に対する意味づけが長期的に変化した場合は、Self ContinuityもCandidateとLong-term Reviewを通じて更新できなければならない。通常Eventから直接更新してはならない。
 
+ValuesはFamilyのShared Dispositionと区別される個体の長期Selfとして扱う。単発の好悪や一時的なEmotionでは変更せず、反復する価値判断または強い経験を根拠にCandidateとLong-term Reviewを通じて更新する。
+
 #### FR-LR-02: 通常更新との分離
 
 通常Eventでは長期状態を原則として直接変更せず、Long-term ReviewでCandidateと根拠Memoryを再評価しなければならない。
