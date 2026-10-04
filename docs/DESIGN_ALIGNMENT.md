@@ -31,7 +31,7 @@ All LLM output is a proposal. Runtime assigns storage IDs, timestamps, and owner
 | Information | Normal Agent Core | Long-term Review | Runtime |
 |---|---|---|---|
 | Subjective Meaning | proposes | may reinterpret evidence for review | validates output shape and traces run |
-| Emotion, Desire | proposes when affected by the Event | does not update | validates and persists |
+| Emotion, Desire | proposes when affected by the Event and uses them in the same run's Action | does not update | validates and records the proposal for audit without carrying it into the next Event |
 | Mood, Drive, Intention, Working Social Context | proposes only when persistence is meaningful | reads relevant context | validates lifecycle and persists |
 | Episodic Memory | proposes important concrete experiences from the current Event | reads as review evidence | validates duplication/evidence, assigns ID/time/owner/source, and persists |
 | Semantic / Self-related Memory | creates evidence-backed Candidate; does not directly confirm inferred knowledge or self-recognition | creates, merges, corrects, or rejects after reviewing evidence | validates ownership/evidence and persists the decision |
