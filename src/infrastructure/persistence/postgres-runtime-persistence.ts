@@ -83,7 +83,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
 
   async #materialize(event: DomainEvent, input: AgentCoreInput, result: AgentRunResult): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[]; readonly toolExecutions: readonly (ToolExecutionRecord & { readonly id: string })[] }> {
     const occurredAt = event.occurredAt;
-    const uniqueMemoryProposals = [...new Map(result.output.internalChanges.memoryProposals.map((proposal) => [`${proposal.kind}\u0000${proposal.content.trim()}\u0000${proposal.sourceAgentId ?? ""}`, proposal])).values()];
+    const uniqueMemoryProposals = [...new Map(result.output.internalChanges.memoryProposals.map((proposal) => [`${proposal.kind}\u0000${proposal.content.trim()}`, proposal])).values()];
     const referencedSnapshotIds = [...new Set(uniqueMemoryProposals.flatMap(({ webSnapshotIds }) => webSnapshotIds ?? []))];
     const toolResultStrings = new Set<string>(); const collectStrings = (value: unknown): void => { if (typeof value === "string") toolResultStrings.add(value); else if (Array.isArray(value)) for (const item of value) collectStrings(item); else if (typeof value === "object" && value !== null) for (const item of Object.values(value)) collectStrings(item); };
     for (const execution of result.toolExecutions.filter(({ ok }) => ok)) collectStrings(execution.result);
@@ -93,7 +93,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       if (owned.rows.length !== referencedSnapshotIds.length) throw new DomainError("VALIDATION", "Memory references a Web Snapshot owned by another Agent or missing");
     }
     const memories: Memory[] = []; const memoryWebEvidence: { memoryId: string; snapshotIds: readonly string[] }[] = [];
-    for (const proposal of uniqueMemoryProposals) { const { webSnapshotIds = [], ...memoryProposal } = proposal; const memory: Memory = { id: this.ids.next(), agentId: event.agentId, createdAt: occurredAt, ...memoryProposal, evidenceEventIds: [...new Set([...proposal.evidenceEventIds, event.id])] }; memories.push(memory); if (webSnapshotIds.length > 0) memoryWebEvidence.push({ memoryId: memory.id, snapshotIds: webSnapshotIds }); }
+    const sourceAgentId = input.observation.actor?.type === "agent" ? input.observation.actor.id : undefined;
+    for (const proposal of uniqueMemoryProposals) { const { webSnapshotIds = [], ...memoryProposal } = proposal; const memory: Memory = { id: this.ids.next(), agentId: event.agentId, createdAt: occurredAt, ...memoryProposal, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), evidenceEventIds: [...new Set([...proposal.evidenceEventIds, event.id])] }; memories.push(memory); if (webSnapshotIds.length > 0) memoryWebEvidence.push({ memoryId: memory.id, snapshotIds: webSnapshotIds }); }
     const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
     const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
     for (const proposal of result.output.internalChanges.intentionProposals) {
