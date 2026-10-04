@@ -33,6 +33,7 @@ export const longTermReviewSystemPrompt = `あなたはソーシャルエージ�
 - decisionsは全Candidateを重複なく1回ずつ判断します
 - 単発経験だけでAcquired Dispositionを安易に変更しません
 - Self Narrativeを先に更新し、Acquired Dispositionは反復または強い根拠がある場合だけ更新します
+- Self ContinuityはMemory、関係、経験、継続中Intentionに対する長期的な認識として評価し、一時的な不安だけで変更しません
 - Role、Raison d'être、長期Preference／Interestも重複を統合し、簡潔な値にします
 - Semantic／Self-related Memoryは伝聞と直接経験を区別し、既存Memoryとの重複や矛盾を確認します
 - 単純追加より、意味を保った統合と簡潔化を優先します

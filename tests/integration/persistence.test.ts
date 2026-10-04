@@ -349,6 +349,14 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(kept?.status).toBe("pending"); expect(kept?.review_after).toBeInstanceOf(Date);
   });
 
+  it("updates Self Continuity only through grounded long-term review", async () => {
+    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-continuity','a','selfContinuity','My memory and unfinished commitments connect my experiences','pending','Repeated continuity concerns')");
+    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-continuity','memory-a1')");
+    const repository = new PostgresLongTermReviewRepository(pool, () => "continuity-change-memory");
+    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-continuity", decision: "UPDATE", reason: "Repeated evidence" }], stateUpdate: { value: "My memory and unfinished commitments connect my experiences", reason: "Repeated evidence", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-continuity", new AbortController().signal);
+    expect((await pool.query<{ self_continuity: string }>("SELECT self_continuity FROM agent_states WHERE agent_id='a'")).rows[0]?.self_continuity).toBe("My memory and unfinished commitments connect my experiences");
+  });
+
   it("materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('proposal-evidence','a','self-related','Repeated follow-through','Relevant',now(),'[]')");
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('existing-intention','a','Old goal','Existing','active')");
