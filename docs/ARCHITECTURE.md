@@ -236,7 +236,7 @@ interface ContextBuilder {
 
 - IdentityとShared / Initial Disposition
 - Observationに関連するAcquired Disposition、Values、Role、Self Narrative
-- 現在有効なEmotion、Mood、複数Drive、複数Desire、Current Interests、Intention
+- 現在有効なMood、複数Drive、Current Interests、Intention
 - Observationのsubjectに関係するSocial Context
 - hybrid retrievalで取得したMemory
 - 登録済みTool定義
@@ -594,7 +594,7 @@ type AgentCoreInput = {
   observation: Observation
   recentObservations: Observation[]
   self: RelevantSelf
-  dynamicState: RelevantDynamicState
+  dynamicState: RelevantPersistentDynamicState
   socialContext: SocialContext[]
   memories: RetrievedMemory[]
   availableTools: ToolDefinition[]
@@ -604,7 +604,7 @@ type AgentCoreInput = {
 type AgentCoreOutput = {
   interpretation: { subjectiveMeaning?: string }
   internalChanges: {
-    transientStateUpdates: StateUpdateProposal[]
+    transientStateUpdates: StateUpdateProposal[] // Emotion / Desireは監査のみ。Mood / Drive等は検証後に永続化
     memoryProposals: MemoryProposal[]
     intentionProposals: IntentionProposal[]
     longTermCandidates: LongTermUpdateCandidateProposal[]

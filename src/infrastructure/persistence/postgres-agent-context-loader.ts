@@ -10,7 +10,7 @@ import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
 type AgentRow = QueryResultRow & {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
   acquired_disposition: string; values: string; interests: unknown; preferences: unknown; roles: unknown; raison_detre: string | null; self_narrative: string; self_continuity: string;
-  emotion: string; mood: string; drives: unknown; desires: unknown; current_interests: unknown; version: number; state_updated_at: Date;
+  mood: string; drives: unknown; current_interests: unknown; version: number; state_updated_at: Date;
   shared_disposition: string; capabilities: unknown; base_instruction: string;
 };
 type SocialRow = QueryResultRow & { id: string; agent_id: string; subject_id: string; description: string; updated_at: Date };
@@ -60,7 +60,7 @@ export class PostgresAgentContextLoader {
   async load(event: DomainEvent): Promise<AgentCoreInput> {
     const observation = observationFromEvent(event);
     const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
-      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.emotion,s.mood,s.drives,s.desires,s.current_interests,s.version,s.updated_at AS state_updated_at,
+      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.drives,s.current_interests,s.version,s.updated_at AS state_updated_at,
       f.shared_disposition,f.capabilities,f.base_instruction
       FROM agents a JOIN agent_states s ON s.agent_id=a.id JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1`, [event.agentId]);
     const agent = agentResult.rows[0];
@@ -74,7 +74,7 @@ export class PostgresAgentContextLoader {
     const recentObservations = recentResult.rows.flatMap(({ observation: value }) => { const parsed = ObservationSchema.safeParse(value); return parsed.success ? [parsed.data] : []; }).reverse();
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, description: row.description, updatedAt: row.updated_at.toISOString() }));
     const intentions: Intention[] = intentionResult.rows.map((row) => { const trigger = IntentionTriggerSchema.safeParse(row.trigger); return { id: row.id, agentId: row.agent_id, description: row.description, reason: row.reason, ...(trigger.success ? { trigger: trigger.data } : {}), status: row.status, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), ...(row.next_review_at === null ? {} : { nextReviewAt: row.next_review_at.toISOString() }), ...(row.superseded_by_id === null ? {} : { supersededById: row.superseded_by_id }) }; });
-    const dynamicState = { agentId: agent.id, emotion: agent.emotion, mood: agent.mood, drives: texts(agent.drives), desires: texts(agent.desires), currentInterests: texts(agent.current_interests), updatedAt: agent.state_updated_at.toISOString() };
+    const dynamicState = { agentId: agent.id, mood: agent.mood, drives: texts(agent.drives), currentInterests: texts(agent.current_interests), updatedAt: agent.state_updated_at.toISOString() };
     const memoryQuery = buildRelevantMemoryQuery({ observation, dynamicState, intentions, socialContext });
     const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);
     let vectors: readonly (readonly number[])[] = [];

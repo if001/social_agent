@@ -107,8 +107,10 @@ Agentは別のAgentへ情報を伝達できる。受信側はそれを自分自�
 システムは少なくとも次を区別して扱わなければならない。
 
 - 長期: Identity、Disposition、Values、Interests、Preferences、複数Role、Raison d'être、Self Narrative、Self Continuity
-- 中短期: Emotion、Mood、複数Drive、複数Desire、Current Interests、Intention、Social Context
-- Event処理中のみ: Observation、Retrieved Memory、Subjective Meaning、更新案、保留中のTool Call
+- 中期: Mood、複数Drive、Current Interests、Intention、Social Context
+- Event処理中のみ: Observation、Retrieved Memory、Subjective Meaning、Emotion、複数Desire、更新案、保留中のTool Call
+
+EmotionとDesireは現在のEventに対する解釈とActionへ反映するが、永続状態として次のEventへ持ち越さない。次のEventにも影響させる必要がある感情的傾向はMoodへ、継続して求めることはDriveへ、後で実行する方針はIntentionへ提案する。EmotionとDesireの提案はAgent RunとState Changeの監査記録へ残してよい。
 
 #### FR-AG-04: 自然言語状態
 

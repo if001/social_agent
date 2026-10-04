@@ -39,10 +39,8 @@ export type Agent = z.infer<typeof AgentSchema>;
 
 export const DynamicStateSchema = z.object({
   agentId: Id,
-  emotion: NaturalLanguage,
   mood: NaturalLanguage,
   drives: z.array(NaturalLanguage),
-  desires: z.array(NaturalLanguage),
   currentInterests: z.array(NaturalLanguage),
   updatedAt: Instant
 });

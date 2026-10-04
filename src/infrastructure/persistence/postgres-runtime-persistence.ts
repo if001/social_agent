@@ -49,7 +49,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
-      stateValues: { emotion: update.state.emotion, mood: update.state.mood, drives: update.state.drives, desires: update.state.desires, current_interests: update.state.currentInterests },
+      stateValues: { mood: update.state.mood, drives: update.state.drives, current_interests: update.state.currentInterests },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       ...materialized,
       outbox: outgoing
