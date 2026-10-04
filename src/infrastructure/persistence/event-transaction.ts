@@ -33,10 +33,10 @@ export class PostgresEventTransaction {
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.run.id, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
       for (const change of input.changes.filter(({ target }) => target === "socialContext")) {
-        const value = change.after as { readonly subjectId?: string; readonly description?: string } | undefined;
+        const value = change.after as { readonly subjectId?: string; readonly subjectType?: string; readonly description?: string } | undefined;
         if (value?.subjectId === undefined) throw new Error("Social Context change is missing subjectId");
         if (change.operation === "remove") await client.query("DELETE FROM social_contexts WHERE agent_id=$1 AND subject_id=$2", [input.event.agentId, value.subjectId]);
-        else await client.query("INSERT INTO social_contexts(id,agent_id,subject_id,description) VALUES ($1,$2,$3,$4) ON CONFLICT (agent_id,subject_id) DO UPDATE SET description=EXCLUDED.description,updated_at=now()", [change.id, input.event.agentId, value.subjectId, value.description]);
+        else await client.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (agent_id,subject_id) DO UPDATE SET subject_type=EXCLUDED.subject_type,description=EXCLUDED.description,updated_at=now()", [change.id, input.event.agentId, value.subjectId, value.subjectType, value.description]);
       }
       for (const memory of input.memories ?? []) {
         await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);

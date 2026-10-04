@@ -193,7 +193,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("loads a complete Agent Core context from PostgreSQL without crossing Agent ownership", async () => {
     await pool.query("UPDATE agent_families SET base_instruction='' WHERE id='family'");
-    await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,description) VALUES ('social-a','a','owner','Trusted'),('social-b','b','owner','Private') ON CONFLICT DO NOTHING");
+    await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('social-a','a','owner','user','Trusted'),('social-b','b','owner','user','Private') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('context-intention-a','a','Reply carefully','Conversation','active'),('context-intention-b','b','Keep private','Private','active') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ('memory-a1','context-intention-a') ON CONFLICT DO NOTHING");
@@ -384,14 +384,14 @@ describeDatabase("PostgreSQL persistence", () => {
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
       output: { interpretation: {}, internalChanges: {
-        transientStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext" as const, operation: "set" as const, value: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }],
+        transientStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext" as const, operation: "set" as const, value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }],
         memoryProposals: [{ kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "normal" as const, evidenceEventIds: ["runtime-event"] }, { kind: "episodic" as const, content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "normal" as const, evidenceEventIds: ["runtime-event"] }],
         intentionProposals: [{ operation: "create" as const, description: "Follow up", reason: "Still relevant" }, { operation: "update" as const, intentionId: "existing-intention", status: "completed" as const, reason: "Finished" }],
         longTermCandidates: [{ target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }, { target: "selfNarrative" as const, proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }]
       }, action: { type: "respond" as const, content: "Hello" } },
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
-    await expect(persistence.commit(message, event, input, result, { state: { ...input.dynamicState, mood: "Attentive" }, changes: [{ target: "mood", operation: "set", before: input.dynamicState.mood, after: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", before: undefined, after: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }] }, [])).resolves.toBe("committed");
+    await expect(persistence.commit(message, event, input, result, { state: { ...input.dynamicState, mood: "Attentive" }, changes: [{ target: "mood", operation: "set", before: input.dynamicState.mood, after: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", before: undefined, after: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }] }, [])).resolves.toBe("committed");
     expect((await pool.query<{ agent_id: string }>("SELECT agent_id FROM memories WHERE id='memory-new'")).rows[0]?.agent_id).toBe("a");
     expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='memory-new'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
     expect((await pool.query<{ status: string }>("SELECT status FROM intentions WHERE id='existing-intention'")).rows[0]?.status).toBe("completed");
