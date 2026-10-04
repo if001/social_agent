@@ -5,7 +5,7 @@ import { tool } from "langchain";
 import type { AgentHarness } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunResult, type ToolExecutionRecord } from "../../domain/contracts.js";
-import { noopLogger, type Logger } from "../../observability/logger.js";
+import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
 
@@ -126,7 +126,7 @@ export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentT
       const finishedAt = now().toISOString();
       const message = error instanceof Error ? error.message : "Tool failed";
       executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: message, startedAt, finishedAt });
-      logger.log("error", "tool.failed", { errorCode: error instanceof DomainError ? error.code : "UNKNOWN", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+      logger.log("error", "tool.failed", { ...errorLogContext(error), elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify({ ok: false, error: message });
     }
   }, { name: registered.name, description: registered.description, schema: registered.schema }));

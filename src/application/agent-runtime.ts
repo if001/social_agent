@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
 import { StateUpdateService, type StateUpdateResult } from "./state-update-service.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
-import { noopLogger, type Logger } from "../observability/logger.js";
+import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user-message"), text: z.string().min(1), actorId: z.string().min(1).optional(), actorType: z.enum(["human", "agent"]).optional(), sourceType: z.enum(["terminal", "discord"]).optional(), sourceId: z.string().min(1).optional(), replyContext: z.record(z.string(), z.unknown()).optional() }),
@@ -85,7 +85,7 @@ export class AgentRuntime {
     catch (error) {
       const toolExecutions = error instanceof DomainError && typeof error.cause === "object" && error.cause !== null && "toolExecutions" in error.cause && Array.isArray(error.cause.toolExecutions) ? error.cause.toolExecutions as ToolExecutionRecord[] : [];
       await this.options.persistence.recordFailure(message, event, input, error, toolExecutions);
-      logger.log("error", "agent_core.failed", { errorCode: error instanceof DomainError ? error.code : "UNKNOWN", elapsedMs: Date.now() - startedAt, toolExecutionCount: toolExecutions.length });
+      logger.log("error", "agent_core.failed", { ...errorLogContext(error), elapsedMs: Date.now() - startedAt, toolExecutionCount: toolExecutions.length });
       throw error;
     }
     const output = result.output;

@@ -69,5 +69,6 @@
 | 063 | [Action Result連携](063-action-result-linkage.md) | 041, 060 |
 | 064 | [bot別の表現Persona](064-bot-persona-configuration.md) | 020, 030, 038 |
 | 065 | [Runtime標準出力log](065-runtime-stdout-observability.md) | 032, 041, 042 |
+| 066 | [安全な詳細エラーログ](066-detailed-safe-error-logging.md) | 065 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。

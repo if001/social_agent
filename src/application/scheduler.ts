@@ -1,7 +1,7 @@
 import type { Clock, IdGenerator, MessageQueue } from "./ports.js";
-import { DomainError, type AgentAction, type DomainEvent } from "../domain/contracts.js";
+import type { AgentAction, DomainEvent } from "../domain/contracts.js";
 import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
-import { noopLogger, type Logger } from "../observability/logger.js";
+import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 export type ScheduledTarget = { readonly id: string; readonly agentId: string; readonly kind: "intention" | "persistent-drive" | "state-review" | "memory-recall" | "long-term-review"; readonly reason: string; readonly candidateIds?: readonly string[] };
 export interface ScheduleRepository {
@@ -41,7 +41,7 @@ export class Scheduler {
         completed += 1;
       } catch (error) {
         await this.options.repository.release(target);
-        logger.log("error", "scheduler.target_failed", { errorCode: error instanceof DomainError ? error.code : "UNKNOWN" });
+        logger.log("error", "scheduler.target_failed", errorLogContext(error));
         throw error;
       } finally { this.#running.delete(targetKey); }
     }
