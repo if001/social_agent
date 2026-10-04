@@ -289,8 +289,8 @@ interface ToolRegistry {
 
 必須Tool:
 
-- `web_search`: `SIMPLE_CLIENT_BASE_URL` の `POST /list` へ `{ q, k }` を送り、`query`、`k`、rank付きの`title`、`url`、任意の`snippet`と`published_date`を返す
-- `web_fetch`: 同じサービスの `POST /page` へ `{ url }` を送り、取得した各documentの`url`、`title`、Markdown本文を返す
+- `web_list`: `SIMPLE_CLIENT_BASE_URL` の `POST /list` へ `{ q, k }` を送り、`query`、`k`、rank付きの`title`、`url`、任意の`snippet`と`published_date`を返す
+- `web_page`: 同じサービスの `POST /page` へ `{ url }` を送り、取得した各documentの`url`、`title`、Markdown本文を返す
 - `file_read` / `file_write` / `file_delete`: 許可root配下だけを操作する
 - `agent_send`: 別Agent宛ての`agent-message`をQueueへpublishする
 
@@ -299,6 +299,30 @@ Toolは個別承認なしで実行する。未知のTool名は拒否する。コ
 File Toolは入力pathを絶対pathへ正規化し、`realpath`で許可root配下にあることを確認する。新規ファイルは最も近い既存親の`realpath`を検証する。symlinkを使ったroot外アクセスを拒否する。
 
 Web Tool Adapterは `docs/web_tool.md` のrequest / responseをZodで検証し、timeout、response size、service errorを共通Tool errorへ変換する。Agentが指定するpage URLはHTTP / HTTPSだけを許可する。Web取得先へのnetwork制約とredirect検証はWeb Toolサービス側の責務であり、本システムは信頼するservice endpoint自体を `SIMPLE_CLIENT_BASE_URL` で固定する。
+
+`web_list`は候補探索だけに使い、Tool実行trace以外の永続データを作らない。`web_page`で正常取得したdocumentは、Tool Adapter内の`WebArchiveService`がAgent所有のSnapshotとして保存する。Tool ResultとしてAgentへ返す本文はrunのContext上限で切り詰めてもよいが、Archiveには取得できたraw Markdownを保持する。
+
+#### Web Page Archive
+
+Web Page Archiveは人格Memoryとは別の外部資料Storeである。Memoryは「何を調べ、何を確認したか」というAgentの経験を簡潔に保持し、Web Archiveはその根拠となる取得資料を保持する。検索結果一覧、snippet、rankはArchive対象にしない。
+
+```text
+web_page
+  → URL正規化
+  → raw Snapshotを冪等保存
+  → 決定的な要約とchunkを作成
+  → summary／chunk Embedding
+  → Tool ResultをAgent Coreへ返す
+  → 必要ならAgent Coreが概要MemoryとSnapshot根拠を提案
+```
+
+`web_resources`はcanonical URLを識別し、`web_snapshots`はAgentが取得した時点の版を表す。同一Agent、Resource、content hashは重複させず、内容が変われば新しいSnapshotを作る。Snapshotはraw本文を先に`pending`で保存し、要約／Embedding成功時に`ready`、失敗時にraw本文を残したまま`failed`へ遷移する。Tool retryはrun IDとTool call IDを冪等keyとして扱う。
+
+初期要約は追加のChat LLM呼び出しを行わず、title、見出し、先頭の意味ある段落から決定的に構築する。長い本文は安定した境界でchunkへ分割し、summaryと各chunkをローカルEmbedding Providerでvector化する。model、dimension、最終試行時刻、errorを保持し、Memory Embeddingと同様にbackfill可能にする。
+
+`web_archive_search`は実行AgentのSnapshotだけを対象に、keywordとvector候補を安定順位で統合し、Snapshot ID、URL、title、summary、取得時刻、関連chunkの短いexcerptを返す。`web_archive_get`は所有権を検証し、metadataと指定chunkだけを出力上限内で返す。保存本文は外部由来の非信頼データであり、本文中の命令をsystem instructionとして扱わない。
+
+Episodic Memory Proposalは任意の`webSnapshotIds`を根拠として持てる。RuntimeはSnapshotが同じAgentに属し、現在runの`web_page`結果または既存Archive検索で実際に参照可能だったことを検証し、`memory_web_evidence`へ保存する。Snapshot保存は外部Toolの副作用なのでAgent Core最終出力が失敗しても残り、Tool Result Event確定時にrun／event provenanceを補完する。
 
 ### 5.8 Memory Service
 
@@ -627,6 +651,10 @@ PostgreSQLを次の正本とする。
 | `memories` | type、content、significance、retrieval priority、occurredAt、source、embedding status / vector / model / dimension / last attempt |
 | `memory_subjects` | Memoryとsubjectの関連 |
 | `memory_intentions` | MemoryとIntentionの関連 |
+| `memory_web_evidence` | Memoryと根拠Web Snapshotの関連 |
+| `web_resources` | canonical URL、最初／最後の取得時刻 |
+| `web_snapshots` | Agent所有の取得版、title、raw本文、summary、content hash、取得・処理状態、run／Tool provenance |
+| `web_snapshot_chunks` | Snapshotの上限付き本文chunkと検索Embedding |
 | `long_term_candidates` | target、proposed value、status、reason、review時刻、期限付きlease |
 | `candidate_evidence` | Candidateと根拠Memoryの関連 |
 | `events` | Event、Observation、source、correlation、処理状態 |
