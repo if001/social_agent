@@ -212,6 +212,13 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - timeout、HTTP error、response size、不正JSON、Schema不適合を共通errorへ変換する
 - `SIMPLE_CLIENT_BASE_URL` 以外へservice requestを送らない
 - Provider交換時にも共通結果Schemaを返す
+- `web_list`はWeb ArchiveへResource、Snapshot、chunkを作らない
+- `web_page`はraw本文を先に保存し、同一Agent・URL・本文hashのretryで重複しない
+- 同一URLの本文変更は新しいSnapshotになり、取得時刻とTool provenanceを保持する
+- 要約／Embedding失敗でもraw本文が残り、backfillで`ready`へ復旧する
+- `web_archive_search`はkeyword／vector／URL／取得時刻から安定順位を返し、別AgentのSnapshotを返さない
+- `web_archive_get`は所有権、未知ID、chunk指定、出力size上限を検証する
+- Memoryが同じAgentのSnapshotだけを根拠参照できる
 
 ## 8. Contract Test
 
@@ -326,6 +333,8 @@ allowlist内外、重複受信、thread reply、送信retryを確認する。
 ### ST-03: Tool Loop
 
 Deep Agentのscripted modelがWeb Toolを要求し、Tool Resultが外部Queueへ出ず、同じrun内のreasoningへ戻って最終Actionを返すことを確認する。Runtimeが最終ActionからToolを再実行しないこと、実行記録がrun / eventと関連づくことも確認する。
+
+`web_page`を使うrunではSnapshot保存とTool Result provenanceを確認する。別のInternal Eventでは`web_archive_search`から既存Snapshotを発見し、`web_archive_get`で必要chunkだけを読み、鮮度不足や未取得情報がある場合だけ`web_list`／`web_page`を再実行する。Episodic Memoryには記事本文ではなく調査経験の概要とSnapshot根拠が保存されることを確認する。
 
 ### ST-04: Internal Event
 

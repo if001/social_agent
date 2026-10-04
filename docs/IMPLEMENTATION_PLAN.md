@@ -227,11 +227,11 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** Agentが登録済みCapabilityだけを、権限と実行上限の範囲で利用できるようにする。
 
-**実装対象:** Tool Registry、Tool execution contextとidempotency key、`SIMPLE_CLIENT_BASE_URL`を使うWeb Tool Service adapter、`POST /list`による`web_search`、`POST /page`による`web_fetch`、`docs/web_tool.md`準拠のrequest / response Schema、`file_read / write / delete`、構造化success / failure、Runtime内Tool Result再投入。
+**実装対象:** Tool Registry、Tool execution contextとidempotency key、`SIMPLE_CLIENT_BASE_URL`を使うWeb Tool Service adapter、`POST /list`による`web_list`、`POST /page`による`web_page`、`docs/web_tool.md`準拠のrequest / response Schema、file Tool、構造化success / failure、Runtime内Tool Result再投入。`web_list`はArchive保存せず、`web_page`だけをAgent所有のResource／Snapshot／chunkへ冪等保存する。raw本文先行保存、決定的要約、summary／chunk Embedding lifecycle、`web_archive_search`、`web_archive_get`、MemoryからSnapshotへの根拠参照を含む。
 
-**TDD / 検証:** File Toolでは`..`、absolute path、symlink、存在しない子の親symlinkを含むroot境界を検証する。Web Toolでは `/list` と `/page` のrequest、正常response変換、page URL scheme、timeout、HTTP error、size、不正JSON、Schema不適合、構成済みservice endpoint以外へ送らないことをfixture serverで検証する。ST-03でTool Resultが外部Queueへ出ず同じrun内で再解釈されること、step / call / deadline上限で停止することを確認する。
+**TDD / 検証:** File Toolのroot境界とWeb Adapter契約に加え、`web_list`がArchiveを書かないこと、`web_page`のraw保存、retry冪等性、本文変更時の新Snapshot、要約／Embedding失敗からの復旧、Agent所有権、Archive検索・取得の出力上限を検証する。ST-03でTool Resultが同じrunへ戻ること、Internal Eventから既存Archiveを検索し、必要時だけWebを再取得できることを確認する。
 
-**完了条件:** 未知Toolと不正入力は副作用前に拒否され、範囲外File accessができず、Web Toolサービスの契約外responseを受理せず、Tool失敗をAgentが再判断できる。
+**完了条件:** 未知Toolと不正入力は副作用前に拒否され、Web Toolサービスの契約外responseを受理しない。取得済みページはMemoryと分離して再利用でき、Memoryから同じAgentの根拠Snapshotへ追跡できる。
 
 **依存:** IP-05、IP-07、IP-09。
 

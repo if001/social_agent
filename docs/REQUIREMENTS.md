@@ -164,6 +164,8 @@ Long-term Reviewによる長期状態の変更履歴であるSelf Change Memory�
 
 LLMはMemoryの意味内容と根拠を提案し、RuntimeはID、所有Agent、作成時刻、出典を付与してSchema、参照所有権、重複を検証する。Embedding生成の失敗によって検証済みMemory自体を失ってはならない。
 
+Webページ本文をMemory本文として保存してはならない。AgentがWeb調査を後続の判断へ残す場合、Episodic Memoryには「何について検索し、何を確認したか」という経験の概要を保存し、根拠となるWeb Snapshotを参照する。取得ページ本文、URL、取得時刻等はWeb Page Archiveで管理する。
+
 #### FR-ME-03: 関連Memory検索
 
 Observation、現在状態、Active Intention、Social Context等から検索条件を作り、現在の判断に関連するMemoryを取得できなければならない。すべてのMemoryを毎回Agent Coreへ渡してはならない。
@@ -237,6 +239,16 @@ Agentが利用できるToolはシステム構成で明示的に登録しなけ�
 #### FR-TL-03: Web Tool
 
 Web検索とWebページ取得を提供しなければならない。初期実装は `SIMPLE_CLIENT_BASE_URL` で指定された既存Web Toolサービスの `POST /list` と `POST /page` を利用し、`docs/web_tool.md` のrequest / response契約を検証しなければならない。Web ToolサービスはAdapter境界の内側に置き、同じTool契約を満たす別Providerへ交換可能でなければならない。
+
+`web_list`は検索候補を得るための一時的なTool Resultとし、検索結果一覧、snippet、順位をWeb Page Archiveへ保存してはならない。`web_page`で実際に取得できたdocumentだけを、Agent所有のWeb SnapshotとしてTool実行中に保存しなければならない。
+
+#### FR-TL-03A: Web Page Archive
+
+Web Snapshotはcanonical URL、取得URL、title、取得本文、本文hash、取得時刻、取得Agent、run、Tool call、Tool Result Eventへのprovenanceを保持しなければならない。raw本文を要約またはEmbedding処理より先に保存し、後続処理の失敗によって取得本文を失ってはならない。
+
+同一Agent、同一canonical URL、同一本文hashのSnapshotは冪等に再利用し、同一URLでも本文が変化した場合は新しいSnapshotとして保存しなければならない。要約とEmbeddingは`pending | ready | failed`を区別し、失敗後に冪等に再処理できなければならない。初期実装の要約は追加のChat LLM呼び出しを必須とせず、title、見出し、先頭の意味ある段落から上限付きで決定的に構築してよい。
+
+保存済みページは`web_archive_search`でAgent所有範囲内をkeyword、summary／chunk vector、URL、取得時刻から検索でき、`web_archive_get`でSnapshot metadataと指定chunkを上限付きで取得できなければならない。Archive本文をAgent Contextへ自動投入してはならない。別Agent所有Snapshotの検索・取得・Memory根拠参照を拒否しなければならない。
 
 #### FR-TL-04: File Tool
 
