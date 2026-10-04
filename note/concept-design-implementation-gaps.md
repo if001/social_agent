@@ -45,7 +45,7 @@
 
 - [x] **初期状態を固定的な行動傾向ではなく中立な未形成状態にする。** `initializeAgent`は全個体へEmotion=`Curious`、Drive=`Understand`、Desire=`Help`、Role=`Assistant`を設定する。概念設計 §3、§15、§16は好奇心、支援、役割をObservationとDispositionと経験から生じさせる方針であり、固定seedは初期から行動パターンを埋め込む。初期値を中立化するか、Family/Individual seedとして明示入力する必要がある。
 
-- [ ] **Expectationを意味解釈Contextとして表現するか方針を決める。** 概念設計 §14はExpectationもSubjective Meaningの入力に含めるが、現行Domainに対応する状態や導出項目はない。IntentionやMemoryからLLMが暗黙に推論する方針ならprompt/docsへ明記し、独立して必要なら最小の自然言語表現を追加する。
+- [x] **Expectationを意味解釈Contextとして表現するか方針を決める。** 概念設計 §14はExpectationもSubjective Meaningの入力に含めるが、現行Domainに対応する状態や導出項目はない。IntentionやMemoryからLLMが暗黙に推論する方針ならprompt/docsへ明記し、独立して必要なら最小の自然言語表現を追加する。
 
 - [ ] **「結果→新しい経験」の境界をTool以外にも広げる。** Tool結果は同一Deep Agent runへ返され、記録上の`tool-result` Eventも作られる。一方、外部へ送った応答・拒否・待機の後に実際に何が起きたかを対応付け、成功・失敗・相手の反応を元Actionへ関連づける一般的なResultモデルはない。概念設計 §6、§21のAction→Result→Memory→Self形成を評価するには、後続Eventとのcausation/provenanceを使った経験化ルールが必要である。
 

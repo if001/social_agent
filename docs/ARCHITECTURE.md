@@ -256,6 +256,8 @@ interface ContextBuilder {
 
 長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
 
+Expectation専用の保存領域は設けない。Agent Coreは入力済みのActive Intention、Social Context、関連Memory、直近Observationから、今回予期していたことと実際のObservationとの差をそのrunの意味解釈として導出する。次のEventにも影響する期待は、その意味に応じてIntention、Social ContextまたはMemoryへ提案する。
+
 ### 5.6 Agent Harness
 
 Deep Agentsを利用してLLM reasoningとTool Loopを行う。
