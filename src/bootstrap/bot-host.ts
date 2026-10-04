@@ -10,7 +10,7 @@ import { checkOllamaEmbeddingCapability } from "../infrastructure/embedding/olla
 import { PostgresScheduleRepository } from "../infrastructure/persistence/postgres-schedule-repository.js";
 import { DiscordAdapter } from "../infrastructure/ui/discord-adapter.js";
 import { DiscordJsGateway } from "../infrastructure/ui/discord-js-gateway.js";
-import { createStdoutLogger, noopLogger, type Logger } from "../observability/logger.js";
+import { createStdoutLogger, errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 import { createBotComposition } from "./bot-composition.js";
 import { ProcessLifecycle } from "./lifecycle.js";
 
@@ -64,7 +64,7 @@ export class BotHost {
         this.#periodic("scheduler", () => this.options.scheduler.tick(signal), this.options.schedulerIntervalMs, signal),
         this.#periodic("outbox", () => this.options.outbox.dispatch(), this.options.outboxIntervalMs, signal)
       );
-    } catch (error) { logger.log("error", "bot.start_failed", { errorCode: error instanceof DomainError ? error.code : "UNKNOWN" }); await this.#cleanupAfterFailedStart(); throw error; }
+    } catch (error) { logger.log("error", "bot.start_failed", errorLogContext(error)); await this.#cleanupAfterFailedStart(); throw error; }
   }
 
   async wait(): Promise<void> { await Promise.all(this.#tasks); }
@@ -107,14 +107,14 @@ export class BotHost {
   async #restartable(component: string, run: () => Promise<void>, signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       try { await run(); if (!isAborted(signal)) { (this.options.logger ?? noopLogger).log("warn", "component.stopped", { component }); this.#degrade(); } }
-      catch (error) { (this.options.logger ?? noopLogger).log("error", "component.failed", { component, errorCode: error instanceof DomainError ? error.code : "UNKNOWN" }); this.#degrade(); }
+      catch (error) { (this.options.logger ?? noopLogger).log("error", "component.failed", { component, ...errorLogContext(error) }); this.#degrade(); }
       await delay(this.options.retryDelayMs ?? 1_000, signal);
     }
   }
   async #periodic(component: string, run: () => Promise<unknown>, intervalMs: number, signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       try { await run(); this.#recover(); }
-      catch (error) { (this.options.logger ?? noopLogger).log("error", "component.failed", { component, errorCode: error instanceof DomainError ? error.code : "UNKNOWN" }); this.#degrade(); }
+      catch (error) { (this.options.logger ?? noopLogger).log("error", "component.failed", { component, ...errorLogContext(error) }); this.#degrade(); }
       await delay(intervalMs, signal);
     }
   }
