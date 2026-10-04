@@ -46,5 +46,26 @@
 | 040 | [Long-term Review scopeの完全化](040-complete-long-term-review-scope.md) | 037、038 |
 | 041 | [EventとObservationのprovenance](041-event-observation-provenance.md) | なし |
 | 042 | [Runtime Safetyとlimit強制](042-runtime-safety-and-limit-enforcement.md) | 041 |
+| 043 | [Web Page Archive設計](043-design-web-page-archive.md) | 035–037, 041, 042 |
+| 044 | [Web Page Archive実装](044-implement-web-page-archive.md) | 043 |
+| 045 | [EmotionのEvent境界](045-event-scoped-emotion.md) | 038 |
+| 046 | [DesireのEvent境界](046-event-scoped-desire.md) | 038 |
+| 047 | [定期State Review](047-periodic-state-review.md) | 039 |
+| 048 | [Drive Schedule同期](048-synchronize-drive-schedules.md) | 047 |
+| 049 | [Idle activity trigger](049-idle-activity-trigger.md) | 039 |
+| 050 | [Long-term Event evidence](050-long-term-event-evidence.md) | 040, 041 |
+| 051 | [明示的Tool Capability](051-explicit-tool-capabilities.md) | 042 |
+| 052 | [Memory provenance](052-runtime-memory-provenance.md) | 041 |
+| 053 | [Self Continuity review](053-self-continuity-review.md) | 040 |
+| 054 | [Values review](054-values-review.md) | 040 |
+| 055 | [長期リスト状態の保持](055-preserve-long-term-list-state.md) | 040 |
+| 056 | [Social Context subject type](056-social-context-subject-type.md) | 038 |
+| 057 | [Drive provenanceとsince](057-drive-provenance-and-since.md) | 038 |
+| 058 | [Memory時刻の分離](058-memory-time-separation.md) | 035 |
+| 059 | [自律Memory recall](059-autonomous-memory-recall.md) | 047 |
+| 060 | [Runtime Event入力](060-runtime-event-inputs.md) | 041 |
+| 061 | [中立な初期状態](061-neutral-initial-state.md) | 038 |
+| 062 | [Expectation Context方針](062-expectation-context-policy.md) | 018, 020 |
+| 063 | [Action Result連携](063-action-result-linkage.md) | 041, 060 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
