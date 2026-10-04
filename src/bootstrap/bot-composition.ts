@@ -51,7 +51,8 @@ export function createBotComposition(options: BotCompositionOptions) {
     pool, ids, tools: toolRegistry,
     embedding: embeddingProvider,
     budget: { maxTokens: 24_000, maxMemories: 24, maxSocialContexts: 24 },
-    limits
+    limits,
+    ...(config.persona === undefined ? {} : { persona: config.persona })
   });
   const persistence = new PostgresRuntimePersistence(pool, (event) => contextLoader.load(event), ids, () => clock.now(), memoryEmbedding);
   const harness = new DeepAgentHarness({

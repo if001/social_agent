@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, DomainError, DriveSchema, IntentionTriggerSchema, ObservationSchema, type AgentCoreInput, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, DomainError, DriveSchema, IntentionTriggerSchema, ObservationSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Intention, type Memory, type Observation, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
@@ -25,6 +25,7 @@ export type PostgresAgentContextLoaderOptions = {
   readonly tools: ToolRegistry;
   readonly budget: ContextBudget;
   readonly limits: RunLimits;
+  readonly persona?: BotPersona;
   readonly retrievalLimit?: number;
   readonly embeddingTimeoutMs?: number;
   readonly recentObservationLimit?: number;
@@ -90,6 +91,7 @@ export class PostgresAgentContextLoader {
     return AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
       observation, recentObservations,
+      ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
       self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, initialDisposition: agent.initial_disposition, acquiredDisposition: agent.acquired_disposition, values: agent.values, interests: texts(agent.interests), preferences: texts(agent.preferences), roles: texts(agent.roles), ...(agent.raison_detre === null ? {} : { raisonDetre: agent.raison_detre }), selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
       dynamicState,
       socialContext, memories: enrichedMemories, memoryRetrievalTrace: retrieval.trace, intentions, availableTools: [...availableTools],

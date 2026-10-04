@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { assertDistinctBotConfigs, loadConfig } from "../../src/config/config.js";
@@ -34,6 +34,24 @@ describe("configuration and lifecycle", () => {
     expect(() => { assertDistinctBotConfigs([first, second]); }).not.toThrow();
     expect(() => { assertDistinctBotConfigs([first, { ...second, botId: "bot-a" }]); }).toThrow("BOT_ID");
     expect(() => { assertDistinctBotConfigs([first, { ...second, discord: firstDiscord }]); }).toThrow("DISCORD_QUEUE_DESTINATION");
+    await scope.close();
+  });
+
+  it("loads a bot persona without adding experiential state or a user address", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, `${required}BOT_PERSONA_FILE=persona.yaml\n`);
+    await writeFile(`${cwd}/persona.yaml`, `version: 1\nidentity:\n  displayName: アオ\ncommunication:\n  language: ja\n  firstPerson: 僕\n  tone: [明るい]\n  responseStyle: [簡潔に話す]\n  avoid: []\n`);
+    const config = await loadConfig({ cwd, environment: {} });
+    expect(config.persona).toEqual({ version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: ["簡潔に話す"], avoid: [] } });
+    expect(config.persona).not.toHaveProperty("userAddress"); expect(config.persona).not.toHaveProperty("roles");
+    await scope.close();
+  });
+
+  it("uses the conventional persona path and rejects an invalid configured persona", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required); await mkdir(`${cwd}/config/personas`, { recursive: true });
+    await writeFile(`${cwd}/config/personas/sample.yaml`, `version: 1\nidentity: { displayName: Sample }\ncommunication: { firstPerson: I, tone: [calm] }\n`);
+    await expect(loadConfig({ cwd, environment: {} })).resolves.toMatchObject({ persona: { identity: { displayName: "Sample" } } });
+    await writeFile(`${cwd}/invalid.yaml`, `version: 1\nidentity: {}\ncommunication: {}\n`);
+    await expect(loadConfig({ cwd, environment: { BOT_PERSONA_FILE: "invalid.yaml" } })).rejects.toThrow();
     await scope.close();
   });
 

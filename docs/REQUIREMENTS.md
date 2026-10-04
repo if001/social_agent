@@ -322,6 +322,8 @@ DiscordからAgentへメッセージを送り、応答および必要な自律�
 
 実行に必要な接続先、モデル、Discord資格情報とallowlist、許可ディレクトリ、Queue宛先、Scheduler／Outbox間隔、実行上限等を環境変数から設定できなければならない。`.env.sample`と`.env`に加え、1 process分の設定fileを明示指定できなければならない。同じbuildを異なるBOT_IDとDiscord資格情報で複数起動でき、秘密値をlog、error、artifact、Agent Contextへ含めてはならない。
 
+botごとに秘密情報を含まないPersona YAMLを指定できなければならない。Personaは表示名、一人称、使用言語、トーン、応答スタイル、避ける表現だけを扱い、経験から形成されるValues、Role、Disposition、Interest、Self Narrative、ユーザーの呼び方を含めない。Personaは応答表現だけに影響し、状態更新、Memory、Intention、Long-term Candidateの根拠としてはならない。
+
 設定の追加・説明変更は`.env.sample`へ反映しなければならない。アプリケーションは`.env`および明示指定された秘密設定fileを書き換えてはならない。
 
 #### FR-CF-02: 入出力検証

@@ -201,12 +201,14 @@ describeDatabase("PostgreSQL persistence", () => {
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const loader = new PostgresAgentContextLoader({
       pool, ids: new SequenceIdGenerator(["context-run", "context-run-2"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry(createWebTools("http://web.local")),
+      persona: { version: 1, identity: { displayName: "Agent A" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } },
       budget: { maxTokens: 10_000, maxMemories: 10, maxSocialContexts: 10 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
     });
     const input = await loader.load({ id: "context-event", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello", transport: { hop: 2, expiresAt: "2026-01-02T00:00:00Z", replyTo: "discord:a" } } });
     expect(input.run).toMatchObject({ runId: "context-run", agentId: "a", transport: { hop: 2, replyTo: "discord:a" } });
     expect(input.self.id).toBe("a");
+    expect(input.persona).toMatchObject({ identity: { displayName: "Agent A" }, communication: { firstPerson: "僕" } });
     expect(input.socialContext.map(({ id }) => id)).toContain("social-a");
     expect(input.socialContext.map(({ id }) => id)).not.toContain("social-b");
     expect(input.intentions.map(({ id }) => id)).toContain("context-intention-a");
