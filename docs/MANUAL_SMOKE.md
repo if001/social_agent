@@ -5,7 +5,7 @@ Run `pnpm verify` first. Use a dedicated database, shared queue root, separate f
 ## Preparation and startup
 
 1. Run `pnpm ops migrate` once with the administrative DB URL.
-2. Run `pnpm ops agent:init bot-a default` and `pnpm ops agent:init bot-b default`.
+2. Run `pnpm ops agent:init bot-a default web_list,web_page,web_archive_search,web_archive_get,file_read,file_write,file_delete,agent_send` and the equivalent command for `bot-b`.
 3. Give both process files the same DB, Queue, Chat, Embedding, and Web connection settings.
 4. Give each file a distinct `BOT_ID`, Discord token, Discord bot user ID, and `DISCORD_QUEUE_DESTINATION`. Configure owner, guild, and channel allowlists explicitly.
 5. Start `pnpm bot:start --env-file .env.bot-a` and `pnpm bot:start --env-file .env.bot-b` in separate processes.
