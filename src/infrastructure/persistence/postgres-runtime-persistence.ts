@@ -26,6 +26,13 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       if (claimed.rows[0]?.message_id !== messageId) throw new DomainError("VALIDATION", "Correlation loop detected");
       const rate = await client.query<{ event_count: number }>("INSERT INTO runtime_rate_windows(agent_id,window_start,event_count) VALUES ($1,date_trunc('minute',now()),1) ON CONFLICT (agent_id,window_start) DO UPDATE SET event_count=runtime_rate_windows.event_count+1 RETURNING event_count", [event.agentId]);
       if ((rate.rows[0]?.event_count ?? 0) > maxEventsPerMinute) throw new DomainError("VALIDATION", "Agent event rate limit exceeded");
+      if (event.kind === "user-message" || event.kind === "external") {
+        const idleIntentions = await client.query<{ id: string; trigger: unknown }>("SELECT id,trigger FROM intentions WHERE agent_id=$1 AND status='active' AND trigger IS NOT NULL FOR UPDATE", [event.agentId]);
+        for (const row of idleIntentions.rows) {
+          const parsed = IntentionTriggerSchema.safeParse(row.trigger);
+          if (parsed.success && parsed.data.kind === "idle") await client.query("UPDATE intentions SET next_review_at=$2,updated_at=now() WHERE id=$1", [row.id, new Date(new Date(event.occurredAt).getTime() + parsed.data.idleForMs)]);
+        }
+      }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
@@ -36,7 +43,6 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     for (const row of result.rows) {
       const parsed = IntentionTriggerSchema.safeParse(row.trigger); if (!parsed.success) continue;
       const trigger = parsed.data; let due: Date | undefined;
-      if (trigger.kind === "idle") due = new Date(new Date(event.occurredAt).getTime() + trigger.idleForMs);
       if (trigger.kind === "event" && trigger.eventKinds.includes(event.kind) && (trigger.keywords.length === 0 || trigger.keywords.some((keyword) => payload.includes(keyword.toLocaleLowerCase("ja"))))) due = new Date(event.occurredAt);
       if (trigger.kind === "manual-review" && (event.kind === "system" || event.kind === "internal") && event.payload.manualReviewIntentionId === row.id) due = new Date(event.occurredAt);
       if (due !== undefined) await this.pool.query("UPDATE intentions SET next_review_at=$2,updated_at=now() WHERE id=$1", [row.id, due]);
@@ -91,7 +97,10 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
     const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
     for (const proposal of result.output.internalChanges.intentionProposals) {
-      if (proposal.operation === "create") intentionCreates.push({ id: this.ids.next(), agentId: event.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(proposal.nextReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt }) });
+      if (proposal.operation === "create") {
+        const idleReviewAt = proposal.trigger?.kind === "idle" ? new Date(new Date(occurredAt).getTime() + proposal.trigger.idleForMs).toISOString() : undefined;
+        intentionCreates.push({ id: this.ids.next(), agentId: event.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(proposal.nextReviewAt === undefined && idleReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt ?? idleReviewAt }) });
+      }
       else {
         const current = intentionsById.get(proposal.intentionId); if (current === undefined) throw new DomainError("VALIDATION", `Unknown intention: ${proposal.intentionId}`);
         const status = proposal.status ?? current.status;

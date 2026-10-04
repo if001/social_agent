@@ -270,10 +270,15 @@ describeDatabase("PostgreSQL persistence", () => {
       { kind: "manual-review" }
     ]);
     const runtime = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    await runtime.authorizeInbound({ id: "trigger-source", agentId: "a", kind: "user-message", occurredAt: "2026-01-02T00:00:00Z", payload: { text: "計画を確認したい" } }, "trigger-message", 100);
     await runtime.activateTriggers({ id: "trigger-source", agentId: "a", kind: "user-message", occurredAt: "2026-01-02T00:00:00Z", payload: { text: "計画を確認したい" } });
     expect((await pool.query<{ id: string; next_review_at: Date }>("SELECT id,next_review_at FROM intentions WHERE id IN ('trigger-event','trigger-idle') ORDER BY id")).rows.map(({ id, next_review_at }) => [id, next_review_at.toISOString()])).toEqual([
       ["trigger-event", "2026-01-02T00:00:00.000Z"], ["trigger-idle", "2026-01-02T00:01:00.000Z"]
     ]);
+    await runtime.authorizeInbound({ id: "trigger-source-2", agentId: "a", kind: "external", occurredAt: "2026-01-02T00:00:30Z", payload: { text: "追加の活動" }, correlationId: "trigger-source-2" }, "trigger-message-2", 100);
+    expect((await pool.query<{ next_review_at: Date }>("SELECT next_review_at FROM intentions WHERE id='trigger-idle'")).rows[0]?.next_review_at.toISOString()).toBe("2026-01-02T00:01:30.000Z");
+    await runtime.activateTriggers({ id: "system-does-not-reset-idle", agentId: "a", kind: "system", occurredAt: "2026-01-02T00:00:45Z", payload: {} });
+    expect((await pool.query<{ next_review_at: Date }>("SELECT next_review_at FROM intentions WHERE id='trigger-idle'")).rows[0]?.next_review_at.toISOString()).toBe("2026-01-02T00:01:30.000Z");
     await runtime.activateTriggers({ id: "manual-source", agentId: "a", kind: "system", occurredAt: "2026-01-02T00:02:00Z", payload: { manualReviewIntentionId: "trigger-manual" } });
     expect((await pool.query<{ next_review_at: Date }>("SELECT next_review_at FROM intentions WHERE id='trigger-manual'")).rows[0]?.next_review_at.toISOString()).toBe("2026-01-02T00:02:00.000Z");
 
