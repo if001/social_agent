@@ -6,7 +6,7 @@ import type { Memory, MemoryRetrievalTrace } from "../../domain/contracts.js";
 
 type MemoryRow = QueryResultRow & {
   id: string; agent_id: string; kind: Memory["kind"]; content: string; importance: string; retrieval_priority: Memory["retrievalPriority"];
-  occurred_at: Date; source_agent_id: string | null; evidence_event_ids: string[];
+  occurred_at: Date; created_at: Date; source_agent_id: string | null; evidence_event_ids: string[];
   vector_rank: string | null; keyword_rank: string | null; subject_rank: string | null; intention_rank: string | null; recency_rank: string;
 };
 export type RetrievalFilter = { readonly occurredAfter?: Date };
@@ -17,7 +17,7 @@ const rank = (value: string | null): number | undefined => value === null ? unde
 export class PostgresMemoryRetriever implements MemoryRepository {
   constructor(private readonly pool: Pool) {}
   async save(memory: Memory): Promise<void> {
-    await this.pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
+    await this.pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.occurredAt, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
   }
   async list(agentId: string): Promise<readonly Memory[]> { return (await this.retrieve(agentId, { text: "", keywords: [], subjectIds: [], intentionIds: [], kinds: ["episodic", "semantic", "self-related"] }, [], 100)).memories; }
   async retrieve(agentId: string, query: RelevantMemoryQuery, embedding: readonly number[], limit: number, filter: RetrievalFilter = {}): Promise<MemoryRetrievalResult> {
@@ -49,7 +49,7 @@ export class PostgresMemoryRetriever implements MemoryRepository {
       if (rank(row.subject_rank) !== undefined) matchedBy.push("subject");
       if (rank(row.intention_rank) !== undefined) matchedBy.push("intention");
       matchedBy.push("recency");
-      const memory: Memory = { id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, createdAt: row.occurred_at.toISOString(), relatedSubjectIds: [], relatedIntentionIds: [], importance: row.importance, retrievalPriority: row.retrieval_priority, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids };
+      const memory: Memory = { id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, occurredAt: row.occurred_at.toISOString(), createdAt: row.created_at.toISOString(), relatedSubjectIds: [], relatedIntentionIds: [], importance: row.importance, retrievalPriority: row.retrieval_priority, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids };
       return { memory, matchedBy, finalRank: index + 1 };
     });
     const selectedIds = new Set<string>();
