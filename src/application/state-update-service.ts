@@ -17,7 +17,7 @@ const persistentScalarTargets = new Set(["mood"]);
 const persistentCollectionTargets = new Set(["drives", "currentInterests"]);
 const transientScalarTargets = new Set(["emotion"]);
 const transientCollectionTargets = new Set(["desires"]);
-const SocialContextValue = z.object({ subjectId: z.string().min(1), description: z.string().min(1).optional() });
+const SocialContextValue = z.object({ subjectId: z.string().min(1), subjectType: z.enum(["user", "agent", "team", "project", "organization"]).optional(), description: z.string().min(1).optional() });
 
 export class StateUpdateService {
   apply(agentId: string, state: DynamicState, proposals: readonly unknown[], socialContexts: readonly SocialContext[] = []): StateUpdateResult {
@@ -29,7 +29,7 @@ export class StateUpdateService {
       const proposal = StateUpdateProposalSchema.parse(raw);
       if (proposal.target === "socialContext") {
         const value = SocialContextValue.parse(proposal.value);
-        if (proposal.operation !== "remove" && value.description === undefined) throw new DomainError("VALIDATION", "Social Context set/append requires a description");
+        if (proposal.operation !== "remove" && (value.description === undefined || value.subjectType === undefined)) throw new DomainError("VALIDATION", "Social Context set/append requires subjectType and description");
         const before = socialContexts.find(({ subjectId }) => subjectId === value.subjectId);
         changes.push({ target: proposal.target, operation: proposal.operation, before, after: proposal.operation === "remove" ? { subjectId: value.subjectId } : value, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
         continue;

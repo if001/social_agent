@@ -29,7 +29,7 @@ describe("embedding and context", () => {
   it("builds a bounded deterministic query from observation, state, intention and social context", () => {
     const input = agentCoreInputFixture();
     input.intentions = [{ id: "goal", agentId: input.run.agentId, description: "研究発表を支援する", status: "active", reason: "約束した", createdAt: input.run.occurredAt, updatedAt: input.run.occurredAt }];
-    input.socialContext = [{ id: "social", agentId: input.run.agentId, subjectId: "user", description: "発表準備を率直に相談する関係", updatedAt: input.run.occurredAt }];
+    input.socialContext = [{ id: "social", agentId: input.run.agentId, subjectId: "user", subjectType: "user", description: "発表準備を率直に相談する関係", updatedAt: input.run.occurredAt }];
     input.dynamicState = { ...input.dynamicState, mood: "発表を慎重に支援したい" };
     const query = buildRelevantMemoryQuery(input);
     expect(query.text).toContain("発表を慎重に支援したい");

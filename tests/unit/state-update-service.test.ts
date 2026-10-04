@@ -20,14 +20,14 @@ describe("StateUpdateService", () => {
   });
   it("rejects long-term, invalid Social Context values, invalid operations and another agent", () => {
     expect(() => service.apply("a", state, [{ target: "identity", operation: "set", value: "Changed", reason: "No", evidenceIds: [] }])).toThrow();
-    expect(() => service.apply("a", state, [{ target: "socialContext", operation: "set", value: { subjectId: "owner" }, reason: "No", evidenceIds: [] }])).toThrow("requires a description");
+    expect(() => service.apply("a", state, [{ target: "socialContext", operation: "set", value: { subjectId: "owner" }, reason: "No", evidenceIds: [] }])).toThrow("requires subjectType and description");
     expect(() => service.apply("a", state, [{ target: "mood", operation: "append", value: "Changed", reason: "No", evidenceIds: [] }])).toThrow("Invalid operation");
     expect(() => service.apply("b", state, [])).toThrow("another agent");
   });
   it("validates Working Social Context updates without changing dynamic state", () => {
-    const result = service.apply("a", state, [{ target: "socialContext", operation: "set", value: { subjectId: "owner", description: "Trusted collaborator" }, reason: "Repeated interaction", evidenceIds: [] }]);
+    const result = service.apply("a", state, [{ target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Repeated interaction", evidenceIds: [] }]);
     expect(result.state).toEqual(state);
-    expect(result.changes[0]).toMatchObject({ target: "socialContext", after: { subjectId: "owner", description: "Trusted collaborator" } });
+    expect(result.changes[0]).toMatchObject({ target: "socialContext", after: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" } });
   });
   it("does not return partial state when any proposal is invalid", () => {
     expect(() => service.apply("a", state, [{ target: "mood", operation: "set", value: "Happy", reason: "First", evidenceIds: [] }, { target: "identity", operation: "set", value: "Changed", reason: "Second", evidenceIds: [] }])).toThrow();

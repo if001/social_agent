@@ -100,6 +100,8 @@ Agentは別のAgentへ情報を伝達できる。受信側はそれを自分自�
 
 Family Capabilityは明示allowlistとし、空配列を全Tool許可として扱ってはならない。Agent Coreへ公開するToolは登録済みToolとFamily Capabilityの積集合に限定する。
 
+Social Contextは対象IDだけでなく、対象種別`user | agent | team | project | organization`を保持しなければならない。作成・更新時に対象種別を明示し、自然言語descriptionとともにContextへ渡す。
+
 #### FR-AG-02: 複数個体
 
 システムは、同じFamilyに属する複数のAgentを生成・識別し、個体ごとのMemoryと獲得状態を混同せずに扱わなければならない。

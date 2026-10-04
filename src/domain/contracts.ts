@@ -50,6 +50,7 @@ export const SocialContextSchema = z.object({
   id: Id,
   agentId: Id,
   subjectId: Id,
+  subjectType: z.enum(["user", "agent", "team", "project", "organization"]),
   description: NaturalLanguage,
   updatedAt: Instant
 });
