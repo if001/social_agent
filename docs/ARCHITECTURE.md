@@ -791,11 +791,13 @@ External dependencies
 
 ```bash
 pnpm ops migrate
-pnpm ops agent:init bot-a default
-pnpm ops agent:init bot-b default
+pnpm ops agent:init bot-a default web_list,web_page,web_archive_search,web_archive_get,file_read,file_write,file_delete,agent_send
+pnpm ops agent:init bot-b default web_list,web_page,web_archive_search,web_archive_get,file_read,file_write,file_delete,agent_send
 pnpm bot:start --env-file .env.bot-a
 pnpm bot:start --env-file .env.bot-b
 ```
+
+`agent:init`の第3引数はFamily共通のTool Capability allowlistである。省略または空文字の場合、そのFamilyへToolを公開しない。同じFamilyを再指定した場合は明示したallowlistでFamily設定を更新する。
 
 各process別fileは同じ共有接続先を持ち、`BOT_ID`、Discord資格情報、Discord allowlist、Discord Queue destinationだけを個体ごとに変える。秘密値を含む実ファイルはartifact、log、repositoryへ含めない。
 

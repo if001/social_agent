@@ -98,6 +98,8 @@ Agentは別のAgentへ情報を伝達できる。受信側はそれを自分自�
 
 システムは、Family共通のShared Dispositionおよび共通Capabilityと、個体固有のIdentity、Initial Individual Disposition、Acquired Disposition、Self Narrative、Social Context、動的状態、Memoryを分離して保持しなければならない。
 
+Family Capabilityは明示allowlistとし、空配列を全Tool許可として扱ってはならない。Agent Coreへ公開するToolは登録済みToolとFamily Capabilityの積集合に限定する。
+
 #### FR-AG-02: 複数個体
 
 システムは、同じFamilyに属する複数のAgentを生成・識別し、個体ごとのMemoryと獲得状態を混同せずに扱わなければならない。

@@ -83,7 +83,7 @@ export class PostgresAgentContextLoader {
     const enrichedMemories = await this.#loadMemoryLinks(retrieval.memories);
     const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities.filter((value): value is string => typeof value === "string") : [];
     const definitions = this.options.tools.definitions();
-    const availableTools = capabilities.length === 0 ? definitions : definitions.filter(({ name }) => capabilities.includes(name));
+    const availableTools = definitions.filter(({ name }) => capabilities.includes(name));
     const runTransport = transport(event);
     return AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },

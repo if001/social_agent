@@ -200,7 +200,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('recent-a','a','user-message',$1,'test','completed','2026-01-01'),('recent-b','b','user-message',$2,'test','completed','2026-01-01')", [JSON.stringify({ eventId: "recent-a", summary: "previous exchange", facts: ["prior context"], observedAt: fixtureInstant }), JSON.stringify({ eventId: "recent-b", summary: "private exchange", facts: ["other agent"], observedAt: fixtureInstant })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const loader = new PostgresAgentContextLoader({
-      pool, ids: new SequenceIdGenerator(["context-run"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry([]),
+      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry(createWebTools("http://web.local")),
       budget: { maxTokens: 10_000, maxMemories: 10, maxSocialContexts: 10 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
     });
@@ -216,6 +216,10 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.recentObservations.map(({ eventId }) => eventId)).toContain("recent-a");
     expect(input.recentObservations.map(({ eventId }) => eventId)).not.toContain("recent-b");
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
+    expect(input.availableTools).toEqual([]);
+    await pool.query("UPDATE agent_families SET capabilities=$1 WHERE id='family'", [JSON.stringify(["web_list"])]);
+    const allowed = await loader.load({ id: "context-event-2", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
+    expect(allowed.availableTools.map(({ name }) => name)).toEqual(["web_list"]);
   });
 
   it("holds one process lock per Agent and drains loops during shutdown", async () => {
