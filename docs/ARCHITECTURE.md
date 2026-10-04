@@ -831,6 +831,8 @@ HTTP health serverは今回実装しない。状態は構造化ログとTerminal
 
 - JSON structured logを標準出力へ出す
 - logにはtimestamp、level、bot ID、agent ID、message ID、event ID、run ID、correlation IDを含める
+- 本番processはJSON Linesを標準出力へ出し、起動、Discord受信、Event生成、Context構築、Agent Core、Tool、commit、Outbox、Scheduler、停止のstepを記録する
+- 本文、Prompt、Memory本文、Toolの入力・結果、token、接続文字列は標準出力logへ含めない。件数、種別、成否、所要時間だけを記録する
 - prompt全文、Memory全文、Tool結果全文のlog出力は設定で制御する。DB保存自体には情報種別の制限を設けない
 - Ollama Cloud Chat、ローカルEmbedding、Web Toolサービスの呼び出し時間、Tool実行時間、Queue待ち時間、retry回数、dead-letter件数を区別して記録する
 - dead-letterを一覧・再投入する管理CLIを用意する

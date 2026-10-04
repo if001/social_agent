@@ -4,12 +4,13 @@ Run `pnpm verify` first. Use a dedicated database, shared queue root, separate f
 
 ## Preparation and startup
 
-1. Run `pnpm ops migrate` once with the administrative DB URL.
-2. Run `pnpm ops agent:init bot-a default web_list,web_page,web_archive_search,web_archive_get,file_read,file_write,file_delete,agent_send` and the equivalent command for `bot-b`.
+1. Run `node --env-file=.env.bot-a --import tsx src/cli.ts migrate` once with the administrative DB URL.
+2. Run `node --env-file=.env.bot-a --import tsx src/cli.ts agent:init bot-a default web_list,web_page,web_archive_search,web_archive_get,file_read,file_write,file_delete,agent_send` and the equivalent command for `bot-b`.
 3. Give both process files the same DB, Queue, Chat, Embedding, and Web connection settings.
 4. Give each file a distinct `BOT_ID`, Discord token, Discord bot user ID, and `DISCORD_QUEUE_DESTINATION`. Configure owner, guild, and channel allowlists explicitly.
 5. Start `pnpm bot:start --env-file .env.bot-a` and `pnpm bot:start --env-file .env.bot-b` in separate processes.
-6. Confirm both report `ready`. If DB, Chat Ollama, or Embedding Ollama capability checks fail, stop the smoke test.
+6. Confirm each process emits one-line JSON logs with its own `botId`. A mention should progress through `discord.message_accepted`, `message.received`, `event.created`, `context.loaded`, `agent_core.started`, `agent_core.completed`, `event.committed`, and `outbox.delivery_completed`. Tool use adds `tool.started` and `tool.completed`. Message, Prompt, Memory and Tool payload bodies must not appear.
+7. Confirm both report `ready`. If DB, Chat Ollama, or Embedding Ollama capability checks fail, stop the smoke test.
 
 Memory with `pending` or `failed` Embedding can be retried without displaying environment values:
 

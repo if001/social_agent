@@ -8,6 +8,7 @@ import { InMemoryRuntimePersistence } from "../../src/testing/in-memory-runtime-
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
+import { createStdoutLogger } from "../../src/observability/logger.js";
 
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
@@ -21,15 +22,17 @@ describe("ST-01 Terminal round trip", () => {
       { interpretation: {}, internalChanges: { transientStateUpdates: [{ target: "mood", operation: "set", value: "Engaged", reason: "Conversation", evidenceIds: [] }], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "respond", content: "First" } },
       { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "respond", content: "Second" } }
     ]);
-    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness, persistence, ids: new SequenceIdGenerator(["event-1", "output-1", "event-2", "output-2"]), now: () => clock.now() });
+    const logLines: string[] = []; const logger = createStdoutLogger({ botId: "agent-a" }, (line) => { logLines.push(line); }, () => clock.now());
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness, persistence, ids: new SequenceIdGenerator(["event-1", "output-1", "event-2", "output-2"]), logger, now: () => clock.now() });
     const controller = new AbortController(); const responses: string[] = [];
     const running = runtime.start(controller.signal); const receiving = terminal.receive((message) => { responses.push(message.text); return Promise.resolve(); }, controller.signal);
-    const dispatcher = new OutboxDispatcher(persistence, queue);
+    const dispatcher = new OutboxDispatcher(persistence, queue, logger);
     await terminal.send("agent-a", "hello"); await eventually(() => { expect(persistence.events).toHaveLength(1); }); await dispatcher.dispatch(); await eventually(() => { expect(responses).toEqual(["First"]); });
     await queue.publish(messageFixture({ id: "input-1", destination: "agent-a", replyTo: "terminal", sentAt: "2026-01-01T00:00:00.000Z", availableAt: "2026-01-01T00:00:00.000Z", expiresAt: "2026-01-02T00:00:00.000Z", payload: { type: "user-message", text: "hello" } }));
     await new Promise((resolve) => setTimeout(resolve, 50)); expect(persistence.events).toHaveLength(1);
     await terminal.send("agent-a", "again"); await eventually(() => { expect(persistence.events).toHaveLength(2); }); await dispatcher.dispatch(); await eventually(() => { expect(responses).toEqual(["First", "Second"]); });
     expect(persistence.updates[0]?.state.mood).toBe("Engaged");
+    const steps = logLines.map((line) => (JSON.parse(line) as { step: string }).step); expect(steps).toEqual(expect.arrayContaining(["message.received", "event.created", "context.loading", "context.loaded", "agent_core.started", "agent_core.completed", "event.committed", "outbox.delivery_started", "outbox.delivery_completed"]));
     controller.abort(); await Promise.all([running, receiving]); await runtime.drain(); await scope.close();
   });
 

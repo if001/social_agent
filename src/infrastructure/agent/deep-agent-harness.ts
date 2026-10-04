@@ -5,6 +5,7 @@ import { tool } from "langchain";
 import type { AgentHarness } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunResult, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
 
@@ -16,6 +17,7 @@ export type DeepAgentHarnessOptions = {
   readonly invoker: DeepAgentInvoker;
   readonly registeredToolNames: ReadonlySet<string>;
   readonly maxRepairs?: number;
+  readonly logger?: Logger;
 };
 
 type ProposalIssue = { readonly code: "invalid_reference"; readonly path: readonly PropertyKey[]; readonly message: string };
@@ -64,6 +66,8 @@ export class DeepAgentHarness implements AgentHarness {
     let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = [];
     for (let attempt = 0; attempt <= this.#maxRepairs; attempt += 1) {
       try {
+        const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
+        logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
         const promptInput = { ...input, memoryRetrievalTrace: undefined };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
@@ -74,9 +78,10 @@ export class DeepAgentHarness implements AgentHarness {
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
           const referenceIssues = proposalReferenceIssues(input, parsed.data);
-          if (referenceIssues.length === 0) return { output: parsed.data, toolExecutions: observedToolExecutions };
+          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1 }); return { output: parsed.data, toolExecutions: observedToolExecutions }; }
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
+        logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
       } catch (error) {
         observedToolExecutions.push(...errorToolExecutions(error));
         if (combined.aborted) throw new DomainError(signal.aborted ? "ABORTED" : "TIMEOUT", "Agent run was interrupted", { cause: { providerError: error, toolExecutions: observedToolExecutions } });
@@ -87,16 +92,18 @@ export class DeepAgentHarness implements AgentHarness {
   }
 }
 
-export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly now?: () => Date };
+export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date };
 
 export type DeepAgentToolRunContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly allowedToolNames?: ReadonlySet<string>; readonly signal: AbortSignal; readonly transport?: AgentCoreInput["run"]["transport"] };
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>): Promise<unknown> };
-export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentToolRunContext, executions: ToolExecutionRecord[], now: () => Date = () => new Date()): readonly DeepAgentRunTool[] {
+export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentToolRunContext, executions: ToolExecutionRecord[], now: () => Date = () => new Date(), baseLogger: Logger = noopLogger): readonly DeepAgentRunTool[] {
   let toolCallCount = 0;
   return registry.registered().filter(({ name }) => context.allowedToolNames?.has(name) ?? true).map((registered) => tool(async (rawInput) => {
     toolCallCount += 1;
     const callId = `tool-${String(toolCallCount)}`;
     const startedAt = now().toISOString();
+    const logger = baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, toolCallId: callId, toolName: registered.name });
+    logger.log("info", "tool.started");
     if (context.signal.aborted) {
       const finishedAt = now().toISOString();
       executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: "Tool execution aborted", startedAt, finishedAt });
@@ -113,11 +120,13 @@ export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentT
       const finishedAt = now().toISOString();
       if (result.ok) executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt });
       else executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
+      logger.log(result.ok ? "info" : "warn", "tool.completed", { ok: result.ok, elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify(result);
     } catch (error) {
       const finishedAt = now().toISOString();
       const message = error instanceof Error ? error.message : "Tool failed";
       executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: message, startedAt, finishedAt });
+      logger.log("error", "tool.failed", { errorCode: error instanceof DomainError ? error.code : "UNKNOWN", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify({ ok: false, error: message });
     }
   }, { name: registered.name, description: registered.description, schema: registered.schema }));
@@ -187,7 +196,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   return {
     async invoke(input, options) {
       const toolExecutions: ToolExecutionRecord[] = [];
-      const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, options, toolExecutions, config.now);
+      const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, options, toolExecutions, config.now, config.logger);
       const agent = createDeepAgent({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt });
       try {
         const result = await agent.invoke({ messages: [...input.messages] }, options);
