@@ -27,7 +27,7 @@
 
 - [x] **Self Continuityを長期変化・Reviewの対象にする。** 概念設計 §7、§17、§19ではSelf Continuityも経験と現在の自己を構成する長期状態である。現状は初期値を保存してContextへ渡すだけで、Candidate targetにもReview更新先にも含まれず変化できない（`CandidateSchema`、`PostgresLongTermReviewRepository`）。
 
-- [ ] **Valuesの形成・変化方針を実装する。** 概念設計 §2、§5、§7では何を大切にするかが意味解釈と個体化の中心にある。現状は`values`を読み込むが通常CoreもLong-term Reviewも更新Candidateを作れず、初期値の固定文言から変化しない。固定する設計ならspecへ明示し、経験で形成するならCandidate/Review対象へ追加する必要がある。
+- [x] **Valuesの形成・変化方針を実装する。** 概念設計 §2、§5、§7では何を大切にするかが意味解釈と個体化の中心にある。現状は`values`を読み込むが通常CoreもLong-term Reviewも更新Candidateを作れず、初期値の固定文言から変化しない。固定する設計ならspecへ明示し、経験で形成するならCandidate/Review対象へ追加する必要がある。
 
 - [ ] **長期リスト更新で既存Role・Interest・Preferenceを失わない契約にする。** Long-term Reviewの`stateUpdate.value`は単一文字列で、`role`、`longTermInterest`、`longTermPreference`の更新時はDB配列全体を `jsonb_build_array(value)` で置換する。概念設計 §7の複数の役割・興味・好みを蓄積・再解釈するモデルに対し、一つの更新が無関係な既存項目を消し得る（`ReviewOutputSchema`、`PostgresLongTermReviewRepository.commit`）。
 

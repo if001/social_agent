@@ -30,7 +30,7 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
       const result = await this.pool.query<{ value: string }>("SELECT COALESCE(string_agg(content,E'\\n' ORDER BY occurred_at,id),'(none)') AS value FROM memories WHERE agent_id=$1 AND kind=$2", [agentId, kind]);
       return result.rows[0]?.value ?? "(none)";
     }
-    const column = ({ selfNarrative: "self_narrative", selfContinuity: "self_continuity", acquiredDisposition: "acquired_disposition", role: "roles", raisonDetre: "raison_detre", longTermPreference: "preferences", longTermInterest: "interests" } as const)[target];
+    const column = ({ selfNarrative: "self_narrative", selfContinuity: "self_continuity", values: "values", acquiredDisposition: "acquired_disposition", role: "roles", raisonDetre: "raison_detre", longTermPreference: "preferences", longTermInterest: "interests" } as const)[target];
     const result = await this.pool.query<{ value: string }>(`SELECT COALESCE(${column}::text,'') AS value FROM agent_states WHERE agent_id=$1`, [agentId]);
     const value = result.rows[0]?.value; if (value === undefined) throw new DomainError("NOT_FOUND", "Agent state not found"); return value;
   }
@@ -48,7 +48,7 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
           const kind = review.target === "semanticMemory" ? "semantic" : "self-related";
           await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,evidence_event_ids,evidence_memory_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,'high',now(),$6,$7,'pending')", [selfChangeMemoryId, review.agentId, kind, review.after, review.reason, JSON.stringify(review.evidenceEventIds), JSON.stringify(review.evidenceMemoryIds)]);
         } else {
-          const column = ({ selfNarrative: "self_narrative", selfContinuity: "self_continuity", acquiredDisposition: "acquired_disposition", role: "roles", raisonDetre: "raison_detre", longTermPreference: "preferences", longTermInterest: "interests" } as const)[review.target];
+          const column = ({ selfNarrative: "self_narrative", selfContinuity: "self_continuity", values: "values", acquiredDisposition: "acquired_disposition", role: "roles", raisonDetre: "raison_detre", longTermPreference: "preferences", longTermInterest: "interests" } as const)[review.target];
           const listTarget = review.target === "role" || review.target === "longTermPreference" || review.target === "longTermInterest";
           if (listTarget) await client.query(`UPDATE agent_states SET ${column}=jsonb_build_array($2::text),version=version+1,updated_at=now() WHERE agent_id=$1`, [review.agentId, review.after]);
           else await client.query(`UPDATE agent_states SET ${column}=$2,version=version+1,updated_at=now() WHERE agent_id=$1`, [review.agentId, review.after]);
