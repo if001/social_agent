@@ -1,4 +1,5 @@
 import { AgentRuntime, OutboxDispatcher } from "../../src/application/agent-runtime.js";
+import { RuntimeEventPublisher } from "../../src/application/runtime-event-publisher.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { AddressedFileQueue } from "../../src/infrastructure/queue/addressed-file-queue.js";
@@ -39,5 +40,22 @@ describe("ST-01 Terminal round trip", () => {
     const queue = { publish: () => Promise.reject(new Error("down")), subscribe: () => Promise.resolve() };
     await expect(new OutboxDispatcher(persistence, queue).dispatch()).rejects.toThrow("down");
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);
+  });
+
+  it("accepts External, Time and System Events through the production queue contract", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
+    const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.observation.eventId = event.id; return input; });
+    const noAction = { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action" as const, reason: "Observed" } };
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness: new ScriptedAgentHarness([noAction, noAction, noAction]), persistence, ids: new SequenceIdGenerator(["external-domain-event", "time-domain-event", "system-domain-event"]), now: () => clock.now() });
+    const publisher = new RuntimeEventPublisher(queue, clock, new SequenceIdGenerator(["external-message", "time-message", "system-message"])); const controller = new AbortController(); const running = runtime.start(controller.signal);
+    await publisher.publishExternal("agent-a", { text: "A build completed", sourceId: "ci", facts: ["status=success"] });
+    await publisher.publishTime("agent-a", "Daily review", new Date("2026-01-01T01:00:00Z"));
+    await publisher.publishSystem("agent-a", "Permissions changed", { capability: "web_list" });
+    await eventually(() => { expect(persistence.events).toHaveLength(3); });
+    const eventsByKind = new Map(persistence.events.map((event) => [event.kind, event]));
+    expect([...eventsByKind.keys()].sort()).toEqual(["external", "system", "time"]);
+    expect(eventsByKind.get("external")?.payload.facts).toEqual(["status=success"]);
+    expect(eventsByKind.get("time")?.occurredAt).toBe("2026-01-01T01:00:00.000Z");
+    controller.abort(); await running; await runtime.drain(); await scope.close();
   });
 });

@@ -6,7 +6,10 @@ import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult
 
 const IncomingPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user-message"), text: z.string().min(1), actorId: z.string().min(1).optional(), actorType: z.enum(["human", "agent"]).optional(), sourceType: z.enum(["terminal", "discord"]).optional(), sourceId: z.string().min(1).optional(), replyContext: z.record(z.string(), z.unknown()).optional() }),
-  z.object({ type: z.literal("agent-message"), senderAgentId: z.string().min(1), content: z.string().min(1), provenance: z.record(z.string(), z.unknown()) })
+  z.object({ type: z.literal("agent-message"), senderAgentId: z.string().min(1), content: z.string().min(1), provenance: z.record(z.string(), z.unknown()) }),
+  z.object({ type: z.literal("external-event"), text: z.string().min(1), facts: z.array(z.string().min(1)).default([]), actorId: z.string().min(1).optional(), sourceId: z.string().min(1), content: z.unknown().optional() }),
+  z.object({ type: z.literal("time-event"), reason: z.string().min(1), scheduledFor: z.iso.datetime({ offset: true }).optional() }),
+  z.object({ type: z.literal("system-event"), reason: z.string().min(1), change: z.record(z.string(), z.unknown()).optional() })
 ]);
 
 export type PendingOutput = { readonly envelope: MessageEnvelope };
@@ -53,7 +56,13 @@ export class AgentRuntime {
     const payload = IncomingPayload.parse(message.payload);
     const transport = { hop: message.hop, expiresAt: message.expiresAt, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }) };
     const inheritedCorrelation = payload.type === "agent-message" && typeof payload.provenance.correlationId === "string" ? payload.provenance.correlationId : message.id;
-    const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind: payload.type === "user-message" && payload.actorType !== "agent" ? "user-message" : "external", occurredAt: this.options.now().toISOString(), payload: payload.type === "user-message" ? { text: payload.text, actorId: payload.actorId ?? message.source, actorType: payload.actorType ?? "human", sourceType: payload.sourceType ?? (message.source.startsWith("discord") ? "discord" : "terminal"), ...(payload.sourceId === undefined ? {} : { sourceId: payload.sourceId }), transport } : { senderAgentId: payload.senderAgentId, actorId: payload.senderAgentId, actorType: "agent", sourceType: "agent", reportedContent: payload.content, provenance: payload.provenance, transport }, causationId: message.id, correlationId: inheritedCorrelation };
+    const kind: DomainEvent["kind"] = payload.type === "user-message" ? payload.actorType === "agent" ? "external" : "user-message" : payload.type === "time-event" ? "time" : payload.type === "system-event" ? "system" : "external";
+    const eventPayload = payload.type === "user-message" ? { text: payload.text, actorId: payload.actorId ?? message.source, actorType: payload.actorType ?? "human", sourceType: payload.sourceType ?? (message.source.startsWith("discord") ? "discord" : "terminal"), ...(payload.sourceId === undefined ? {} : { sourceId: payload.sourceId }), transport }
+      : payload.type === "agent-message" ? { senderAgentId: payload.senderAgentId, actorId: payload.senderAgentId, actorType: "agent", sourceType: "agent", reportedContent: payload.content, provenance: payload.provenance, transport }
+      : payload.type === "external-event" ? { text: payload.text, facts: payload.facts, actorId: payload.actorId ?? payload.sourceId, actorType: "system", sourceType: "system", sourceId: payload.sourceId, ...(payload.content === undefined ? {} : { content: payload.content }), transport }
+      : payload.type === "time-event" ? { reason: payload.reason, sourceType: "scheduler", ...(payload.scheduledFor === undefined ? {} : { scheduledFor: payload.scheduledFor }), transport }
+      : { reason: payload.reason, sourceType: "system", ...(payload.change === undefined ? {} : { change: payload.change }), transport };
+    const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind, occurredAt: payload.type === "time-event" && payload.scheduledFor !== undefined ? payload.scheduledFor : this.options.now().toISOString(), payload: eventPayload, causationId: message.id, correlationId: inheritedCorrelation };
     await this.options.persistence.authorizeInbound(event, message.id, this.options.maxEventsPerMinute ?? 60);
     const outgoingDestination = payload.type === "agent-message" ? message.replyTo : message.replyTo ?? this.options.defaultOutputDestination;
     const agentReply = payload.type === "agent-message" && outgoingDestination === message.source;

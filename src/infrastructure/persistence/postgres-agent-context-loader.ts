@@ -45,7 +45,8 @@ export function observationFromEvent(event: DomainEvent): Observation {
   const message = text(event.payload.text) ?? text(event.payload.reportedContent) ?? text(event.payload.reason);
   const sender = text(event.payload.senderAgentId);
   const summary = message ?? `${event.kind} event`;
-  const facts = [message, sender === undefined ? undefined : `送信元Agent: ${sender}`].filter((value): value is string => value !== undefined);
+  const suppliedFacts = Array.isArray(event.payload.facts) ? event.payload.facts.filter((value): value is string => typeof value === "string" && value.trim() !== "") : [];
+  const facts = [message, sender === undefined ? undefined : `送信元Agent: ${sender}`, ...suppliedFacts].filter((value): value is string => value !== undefined);
   const actorId = text(event.payload.actorId) ?? sender;
   const actorType = event.payload.actorType === "human" || event.payload.actorType === "agent" || event.payload.actorType === "tool" || event.payload.actorType === "system" ? event.payload.actorType : undefined;
   const sourceType = event.payload.sourceType === "terminal" || event.payload.sourceType === "discord" || event.payload.sourceType === "agent" || event.payload.sourceType === "tool" || event.payload.sourceType === "scheduler" || event.payload.sourceType === "system" ? event.payload.sourceType : "unknown";

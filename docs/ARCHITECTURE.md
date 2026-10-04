@@ -200,6 +200,8 @@ Discord Adapter:
 
 新しいUIは、同じQueue契約に対してpublish / consumeするAdapterとして追加する。
 
+UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`time-event`、`system-event` payloadをAgent destinationへpublishする。Agent RuntimeはこれらをそれぞれExternal、Time、System Domain Eventへ変換し、User Messageと同じ直列化・上限・永続化経路で処理する。
+
 ### 5.4 Agent Runtime
 
 1 Eventの処理を調停するApplication Serviceであり、LLMによる意味判断と機械的制約の境界となる。
