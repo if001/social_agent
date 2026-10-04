@@ -324,6 +324,8 @@ DiscordからAgentへメッセージを送り、応答および必要な自律�
 
 botごとに秘密情報を含まないPersona YAMLを指定できなければならない。Personaは表示名、一人称、使用言語、トーン、応答スタイル、避ける表現だけを扱い、経験から形成されるValues、Role、Disposition、Interest、Self Narrative、ユーザーの呼び方を含めない。Personaは応答表現だけに影響し、状態更新、Memory、Intention、Long-term Candidateの根拠としてはならない。
 
+継続起動するbotは、現在の処理段階を確認できる構造化logを標準出力へ出さなければならない。Event本文、Prompt、Memory本文、Tool入出力、資格情報は出力せず、識別子、種別、件数、成否、所要時間を記録する。
+
 設定の追加・説明変更は`.env.sample`へ反映しなければならない。アプリケーションは`.env`および明示指定された秘密設定fileを書き換えてはならない。
 
 #### FR-CF-02: 入出力検証

@@ -1,6 +1,7 @@
 import type { Clock, IdGenerator, MessageQueue } from "./ports.js";
-import type { AgentAction, DomainEvent } from "../domain/contracts.js";
+import { DomainError, type AgentAction, type DomainEvent } from "../domain/contracts.js";
 import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
+import { noopLogger, type Logger } from "../observability/logger.js";
 
 export type ScheduledTarget = { readonly id: string; readonly agentId: string; readonly kind: "intention" | "persistent-drive" | "state-review" | "memory-recall" | "long-term-review"; readonly reason: string; readonly candidateIds?: readonly string[] };
 export interface ScheduleRepository {
@@ -9,7 +10,7 @@ export interface ScheduleRepository {
   release(target: ScheduledTarget): Promise<void>;
 }
 export interface InternalEventRuntime { process(event: DomainEvent, signal: AbortSignal): Promise<AgentAction>; }
-export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string; readonly reviewIntervalMs: number; readonly memoryRecallIntervalMs?: number; readonly batchSize?: number };
+export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string; readonly reviewIntervalMs: number; readonly logger?: Logger; readonly memoryRecallIntervalMs?: number; readonly batchSize?: number };
 
 export class Scheduler {
   readonly #running = new Set<string>();
@@ -18,12 +19,15 @@ export class Scheduler {
   async tick(signal: AbortSignal): Promise<number> {
     if (!this.#canRun(signal)) return 0;
     const targets = await this.options.repository.claimDue(this.options.clock.now(), this.options.batchSize ?? 100);
+    if (targets.length > 0) (this.options.logger ?? noopLogger).log("info", "scheduler.targets_claimed", { targetCount: targets.length });
     let completed = 0;
     for (const target of targets) {
       const targetKey = `${target.kind}:${target.id}`;
       if (this.#running.has(targetKey) || !this.#canRun(signal)) { await this.options.repository.release(target); continue; }
       this.#running.add(targetKey);
+      const logger = (this.options.logger ?? noopLogger).child({ agentId: target.agentId, scheduleId: target.id, scheduleKind: target.kind });
       try {
+        logger.log("info", "scheduler.target_started");
         const occurredAt = this.options.clock.now();
         const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.candidateIds === undefined ? {} : { candidateIds: target.candidateIds }) } };
         const action = await this.options.runtime.process(event, signal);
@@ -33,9 +37,11 @@ export class Scheduler {
         }
         const next = action.type === "wait" && action.until !== undefined ? new Date(action.until) : target.kind === "state-review" ? new Date(occurredAt.getTime() + this.options.reviewIntervalMs) : target.kind === "memory-recall" ? new Date(occurredAt.getTime() + (this.options.memoryRecallIntervalMs ?? 604_800_000)) : action.type === "no-action" ? null : new Date(occurredAt.getTime() + this.options.reviewIntervalMs);
         await this.options.repository.complete(target, next);
+        logger.log("info", "scheduler.target_completed", { actionType: action.type, nextReviewAt: next?.toISOString() });
         completed += 1;
       } catch (error) {
         await this.options.repository.release(target);
+        logger.log("error", "scheduler.target_failed", { errorCode: error instanceof DomainError ? error.code : "UNKNOWN" });
         throw error;
       } finally { this.#running.delete(targetKey); }
     }
