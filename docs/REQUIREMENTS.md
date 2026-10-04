@@ -142,6 +142,8 @@ RuntimeまたはContext BuilderはEventをObservationへ整形しなければな
 
 Agent Coreは、Observationと関連するSelf、Disposition、現在状態、Memory、Social Context、ExpectationからSubjective Meaningを形成できなければならない。
 
+Expectationは独立した永続Stateとして保存しない。現在のActive Intention、Working Social Context、関連Memory、直近Observationを入力として、今回のEventに対して予期していたこと、満たされたこと、外れたことをAgent Coreがrunごとに導出する。持続させる必要がある期待はIntention、Social ContextまたはMemoryとして明示的に提案する。
+
 #### FR-EV-04: Agent Action
 
 Agent CoreはToolを使うかをreasoning中に判断でき、Tool Loop完了後の最終Actionとして、応答、待機、人格上の拒否、何もしない、のいずれかを選択できなければならない。

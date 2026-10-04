@@ -136,7 +136,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - dynamicState: 次のEventにも継続しているMood、複数のDrive（description、sourceEvidenceIds、since）、Current Interest。前回EventのEmotionとDesireは含みません
 - socialContext: 対象Agentが持つ関係認識
 - memories: 今回の判断に利用できる対象Agent自身のMemory
-- intentions: 継続中の行動方針
+- intentions: 継続中の行動方針。Expectationは独立保存せず、これとSocial Context、Memory、直近Observationから今回予期していたことと実際との差を導出します
 - availableTools: このrunで利用可能なTool
 - runtimeConstraintsとlimits: 必ず守る実行制約
 
@@ -149,6 +149,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-actionはreasonを持ちます。Tool利用はreasoning中に行い、最終actionへtoolを返しません
 
 時間スケール:
+- Expectationは今回の入力から導出します。持続させる必要がある期待だけを、その意味に応じてIntention、Social ContextまたはMemoryとして提案します
 - Emotionと各Desireは今回のEventに対する短期状態であり、次回入力には引き継がれません
 - Mood、各Drive、Current Interest、Intention、Social Contextは次のEventにも影響させる必要がある場合だけ更新します
 - Self NarrativeとAcquired Dispositionを通常Eventから直接更新しません。十分な根拠がある場合だけlongTermCandidatesへ提案します

@@ -80,5 +80,6 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("semanticMemory | selfRelatedMemory");
     expect(agentCoreSystemPrompt).toContain("保存用ID");
     expect(agentCoreSystemPrompt).toContain("空配列[]");
+    expect(agentCoreSystemPrompt).toContain("Expectationは独立保存せず");
   });
 });
