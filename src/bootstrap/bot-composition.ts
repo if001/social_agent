@@ -13,6 +13,7 @@ import { OllamaEmbeddingProvider } from "../infrastructure/embedding/ollama-embe
 import { PostgresAgentContextLoader } from "../infrastructure/persistence/postgres-agent-context-loader.js";
 import { PostgresLongTermReviewRepository } from "../infrastructure/persistence/postgres-long-term-review.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../infrastructure/persistence/postgres-memory-embedding.js";
+import { PostgresWebArchive } from "../infrastructure/persistence/postgres-web-archive.js";
 import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgres-runtime-persistence.js";
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
 import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
@@ -34,8 +35,10 @@ export function createBotComposition(options: BotCompositionOptions) {
   const clock = options.clock ?? new SystemClock(); const ids = options.ids ?? new UuidGenerator();
   const queue = options.queue ?? new AddressedFileQueue(config.queueRoot);
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 12, maxToolCalls: 8, maxHops: 4, maxAttempts: 3, ...options.limits };
+  const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
+  const webArchive = new PostgresWebArchive(pool, embeddingProvider, ids, () => clock.now(), config.embedding.model);
   const toolRegistry = new ToolRegistry([
-    ...createWebTools(config.web.baseUrl),
+    ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools(config.fileToolRoots),
     createAgentSendTool({ queue, clock, maxHops: limits.maxHops, provenance: (context) => ({
       parentHop: context.transport?.hop ?? 0,
@@ -43,7 +46,6 @@ export function createBotComposition(options: BotCompositionOptions) {
       ...(context.transport?.replyTo === undefined ? {} : { replyTo: context.transport.replyTo })
     }) })
   ]);
-  const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
   const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, embeddingProvider, config.embedding.model);
   const contextLoader = new PostgresAgentContextLoader({
     pool, ids, tools: toolRegistry,

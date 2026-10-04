@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-04
-status: created
+status: done
 ---
 
 # 044: Web Page Archiveの保存・検索・根拠参照を実装する
@@ -41,14 +41,14 @@ status: created
 
 ## Acceptance criteria
 
-- [ ] `web_page`成功時に再利用可能なSnapshotが冪等に保存される。
-- [ ] 同一本文は重複せず、同一URLの変更本文は別Snapshotになる。
-- [ ] URL、本文、要約、Embedding、取得時刻、Agent／run／Tool Result provenanceを追跡できる。
-- [ ] `web_archive_search`で保存資料をsemantic／keyword条件から検索できる。
-- [ ] `web_archive_get`でSnapshotまたは関連chunkを上限付きで取得できる。
-- [ ] Memoryから根拠Web Snapshotを追跡でき、他Agent所有Snapshotを参照できない。
-- [ ] `web_list`実行ではWeb Archiveが更新されない。
-- [ ] 要約／Embedding失敗後もraw Snapshotが残り、再処理できる。
+- [x] `web_page`成功時に再利用可能なSnapshotが冪等に保存される。
+- [x] 同一本文は重複せず、同一URLの変更本文は別Snapshotになる。
+- [x] URL、本文、要約、Embedding、取得時刻、Agent／run／Tool Result provenanceを追跡できる。
+- [x] `web_archive_search`で保存資料をsemantic／keyword条件から検索できる。
+- [x] `web_archive_get`でSnapshotまたは関連chunkを上限付きで取得できる。
+- [x] Memoryから根拠Web Snapshotを追跡でき、他Agent所有Snapshotを参照できない。
+- [x] `web_list`実行ではWeb Archiveが更新されない。
+- [x] 要約／Embedding失敗後もraw Snapshotが残り、再処理できる。
 
 ## Tests
 
@@ -75,4 +75,3 @@ status: created
 - [Architecture](../docs/ARCHITECTURE.md)
 - [Implementation Plan](../docs/IMPLEMENTATION_PLAN.md)
 - [Test Strategy](../docs/TEST_STRATEGY.md)
-

@@ -6,6 +6,8 @@ import type { ToolResult } from "./ports.js";
 export type ToolExecutionContext = {
   readonly agentId: string;
   readonly runId: string;
+  readonly eventId?: string;
+  readonly toolCallId?: string;
   readonly idempotencyKey: string;
   readonly transport?: { readonly hop: number; readonly expiresAt: string; readonly replyTo?: string };
 };

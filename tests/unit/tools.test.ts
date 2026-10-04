@@ -5,9 +5,15 @@ import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { createFileTools } from "../../src/infrastructure/tools/file-tools.js";
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
+import { canonicalizeWebUrl, chunkWebPage, summarizeWebPage } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 describe("tools", () => {
+  it("normalizes URLs and creates deterministic bounded Web Archive text", () => {
+    expect(canonicalizeWebUrl("HTTPS://Example.COM:443/page?b=2&a=1#section")).toBe("https://example.com/page?a=1&b=2");
+    expect(summarizeWebPage("Title", "# Heading\n\nFirst paragraph\n\nSecond paragraph", 32)).toBe("Title\nHeading\nFirst paragraph\nSe");
+    expect(chunkWebPage("first line\nsecond line", 10, 4)).toEqual(["first line", "second lin", "e"]);
+  });
   it("exposes each registered input schema to the Agent", () => {
     const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), execute: () => Promise.resolve({ ok: true }) }]);
     expect(registry.definitions()[0]?.inputSchema).toMatchObject({ type: "object", required: ["value"] });

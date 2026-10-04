@@ -30,6 +30,8 @@ export { PostgresMemoryEmbeddingLifecycle } from "./infrastructure/persistence/p
 export type { EmbeddingMetadata } from "./infrastructure/embedding/ollama-embedding.js";
 export { PostgresMemoryRetriever } from "./infrastructure/persistence/postgres-memory-retriever.js";
 export type { RetrievalFilter } from "./infrastructure/persistence/postgres-memory-retriever.js";
+export { PostgresWebArchive, canonicalizeWebUrl, chunkWebPage, summarizeWebPage } from "./infrastructure/persistence/postgres-web-archive.js";
+export type { WebArchiveContext, WebArchiveSearchInput, WebArchiveSearchResult, WebPageDocument } from "./infrastructure/persistence/postgres-web-archive.js";
 export { ContextBuilder } from "./application/context-builder.js";
 export { createBotComposition } from "./bootstrap/bot-composition.js";
 export { BotHost, createProductionBotHost } from "./bootstrap/bot-host.js";
