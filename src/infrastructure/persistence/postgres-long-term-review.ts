@@ -5,7 +5,7 @@ import { DomainError, ObservationSchema, type Candidate, type Memory } from "../
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 
 type CandidateRow = QueryResultRow & { id: string; agent_id: string; target: Candidate["target"]; proposed_value: string; reason: string; status: Candidate["status"]; created_at: Date; evidence_ids: string[]; evidence_event_ids: string[] };
-type MemoryRow = QueryResultRow & { id: string; agent_id: string; kind: Memory["kind"]; content: string; importance: string; retrieval_priority: Memory["retrievalPriority"]; occurred_at: Date; source_agent_id: string | null; evidence_event_ids: string[] };
+type MemoryRow = QueryResultRow & { id: string; agent_id: string; kind: Memory["kind"]; content: string; importance: string; retrieval_priority: Memory["retrievalPriority"]; occurred_at: Date; created_at: Date; source_agent_id: string | null; evidence_event_ids: string[] };
 type EventRow = QueryResultRow & { id: string; observation: unknown };
 const formatReviewValue = (value: ReviewValue): string => Array.isArray(value) ? JSON.stringify(value) : value;
 
@@ -21,7 +21,7 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
       this.pool.query<EventRow>("SELECT DISTINCT e.id,e.observation FROM long_term_candidates c CROSS JOIN LATERAL jsonb_array_elements_text(c.evidence_event_ids) evidence_id JOIN events e ON e.id=evidence_id AND e.agent_id=c.agent_id WHERE c.id=ANY($1::text[]) AND c.agent_id=$2 ORDER BY e.id", [candidateIds, agentId])
     ]);
     return {
-      memories: memoryResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, createdAt: row.occurred_at.toISOString(), relatedSubjectIds: [], relatedIntentionIds: [], importance: row.importance, retrievalPriority: row.retrieval_priority, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids })),
+      memories: memoryResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, occurredAt: row.occurred_at.toISOString(), createdAt: row.created_at.toISOString(), relatedSubjectIds: [], relatedIntentionIds: [], importance: row.importance, retrievalPriority: row.retrieval_priority, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids })),
       events: eventResult.rows.map(({ observation }) => ObservationSchema.parse(observation))
     };
   }

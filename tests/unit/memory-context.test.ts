@@ -19,7 +19,7 @@ describe("embedding and context", () => {
 
   it("enforces ownership, category caps, budget and stable tie breaks", () => {
     const input = agentCoreInputFixture();
-    const memory = (id: string, agentId = "agent-a"): Memory => ({ id, agentId, kind: "episodic", content: `Memory ${id}`, createdAt: "2026-01-01T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful", retrievalPriority: "normal", evidenceEventIds: [] });
+    const memory = (id: string, agentId = "agent-a"): Memory => ({ id, agentId, kind: "episodic", content: `Memory ${id}`, occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-02T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful", retrievalPriority: "normal", evidenceEventIds: [] });
     const result = new ContextBuilder().build({ ...input, memories: [memory("b"), memory("a"), memory("foreign", "agent-b")], memoryRetrievalTrace: [{ memoryId: "b", finalRank: 1, matchedBy: ["keyword", "recency"], kind: "episodic", selected: true }, { memoryId: "a", finalRank: 2, matchedBy: ["recency"], kind: "episodic", selected: true }] }, { maxTokens: 2_000, maxMemories: 1, maxSocialContexts: 1 });
     expect(result.memories.map(({ id }) => id)).toEqual(["b"]);
     expect(result.memoryRetrievalTrace.find(({ memoryId }) => memoryId === "a")).toMatchObject({ selected: false, exclusionReason: "context-budget" });

@@ -373,7 +373,7 @@ describeDatabase("PostgreSQL persistence", () => {
     input.run = { runId: "runtime-run", eventId: "runtime-event", agentId: "a", occurredAt: fixtureInstant };
     input.self = { ...input.self, id: "a", version };
     input.dynamicState = { ...input.dynamicState, agentId: "a" };
-    input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", createdAt: fixtureInstant, relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
+    input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
     input.intentions = [{ id: "existing-intention", agentId: "a", description: "Old goal", status: "active", reason: "Existing", createdAt: fixtureInstant, updatedAt: fixtureInstant }];
     input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
@@ -409,10 +409,11 @@ describeDatabase("PostgreSQL persistence", () => {
   it("derives reported Memory provenance from the validated Observation actor", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "reported-run", eventId: "reported-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.observation = { eventId: "reported-event", summary: "Agent B reported a library time", facts: ["Reported by B"], observedAt: fixtureInstant, actor: { id: "b", type: "agent" }, source: { type: "agent", id: "b", direct: true } };
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-memory"]), () => new Date(fixtureInstant));
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-memory"]), () => new Date("2026-01-03T00:00:00Z"));
     const result = { output: { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [{ kind: "episodic" as const, content: "Agent B reported that the library opens at nine", relatedSubjectIds: ["b"], relatedIntentionIds: [], importance: "Reported information", retrievalPriority: "normal" as const, evidenceEventIds: ["reported-event"] }], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [] };
     await persistence.commit(messageFixture({ id: "reported-message", destination: "a" }), { id: "reported-event", agentId: "a", kind: "external", occurredAt: fixtureInstant, payload: { senderAgentId: "b" } }, input, result, { state: input.dynamicState, changes: [] }, []);
     expect((await pool.query<{ source_agent_id: string }>("SELECT source_agent_id FROM memories WHERE id='reported-memory'")).rows[0]?.source_agent_id).toBe("b");
+    expect((await pool.query<{ occurred_at: Date; created_at: Date }>("SELECT occurred_at,created_at FROM memories WHERE id='reported-memory'")).rows[0]).toMatchObject({ occurred_at: new Date(fixtureInstant), created_at: new Date("2026-01-03T00:00:00Z") });
   });
 
   it("records Tool side effects when final Agent output fails without marking the message complete", async () => {

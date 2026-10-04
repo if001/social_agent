@@ -91,6 +91,7 @@ export const MemorySchema = z.object({
   agentId: Id,
   kind: z.enum(["episodic", "semantic", "self-related", "self-change"]),
   content: NaturalLanguage,
+  occurredAt: Instant,
   createdAt: Instant,
   relatedSubjectIds: z.array(Id),
   relatedIntentionIds: z.array(Id),
@@ -181,7 +182,7 @@ export const StateUpdateProposalSchema = z.object({
   evidenceIds: z.array(Id)
 });
 
-export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, createdAt: true, kind: true, sourceAgentId: true }).extend({ kind: z.literal("episodic"), webSnapshotIds: z.array(Id).optional() });
+export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, occurredAt: true, createdAt: true, kind: true, sourceAgentId: true }).extend({ kind: z.literal("episodic"), webSnapshotIds: z.array(Id).optional() });
 
 const CreateIntentionProposalSchema = z.object({
   operation: z.literal("create"),

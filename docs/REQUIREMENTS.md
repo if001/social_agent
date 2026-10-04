@@ -154,7 +154,7 @@ Tool実行結果は論理的なTool Result Eventとして同じDeep Agent runへ
 
 #### FR-ME-01: Memory種別
 
-システムはEpisodic、Semantic、Self-related Memoryを論理的に区別し、内容、作成時刻、関連主体、関連Intention、重要性の意味記述を保持できなければならない。
+システムはEpisodic、Semantic、Self-related Memoryを論理的に区別し、内容、出来事の発生時刻、Memoryを記録した作成時刻、関連主体、関連Intention、重要性の意味記述を保持できなければならない。`occurredAt`と`createdAt`を混同してはならない。
 
 - Episodic Memoryは、Agentが経験した具体的な出来事、会話、約束、Tool実行結果、Intentionの開始・変更・完了等を表す。
 - Semantic Memoryは、明示された安定的な事実、または複数の経験から根拠付きで一般化した知識を表す。

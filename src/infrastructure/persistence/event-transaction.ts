@@ -39,7 +39,7 @@ export class PostgresEventTransaction {
         else await client.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (agent_id,subject_id) DO UPDATE SET subject_type=EXCLUDED.subject_type,description=EXCLUDED.description,updated_at=now()", [change.id, input.event.agentId, value.subjectId, value.subjectType, value.description]);
       }
       for (const memory of input.memories ?? []) {
-        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
+        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.occurredAt, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
         for (const subjectId of memory.relatedSubjectIds) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [memory.id, subjectId]);
         for (const intentionId of memory.relatedIntentionIds) await client.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ($1,$2)", [memory.id, intentionId]);
       }

@@ -35,7 +35,7 @@
 
 - [x] **Driveを発生源・開始時刻とともに保持する。** 実装設計 §12はDriveの`source`と`since`を任意属性として示す。現状は文字列配列のみで、どのEvent・Memoryから生じ、いつから継続しているかを判断できない。そのため時間変化、重複統合、古いDriveの失効を意味に沿って行いにくい（`DynamicStateSchema`、`agent_states.drives`）。
 
-- [ ] **Memoryの出来事発生時刻と記録時刻を分離する。** 実装設計 §16は`occurredAt`と`createdAt`を区別する。現状のDomain `Memory.createdAt`にはDBの`occurred_at`を詰め、通常保存時もEvent時刻をoccurred_atとして使う一方、DBのcreated_atはDomainへ戻さない。後から過去の経験を記録した場合や伝聞の時系列を正確に扱えない（`MemorySchema`、`PostgresMemoryRetriever`、`PostgresRuntimePersistence.#materialize`）。
+- [x] **Memoryの出来事発生時刻と記録時刻を分離する。** 実装設計 §16は`occurredAt`と`createdAt`を区別する。現状のDomain `Memory.createdAt`にはDBの`occurred_at`を詰め、通常保存時もEvent時刻をoccurred_atとして使う一方、DBのcreated_atはDomainへ戻さない。後から過去の経験を記録した場合や伝聞の時系列を正確に扱えない（`MemorySchema`、`PostgresMemoryRetriever`、`PostgresRuntimePersistence.#materialize`）。
 
 - [ ] **Memory想起自体が状態を変える経路を実装する。** 概念設計 §19は、過去を思い出すことでEmotionやDriveが再び強まる可能性を明記する。現在のMemory Retrievalは外部/内部EventのContext構築時にだけ実行され、Memoryの関連性上昇や定期想起から独立したInternal Eventを作らない（`PostgresAgentContextLoader`、Scheduler関連実装）。
 
