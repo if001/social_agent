@@ -337,8 +337,8 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-role','memory-a1'),('candidate-semantic','memory-a1')");
     const ids = ["role-change-memory", "semantic-grounded-memory"];
     const repository = new PostgresLongTermReviewRepository(pool, () => ids.shift() ?? "unexpected");
-    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-role", decision: "UPDATE", reason: "Stable role" }], stateUpdate: { value: "Research partner", reason: "Stable role", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-role", new AbortController().signal);
-    expect((await pool.query<{ roles: string[] }>("SELECT roles FROM agent_states WHERE agent_id='a'")).rows[0]?.roles).toEqual(["Research partner"]);
+    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-role", decision: "UPDATE", reason: "Stable role" }], stateUpdate: { value: ["Helper", "Research partner"], reason: "Stable role", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-role", new AbortController().signal);
+    expect((await pool.query<{ roles: string[] }>("SELECT roles FROM agent_states WHERE agent_id='a'")).rows[0]?.roles).toEqual(["Helper", "Research partner"]);
     await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-semantic", decision: "UPDATE", reason: "Grounded fact" }], stateUpdate: { value: "The user prefers concise plans", reason: "Grounded fact", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-semantic", new AbortController().signal);
     expect((await pool.query<{ evidence_memory_ids: string[] }>("SELECT evidence_memory_ids FROM memories WHERE id='semantic-grounded-memory' AND kind='semantic'")).rows[0]?.evidence_memory_ids).toEqual(["memory-a1"]);
 

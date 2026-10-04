@@ -29,7 +29,7 @@
 
 - [x] **Valuesの形成・変化方針を実装する。** 概念設計 §2、§5、§7では何を大切にするかが意味解釈と個体化の中心にある。現状は`values`を読み込むが通常CoreもLong-term Reviewも更新Candidateを作れず、初期値の固定文言から変化しない。固定する設計ならspecへ明示し、経験で形成するならCandidate/Review対象へ追加する必要がある。
 
-- [ ] **長期リスト更新で既存Role・Interest・Preferenceを失わない契約にする。** Long-term Reviewの`stateUpdate.value`は単一文字列で、`role`、`longTermInterest`、`longTermPreference`の更新時はDB配列全体を `jsonb_build_array(value)` で置換する。概念設計 §7の複数の役割・興味・好みを蓄積・再解釈するモデルに対し、一つの更新が無関係な既存項目を消し得る（`ReviewOutputSchema`、`PostgresLongTermReviewRepository.commit`）。
+- [x] **長期リスト更新で既存Role・Interest・Preferenceを失わない契約にする。** Long-term Reviewの`stateUpdate.value`は単一文字列で、`role`、`longTermInterest`、`longTermPreference`の更新時はDB配列全体を `jsonb_build_array(value)` で置換する。概念設計 §7の複数の役割・興味・好みを蓄積・再解釈するモデルに対し、一つの更新が無関係な既存項目を消し得る（`ReviewOutputSchema`、`PostgresLongTermReviewRepository.commit`）。
 
 - [ ] **Social Contextに対象種別を保持する。** 実装設計 §15はUser、Agent、Team、Project、Organizationを区別する`subjectType`を定義する。現状は`subjectId`と自然言語descriptionだけで、同名IDの種別や対象に応じた検索・検証ができない（`SocialContextSchema`、`social_contexts`、`StateUpdateService`）。
 

@@ -232,6 +232,8 @@ Long-term ReviewはCandidateが参照するMemoryだけでなくEvent Observatio
 
 Long-term ReviewはCandidateを維持、反映、既存状態へ統合、または破棄できなければならない。単純追加だけでなく、重複するSelf NarrativeやAcquired Dispositionを統合できなければならない。
 
+Role、長期Interest、長期Preferenceの更新結果は統合後の配列全体として返し、Runtimeは配列のまま保存しなければならない。単一の更新値を1要素配列へ変換して既存項目を暗黙に破棄してはならない。その他の長期対象は自然言語文字列として更新する。
+
 #### FR-LR-04: Self Change Memory
 
 長期状態を変更した場合、変更前の状態、根拠となった経験、変更後の状態が追跡できるMemoryを残さなければならない。

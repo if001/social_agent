@@ -20,7 +20,7 @@ export const longTermReviewSystemPrompt = `あなたはソーシャルエージ�
 
 出力:
 - decisions: CandidateごとにcandidateId、decision、reasonを1件ずつ返します。decisionはKEEP、UPDATE、MERGE、DROPのいずれかです
-- stateUpdate: UPDATEまたはMERGEが1件以上ある場合だけ必須です。複数Candidateを踏まえた統合後のvalue、reason、利用したevidenceMemoryIdsとevidenceEventIdsを返します。少なくとも一方に根拠を指定します
+- stateUpdate: UPDATEまたはMERGEが1件以上ある場合だけ必須です。複数Candidateを踏まえた統合後のvalue、reason、利用したevidenceMemoryIdsとevidenceEventIdsを返します。Role、長期Preference、長期Interestのvalueは既存項目も含む統合後の文字列配列、それ以外のvalueは文字列です。少なくとも一方に根拠を指定します
 
 判断:
 - KEEP: 長期変更にはまだ根拠が不足するがCandidateとして保持する
