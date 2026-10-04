@@ -25,7 +25,7 @@ describe("Discord UI adapter contract", () => {
     await queue.publish({ id: "output", destination: "discord", source: "agent-a", correlationId: "conversation", causationId: "run-42", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: { type: "agent-response", text: "reply", action: { id: "run-42", type: "respond" }, replyContext: { channelId: "channel", threadId: "thread", messageId: "42" } } });
     const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal); const outbound = adapter.startOutbound(controller.signal); await eventually(() => { expect(gateway.sent).toHaveLength(1); }); expect(gateway.sent[0]).toMatchObject({ context: { threadId: "thread", messageId: "42" }, content: "reply" });
     await gateway.receive({ id: "43", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", referencedMessageId: "discord-output-1", content: "<@bot-a> understood", createdAt: new Date("2026-01-01T00:00:01Z") });
-    const results: Array<{ causationId?: string }> = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { results.push(message); consume.abort(); return Promise.resolve(); }, consume.signal); expect(results).toMatchObject([{ causationId: "run-42" }]);
+    const results: string[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { results.push(message.causationId ?? ""); consume.abort(); return Promise.resolve(); }, consume.signal); expect(results).toEqual(["run-42"]);
     controller.abort(); await Promise.all([inbound, outbound]); await scope.close();
   });
 });
