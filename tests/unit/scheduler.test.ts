@@ -25,4 +25,11 @@ describe("Scheduler", () => {
     const value = setup({ type: "wait", reason: "Later", until: "2026-01-02T00:00:00Z" }); await value.scheduler.tick(new AbortController().signal); expect(value.completions[0]?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
     const stopped = setup({ type: "no-action", reason: "No" }); stopped.lifecycle.transition("stopping"); await expect(stopped.scheduler.tick(new AbortController().signal)).resolves.toBe(0);
   });
+  it("reschedules state review even when no state change is needed", async () => {
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const completions: (Date | null)[] = [];
+    const review: ScheduledTarget = { id: "state-review:agent-a", agentId: "agent-a", kind: "state-review", reason: "Review state" };
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => Promise.resolve({ type: "no-action", reason: "Keep current state" }) }, queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", reviewIntervalMs: 86_400_000 });
+    await scheduler.tick(new AbortController().signal);
+    expect(completions[0]?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
+  });
 });

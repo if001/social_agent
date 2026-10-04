@@ -2,7 +2,7 @@ import type { Clock, IdGenerator, MessageQueue } from "./ports.js";
 import type { AgentAction, DomainEvent } from "../domain/contracts.js";
 import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
 
-export type ScheduledTarget = { readonly id: string; readonly agentId: string; readonly kind: "intention" | "persistent-drive" | "long-term-review"; readonly reason: string; readonly candidateIds?: readonly string[] };
+export type ScheduledTarget = { readonly id: string; readonly agentId: string; readonly kind: "intention" | "persistent-drive" | "state-review" | "long-term-review"; readonly reason: string; readonly candidateIds?: readonly string[] };
 export interface ScheduleRepository {
   claimDue(now: Date, limit: number): Promise<readonly ScheduledTarget[]>;
   complete(target: ScheduledTarget, nextReviewAt: Date | null): Promise<void>;
@@ -31,7 +31,7 @@ export class Scheduler {
           const now = this.options.clock.now();
           await this.options.queue.publish({ id: this.options.ids.next(), destination: this.options.defaultDestination(target.agentId), source: target.agentId, sentAt: now.toISOString(), availableAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "agent-response", text: action.content, agentId: target.agentId, autonomous: true } });
         }
-        const next = action.type === "wait" && action.until !== undefined ? new Date(action.until) : action.type === "no-action" ? null : new Date(occurredAt.getTime() + this.options.reviewIntervalMs);
+        const next = action.type === "wait" && action.until !== undefined ? new Date(action.until) : target.kind === "state-review" ? new Date(occurredAt.getTime() + this.options.reviewIntervalMs) : action.type === "no-action" ? null : new Date(occurredAt.getTime() + this.options.reviewIntervalMs);
         await this.options.repository.complete(target, next);
         completed += 1;
       } catch (error) {
