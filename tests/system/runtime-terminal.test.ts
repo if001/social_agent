@@ -48,13 +48,14 @@ describe("ST-01 Terminal round trip", () => {
     const noAction = { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "no-action" as const, reason: "Observed" } };
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness: new ScriptedAgentHarness([noAction, noAction, noAction]), persistence, ids: new SequenceIdGenerator(["external-domain-event", "time-domain-event", "system-domain-event"]), now: () => clock.now() });
     const publisher = new RuntimeEventPublisher(queue, clock, new SequenceIdGenerator(["external-message", "time-message", "system-message"])); const controller = new AbortController(); const running = runtime.start(controller.signal);
-    await publisher.publishExternal("agent-a", { text: "A build completed", sourceId: "ci", facts: ["status=success"] });
+    await publisher.publishExternal("agent-a", { text: "A build completed", sourceId: "ci", facts: ["status=success"], resultOfActionId: "prior-run", correlationId: "conversation" });
     await publisher.publishTime("agent-a", "Daily review", new Date("2026-01-01T01:00:00Z"));
     await publisher.publishSystem("agent-a", "Permissions changed", { capability: "web_list" });
     await eventually(() => { expect(persistence.events).toHaveLength(3); });
     const eventsByKind = new Map(persistence.events.map((event) => [event.kind, event]));
     expect([...eventsByKind.keys()].sort()).toEqual(["external", "system", "time"]);
     expect(eventsByKind.get("external")?.payload.facts).toEqual(["status=success"]);
+    expect(eventsByKind.get("external")).toMatchObject({ causationId: "prior-run", correlationId: "conversation" });
     expect(eventsByKind.get("time")?.occurredAt).toBe("2026-01-01T01:00:00.000Z");
     controller.abort(); await running; await runtime.drain(); await scope.close();
   });

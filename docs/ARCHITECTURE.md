@@ -449,6 +449,8 @@ Eventは客観的な入力記録であり、ObservationはそのEventから決�
 
 Tool呼び出しは親Eventとrunに結びつく実行記録に加え、`tool-result`の論理Eventを作る。論理Eventはtool call ID、run ID、親Event、correlationを保持するため、後続のMemory根拠と障害調査から同じ実行へ遡れる。Agent Contextへ渡すresultは検索とbudgetで制限し、資格情報を含む値はredaction対象とする。
 
+通常Agent Coreが選んだ最終ActionはAgent Run IDをAction IDとして扱う。応答Envelopeは`causationId=runId`と`correlationId`を持ち、配送成否はOutboxの状態として記録する。外部システムが成功、失敗、相手の反応等を観測した場合は、`RuntimeEventPublisher.publishExternal`の`resultOfActionId`へ元のrun IDを指定してExternal Eventを投入する。Discordでは送信したDiscord Message IDとrun IDをAdapterが対応付け、返信参照を持つ次の投稿へ同じcausationを付ける。拒否、待機、no-actionもAgent Run result内のActionとして同じIDで参照できる。Agent Coreはこの後続Observationを通常どおり意味解釈し、必要なMemoryや状態変更を提案する。
+
 Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの再入を検査する。rateとcorrelationはPostgreSQLで全process間共有する。validation／permission違反は再試行せず理由付きdead-letterへ送り、外部障害だけをbackoff再試行する。ToolはFamily capabilityから作った`availableTools`だけをDeep Agentへ渡し、実行直前にもregistryのSchemaとidempotencyを検査する。状態、Memory、Candidateが参照する根拠IDは現在Eventまたは対象AgentのContext内に存在するものに限定する。
 
 ### 6.1 Queueを通るもの
