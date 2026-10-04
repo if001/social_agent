@@ -37,6 +37,19 @@ export const AgentSchema = z.object({
 });
 export type Agent = z.infer<typeof AgentSchema>;
 
+export const BotPersonaSchema = z.object({
+  version: z.literal(1),
+  identity: z.object({ displayName: NaturalLanguage, description: NaturalLanguage.optional() }),
+  communication: z.object({
+    language: NaturalLanguage.default("ja"),
+    firstPerson: NaturalLanguage,
+    tone: z.array(NaturalLanguage).min(1).max(12),
+    responseStyle: z.array(NaturalLanguage).max(12).default([]),
+    avoid: z.array(NaturalLanguage).max(12).default([])
+  })
+});
+export type BotPersona = z.infer<typeof BotPersonaSchema>;
+
 export const DriveSchema = z.object({ description: NaturalLanguage, sourceEvidenceIds: z.array(Id), since: Instant });
 export type Drive = z.infer<typeof DriveSchema>;
 export const DynamicStateSchema = z.object({
@@ -225,6 +238,7 @@ export const AgentCoreInputSchema = z.object({
   }),
   observation: ObservationSchema,
   recentObservations: z.array(ObservationSchema).default([]),
+  persona: BotPersonaSchema.optional(),
   self: AgentSchema,
   dynamicState: DynamicStateSchema,
   socialContext: z.array(SocialContextSchema),

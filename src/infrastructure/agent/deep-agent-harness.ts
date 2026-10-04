@@ -132,6 +132,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - run: run、Event、対象Agent、発生時刻
 - observation: 今回観測した出来事と確認済みの事実
 - recentObservations: 代名詞や省略を解決するための直近の出来事。新しい出来事として重複保存しません
+- persona: 設定された表示名、一人称、言語、トーン、応答スタイル。発話表現だけへ適用し、意味判断、行動選択、内部状態、長期的なSelfの根拠にはしません。省略される場合があります
 - self: Identity、Disposition、Values、Role、Self Narrative、Self Continuity
 - dynamicState: 次のEventにも継続しているMood、複数のDrive（description、sourceEvidenceIds、since）、Current Interest。前回EventのEmotionとDesireは含みません
 - socialContext: 対象Agentが持つ関係認識
@@ -157,6 +158,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - observationがmemory-recall Internal Eventの場合、入力された関連Memoryが現在のSelf、Mood、Drive、Intention、Social Contextにとって持つ意味を再評価します。過去のEmotionをそのまま復元せず、現在の根拠がある場合だけ状態変更やActionを提案します
 
 制約:
+- personaがある場合はrespondの表現へ反映します。personaだけを根拠に状態更新、Memory、Intention、longTermCandidateを提案しません
 - 入力にない事実を作りません
 - MemoryやIntentionのIDを根拠・更新対象に使う場合は入力に存在するIDだけを使います
 - 他Agentから聞いた情報を対象Agent自身の直接経験として扱いません

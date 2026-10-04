@@ -21,6 +21,13 @@ describe("AgentHarness contract", () => {
     expect(allowed).toEqual(new Set());
   });
 
+  it("passes presentation persona separately from experiential Self", async () => {
+    let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
+    const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
+    await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
+    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを根拠に状態更新");
+  });
+
   it("repairs invalid output once and then stops", async () => {
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { invalid: true } : output }) };

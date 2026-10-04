@@ -761,13 +761,15 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 
 | Group | Environment variables |
 |---|---|
-| bot | `BOT_ID`、`BOT_FAMILY_ID` |
+| bot | `BOT_ID`、`BOT_FAMILY_ID`、`BOT_PERSONA_FILE` |
 | Discord | `DISCORD_BOT_TOKEN`、`DISCORD_BOT_USER_ID`、`DISCORD_OWNER_IDS`、`DISCORD_GUILD_IDS`、`DISCORD_CHANNEL_IDS` |
 | UI destination | `DISCORD_QUEUE_DESTINATION`、`DEFAULT_OUTPUT_DESTINATION` |
 | loops | `SCHEDULER_INTERVAL_MS`、`OUTBOX_INTERVAL_MS` |
 | shared | `POSTGRES_URL`、`QUEUE_ROOT`、Chat／Embedding／Web設定 |
 
 ID一覧はcomma区切りで受け取り、空要素と重複を正規化する。Discordを有効にする場合はtoken、bot user ID、owner、channelを必須とする。Discord Queue destinationは既定で`discord:<BOT_ID>`とし、2つのDiscord Adapterが同じoutbound destinationを競合consumeしないようにする。Agent Runtimeの入力destinationは`BOT_ID`であり、bot間通信も相手の`BOT_ID`を宛先とする。
+
+`BOT_PERSONA_FILE`はbot別Persona YAMLへの相対または絶対pathである。未指定時は`config/personas/<BOT_ID>.yaml`が存在すれば使用する。Personaは起動時にZodで検証し、`AgentCoreInput.persona`として通常Coreへ渡す。DBのSelfへ書き込まず、表示名、一人称、言語、トーン、応答スタイル、避ける表現だけを応答文へ適用する。ユーザーの呼び方は設定せず、対話とSocial ContextからAgentが判断する。Persona単独では内部状態や長期Candidateを生成しない。
 
 設定全体をZodで検証し、不足または矛盾がある場合は外部接続を開始する前に終了する。
 
@@ -809,7 +811,7 @@ pnpm bot:start --env-file .env.bot-b
 
 `agent:init`の第3引数はFamily共通のTool Capability allowlistである。省略または空文字の場合、そのFamilyへToolを公開しない。同じFamilyを再指定した場合は明示したallowlistでFamily設定を更新する。
 
-各process別fileは同じ共有接続先を持ち、`BOT_ID`、Discord資格情報、Discord allowlist、Discord Queue destinationだけを個体ごとに変える。秘密値を含む実ファイルはartifact、log、repositoryへ含めない。
+各process別fileは同じ共有接続先を持ち、`BOT_ID`、任意の`BOT_PERSONA_FILE`、Discord資格情報、Discord allowlist、Discord Queue destinationを個体ごとに変える。秘密値を含む実ファイルはartifact、log、repositoryへ含めない。Persona YAMLは秘密情報を持たないためrepositoryで管理できる。
 
 標準ファイルQueueは同一host上の複数プロセスを前提とする。別hostへ配置する場合は、MessageQueue Adapterをネットワーク対応brokerへ交換する。その際もRuntime、UI Adapter、Message Envelopeは変更しない。
 

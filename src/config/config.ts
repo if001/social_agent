@@ -4,11 +4,15 @@ import { resolve } from "node:path";
 import { parse } from "dotenv";
 import { z } from "zod";
 
+import type { BotPersona } from "../domain/contracts.js";
+import { loadPersonaFile } from "./persona.js";
+
 const HttpUrl = z.url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "must use HTTP(S)");
 const OptionalText = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().min(1).optional());
 const ConfigSchema = z.object({
   BOT_ID: z.string().min(1),
   BOT_FAMILY_ID: z.string().min(1).default("default"),
+  BOT_PERSONA_FILE: OptionalText,
   POSTGRES_URL: z.string().min(1),
   ADMIN_POSTGRES_URL: z.string().min(1),
   SIMPLE_CLIENT_BASE_URL: HttpUrl,
@@ -45,6 +49,7 @@ const ConfigSchema = z.object({
 export type AppConfig = {
   readonly botId: string;
   readonly familyId: string;
+  readonly persona?: BotPersona;
   readonly database: { readonly url: string; readonly adminUrl: string };
   readonly chat: { readonly baseUrl: string; readonly apiKey: string; readonly model: string };
   readonly embedding: { readonly baseUrl: string; readonly model: string; readonly dimension: number };
@@ -73,11 +78,19 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
   const local = await readEnvironmentFile(resolve(cwd, ".env"));
   const processFile = options.environmentFile === undefined ? {} : await readEnvironmentFile(resolve(cwd, options.environmentFile));
   const value = ConfigSchema.parse({ ...sample, ...local, ...processFile, ...(options.environment ?? process.env) });
+  const configuredPersonaPath = value.BOT_PERSONA_FILE === undefined ? undefined : resolve(cwd, value.BOT_PERSONA_FILE);
+  const conventionalPersonaPath = resolve(cwd, "config", "personas", `${value.BOT_ID}.yaml`);
+  let persona: BotPersona | undefined;
+  try { persona = await loadPersonaFile(configuredPersonaPath ?? conventionalPersonaPath); }
+  catch (error) {
+    if (configuredPersonaPath !== undefined || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const channelIds = list(value.DISCORD_CHANNEL_IDS || value.DISCORD_CHANNEL_ID || "");
   const ownerIds = list(value.DISCORD_OWNER_IDS); const guildIds = list(value.DISCORD_GUILD_IDS);
   return {
     botId: value.BOT_ID,
     familyId: value.BOT_FAMILY_ID,
+    ...(persona === undefined ? {} : { persona }),
     database: { url: value.POSTGRES_URL, adminUrl: value.ADMIN_POSTGRES_URL },
     chat: { baseUrl: value.OLLAMA_BASE_URL, apiKey: value.OLLAMA_API_KEY, model: value.OLLAMA_CHAT_MODEL },
     embedding: { baseUrl: value.OLLAMA_EMBEDDING_BASE_URL, model: value.OLLAMA_EMBEDDING_MODEL, dimension: value.OLLAMA_EMBEDDING_DIMENSION },

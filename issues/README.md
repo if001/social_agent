@@ -67,5 +67,6 @@
 | 061 | [中立な初期状態](061-neutral-initial-state.md) | 038 |
 | 062 | [Expectation Context方針](062-expectation-context-policy.md) | 018, 020 |
 | 063 | [Action Result連携](063-action-result-linkage.md) | 041, 060 |
+| 064 | [bot別の表現Persona](064-bot-persona-configuration.md) | 020, 030, 038 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
