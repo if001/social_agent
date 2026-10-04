@@ -51,7 +51,7 @@ export { Scheduler } from "./application/scheduler.js";
 export type { InternalEventRuntime, ScheduleRepository, ScheduledTarget, SchedulerOptions } from "./application/scheduler.js";
 export { PostgresScheduleRepository } from "./infrastructure/persistence/postgres-schedule-repository.js";
 export { LongTermReviewService, ReviewInputSchema, ReviewOutputSchema, compactNaturalLanguage } from "./application/long-term-review.js";
-export type { LongTermReviewRepository, ReviewCommit, ReviewEvidence, ReviewHarness, ReviewInput, ReviewOutput } from "./application/long-term-review.js";
+export type { LongTermReviewRepository, ReviewCommit, ReviewEvidence, ReviewHarness, ReviewInput, ReviewOutput, ReviewValue } from "./application/long-term-review.js";
 export { PostgresLongTermReviewRepository } from "./infrastructure/persistence/postgres-long-term-review.js";
 export { LongTermReviewDeepAgentHarness, createOllamaLongTermReviewInvoker, longTermReviewSystemPrompt } from "./infrastructure/agent/long-term-review-harness.js";
 export type { ReviewAgentInvoker } from "./infrastructure/agent/long-term-review-harness.js";

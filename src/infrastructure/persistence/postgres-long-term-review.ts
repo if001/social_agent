@@ -1,12 +1,13 @@
 import type { Pool, QueryResultRow } from "pg";
 
-import type { LongTermReviewRepository, ReviewCommit, ReviewEvidence } from "../../application/long-term-review.js";
+import type { LongTermReviewRepository, ReviewCommit, ReviewEvidence, ReviewValue } from "../../application/long-term-review.js";
 import { DomainError, ObservationSchema, type Candidate, type Memory } from "../../domain/contracts.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 
 type CandidateRow = QueryResultRow & { id: string; agent_id: string; target: Candidate["target"]; proposed_value: string; reason: string; status: Candidate["status"]; created_at: Date; evidence_ids: string[]; evidence_event_ids: string[] };
 type MemoryRow = QueryResultRow & { id: string; agent_id: string; kind: Memory["kind"]; content: string; importance: string; retrieval_priority: Memory["retrievalPriority"]; occurred_at: Date; source_agent_id: string | null; evidence_event_ids: string[] };
 type EventRow = QueryResultRow & { id: string; observation: unknown };
+const formatReviewValue = (value: ReviewValue): string => Array.isArray(value) ? JSON.stringify(value) : value;
 
 export class PostgresLongTermReviewRepository implements LongTermReviewRepository {
   constructor(private readonly pool: Pool, private readonly nextId: () => string, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle) {}
@@ -24,15 +25,20 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
       events: eventResult.rows.map(({ observation }) => ObservationSchema.parse(observation))
     };
   }
-  async loadCurrentValue(agentId: string, target: Candidate["target"]): Promise<string> {
+  async loadCurrentValue(agentId: string, target: Candidate["target"]): Promise<ReviewValue> {
     if (target === "semanticMemory" || target === "selfRelatedMemory") {
       const kind = target === "semanticMemory" ? "semantic" : "self-related";
       const result = await this.pool.query<{ value: string }>("SELECT COALESCE(string_agg(content,E'\\n' ORDER BY occurred_at,id),'(none)') AS value FROM memories WHERE agent_id=$1 AND kind=$2", [agentId, kind]);
       return result.rows[0]?.value ?? "(none)";
     }
     const column = ({ selfNarrative: "self_narrative", selfContinuity: "self_continuity", values: "values", acquiredDisposition: "acquired_disposition", role: "roles", raisonDetre: "raison_detre", longTermPreference: "preferences", longTermInterest: "interests" } as const)[target];
-    const result = await this.pool.query<{ value: string }>(`SELECT COALESCE(${column}::text,'') AS value FROM agent_states WHERE agent_id=$1`, [agentId]);
-    const value = result.rows[0]?.value; if (value === undefined) throw new DomainError("NOT_FOUND", "Agent state not found"); return value;
+    const listTarget = target === "role" || target === "longTermPreference" || target === "longTermInterest";
+    const result = await this.pool.query<{ value: unknown }>(`SELECT ${listTarget ? `COALESCE(${column},'[]'::jsonb)` : `COALESCE(${column},'(none)')`} AS value FROM agent_states WHERE agent_id=$1`, [agentId]);
+    const value = result.rows[0]?.value;
+    if (value === undefined) throw new DomainError("NOT_FOUND", "Agent state not found");
+    if (listTarget && Array.isArray(value) && value.every((item): item is string => typeof item === "string" && item.trim() !== "")) return value;
+    if (!listTarget && typeof value === "string" && value.trim() !== "") return value;
+    throw new DomainError("VALIDATION", "Stored long-term value has an invalid shape");
   }
   async commit(review: ReviewCommit): Promise<void> {
     const client = await this.pool.connect();
@@ -50,10 +56,10 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
         } else {
           const column = ({ selfNarrative: "self_narrative", selfContinuity: "self_continuity", values: "values", acquiredDisposition: "acquired_disposition", role: "roles", raisonDetre: "raison_detre", longTermPreference: "preferences", longTermInterest: "interests" } as const)[review.target];
           const listTarget = review.target === "role" || review.target === "longTermPreference" || review.target === "longTermInterest";
-          if (listTarget) await client.query(`UPDATE agent_states SET ${column}=jsonb_build_array($2::text),version=version+1,updated_at=now() WHERE agent_id=$1`, [review.agentId, review.after]);
+          if (listTarget) await client.query(`UPDATE agent_states SET ${column}=$2::jsonb,version=version+1,updated_at=now() WHERE agent_id=$1`, [review.agentId, JSON.stringify(review.after)]);
           else await client.query(`UPDATE agent_states SET ${column}=$2,version=version+1,updated_at=now() WHERE agent_id=$1`, [review.agentId, review.after]);
           selfChangeMemoryId = this.nextId();
-          await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,evidence_event_ids,evidence_memory_ids,embedding_status) VALUES ($1,$2,'self-change',$3,$4,'normal',now(),$5,$6,'pending')", [selfChangeMemoryId, review.agentId, `Changed ${review.target} from: ${review.before}\nTo: ${review.after}`, review.reason, JSON.stringify(review.evidenceEventIds), JSON.stringify(review.evidenceMemoryIds)]);
+          await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,evidence_event_ids,evidence_memory_ids,embedding_status) VALUES ($1,$2,'self-change',$3,$4,'normal',now(),$5,$6,'pending')", [selfChangeMemoryId, review.agentId, `Changed ${review.target} from: ${formatReviewValue(review.before)}\nTo: ${formatReviewValue(review.after)}`, review.reason, JSON.stringify(review.evidenceEventIds), JSON.stringify(review.evidenceMemoryIds)]);
         }
       }
       for (const decision of review.candidateDecisions) await client.query("UPDATE long_term_candidates SET status=$2,review_after=CASE WHEN $2='pending' THEN now()+interval '7 days' ELSE NULL END,review_lease_until=NULL,updated_at=now() WHERE id=$1", [decision.candidateId, decision.status]);

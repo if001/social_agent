@@ -2,13 +2,14 @@ import { z } from "zod";
 
 import { CandidateSchema, DomainError, MemorySchema, ObservationSchema, ReviewDecisionSchema, type Candidate, type Memory, type Observation } from "../domain/contracts.js";
 
-export const ReviewInputSchema = z.object({ candidates: z.array(CandidateSchema).min(1), evidenceMemories: z.array(MemorySchema), evidenceEvents: z.array(ObservationSchema), currentValue: z.string().min(1) }).superRefine((value, context) => {
+const ReviewValueSchema = z.union([z.string().min(1), z.array(z.string().trim().min(1)).min(1)]);
+export const ReviewInputSchema = z.object({ candidates: z.array(CandidateSchema).min(1), evidenceMemories: z.array(MemorySchema), evidenceEvents: z.array(ObservationSchema), currentValue: ReviewValueSchema }).superRefine((value, context) => {
   if (value.evidenceMemories.length === 0 && value.evidenceEvents.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemories"], message: "Review requires Memory or Event evidence" });
 });
 const CandidateDecisionSchema = z.object({ candidateId: z.string().min(1), decision: ReviewDecisionSchema, reason: z.string().min(1) });
 export const ReviewOutputSchema = z.object({
   decisions: z.array(CandidateDecisionSchema).min(1),
-  stateUpdate: z.object({ value: z.string().min(1), reason: z.string().min(1), evidenceMemoryIds: z.array(z.string().min(1)).default([]), evidenceEventIds: z.array(z.string().min(1)).default([]) }).superRefine((value, context) => {
+  stateUpdate: z.object({ value: ReviewValueSchema, reason: z.string().min(1), evidenceMemoryIds: z.array(z.string().min(1)).default([]), evidenceEventIds: z.array(z.string().min(1)).default([]) }).superRefine((value, context) => {
     if (value.evidenceMemoryIds.length === 0 && value.evidenceEventIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "State update requires Memory or Event evidence" });
   }).optional()
 }).superRefine((value, context) => {
@@ -20,8 +21,9 @@ export type ReviewInput = z.infer<typeof ReviewInputSchema>;
 export type ReviewOutput = z.infer<typeof ReviewOutputSchema>;
 export interface ReviewHarness { review(input: ReviewInput, signal: AbortSignal): Promise<ReviewOutput>; }
 export type ReviewEvidence = { readonly memories: readonly Memory[]; readonly events: readonly Observation[] };
-export type ReviewCommit = { readonly candidateDecisions: readonly { readonly candidateId: string; readonly status: Candidate["status"] }[]; readonly agentId: string; readonly target: Candidate["target"]; readonly before: string; readonly after?: string; readonly reason: string; readonly evidenceMemoryIds: readonly string[]; readonly evidenceEventIds: readonly string[] };
-export interface LongTermReviewRepository { loadCandidates(candidateIds: readonly string[]): Promise<readonly Candidate[]>; loadEvidence(candidateIds: readonly string[], agentId: string): Promise<ReviewEvidence>; loadCurrentValue(agentId: string, target: Candidate["target"]): Promise<string>; commit(review: ReviewCommit): Promise<void>; }
+export type ReviewValue = z.infer<typeof ReviewValueSchema>;
+export type ReviewCommit = { readonly candidateDecisions: readonly { readonly candidateId: string; readonly status: Candidate["status"] }[]; readonly agentId: string; readonly target: Candidate["target"]; readonly before: ReviewValue; readonly after?: ReviewValue; readonly reason: string; readonly evidenceMemoryIds: readonly string[]; readonly evidenceEventIds: readonly string[] };
+export interface LongTermReviewRepository { loadCandidates(candidateIds: readonly string[]): Promise<readonly Candidate[]>; loadEvidence(candidateIds: readonly string[], agentId: string): Promise<ReviewEvidence>; loadCurrentValue(agentId: string, target: Candidate["target"]): Promise<ReviewValue>; commit(review: ReviewCommit): Promise<void>; }
 
 export class LongTermReviewService {
   constructor(private readonly repository: LongTermReviewRepository, private readonly harness: ReviewHarness) {}
@@ -40,6 +42,8 @@ export class LongTermReviewService {
     if ([...requiredMemoryEvidence].some((id) => !evidenceById.has(id)) || evidence.memories.some((memory) => memory.agentId !== first.agentId) || [...requiredEventEvidence].some((id) => !eventById.has(id))) throw new DomainError("VALIDATION", "Candidate evidence is missing or belongs to another agent");
     const currentValue = await this.repository.loadCurrentValue(first.agentId, first.target);
     const output = ReviewOutputSchema.parse(await this.harness.review({ candidates: [...candidates], evidenceMemories: [...evidence.memories], evidenceEvents: [...evidence.events], currentValue }, signal));
+    const listTarget = first.target === "role" || first.target === "longTermPreference" || first.target === "longTermInterest";
+    if (output.stateUpdate !== undefined && listTarget !== Array.isArray(output.stateUpdate.value)) throw new DomainError("VALIDATION", listTarget ? "List-valued review target requires an array" : "Scalar review target requires a string");
     const decisionIds = output.decisions.map(({ candidateId }) => candidateId);
     if (new Set(decisionIds).size !== candidateIds.length || candidateIds.some((id) => !decisionIds.includes(id))) throw new DomainError("VALIDATION", "Review output must decide every Candidate exactly once");
     if (output.stateUpdate?.evidenceMemoryIds.some((id) => !requiredMemoryEvidence.has(id)) === true || output.stateUpdate?.evidenceEventIds.some((id) => !requiredEventEvidence.has(id)) === true) throw new DomainError("VALIDATION", "Review update references evidence outside the reviewed Candidates");
