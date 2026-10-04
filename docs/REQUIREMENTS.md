@@ -152,6 +152,10 @@ Agent CoreはToolを使うかをreasoning中に判断でき、Tool Loop完了後
 
 Tool実行結果は論理的なTool Result Eventとして同じDeep Agent runへ戻し、Agentが結果を再解釈して次の行動や状態更新を決められなければならない。外部Queueまたは別runへの再投入は必要としない。
 
+#### FR-EV-06: Action Result
+
+最終ActionはAgent Run IDで識別し、応答Envelopeと後続のUser MessageまたはExternal Eventをcausationとcorrelationで関連づけなければならない。配送成否はOutboxで管理し、外部で観測された成功、失敗、相手の反応は元Action IDを持つ新しいEventとして入力する。そのResultをMemoryにするか、状態やSelf形成の根拠にするかはAgent CoreがObservationの意味を判断して提案する。
+
 ### 6.3 MemoryとContext
 
 #### FR-ME-01: Memory種別

@@ -281,6 +281,8 @@ export const MessageEnvelopeSchema = z.object({
   expiresAt: Instant,
   attempt: z.number().int().min(0).max(32),
   hop: z.number().int().min(0).max(32),
+  correlationId: Id.optional(),
+  causationId: Id.optional(),
   replyTo: z.string().min(1).optional(),
   payload: z.record(z.string(), z.unknown())
 }).refine((value) => Date.parse(value.expiresAt) > Date.parse(value.sentAt), { message: "expiresAt must be after sentAt", path: ["expiresAt"] });
