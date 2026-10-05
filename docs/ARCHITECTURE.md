@@ -273,7 +273,7 @@ interface AgentHarness {
 
 - `AgentCoreInput`からsystem promptとmessagesを構築する
 - Bot起動時にTool RegistryのToolだけをLangChain Toolへ変換し、固定のTool一覧としてDeep Agentへ登録する
-- Bot起動時にAPI key付きOllama Cloud Chat Model、Tool一覧、Middleware、`AgentCoreOutputSchema`の`responseFormat`からDeep Agentを一度だけ構築する
+- Bot起動時にAPI key付きOllama Cloud Chat Model、Tool一覧、Middleware、`AgentCoreOutputSchema`の`responseFormat`からDeep Agentを一度だけ構築する。OllamaではLangChainの`toolStrategy`を使い、Schema不適合をAgent loop内で修復可能にする
 - Eventごとに同じDeep Agentを再利用し、`agentId`、`runId`、`eventId`、transport、AbortSignal、Tool call上限等をrun contextとして渡す
 - 各Tool callとresultをRuntime traceへ通知する
 - Tool resultを同じDeep Agent runの次のreasoning stepへ返し、最終Actionまで内部loopを完了する
@@ -291,7 +291,7 @@ Ollama Cloudのchat modelはTool callingと要求する構造化出力を満た�
 
 ### 5.7 Tool Registry
 
-利用可能なToolを起動時に固定する。名称、説明、入力Schema、実装binding、Botへ公開する集合を`createDeepAgent({ tools })`へ渡し、EventごとにTool wrapperやDeep Agentを作り直さない。
+利用可能なToolを起動時に固定する。名称、説明、入力Schema、実装binding、Botへ公開する集合を`createDeepAgent({ tools })`へ渡し、EventごとにTool wrapperやDeep Agentを作り直さない。Deep Agents 1.14.1がFilesystem Middlewareの必須Capabilityとして加える`read_file`は、他の組み込みFilesystem Toolを無効にして仮想state backendだけへ限定する。一般的なファイル操作は下記の登録済みFile Toolを使う。`read_file`もrun contextの上限とTool traceを適用する。
 
 ```ts
 interface AgentTool<TInput, TResult> {
@@ -643,7 +643,7 @@ type AgentCoreOutput = {
 
 `recentObservations`は現在Eventより前の同一Agentの完了済みObservationを古い順に最大6件保持し、代名詞や省略の解決だけに使う。通常Coreは現在Eventを中心にEpisodic Memoryを提案し、直近履歴に含まれる同じ出来事を再保存しない。
 
-通常出力はDeep Agentの`responseFormat`から`structuredResponse`として受け取る。HarnessはDomain固有の参照整合性を含めて再検証する。Schemaまたは参照整合性に適合しない場合は、検証issueを与えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。Markdown fenceを含む自由形式本文の`JSON.parse`を通常経路にしない。
+通常出力はDeep Agentの`responseFormat`から`structuredResponse`として受け取る。Ollamaではprovider-native strategyではなくSchema付きの`toolStrategy`を使い、形式不適合を同じAgent loop内で修復させる。HarnessはDomain固有の参照整合性を含めて再検証する。Schemaまたは参照整合性に適合しない場合は、検証issueを与えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。Markdown fenceを含む自由形式本文の`JSON.parse`を通常経路にしない。
 
 ## 10. 永続化設計
 

@@ -1,6 +1,7 @@
 import { ChatOllama } from "@langchain/ollama";
-import { createDeepAgent } from "deepagents";
-import { tool } from "langchain";
+import { createDeepAgent, createFilesystemMiddleware, createSubAgentMiddleware } from "deepagents";
+import { createMiddleware, tool, toolStrategy, type ToolRuntime } from "langchain";
+import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
@@ -8,9 +9,28 @@ import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunR
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
+const AgentCoreResponseFormat = toolStrategy(AgentCoreOutputSchema);
+
+type ReusableDeepAgent = {
+  invoke(
+    input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] },
+    options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly context: DeepAgentToolRunContext }
+  ): Promise<{ readonly structuredResponse?: unknown; readonly messages?: unknown }>;
+};
+
+type ReusableDeepAgentFactoryOptions = {
+  readonly model: ChatOllama;
+  readonly tools: DeepAgentToolsOption;
+  readonly systemPrompt: string;
+  readonly responseFormat: typeof AgentCoreResponseFormat;
+  readonly contextSchema: typeof DeepAgentToolRunContextSchema;
+  readonly middleware: readonly unknown[];
+};
+
+export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions) => ReusableDeepAgent;
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[] };
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly allowedToolNames: ReadonlySet<string>; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>; }
 
 export type DeepAgentHarnessOptions = {
@@ -60,7 +80,9 @@ export class DeepAgentHarness implements AgentHarness {
   constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 1; }
 
   async run(input: AgentCoreInput, signal: AbortSignal): Promise<AgentRunResult> {
-    for (const tool of input.availableTools) if (!this.options.registeredToolNames.has(tool.name)) throw new DomainError("VALIDATION", `Unknown tool: ${tool.name}`);
+    const inputToolNames = new Set(input.availableTools.map(({ name }) => name));
+    for (const name of inputToolNames) if (!this.options.registeredToolNames.has(name)) throw new DomainError("VALIDATION", `Unknown tool: ${name}`);
+    for (const name of this.options.registeredToolNames) if (!inputToolNames.has(name)) throw new DomainError("VALIDATION", `Registered tool is missing from Agent Core input: ${name}`);
     const timeout = AbortSignal.timeout(input.limits.deadlineMs);
     const combined = AbortSignal.any([signal, timeout]);
     let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = [];
@@ -72,7 +94,7 @@ export class DeepAgentHarness implements AgentHarness {
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
           : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, allowedToolNames: new Set(input.availableTools.map(({ name }) => name)), ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
@@ -92,44 +114,120 @@ export class DeepAgentHarness implements AgentHarness {
   }
 }
 
-export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date };
+export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date; readonly agentFactory?: ReusableDeepAgentFactory };
 
-export type DeepAgentToolRunContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly allowedToolNames?: ReadonlySet<string>; readonly signal: AbortSignal; readonly transport?: AgentCoreInput["run"]["transport"] };
-export type DeepAgentRunTool = { invoke(input: Record<string, unknown>): Promise<unknown> };
-export function createDeepAgentTools(registry: ToolRegistry, context: DeepAgentToolRunContext, executions: ToolExecutionRecord[], now: () => Date = () => new Date(), baseLogger: Logger = noopLogger): readonly DeepAgentRunTool[] {
-  let toolCallCount = 0;
-  return registry.registered().filter(({ name }) => context.allowedToolNames?.has(name) ?? true).map((registered) => tool(async (rawInput) => {
-    toolCallCount += 1;
-    const callId = `tool-${String(toolCallCount)}`;
+export class ToolExecutionCollector {
+  count = 0;
+  readonly executions: ToolExecutionRecord[] = [];
+}
+
+export type DeepAgentToolRunContext = {
+  readonly agentId: string;
+  readonly runId: string;
+  readonly eventId: string;
+  readonly maxToolCalls: number;
+  readonly signal: AbortSignal;
+  readonly collector: ToolExecutionCollector;
+  readonly transport?: AgentCoreInput["run"]["transport"];
+};
+
+export const DeepAgentToolRunContextSchema = z.object({
+  agentId: z.string().min(1),
+  runId: z.string().min(1),
+  eventId: z.string().min(1),
+  maxToolCalls: z.number().int().nonnegative(),
+  signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
+  collector: z.instanceof(ToolExecutionCollector),
+  transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
+});
+
+export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector">): DeepAgentToolRunContext {
+  return { ...options, collector: new ToolExecutionCollector() };
+}
+
+export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };
+
+async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInput: Record<string, unknown>, context: DeepAgentToolRunContext, now: () => Date, baseLogger: Logger): Promise<string> {
+    context.collector.count += 1;
+    const callId = `tool-${String(context.collector.count)}`;
     const startedAt = now().toISOString();
-    const logger = baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, toolCallId: callId, toolName: registered.name });
+    const logger = baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, toolCallId: callId, toolName: name });
     logger.log("info", "tool.started");
     if (context.signal.aborted) {
       const finishedAt = now().toISOString();
-      executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: "Tool execution aborted", startedAt, finishedAt });
+      context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: "Tool execution aborted", startedAt, finishedAt });
       throw new DomainError("ABORTED", "Tool execution aborted");
     }
-    if (toolCallCount > context.maxToolCalls) {
+    if (context.collector.count > context.maxToolCalls) {
       const finishedAt = now().toISOString();
-      executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: "Tool call limit exceeded", startedAt, finishedAt });
+      context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: "Tool call limit exceeded", startedAt, finishedAt });
       throw new DomainError("VALIDATION", "Tool call limit exceeded");
     }
     try {
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };
-      const result = await registry.execute(registered.name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }) }, context.signal);
+      const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }) }, context.signal);
       const finishedAt = now().toISOString();
-      if (result.ok) executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt });
-      else executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
+      if (result.ok) context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt });
+      else context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
       logger.log(result.ok ? "info" : "warn", "tool.completed", { ok: result.ok, elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify(result);
     } catch (error) {
       const finishedAt = now().toISOString();
       const message = error instanceof Error ? error.message : "Tool failed";
-      executions.push({ callId, runId: context.runId, eventId: context.eventId, name: registered.name, input: rawInput as Record<string, unknown>, ok: false, error: message, startedAt, finishedAt });
+      context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: message, startedAt, finishedAt });
       logger.log("error", "tool.failed", { ...errorLogContext(error), elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify({ ok: false, error: message });
     }
+}
+
+export function createDeepAgentTools(registry: ToolRegistry, now: () => Date = () => new Date(), baseLogger: Logger = noopLogger): readonly DeepAgentRunTool[] {
+  return registry.registered().map((registered) => tool(async (rawInput, runtime: ToolRuntime<unknown, DeepAgentToolRunContext>) => {
+    const context = DeepAgentToolRunContextSchema.parse(runtime.context);
+    return executeDeepAgentTool(registry, registered.name, rawInput as Record<string, unknown>, context, now, baseLogger);
   }, { name: registered.name, description: registered.description, schema: registered.schema }));
+}
+
+function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogger: Logger, now: () => Date) {
+  const registeredToolNames = new Set(registry?.registered().map(({ name }) => name) ?? []);
+  const builtInToolNames = new Set(["read_file"]);
+  return createMiddleware({
+    name: "AgentCoreRuntimeMiddleware",
+    contextSchema: DeepAgentToolRunContextSchema,
+    beforeAgent: (_state, runtime) => {
+      const context = DeepAgentToolRunContextSchema.parse(runtime.context);
+      baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId }).log("info", "agent_core.deep_agent_started");
+    },
+    wrapToolCall: async (request, handler) => {
+      const context = DeepAgentToolRunContextSchema.parse(request.runtime.context);
+      if (registeredToolNames.has(request.toolCall.name)) return handler(request);
+      if (!builtInToolNames.has(request.toolCall.name)) throw new DomainError("VALIDATION", `Unknown tool: ${request.toolCall.name}`);
+      context.collector.count += 1;
+      const callId = `tool-${String(context.collector.count)}`;
+      const startedAt = now().toISOString();
+      const input = request.toolCall.args as Record<string, unknown>;
+      if (context.signal.aborted) {
+        const finishedAt = now().toISOString(); context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name: request.toolCall.name, input, ok: false, error: "Tool execution aborted", startedAt, finishedAt });
+        throw new DomainError("ABORTED", "Tool execution aborted");
+      }
+      if (context.collector.count > context.maxToolCalls) {
+        const finishedAt = now().toISOString(); context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name: request.toolCall.name, input, ok: false, error: "Tool call limit exceeded", startedAt, finishedAt });
+        throw new DomainError("VALIDATION", "Tool call limit exceeded");
+      }
+      try {
+        const result = await handler(request); const finishedAt = now().toISOString();
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name: request.toolCall.name, input, ok: true, result: "Deep Agent built-in Tool completed", startedAt, finishedAt });
+        return result;
+      } catch (error) {
+        const finishedAt = now().toISOString(); const message = error instanceof Error ? error.message : "Tool failed";
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name: request.toolCall.name, input, ok: false, error: message, startedAt, finishedAt });
+        throw error;
+      }
+    },
+    afterAgent: (_state, runtime) => {
+      const context = DeepAgentToolRunContextSchema.parse(runtime.context);
+      baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId }).log("info", "agent_core.deep_agent_completed", { toolExecutionCount: context.collector.executions.length });
+    }
+  });
 }
 
 export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を持つソーシャルエージェントの通常Agent Coreです。
@@ -150,7 +248,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - availableTools: このrunで利用可能なTool
 - runtimeConstraintsとlimits: 必ず守る実行制約
 
-出力はAgentCoreOutputだけです:
+最終出力は、提供された構造化出力専用Toolをちょうど1回呼び出し、その引数として次のAgentCoreOutputを渡します。通常の本文やMarkdownのJSONとして返しません:
 - interpretation.subjectiveMeaning: 今回のEventがこのAgentにとって持つ意味。意味づけが不要な場合だけ省略できます
 - internalChanges.transientStateUpdates: Emotion、Mood、Drive、Desire、Current Interest、Working Social Contextの更新提案。targetはemotion | mood | drives | desires | currentInterests | socialContextです。EmotionとMoodはset、複数項目はset | append | removeを使います。Driveのvalueにはdescription文字列だけを返し、sourceEvidenceIdsとsinceはRuntimeがevidenceIdsとEvent時刻から付与します。Social Contextのset/append値はsubjectId、subjectType（user | agent | team | project | organization）、descriptionを持ちます。EmotionとDesireは今回のrunの解釈とActionにだけ使われ、監査記録には残りますが次のEventへ永続化されません。継続させる必要がある内容はMood、DriveまたはIntentionとして別に提案します。各要素はvalue、reason、evidenceIdsも持ちます
 - internalChanges.memoryProposals: 今回のEventで生じ、後の判断を変え得る具体的な出来事だけを保存するEpisodic Memory提案。kindはepisodicだけです。Web本文をMemoryへ複製せず「何を調べ、何を確認したか」という経験の概要にし、根拠ページはwebSnapshotIdsで参照します。約束、予定、決定、感情的・関係上重要な出来事、重要なTool結果、Intentionの変化がなければ空配列にします。各要素はcontent、relatedSubjectIds、relatedIntentionIds、自然言語のimportance、検索上の限定値retrievalPriority（low | normal | high | critical）、evidenceEventIds、webSnapshotIdsも持ちます。送信元Agent IDはRuntimeがObservationから付与するため生成しません
@@ -175,9 +273,9 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - 全状態を毎回変更せず、不要な各提案配列は空配列[]にします
 - 新規Memory、Intention、Candidateに保存用ID、所有Agent ID、作成時刻、statusを生成しません
 - 状態変更は提案であり、保存済みだと主張しません
-- AgentCoreOutput以外の説明文を返しません
+- 最終回答では通常の説明文を返さず、構造化出力専用Toolだけを呼び出します
 
-最小出力例:
+構造化出力専用Toolへ渡す最小引数例:
 {"interpretation":{"subjectiveMeaning":"挨拶を受け、穏やかな交流の始まりだと受け取った"},"internalChanges":{"transientStateUpdates":[],"memoryProposals":[],"intentionProposals":[],"longTermCandidates":[]},"action":{"type":"respond","content":"こんにちは。今日は何について話しましょうか。"}}`;
 
 export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConfig, "apiKey" | "baseUrl" | "model">, fetcher: typeof fetch = fetch): Promise<void> {
@@ -193,24 +291,37 @@ export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConf
 
 export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): DeepAgentInvoker {
   const model = new ChatOllama({ model: config.model, baseUrl: config.baseUrl, headers: { Authorization: `Bearer ${config.apiKey}` }, checkOrPullModel: false });
+  const logger = config.logger ?? noopLogger;
+  const now = config.now ?? (() => new Date());
+  const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
+  const middleware = [
+    createFilesystemMiddleware({ tools: ["read_file"] }),
+    createSubAgentMiddleware({ defaultModel: model, defaultTools: [], subagents: [], generalPurposeAgent: false }),
+    createAgentCoreMiddleware(config.toolRegistry, logger, now)
+  ];
+  const factory: ReusableDeepAgentFactory = config.agentFactory ?? ((options) => createDeepAgent({
+    model: options.model,
+    tools: options.tools,
+    systemPrompt: options.systemPrompt,
+    responseFormat: options.responseFormat,
+    contextSchema: options.contextSchema,
+    middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]>
+  }) as unknown as ReusableDeepAgent);
+  const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt, responseFormat: AgentCoreResponseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware });
   return {
     async invoke(input, options) {
-      const toolExecutions: ToolExecutionRecord[] = [];
-      const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, options, toolExecutions, config.now, config.logger);
-      const agent = createDeepAgent({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt });
+      const context = createDeepAgentToolRunContext({
+        agentId: options.agentId,
+        runId: options.runId,
+        eventId: options.eventId,
+        maxToolCalls: options.maxToolCalls,
+        signal: options.signal,
+        ...(options.transport === undefined ? {} : { transport: options.transport })
+      });
       try {
-        const result = await agent.invoke({ messages: [...input.messages] }, options);
-        const messages = result.messages as unknown[];
-        const last = messages.at(-1);
-        const content: unknown = typeof last === "object" && last !== null && "content" in last ? last.content : undefined;
-        const blocks: readonly unknown[] = Array.isArray(content) ? content as unknown[] : [];
-        const text = typeof content === "string" ? content : blocks.flatMap((block): string[] => typeof block === "object" && block !== null && "text" in block && typeof block.text === "string" ? [block.text] : []).join("\n");
-        const fenced = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/iu.exec(text.trim());
-        const json = fenced?.[1]?.trim() ?? text.trim();
-        let structuredResponse: unknown = text;
-        try { structuredResponse = JSON.parse(json); } catch { /* Harness repair receives the invalid text. */ }
-        return { structuredResponse, messages, toolExecutions };
-      } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions } }); }
+        const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
+        return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions: context.collector.executions };
+      } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions } }); }
     }
   };
 }

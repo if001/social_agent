@@ -1,4 +1,4 @@
-import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, createOllamaDeepAgentInvoker, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
@@ -13,12 +13,27 @@ describe("AgentHarness contract", () => {
   });
 
   it("parses structured Deep Agent output", async () => {
-    let prompt = ""; let allowed: ReadonlySet<string> | undefined;
-    const invoker: DeepAgentInvoker = { invoke: (input, options) => { prompt = input.messages[0]?.content ?? ""; allowed = options.allowedToolNames; return Promise.resolve({ structuredResponse: output }); } };
+    let prompt = "";
+    const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
     await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
     expect(prompt).not.toContain("memoryRetrievalTrace");
-    expect(allowed).toEqual(new Set());
+  });
+
+  it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
+    let creations = 0; const calls: { messages: unknown; context: { runId: string; eventId: string } }[] = [];
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", agentFactory: (options) => {
+      creations += 1;
+      expect(options.tools).toHaveLength(0);
+      expect(options.responseFormat).toBeDefined();
+      return { invoke: (input, invokeOptions) => { calls.push({ messages: input.messages, context: invokeOptions.context }); return Promise.resolve({ structuredResponse: output, messages: input.messages }); } };
+    } });
+    const first = agentCoreInputFixture(); first.run.runId = "run-1"; first.run.eventId = "event-1"; first.observation.content = "first-only";
+    const second = agentCoreInputFixture(); second.run.runId = "run-2"; second.run.eventId = "event-2"; second.observation.content = "second-only";
+    const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
+    await harness.run(first, new AbortController().signal); await harness.run(second, new AbortController().signal);
+    expect(creations).toBe(1); expect(calls.map(({ context }) => ({ runId: context.runId, eventId: context.eventId }))).toEqual([{ runId: "run-1", eventId: "event-1" }, { runId: "run-2", eventId: "event-2" }]);
+    expect(JSON.stringify(calls[1]?.messages)).toContain("second-only"); expect(JSON.stringify(calls[1]?.messages)).not.toContain("first-only");
   });
 
   it("passes presentation persona separately from experiential Self", async () => {

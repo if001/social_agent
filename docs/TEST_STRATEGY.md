@@ -242,6 +242,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 
 - DomainのAgentCoreInputを受け取る
 - Bot起動時にTool Registryに存在するToolだけを固定一覧として公開する
+- Deep Agentsが必須とする組み込みToolは最小allowlistだけを公開し、run上限とtraceの対象にする
 - 複数runを処理してもDeep AgentとTool定義の生成が1回である
 - 並行するrun contextのagent / run / event ID、transport、上限、Tool traceが混線しない
 - Tool call / result traceを返す
