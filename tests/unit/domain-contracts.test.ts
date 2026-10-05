@@ -1,4 +1,4 @@
-import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, IntentionSchema, IntentionTriggerSchema, MessageEnvelopeSchema, PostProcessOutputSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, ContinuityOutputSchema, IntentionSchema, IntentionTriggerSchema, MemoryExtractionOutputSchema, MessageEnvelopeSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -54,12 +54,13 @@ describe("domain contracts", () => {
     });
     expect(parsed.internalChanges.immediateStateUpdates[0]?.target).toBe("emotion");
     expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }] } }).success).toBe(false);
-    expect(PostProcessOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }).success).toBe(true);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], intentionProposals: [] }).success).toBe(true);
+    expect(MemoryExtractionOutputSchema.safeParse({ memoryProposals: [] }).success).toBe(true);
   });
 
   it("requires valid existing intention update references", () => {
-    const base = { persistentStateUpdates: [], memoryProposals: [], longTermCandidates: [] };
-    expect(PostProcessOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", reason: "Refined" }] }).success).toBe(false);
-    expect(PostProcessOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", supersededByIntentionId: "j", reason: "Refined" }] }).success).toBe(true);
+    const base = { persistentStateUpdates: [] };
+    expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", reason: "Refined" }] }).success).toBe(false);
+    expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", supersededByIntentionId: "j", reason: "Refined" }] }).success).toBe(true);
   });
 });

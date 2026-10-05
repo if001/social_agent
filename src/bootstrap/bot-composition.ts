@@ -10,7 +10,7 @@ import type { AppConfig } from "../config/config.js";
 import type { RunLimits } from "../domain/contracts.js";
 import { DeepAgentHarness, createOllamaDeepAgentInvoker } from "../infrastructure/agent/deep-agent-harness.js";
 import { LongTermReviewDeepAgentHarness, createOllamaLongTermReviewInvoker } from "../infrastructure/agent/long-term-review-harness.js";
-import { createOllamaPostProcessHarness } from "../infrastructure/agent/post-process-harness.js";
+import { createOllamaPostProcessHarnesses } from "../infrastructure/agent/post-process-harness.js";
 import { OllamaEmbeddingProvider } from "../infrastructure/embedding/ollama-embedding.js";
 import { PostgresAgentContextLoader } from "../infrastructure/persistence/postgres-agent-context-loader.js";
 import { PostgresLongTermReviewRepository } from "../infrastructure/persistence/postgres-long-term-review.js";
@@ -65,7 +65,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     invoker: createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry, logger, now: () => clock.now() }), logger,
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name))
   });
-  const postProcess = new PostProcessService(persistence, createOllamaPostProcessHarness(config.chat), logger);
+  const postProcess = new PostProcessService(persistence, createOllamaPostProcessHarnesses(config.chat), logger);
   const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, postProcess, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
   const reviewRepository = new PostgresLongTermReviewRepository(pool, () => ids.next(), memoryEmbedding);
   const review = new LongTermReviewService(reviewRepository, new LongTermReviewDeepAgentHarness(createOllamaLongTermReviewInvoker(config.chat)));

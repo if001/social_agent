@@ -1,9 +1,9 @@
 import type { Pool, QueryResultRow } from "pg";
 
-import type { PendingOutput, PendingPostProcess, RuntimePersistence } from "../../application/agent-runtime.js";
+import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
 import { StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
-import { canTransitionIntention, DomainError, IntentionTriggerSchema, PostProcessInputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Intention, type Memory, type MessageEnvelope, type PostProcessOutput, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, canTransitionIntention, ContinuityInputSchema, ContinuityOutputSchema, DomainError, IntentionTriggerSchema, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type ContinuityOutput, type DomainEvent, type Intention, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 import { PostgresUnitOfWork } from "./postgres.js";
@@ -58,7 +58,10 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       stateValues: { mood: update.state.mood, drives: update.state.drives, current_interests: update.state.currentInterests },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       toolExecutions: validatedTools,
-      postProcessJob: { id: this.ids.next(), inputStateVersion: input.self.version + 1, payload: { interactionInput: input, interactionResult: result } },
+      postProcessJobs: [
+        { id: this.ids.next(), type: "continuity", inputStateVersion: input.self.version + 1, payload: this.#snapshot(input, result) },
+        { id: this.ids.next(), type: "memory", inputStateVersion: input.self.version + 1, payload: this.#snapshot(input, result) }
+      ],
       outbox: outgoing
     });
     return committed;
@@ -81,52 +84,85 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async markOutboxSent(id: string): Promise<void> { await this.pool.query("UPDATE outbox_messages SET status='sent',sent_at=now() WHERE id=$1", [id]); }
 
-  async claimPostProcess(agentId?: string): Promise<PendingPostProcess | undefined> {
+  async claimPostProcess(agentId?: string, runId?: string, type?: PendingPostProcess["type"]): Promise<PendingPostProcess | undefined> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const result = await client.query<{ id: string; agent_id: string; input_state_version: number; payload: unknown; attempt: number }>(`SELECT id,agent_id,input_state_version,payload,attempt FROM post_process_jobs WHERE status IN ('pending','failed') AND available_at<=now() AND (lease_until IS NULL OR lease_until<now()) ${agentId === undefined ? "" : "AND agent_id=$1"} ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, agentId === undefined ? [] : [agentId]);
+      const values: string[] = []; const filters: string[] = [];
+      if (agentId !== undefined) { values.push(agentId); filters.push(`agent_id=$${String(values.length)}`); }
+      if (runId !== undefined) { values.push(runId); filters.push(`interaction_run_id=$${String(values.length)}`); }
+      if (type !== undefined) { values.push(type); filters.push(`job_type=$${String(values.length)}`); }
+      const result = await client.query<{ id: string; agent_id: string; job_type: "continuity" | "memory" | "candidate"; input_state_version: number; payload: unknown; attempt: number }>(`SELECT id,agent_id,job_type,input_state_version,payload,attempt FROM post_process_jobs WHERE status IN ('pending','failed') AND attempt<2 AND available_at<=now() AND (lease_until IS NULL OR lease_until<now()) ${filters.length === 0 ? "" : `AND ${filters.join(" AND ")}`} ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, values);
       const row = result.rows[0];
       if (row === undefined) { await client.query("COMMIT"); return undefined; }
       await client.query("UPDATE post_process_jobs SET status='processing',attempt=attempt+1,lease_until=now()+interval '5 minutes',updated_at=now() WHERE id=$1", [row.id]);
       await client.query("COMMIT");
-      return { id: row.id, agentId: row.agent_id, inputStateVersion: row.input_state_version, input: PostProcessInputSchema.parse(row.payload), attempt: row.attempt + 1 };
+      const base = { id: row.id, agentId: row.agent_id, inputStateVersion: row.input_state_version, attempt: row.attempt + 1 };
+      if (row.job_type === "continuity") return { ...base, type: "continuity", input: ContinuityInputSchema.parse(row.payload) };
+      if (row.job_type === "memory") return { ...base, type: "memory", input: MemoryExtractionInputSchema.parse(row.payload) };
+      return { ...base, type: "candidate", input: CandidateDetectionInputSchema.parse(row.payload) };
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 
   async completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void> {
-    const input = job.input.interactionInput;
-    const event: DomainEvent = { id: input.run.eventId, agentId: input.run.agentId, kind: input.observation.kind ?? "internal", occurredAt: input.run.occurredAt, payload: {} };
-    const updates = new StateUpdateService().apply(job.agentId, input.dynamicState, output.persistentStateUpdates, input.socialContext, input.run.occurredAt);
-    const materialized = await this.#materialize(event, input, output, job.input.interactionResult.toolExecutions);
-    await this.#transaction.commitPostProcess({ jobId: job.id, runId: input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output, ...materialized });
-    if (materialized.memories.length > 0) await this.memoryEmbedding?.embedMemoryIds(job.agentId, materialized.memories.map(({ id }) => id));
+    if (job.type === "continuity") {
+      const parsed = ContinuityOutputSchema.parse(output); const updates = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext, job.input.run.occurredAt);
+      const intentions = this.#materializeIntentions(job.input, parsed);
+      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed, ...intentions });
+      return;
+    }
+    if (job.type === "memory") {
+      const parsed = MemoryExtractionOutputSchema.parse(output); const memories = await this.#materializeMemories(job.input, parsed);
+      const shouldDetect = memories.memories.some(({ retrievalPriority }) => retrievalPriority === "high" || retrievalPriority === "critical");
+      const candidateInput = shouldDetect ? CandidateDetectionInputSchema.parse({ run: job.input.run, self: job.input.self, memories: memories.memories }) : undefined;
+      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: {}, changes: [], output: parsed, ...memories, ...(candidateInput === undefined ? {} : { candidateJob: { id: this.ids.next(), payload: candidateInput } }) });
+      if (memories.memories.length > 0) await this.memoryEmbedding?.embedMemoryIds(job.agentId, memories.memories.map(({ id }) => id));
+      return;
+    }
+    const parsed = CandidateDetectionOutputSchema.parse(output); const memoryIds = new Set(job.input.memories.map(({ id }) => id));
+    const candidates = [...new Map(parsed.longTermCandidates.map((proposal) => [`${proposal.target}\u0000${proposal.proposal.trim()}`, proposal])).values()].map((proposal): Candidate => {
+      if (proposal.evidenceMemoryIds.length === 0 || proposal.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Candidate evidence must use saved input Memory IDs");
+      return { id: this.ids.next(), agentId: job.agentId, ...proposal, evidenceEventIds: [...new Set([...proposal.evidenceEventIds, job.input.run.eventId])], status: "pending", createdAt: job.input.run.occurredAt };
+    });
+    await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: {}, changes: [], output: parsed, candidates });
   }
 
   async failPostProcess(job: PendingPostProcess, error: unknown): Promise<void> {
-    await this.pool.query("UPDATE post_process_jobs SET status='failed',failure_reason=$2,lease_until=NULL,available_at=now(),updated_at=now() WHERE id=$1", [job.id, error instanceof Error ? error.message : "Post-process failed"]);
+    await this.pool.query("UPDATE post_process_jobs SET status='failed',failure_reason=$2,lease_until=NULL,available_at=now()+interval '1 second',updated_at=now() WHERE id=$1", [job.id, error instanceof Error ? error.message : "Post-process failed"]);
   }
 
-  async #materialize(event: DomainEvent, input: AgentCoreInput, output: PostProcessOutput, toolExecutions: readonly ToolExecutionRecord[]): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[] }> {
-    const occurredAt = event.occurredAt;
-    const uniqueMemoryProposals = [...new Map(output.memoryProposals.map((proposal) => [`${proposal.kind}\u0000${proposal.content.trim()}`, proposal])).values()];
-    const referencedSnapshotIds = [...new Set(uniqueMemoryProposals.flatMap(({ webSnapshotIds }) => webSnapshotIds ?? []))];
-    const toolResultStrings = new Set<string>(); const collectStrings = (value: unknown): void => { if (typeof value === "string") toolResultStrings.add(value); else if (Array.isArray(value)) for (const item of value) collectStrings(item); else if (typeof value === "object" && value !== null) for (const item of Object.values(value)) collectStrings(item); };
-    for (const execution of toolExecutions.filter(({ ok }) => ok)) collectStrings(execution.result);
-    if (referencedSnapshotIds.some((id) => !toolResultStrings.has(id))) throw new DomainError("VALIDATION", "Memory references a Web Snapshot not observed in this run");
+  #snapshot(input: AgentCoreInput, result: AgentRunResult): PostProcessSnapshot {
+    const toolResults = result.toolExecutions.map((execution) => {
+      const snapshotIds: string[] = []; const collect = (value: unknown): void => { if (Array.isArray(value)) value.forEach(collect); else if (typeof value === "object" && value !== null) for (const [key, item] of Object.entries(value)) { if (/snapshotId/i.test(key) && typeof item === "string") snapshotIds.push(item); collect(item); } };
+      collect(execution.result);
+      return { name: execution.name, ok: execution.ok, summary: (execution.ok ? JSON.stringify(execution.result ?? null) : execution.error ?? "Tool failed").slice(0, 2_000), webSnapshotIds: [...new Set(snapshotIds)] };
+    });
+    return { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentObservations: input.recentObservations, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, intentions: input.intentions, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults } };
+  }
+
+  async #materializeMemories(input: PostProcessSnapshot, output: MemoryExtractionOutput): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[] }> {
+    const uniqueMemoryProposals = [...new Map(output.memoryProposals.map((proposal) => [proposal.content.trim(), proposal])).values()];
+    const referencedSnapshotIds = [...new Set(uniqueMemoryProposals.flatMap(({ webSnapshotIds }) => webSnapshotIds))];
+    const observedSnapshotIds = new Set(input.interaction.toolResults.flatMap(({ webSnapshotIds }) => webSnapshotIds));
+    if (referencedSnapshotIds.some((id) => !observedSnapshotIds.has(id))) throw new DomainError("VALIDATION", "Memory references a Web Snapshot not observed in this run");
     if (referencedSnapshotIds.length > 0) {
-      const owned = await this.pool.query<{ id: string }>("SELECT id FROM web_snapshots WHERE agent_id=$1 AND id=ANY($2::text[])", [event.agentId, referencedSnapshotIds]);
+      const owned = await this.pool.query<{ id: string }>("SELECT id FROM web_snapshots WHERE agent_id=$1 AND id=ANY($2::text[])", [input.run.agentId, referencedSnapshotIds]);
       if (owned.rows.length !== referencedSnapshotIds.length) throw new DomainError("VALIDATION", "Memory references a Web Snapshot owned by another Agent or missing");
     }
     const memories: Memory[] = []; const memoryWebEvidence: { memoryId: string; snapshotIds: readonly string[] }[] = [];
     const sourceAgentId = input.observation.actor?.type === "agent" ? input.observation.actor.id : undefined;
-    for (const proposal of uniqueMemoryProposals) { const { webSnapshotIds = [], ...memoryProposal } = proposal; const memory: Memory = { id: this.ids.next(), agentId: event.agentId, occurredAt, createdAt: this.now().toISOString(), ...memoryProposal, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), evidenceEventIds: [...new Set([...proposal.evidenceEventIds, event.id])] }; memories.push(memory); if (webSnapshotIds.length > 0) memoryWebEvidence.push({ memoryId: memory.id, snapshotIds: webSnapshotIds }); }
+    for (const proposal of uniqueMemoryProposals) { const { webSnapshotIds, ...memoryProposal } = proposal; const memory: Memory = { id: this.ids.next(), agentId: input.run.agentId, kind: "episodic", occurredAt: input.run.occurredAt, createdAt: this.now().toISOString(), ...memoryProposal, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), evidenceEventIds: [input.run.eventId] }; memories.push(memory); if (webSnapshotIds.length > 0) memoryWebEvidence.push({ memoryId: memory.id, snapshotIds: webSnapshotIds }); }
+    return { memories, memoryWebEvidence };
+  }
+
+  #materializeIntentions(input: PostProcessSnapshot, output: ContinuityOutput): { readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[] } {
+    const occurredAt = input.run.occurredAt;
     const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
     const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
     for (const proposal of output.intentionProposals) {
       if (proposal.operation === "create") {
         const idleReviewAt = proposal.trigger?.kind === "idle" ? new Date(new Date(occurredAt).getTime() + proposal.trigger.idleForMs).toISOString() : undefined;
-        intentionCreates.push({ id: this.ids.next(), agentId: event.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(proposal.nextReviewAt === undefined && idleReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt ?? idleReviewAt }) });
+        intentionCreates.push({ id: this.ids.next(), agentId: input.run.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(proposal.nextReviewAt === undefined && idleReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt ?? idleReviewAt }) });
       }
       else {
         const current = intentionsById.get(proposal.intentionId); if (current === undefined) throw new DomainError("VALIDATION", `Unknown intention: ${proposal.intentionId}`);
@@ -135,14 +171,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
         intentionUpdates.push({ ...current, description: proposal.description ?? current.description, status, reason: proposal.reason, updatedAt: occurredAt, ...(proposal.nextReviewAt === null ? { nextReviewAt: undefined } : proposal.nextReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt }), ...(proposal.supersededByIntentionId === undefined ? {} : { supersededById: proposal.supersededByIntentionId }) });
       }
     }
-    const memoryIds = new Set(input.memories.map(({ id }) => id));
-    const uniqueCandidateProposals = [...new Map(output.longTermCandidates.map((proposal) => [`${proposal.target}\u0000${proposal.proposal.trim()}`, proposal])).values()];
-    const candidates = uniqueCandidateProposals.map((proposal): Candidate => {
-      if (proposal.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Candidate evidence is absent from input context");
-      const evidenceEventIds = [...new Set([...proposal.evidenceEventIds, event.id])];
-      return { id: this.ids.next(), agentId: event.agentId, ...proposal, evidenceEventIds, status: "pending", createdAt: occurredAt };
-    });
-    return { memories, memoryWebEvidence, intentionCreates, intentionUpdates, candidates };
+    return { intentionCreates, intentionUpdates };
   }
 
   #validateTools(input: AgentCoreInput, executions: readonly ToolExecutionRecord[]): readonly ToolExecutionRecord[] {

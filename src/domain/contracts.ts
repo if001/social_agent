@@ -194,7 +194,7 @@ export const StateUpdateProposalSchema = z.object({
   evidenceIds: z.array(Id)
 });
 
-export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, occurredAt: true, createdAt: true, kind: true, sourceAgentId: true }).extend({ kind: z.literal("episodic"), webSnapshotIds: z.array(Id).optional() });
+export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, occurredAt: true, createdAt: true, kind: true, sourceAgentId: true, evidenceEventIds: true }).extend({ webSnapshotIds: z.array(Id).default([]) });
 
 const CreateIntentionProposalSchema = z.object({
   operation: z.literal("create"),
@@ -266,17 +266,19 @@ export const AgentCoreOutputSchema = z.object({
 });
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
-export const PostProcessOutputSchema = z.object({
+export const ContinuityOutputSchema = z.object({
   persistentStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
     updates.forEach((update, index) => {
-      if (update.target === "emotion" || update.target === "desires") context.addIssue({ code: "custom", path: [index, "target"], message: "Post-process may not update Emotion or Desire" });
+      if (!["mood", "drives", "currentInterests", "socialContext"].includes(update.target)) context.addIssue({ code: "custom", path: [index, "target"], message: "Continuity may update only persistent state" });
     });
   }),
-  memoryProposals: z.array(MemoryProposalSchema),
-  intentionProposals: z.array(IntentionProposalSchema),
-  longTermCandidates: z.array(LongTermCandidateProposalSchema)
+  intentionProposals: z.array(IntentionProposalSchema)
 });
-export type PostProcessOutput = z.infer<typeof PostProcessOutputSchema>;
+export type ContinuityOutput = z.infer<typeof ContinuityOutputSchema>;
+export const MemoryExtractionOutputSchema = z.object({ memoryProposals: z.array(MemoryProposalSchema) });
+export type MemoryExtractionOutput = z.infer<typeof MemoryExtractionOutputSchema>;
+export const CandidateDetectionOutputSchema = z.object({ longTermCandidates: z.array(LongTermCandidateProposalSchema) });
+export type CandidateDetectionOutput = z.infer<typeof CandidateDetectionOutputSchema>;
 
 export const ToolExecutionRecordSchema = z.object({
   callId: Id,
@@ -298,11 +300,30 @@ export type ToolExecutionRecord = z.infer<typeof ToolExecutionRecordSchema>;
 export const AgentRunResultSchema = z.object({ output: AgentCoreOutputSchema, toolExecutions: z.array(ToolExecutionRecordSchema) });
 export type AgentRunResult = z.infer<typeof AgentRunResultSchema>;
 
-export const PostProcessInputSchema = z.object({
-  interactionInput: AgentCoreInputSchema,
-  interactionResult: AgentRunResultSchema
+const PostProcessToolResultSchema = z.object({ name: Id, ok: z.boolean(), summary: NaturalLanguage, webSnapshotIds: z.array(Id) });
+export const PostProcessSnapshotSchema = z.object({
+  run: AgentCoreInputSchema.shape.run.pick({ runId: true, eventId: true, agentId: true, occurredAt: true }),
+  observation: ObservationSchema,
+  recentObservations: z.array(ObservationSchema),
+  persona: BotPersonaSchema.optional(),
+  self: AgentSchema,
+  dynamicState: DynamicStateSchema,
+  socialContext: z.array(SocialContextSchema),
+  memories: z.array(MemorySchema),
+  intentions: z.array(IntentionSchema),
+  interaction: z.object({ interpretation: AgentCoreOutputSchema.shape.interpretation, action: FinalActionSchema, toolResults: z.array(PostProcessToolResultSchema) })
 });
-export type PostProcessInput = z.infer<typeof PostProcessInputSchema>;
+export type PostProcessSnapshot = z.infer<typeof PostProcessSnapshotSchema>;
+export const ContinuityInputSchema = PostProcessSnapshotSchema;
+export type ContinuityInput = z.infer<typeof ContinuityInputSchema>;
+export const MemoryExtractionInputSchema = PostProcessSnapshotSchema;
+export type MemoryExtractionInput = z.infer<typeof MemoryExtractionInputSchema>;
+export const CandidateDetectionInputSchema = z.object({
+  run: PostProcessSnapshotSchema.shape.run,
+  self: AgentSchema,
+  memories: z.array(MemorySchema).min(1)
+});
+export type CandidateDetectionInput = z.infer<typeof CandidateDetectionInputSchema>;
 
 export const MessageEnvelopeSchema = z.object({
   id: Id,
