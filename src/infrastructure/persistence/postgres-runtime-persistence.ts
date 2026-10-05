@@ -1,9 +1,9 @@
 import type { Pool, QueryResultRow } from "pg";
 
-import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
+import type { PendingOutput, PendingPostProcess, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
-import type { StateUpdateResult } from "../../application/state-update-service.js";
-import { canTransitionIntention, DomainError, IntentionTriggerSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Intention, type Memory, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
+import { canTransitionIntention, DomainError, IntentionTriggerSchema, PostProcessInputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Intention, type Memory, type MessageEnvelope, type PostProcessOutput, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 import { PostgresUnitOfWork } from "./postgres.js";
@@ -50,17 +50,17 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
 
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
-    const materialized = await this.#materialize(event, input, result);
+    const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { mood: update.state.mood, drives: update.state.drives, current_interests: update.state.currentInterests },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
-      ...materialized,
+      toolExecutions: validatedTools,
+      postProcessJob: { id: this.ids.next(), inputStateVersion: input.self.version + 1, payload: { interactionInput: input, interactionResult: result } },
       outbox: outgoing
     });
-    if (committed === "committed" && materialized.memories.length > 0) await this.memoryEmbedding?.embedMemoryIds(event.agentId, materialized.memories.map(({ id }) => id));
     return committed;
   }
 
@@ -81,12 +81,38 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async markOutboxSent(id: string): Promise<void> { await this.pool.query("UPDATE outbox_messages SET status='sent',sent_at=now() WHERE id=$1", [id]); }
 
-  async #materialize(event: DomainEvent, input: AgentCoreInput, result: AgentRunResult): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[]; readonly toolExecutions: readonly (ToolExecutionRecord & { readonly id: string })[] }> {
+  async claimPostProcess(agentId?: string): Promise<PendingPostProcess | undefined> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<{ id: string; agent_id: string; input_state_version: number; payload: unknown; attempt: number }>(`SELECT id,agent_id,input_state_version,payload,attempt FROM post_process_jobs WHERE status IN ('pending','failed') AND available_at<=now() AND (lease_until IS NULL OR lease_until<now()) ${agentId === undefined ? "" : "AND agent_id=$1"} ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, agentId === undefined ? [] : [agentId]);
+      const row = result.rows[0];
+      if (row === undefined) { await client.query("COMMIT"); return undefined; }
+      await client.query("UPDATE post_process_jobs SET status='processing',attempt=attempt+1,lease_until=now()+interval '5 minutes',updated_at=now() WHERE id=$1", [row.id]);
+      await client.query("COMMIT");
+      return { id: row.id, agentId: row.agent_id, inputStateVersion: row.input_state_version, input: PostProcessInputSchema.parse(row.payload), attempt: row.attempt + 1 };
+    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+  }
+
+  async completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void> {
+    const input = job.input.interactionInput;
+    const event: DomainEvent = { id: input.run.eventId, agentId: input.run.agentId, kind: input.observation.kind ?? "internal", occurredAt: input.run.occurredAt, payload: {} };
+    const updates = new StateUpdateService().apply(job.agentId, input.dynamicState, output.persistentStateUpdates, input.socialContext, input.run.occurredAt);
+    const materialized = await this.#materialize(event, input, output, job.input.interactionResult.toolExecutions);
+    await this.#transaction.commitPostProcess({ jobId: job.id, runId: input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output, ...materialized });
+    if (materialized.memories.length > 0) await this.memoryEmbedding?.embedMemoryIds(job.agentId, materialized.memories.map(({ id }) => id));
+  }
+
+  async failPostProcess(job: PendingPostProcess, error: unknown): Promise<void> {
+    await this.pool.query("UPDATE post_process_jobs SET status='failed',failure_reason=$2,lease_until=NULL,available_at=now(),updated_at=now() WHERE id=$1", [job.id, error instanceof Error ? error.message : "Post-process failed"]);
+  }
+
+  async #materialize(event: DomainEvent, input: AgentCoreInput, output: PostProcessOutput, toolExecutions: readonly ToolExecutionRecord[]): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[]; readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[]; readonly candidates: readonly Candidate[] }> {
     const occurredAt = event.occurredAt;
-    const uniqueMemoryProposals = [...new Map(result.output.internalChanges.memoryProposals.map((proposal) => [`${proposal.kind}\u0000${proposal.content.trim()}`, proposal])).values()];
+    const uniqueMemoryProposals = [...new Map(output.memoryProposals.map((proposal) => [`${proposal.kind}\u0000${proposal.content.trim()}`, proposal])).values()];
     const referencedSnapshotIds = [...new Set(uniqueMemoryProposals.flatMap(({ webSnapshotIds }) => webSnapshotIds ?? []))];
     const toolResultStrings = new Set<string>(); const collectStrings = (value: unknown): void => { if (typeof value === "string") toolResultStrings.add(value); else if (Array.isArray(value)) for (const item of value) collectStrings(item); else if (typeof value === "object" && value !== null) for (const item of Object.values(value)) collectStrings(item); };
-    for (const execution of result.toolExecutions.filter(({ ok }) => ok)) collectStrings(execution.result);
+    for (const execution of toolExecutions.filter(({ ok }) => ok)) collectStrings(execution.result);
     if (referencedSnapshotIds.some((id) => !toolResultStrings.has(id))) throw new DomainError("VALIDATION", "Memory references a Web Snapshot not observed in this run");
     if (referencedSnapshotIds.length > 0) {
       const owned = await this.pool.query<{ id: string }>("SELECT id FROM web_snapshots WHERE agent_id=$1 AND id=ANY($2::text[])", [event.agentId, referencedSnapshotIds]);
@@ -97,7 +123,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     for (const proposal of uniqueMemoryProposals) { const { webSnapshotIds = [], ...memoryProposal } = proposal; const memory: Memory = { id: this.ids.next(), agentId: event.agentId, occurredAt, createdAt: this.now().toISOString(), ...memoryProposal, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), evidenceEventIds: [...new Set([...proposal.evidenceEventIds, event.id])] }; memories.push(memory); if (webSnapshotIds.length > 0) memoryWebEvidence.push({ memoryId: memory.id, snapshotIds: webSnapshotIds }); }
     const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
     const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
-    for (const proposal of result.output.internalChanges.intentionProposals) {
+    for (const proposal of output.intentionProposals) {
       if (proposal.operation === "create") {
         const idleReviewAt = proposal.trigger?.kind === "idle" ? new Date(new Date(occurredAt).getTime() + proposal.trigger.idleForMs).toISOString() : undefined;
         intentionCreates.push({ id: this.ids.next(), agentId: event.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(proposal.nextReviewAt === undefined && idleReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt ?? idleReviewAt }) });
@@ -110,13 +136,13 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       }
     }
     const memoryIds = new Set(input.memories.map(({ id }) => id));
-    const uniqueCandidateProposals = [...new Map(result.output.internalChanges.longTermCandidates.map((proposal) => [`${proposal.target}\u0000${proposal.proposal.trim()}`, proposal])).values()];
+    const uniqueCandidateProposals = [...new Map(output.longTermCandidates.map((proposal) => [`${proposal.target}\u0000${proposal.proposal.trim()}`, proposal])).values()];
     const candidates = uniqueCandidateProposals.map((proposal): Candidate => {
       if (proposal.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Candidate evidence is absent from input context");
       const evidenceEventIds = [...new Set([...proposal.evidenceEventIds, event.id])];
       return { id: this.ids.next(), agentId: event.agentId, ...proposal, evidenceEventIds, status: "pending", createdAt: occurredAt };
     });
-    return { memories, memoryWebEvidence, intentionCreates, intentionUpdates, candidates, toolExecutions: this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() })) };
+    return { memories, memoryWebEvidence, intentionCreates, intentionUpdates, candidates };
   }
 
   #validateTools(input: AgentCoreInput, executions: readonly ToolExecutionRecord[]): readonly ToolExecutionRecord[] {

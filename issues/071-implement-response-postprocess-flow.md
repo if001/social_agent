@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-05
-status: created
+status: done
 ---
 
 # 071: 応答・即時状態とPost-processを分離して実装する
@@ -68,3 +68,12 @@ status: created
 - [Concept design: 基本的なAgent Loop](../spec/personal-agent-concept-design-restructured-v2.md#21-基本的なagent-loop)
 - [Implementation design: Short-term Update と Long-term Update](../spec/personal-agent-implementation-design-v2.md#21-short-term-update-と-long-term-update)
 
+## Result
+
+- Interactionの構造化出力を最終行動、主観的意味づけ、Emotion / Desireの即時更新だけに縮小した
+- Deep AgentとTool loopはInteractionだけで使用し、Post-processはToolなしの単一構造化LLM呼び出しとして分離した
+- Interaction transactionでEvent、run、即時状態変更、Tool記録、Outbox、Post-process jobを一括保存するようにした
+- `post_process_jobs` を追加し、claim、lease、失敗記録、再試行、完了を永続化した。同一AgentのRuntimeはPost-process完了まで次Eventを直列待機し、Outbox配送は独立して進む
+- Post-processでMood、Drive、Current Interest、Working Social Context、Episodic Memory、Intention、Long-term Candidateを保存し、Web Snapshot根拠とMemory embeddingを維持した
+- Drizzle migration `0001_deep_major_mapleleaf.sql` を生成・適用した
+- typecheck、lint、build、unit/contract 82件、system 17件、evaluation 6件、PostgreSQL integration 23件が成功した

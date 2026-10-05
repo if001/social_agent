@@ -3,7 +3,7 @@ import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harne
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 
-const output: AgentCoreOutput = { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }, action: { type: "respond", content: "Hello" } };
+const output: AgentCoreOutput = { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "Hello" } };
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
@@ -45,7 +45,7 @@ describe("AgentHarness contract", () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを根拠に状態更新");
+    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを根拠にEmotionやDesire");
   });
 
   it("repairs invalid output once and then stops", async () => {
@@ -64,19 +64,18 @@ describe("AgentHarness contract", () => {
     expect(called).toBe(false);
   });
 
-  it("repairs proposals that reference context records which do not exist", async () => {
+  it("rejects persistent state proposals in the Interaction output", async () => {
     const invalid = structuredClone(output);
-    invalid.internalChanges.intentionProposals.push({ operation: "update", intentionId: "missing", status: "completed", reason: "Done" });
+    invalid.internalChanges.immediateStateUpdates.push({ target: "mood", operation: "set", value: "calm", reason: "test", evidenceIds: [] });
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
     expect(calls).toBe(2);
   });
 
-  it("repairs state and Memory proposals with invented evidence", async () => {
+  it("repairs immediate state proposals with invented evidence", async () => {
     const invalid = structuredClone(output);
-    invalid.internalChanges.transientStateUpdates.push({ target: "mood", operation: "set", value: "calm", reason: "test", evidenceIds: ["foreign-event"] });
-    invalid.internalChanges.memoryProposals.push({ kind: "episodic", content: "invented", relatedSubjectIds: [], relatedIntentionIds: [], importance: "test", retrievalPriority: "normal", evidenceEventIds: ["foreign-event"] });
+    invalid.internalChanges.immediateStateUpdates.push({ target: "emotion", operation: "set", value: "calm", reason: "test", evidenceIds: ["foreign-event"] });
     let calls = 0; const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
     expect(calls).toBe(2);
@@ -100,12 +99,10 @@ describe("AgentHarness contract", () => {
     await expect(checkOllamaChatCapability({ baseUrl: "https://ollama.example", apiKey: "secret", model: "missing" }, fetcher)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("describes the purpose, inputs and complete proposal output in Japanese", () => {
+  it("describes the Interaction purpose and immediate output in Japanese", () => {
     expect(agentCoreSystemPrompt).toContain("目的:");
-    expect(agentCoreSystemPrompt).toContain("memoryProposals");
-    expect(agentCoreSystemPrompt).toContain("kindはepisodicだけ");
-    expect(agentCoreSystemPrompt).toContain("semanticMemory | selfRelatedMemory");
-    expect(agentCoreSystemPrompt).toContain("保存用ID");
+    expect(agentCoreSystemPrompt).toContain("immediateStateUpdates");
+    expect(agentCoreSystemPrompt).toContain("EmotionとDesire");
     expect(agentCoreSystemPrompt).toContain("空配列[]");
     expect(agentCoreSystemPrompt).toContain("Expectationは独立保存せず");
   });

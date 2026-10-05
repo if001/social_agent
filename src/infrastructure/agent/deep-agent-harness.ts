@@ -47,30 +47,9 @@ function errorToolExecutions(error: unknown): readonly ToolExecutionRecord[] {
 }
 function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["output"]): ProposalIssue[] {
   const memoryIds = new Set(input.memories.map(({ id }) => id));
-  const intentionIds = new Set(input.intentions.map(({ id }) => id));
   const issues: ProposalIssue[] = [];
-  output.internalChanges.memoryProposals.forEach((proposal, index) => {
-    proposal.relatedIntentionIds.forEach((id) => {
-      if (!intentionIds.has(id)) issues.push({ code: "invalid_reference", path: ["internalChanges", "memoryProposals", index, "relatedIntentionIds"], message: `Unknown intention reference: ${id}` });
-    });
-  });
-  output.internalChanges.intentionProposals.forEach((proposal, index) => {
-    if (proposal.operation === "update" && !intentionIds.has(proposal.intentionId)) issues.push({ code: "invalid_reference", path: ["internalChanges", "intentionProposals", index, "intentionId"], message: `Unknown intention reference: ${proposal.intentionId}` });
-    if (proposal.operation === "update" && proposal.supersededByIntentionId !== undefined && !intentionIds.has(proposal.supersededByIntentionId)) issues.push({ code: "invalid_reference", path: ["internalChanges", "intentionProposals", index, "supersededByIntentionId"], message: `Unknown intention reference: ${proposal.supersededByIntentionId}` });
-  });
-  output.internalChanges.longTermCandidates.forEach((proposal, index) => {
-    proposal.evidenceMemoryIds.forEach((id) => {
-      if (!memoryIds.has(id)) issues.push({ code: "invalid_reference", path: ["internalChanges", "longTermCandidates", index, "evidenceMemoryIds"], message: `Unknown Memory reference: ${id}` });
-    });
-    proposal.evidenceEventIds.forEach((id) => {
-      if (id !== input.run.eventId) issues.push({ code: "invalid_reference", path: ["internalChanges", "longTermCandidates", index, "evidenceEventIds"], message: `Unknown Event reference: ${id}` });
-    });
-  });
-  output.internalChanges.transientStateUpdates.forEach((proposal, index) => { proposal.evidenceIds.forEach((id) => {
-    if (id !== input.run.eventId && !memoryIds.has(id)) issues.push({ code: "invalid_reference", path: ["internalChanges", "transientStateUpdates", index, "evidenceIds"], message: `Unknown evidence reference: ${id}` });
-  }); });
-  output.internalChanges.memoryProposals.forEach((proposal, index) => { proposal.evidenceEventIds.forEach((id) => {
-    if (id !== input.run.eventId) issues.push({ code: "invalid_reference", path: ["internalChanges", "memoryProposals", index, "evidenceEventIds"], message: `Unknown Event reference: ${id}` });
+  output.internalChanges.immediateStateUpdates.forEach((proposal, index) => { proposal.evidenceIds.forEach((id) => {
+    if (id !== input.run.eventId && !memoryIds.has(id)) issues.push({ code: "invalid_reference", path: ["internalChanges", "immediateStateUpdates", index, "evidenceIds"], message: `Unknown evidence reference: ${id}` });
   }); });
   return issues;
 }
@@ -93,7 +72,7 @@ export class DeepAgentHarness implements AgentHarness {
         const promptInput = { ...input, memoryRetrievalTrace: undefined };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
-          : JSON.stringify({ instruction: "元の入力に対する回答をAgentCoreOutputSchemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、AgentCoreOutput以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
+          : JSON.stringify({ instruction: "元の入力に対する回答をInteraction出力Schemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、Interaction出力以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
         const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
@@ -280,10 +259,10 @@ export function summarizeModelResponse(response: unknown): { readonly outputType
   };
 }
 
-export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を持つソーシャルエージェントの通常Agent Coreです。
+export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を持つソーシャルエージェントのInteraction Agentです。
 
 目的:
-入力されたObservationをSelf、現在状態、Social Context、Memory、Active Intentionに照らして主観的に意味づけ、必要な内部変更を「提案」し、そのrunの最終行動を1つ選びます。保存やToolの機械的制約はRuntimeが担当します。
+入力されたObservationを既存状態と経験に照らして意味づけ、必要ならToolを使い、その場のEmotion・Desireと最終行動を一貫して決めます。持続状態やMemoryの整理は応答後のPost-processが担当します。
 
 入力:
 - run: run、Event、対象Agent、発生時刻
@@ -298,35 +277,25 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - availableTools: このrunで利用可能なTool
 - runtimeConstraintsとlimits: 必ず守る実行制約
 
-最終出力は、提供された構造化出力専用Toolをちょうど1回呼び出し、その引数として次のAgentCoreOutputを渡します。通常の本文やMarkdownのJSONとして返しません:
+最終出力は、提供された構造化出力専用Toolをちょうど1回呼び出し、その引数として次のInteraction出力を渡します。通常の本文やMarkdownのJSONとして返しません:
 - interpretation.subjectiveMeaning: 今回のEventがこのAgentにとって持つ意味。意味づけが不要な場合だけ省略できます
-- internalChanges.transientStateUpdates: Emotion、Mood、Drive、Desire、Current Interest、Working Social Contextの更新提案。targetはemotion | mood | drives | desires | currentInterests | socialContextです。EmotionとMoodはset、複数項目はset | append | removeを使います。Driveのvalueにはdescription文字列だけを返し、sourceEvidenceIdsとsinceはRuntimeがevidenceIdsとEvent時刻から付与します。Social Contextのset/append値はsubjectId、subjectType（user | agent | team | project | organization）、descriptionを持ちます。EmotionとDesireは今回のrunの解釈とActionにだけ使われ、監査記録には残りますが次のEventへ永続化されません。継続させる必要がある内容はMood、DriveまたはIntentionとして別に提案します。各要素はvalue、reason、evidenceIdsも持ちます
-- internalChanges.memoryProposals: 今回のEventで生じ、後の判断を変え得る具体的な出来事だけを保存するEpisodic Memory提案。kindはepisodicだけです。Web本文をMemoryへ複製せず「何を調べ、何を確認したか」という経験の概要にし、根拠ページはwebSnapshotIdsで参照します。約束、予定、決定、感情的・関係上重要な出来事、重要なTool結果、Intentionの変化がなければ空配列にします。各要素はcontent、relatedSubjectIds、relatedIntentionIds、自然言語のimportance、検索上の限定値retrievalPriority（low | normal | high | critical）、evidenceEventIds、webSnapshotIdsも持ちます。送信元Agent IDはRuntimeがObservationから付与するため生成しません
-- internalChanges.intentionProposals: Intention提案。新規はoperation=create、description、reason、任意のtriggerとnextReviewAtを持ちます。triggerは指定時刻の{kind:"time",at}、関連Eventの{kind:"event",eventKinds,keywords}、無活動時間の{kind:"idle",idleForMs}、明示確認の{kind:"manual-review"}のいずれかです。既存更新はoperation=update、入力に存在するintentionId、reasonと変更項目を持ち、statusを変える場合はactive | completed | dropped | supersededのいずれかです
-- internalChanges.longTermCandidates: 後でReviewする候補。targetはselfNarrative | selfContinuity | values | acquiredDisposition | role | raisonDetre | longTermPreference | longTermInterest | semanticMemory | selfRelatedMemoryのいずれかです。長期Self、安定した知識、自己認識を通常runで確定せず候補にします。各要素はproposal、reason、evidenceMemoryIds、evidenceEventIdsを持ち、根拠を少なくとも1件指定します
+- internalChanges.immediateStateUpdates: 今回の応答判断に直接関係するEmotionとDesireだけの更新提案。targetはemotionまたはdesiresです。Emotionはset、Desireはset | append | removeを使い、value、reason、evidenceIdsを持ちます。不要なら空配列にします
 - action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-actionはreasonを持ちます。Tool利用はreasoning中に行い、最終actionへtoolを返しません
 
 時間スケール:
-- Expectationは今回の入力から導出します。持続させる必要がある期待だけを、その意味に応じてIntention、Social ContextまたはMemoryとして提案します
 - Emotionと各Desireは今回のEventに対する短期状態であり、次回入力には引き継がれません
-- Mood、各Drive、Current Interest、Intention、Social Contextは次のEventにも影響させる必要がある場合だけ更新します
-- Self NarrativeとAcquired Dispositionを通常Eventから直接更新しません。十分な根拠がある場合だけlongTermCandidatesへ提案します
-- observationがstate-review Internal Eventの場合、時間が経過しても現在のMood、Drive、Current Interestを維持する意味があるかを再評価します。変化させる根拠がなければ更新せず、失効した項目だけremoveします
-- observationがmemory-recall Internal Eventの場合、入力された関連Memoryが現在のSelf、Mood、Drive、Intention、Social Contextにとって持つ意味を再評価します。過去のEmotionをそのまま復元せず、現在の根拠がある場合だけ状態変更やActionを提案します
+- Mood、Drive、Current Interest、Social Context、Memory、Intention、Long-term Candidateは出力しません
 
 制約:
-- personaがある場合はrespondの表現へ反映します。personaだけを根拠に状態更新、Memory、Intention、longTermCandidateを提案しません
+- personaがある場合はrespondの表現へ反映します。personaだけを根拠にEmotionやDesireを提案しません
 - 入力にない事実を作りません
-- MemoryやIntentionのIDを根拠・更新対象に使う場合は入力に存在するIDだけを使います
 - 他Agentから聞いた情報を対象Agent自身の直接経験として扱いません
-- 直近の対話は今回の出来事の文脈解決に使い、同じ出来事を別のMemoryとして繰り返し提案しません
-- 全状態を毎回変更せず、不要な各提案配列は空配列[]にします
-- 新規Memory、Intention、Candidateに保存用ID、所有Agent ID、作成時刻、statusを生成しません
+- 全状態を毎回変更せず、不要ならimmediateStateUpdatesは空配列[]にします
 - 状態変更は提案であり、保存済みだと主張しません
 - 最終回答では通常の説明文を返さず、構造化出力専用Toolだけを呼び出します
 
 構造化出力専用Toolへ渡す最小引数例:
-{"interpretation":{"subjectiveMeaning":"挨拶を受け、穏やかな交流の始まりだと受け取った"},"internalChanges":{"transientStateUpdates":[],"memoryProposals":[],"intentionProposals":[],"longTermCandidates":[]},"action":{"type":"respond","content":"こんにちは。今日は何について話しましょうか。"}}`;
+{"interpretation":{"subjectiveMeaning":"挨拶を受け、穏やかな交流の始まりだと受け取った"},"internalChanges":{"immediateStateUpdates":[]},"action":{"type":"respond","content":"こんにちは。今日は何について話しましょうか。"}}`;
 
 export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConfig, "apiKey" | "baseUrl" | "model">, fetcher: typeof fetch = fetch): Promise<void> {
   let response: Response;

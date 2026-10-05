@@ -40,6 +40,9 @@ export { PostgresAgentContextLoader, observationFromEvent } from "./infrastructu
 export type { ContextBudget, ContextSource } from "./application/context-builder.js";
 export { AgentRuntime, OutboxDispatcher } from "./application/agent-runtime.js";
 export type { AgentRuntimeOptions, PendingOutput, RuntimePersistence } from "./application/agent-runtime.js";
+export { PostProcessService } from "./application/post-process.js";
+export { createOllamaPostProcessHarness, postProcessSystemPrompt } from "./infrastructure/agent/post-process-harness.js";
+export type { OllamaPostProcessConfig, PostProcessHarness } from "./infrastructure/agent/post-process-harness.js";
 export { AgentEventRouter } from "./application/agent-event-router.js";
 export { RuntimeEventPublisher } from "./application/runtime-event-publisher.js";
 export { TerminalAdapter } from "./infrastructure/ui/terminal-adapter.js";

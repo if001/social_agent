@@ -1,4 +1,4 @@
-import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, IntentionSchema, IntentionTriggerSchema, MessageEnvelopeSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, IntentionSchema, IntentionTriggerSchema, MessageEnvelopeSchema, PostProcessOutputSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -46,26 +46,20 @@ describe("domain contracts", () => {
     expect(AgentCoreInputSchema.safeParse({ ...input, memories: [{ id: "m", agentId: "agent-b", kind: "episodic", content: "Other experience", occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-02T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", evidenceEventIds: [] }] }).success).toBe(false);
   });
 
-  it("accepts semantic proposals without persistence-owned metadata", () => {
+  it("separates immediate Interaction state from persistent Post-process proposals", () => {
     const parsed = AgentCoreOutputSchema.parse({
       interpretation: { subjectiveMeaning: "A meaningful event" },
-      internalChanges: {
-        transientStateUpdates: [],
-        memoryProposals: [{ kind: "episodic", content: "The user shared a preference", relatedSubjectIds: ["user"], relatedIntentionIds: [], importance: "Useful later", evidenceEventIds: ["event-1"] }],
-        intentionProposals: [{ operation: "create", description: "Follow up later", reason: "The question remains open" }],
-        longTermCandidates: [{ target: "selfNarrative", proposal: "I increasingly value follow-through", reason: "Repeated evidence", evidenceMemoryIds: ["memory-1"] }]
-      },
+      internalChanges: { immediateStateUpdates: [{ target: "emotion", operation: "set", value: "interested", reason: "Useful exchange", evidenceIds: ["event-1"] }] },
       action: { type: "respond", content: "Understood" }
     });
-    expect(parsed.internalChanges.memoryProposals[0]).not.toHaveProperty("id");
-    expect(parsed.internalChanges.intentionProposals[0]).not.toHaveProperty("createdAt");
-    expect(parsed.internalChanges.longTermCandidates[0]).not.toHaveProperty("status");
-    expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { ...parsed.internalChanges, memoryProposals: [{ ...parsed.internalChanges.memoryProposals[0], kind: "semantic" }] } }).success).toBe(false);
+    expect(parsed.internalChanges.immediateStateUpdates[0]?.target).toBe("emotion");
+    expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }] } }).success).toBe(false);
+    expect(PostProcessOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], memoryProposals: [], intentionProposals: [], longTermCandidates: [] }).success).toBe(true);
   });
 
   it("requires valid existing intention update references", () => {
-    const base = { interpretation: {}, internalChanges: { transientStateUpdates: [], memoryProposals: [], longTermCandidates: [] }, action: { type: "no-action", reason: "No action" } };
-    expect(AgentCoreOutputSchema.safeParse({ ...base, internalChanges: { ...base.internalChanges, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", reason: "Refined" }] } }).success).toBe(false);
-    expect(AgentCoreOutputSchema.safeParse({ ...base, internalChanges: { ...base.internalChanges, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", supersededByIntentionId: "j", reason: "Refined" }] } }).success).toBe(true);
+    const base = { persistentStateUpdates: [], memoryProposals: [], longTermCandidates: [] };
+    expect(PostProcessOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", reason: "Refined" }] }).success).toBe(false);
+    expect(PostProcessOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", supersededByIntentionId: "j", reason: "Refined" }] }).success).toBe(true);
   });
 });

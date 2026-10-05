@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
 import { StateUpdateService, type StateUpdateResult } from "./state-update-service.js";
-import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
+import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type PostProcessInput, type PostProcessOutput, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
@@ -14,6 +14,7 @@ const IncomingPayload = z.discriminatedUnion("type", [
 ]);
 
 export type PendingOutput = { readonly envelope: MessageEnvelope };
+export type PendingPostProcess = { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly input: PostProcessInput; readonly attempt: number };
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput>;
@@ -23,9 +24,12 @@ export interface RuntimePersistence {
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
+  claimPostProcess(agentId?: string): Promise<PendingPostProcess | undefined>;
+  completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void>;
+  failPostProcess(job: PendingPostProcess, error: unknown): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly postProcess?: { processAgent(agentId: string, signal: AbortSignal): Promise<void> }; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
 
 export class AgentRuntime {
   readonly #updates = new StateUpdateService();
@@ -89,12 +93,13 @@ export class AgentRuntime {
       throw error;
     }
     const output = result.output;
-    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.internalChanges.transientStateUpdates.length, memoryProposalCount: output.internalChanges.memoryProposals.length, intentionProposalCount: output.internalChanges.intentionProposals.length, longTermCandidateCount: output.internalChanges.longTermCandidates.length });
-    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.transientStateUpdates, input.socialContext, event.occurredAt);
+    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.internalChanges.immediateStateUpdates.length });
+    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.immediateStateUpdates, input.socialContext, event.occurredAt);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
     if (committed === "committed") await this.options.persistence.activateTriggers(event);
+    if (committed === "committed" && this.options.postProcess !== undefined) await this.options.postProcess.processAgent(event.agentId, signal);
     return output.action;
   }
 }
