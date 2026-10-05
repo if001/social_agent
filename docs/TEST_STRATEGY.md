@@ -124,9 +124,9 @@ Testcontainersまたは同等の再現可能な方法を優先する。外部に
 
 ### 6.1 Scripted Agent Harness
 
-`AgentHarness`のfakeは、入力EventやScenario stepに応じて事前定義した`AgentCoreOutput`を返す。次を明示的に発生させられるようにする。
+`InteractionHarness`のfakeは、入力EventやScenario stepに応じて事前定義したInteraction Outputを返す。`PostProcessHarness`のfakeは固定経験から持続状態・Memory・Intention・Candidateの提案を返す。次を明示的に発生させられるようにする。
 
-- 正常な状態更新、Memory、Intention、Candidate
+- Interactionの応答・Emotion・Desireと、Post-processの持続状態、Memory、Intention、Candidate
 - Tool callとTool Result後の再推論
 - 不正Schema、未知のTool、変更禁止target
 - timeout、例外、修復成功、修復失敗
@@ -281,10 +281,12 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 
 ### 9.2 PersistenceとTransaction
 
-- Event、run、State、Memory、Intention、Candidate、receiptをatomicにcommitする
-- 途中で例外を発生させると全更新がrollbackされる
-- outbox rowとDomain更新が同じtransactionに入る
+- Interaction commitがEvent、Interaction run、Emotion、Desire、Tool trace、Post-process job、receipt、outboxをatomicにcommitする
+- Post-process commitが持続状態、Memory、Intention、Candidateをatomicにcommitする
+- 各commitの途中で例外を発生させるとそのcommitの更新がrollbackされる
+- Interactionのoutbox rowとPost-process jobが同じtransactionに入る
 - outbox publish後のcrashを再現しても同じMessage IDで再送される
+- Post-process失敗時も応答を重複配送せず、固定入力でjobだけを再試行する
 - receipt unique constraintにより重複Messageの状態更新が1回だけ行われる
 - `agent_states.version`競合時に古い更新を適用しない
 
