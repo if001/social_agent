@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-05
-status: created
+status: done
 ---
 
 # 067: Deep Agentを起動時に構築しrun contextで再利用する
@@ -15,9 +15,10 @@ BotがCapabilityとして利用可能なToolの定義、入力Schema、公開範
 
 - `createDeepAgent()`、Model、Tool定義をBot起動時のcompositionで一度だけ構築する
 - Botごとに公開するTool一覧を起動時に確定し、各runで同じToolインスタンスを再利用する
+- Deep Agentsが必須とする組み込みToolを最小allowlistへ限定し、登録Toolと同じrun上限・traceを適用する
 - `agentId`、`runId`、`eventId`、AbortSignal、Tool call上限、transportなどをrun contextで渡す
 - Tool実行の許可確認、回数制限、trace収集をcontext対応のToolまたはMiddlewareへ移す
-- Agent Core出力SchemaをDeep Agentの`responseFormat`へ設定し、自由形式JSONの後段parse依存を除去する
+- Agent Core出力SchemaをDeep Agentの`responseFormat`へTool Strategyとして設定し、自由形式JSONの後段parse依存を除去する
 - docsで定義した`beforeAgent`、`wrapToolCall`、`afterAgent`の責務に従ってMiddlewareを実装する
 - Agent生成回数と各Model attemptの時間を観測できる既存logを維持する
 
@@ -31,12 +32,13 @@ BotがCapabilityとして利用可能なToolの定義、入力Schema、公開範
 ## Implementation notes
 
 - Toolの名称、説明、入力Schema、実装へのbindingはBot起動時に固定する。
+- Deep Agents 1.14.1で必須の`read_file`は仮想state backendだけへ限定し、他の組み込みFilesystem Toolと汎用Subagentを公開しない。
 - Toolカタログの固定を、Tool利用条件やActionの固定対応表として扱わない。Agent自身のDriveやDesireからの自律的なTool選択を維持する。
 - run固有情報をmodule globalや共有可変closureへ置かず、Deep Agentの`contextSchema`とLangChain Middlewareのruntime contextから取得する。
 - 同時runが発生してもID、上限、transport、Tool traceが混線しない構造にする。
 - 共有Agentインスタンスが並行呼び出しに対して安全であることと、同一個体のEventを無秩序に並列処理することは区別する。同一個体の状態確定はEvent順序と既存のRuntime／DB境界を守る。
 - Agentの再利用によって前runのmessagesやDomain stateを暗黙に継承しない。各Eventの入力はContext BuilderがPostgreSQLを正本として組み立てる。
-- `responseFormat`で返る`structuredResponse`をDomain schemaで再検証し、参照整合性などprovider schemaで表現できない検証はHarnessに残す。
+- `responseFormat`で返る`structuredResponse`をDomain schemaで再検証し、参照整合性など出力Schemaで表現できない検証はHarnessに残す。Ollamaではprovider-native strategyではなくSchema付きTool Strategyを利用する。
 - Tool loopはDeep Agent内部に維持し、RuntimeがTool actionを再実行しない。
 - docsは`spec/`を一次情報として、起動時構成とrun時contextの境界を明示する。
 
@@ -77,3 +79,13 @@ BotがCapabilityとして利用可能なToolの定義、入力Schema、公開範
 - [Implementation design: Agent Core / Tool Loop](../spec/personal-agent-implementation-design-v2.md#26-tool-loop)
 - [Implementation plan: IP-07 Agent Harness](../docs/IMPLEMENTATION_PLAN.md#ip-07-agent-harnessdeep-agents-adapter)
 - [Implementation plan: IP-10 Tool Loop](../docs/IMPLEMENTATION_PLAN.md#ip-10-tool-registryweb-toolfile-tooltool-loop)
+
+## Result
+
+- `createDeepAgent()`、Model、Tool定義をinvoker生成時に一度だけ構築し、複数runで同じAgentとToolインスタンスを再利用する構成へ変更した。
+- run固有のID、AbortSignal、Tool上限、transport、trace collectorをLangChainのruntime contextで渡し、並行するrun間で実行記録が混線しないことを確認した。
+- Agent Core入力のTool一覧と起動時に登録したTool一覧を照合し、稼働中にTool定義が変わる入力を永続化前に拒否するようにした。
+- Deep Agents 1.14.1が必要とする`read_file`だけを仮想state backend向けに残し、他のFilesystem Toolと汎用Subagentを無効化した。`read_file`にもrun単位の上限とtraceを適用した。
+- Agent Core出力をSchema付きTool Strategyの`structuredResponse`から取得し、自由形式JSONやMarkdown fenceの後段parseを削除した。
+- EV-01を1シナリオ・1回でLive実行し、hard checkとsemantic evaluationの両方が成功した。Agent Coreは2 runで62,169msと39,776ms、評価器は195,670msだった。
+- lint、typecheck、通常テスト80件、system test 17件、evaluation test 6件が成功した。

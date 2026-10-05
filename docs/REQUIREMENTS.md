@@ -258,7 +258,7 @@ Role、長期Interest、長期Preferenceの更新結果は統合後の配列全�
 
 #### FR-TL-01: Tool登録
 
-Agentが利用できるToolはシステム構成で明示的に登録し、Bot起動時に固定のTool一覧としてDeep Agentへ渡さなければならない。AgentまたはLLMが実行中に未知のToolを追加してはならず、EventごとにTool一覧またはDeep Agentを再構築してはならない。Tool一覧の固定は利用判断の固定を意味せず、実際に使うToolとその業務入力は各EventでAgent Coreが内部状態と文脈から判断しなければならない。
+Agentが利用できるToolはシステム構成で明示的に登録し、Bot起動時に固定のTool一覧としてDeep Agentへ渡さなければならない。Deep Agentsが動作上必須とする組み込みToolは明示的な最小allowlistへ限定し、同じ実行上限とtraceを適用しなければならない。AgentまたはLLMが実行中に未知のToolを追加してはならず、EventごとにTool一覧またはDeep Agentを再構築してはならない。Tool一覧の固定は利用判断の固定を意味せず、実際に使うToolとその業務入力は各EventでAgent Coreが内部状態と文脈から判断しなければならない。
 
 #### FR-TL-02: 承認方針
 
@@ -372,7 +372,7 @@ Agentを一から構築するより、Tool Loop、状態または実行制御等
 
 ### NFR-05: 構造化出力の障害耐性
 
-Deep AgentにはAgent Coreの出力Schemaを`responseFormat`として渡し、通常経路ではproviderのstructured responseを利用しなければならない。Domain境界でSchemaと参照整合性を再検証し、適合しない場合は無効な状態更新や未検証データの保存を行ってはならない。Runtimeは失敗を識別可能な形で記録し、安全に終了または構成された範囲で再試行できなければならない。
+Deep AgentにはAgent Coreの出力Schemaを`responseFormat`として渡し、通常経路ではFrameworkが検証した`structuredResponse`を利用しなければならない。構成Modelがprovider-native structured outputを安定して満たさない場合は、Schema付きTool Strategy等のAgent loop内で修復可能な方式を使用する。Domain境界でSchemaと参照整合性を再検証し、適合しない場合は無効な状態更新や未検証データの保存を行ってはならない。Runtimeは失敗を識別可能な形で記録し、安全に終了または構成された範囲で再試行できなければならない。
 
 ### NFR-06: 追跡可能性
 

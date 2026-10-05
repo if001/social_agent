@@ -15,7 +15,7 @@ describe("live evaluation runner", () => {
   it("describes the Agent Core purpose, inputs, output fields, and constraints in Japanese", () => {
     const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
     const evaluatorPrompt = buildEvaluatorPrompt(scenario, { input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: [], dataOwnerAgentIds: [], proposedStateTargets: [], limitsRespected: true, schemaValid: true });
-    expect(agentCoreSystemPrompt).toContain("目的:"); expect(agentCoreSystemPrompt).toContain("入力:"); expect(agentCoreSystemPrompt).toContain("出力はAgentCoreOutputだけです"); expect(agentCoreSystemPrompt).toContain("EmotionとDesire"); expect(agentCoreSystemPrompt).toContain("通常Eventから直接更新しません"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
+    expect(agentCoreSystemPrompt).toContain("目的:"); expect(agentCoreSystemPrompt).toContain("入力:"); expect(agentCoreSystemPrompt).toContain("構造化出力専用Tool"); expect(agentCoreSystemPrompt).toContain("EmotionとDesire"); expect(agentCoreSystemPrompt).toContain("通常Eventから直接更新しません"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
   });
   it("runs seven isolated scenarios five times and writes traceable, secret-free artifacts", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope);
