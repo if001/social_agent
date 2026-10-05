@@ -126,18 +126,8 @@ export async function createProductionBotHost(config: AppConfig): Promise<BotHos
   if (config.discord === undefined) throw new Error("Discord configuration is required");
   const pool = new Pool({ connectionString: config.database.url.replace("postgresql+psycopg://", "postgresql://") });
   const logger = createStdoutLogger({ botId: config.botId, agentId: config.botId });
-  let enabledToolNames: ReadonlySet<string>;
-  try {
-    const result = await pool.query<{ active: boolean; capabilities: unknown }>("SELECT a.active,f.capabilities FROM agents a JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1", [config.botId]);
-    const agent = result.rows[0];
-    if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${config.botId}`);
-    enabledToolNames = new Set(Array.isArray(agent.capabilities) ? agent.capabilities.filter((value): value is string => typeof value === "string") : []);
-  } catch (error) {
-    await pool.end();
-    throw error;
-  }
   let composition: ReturnType<typeof createBotComposition>;
-  try { composition = createBotComposition({ pool, config, logger, enabledToolNames }); }
+  try { composition = createBotComposition({ pool, config, logger }); }
   catch (error) { await pool.end(); throw error; }
   const lifecycle = new ProcessLifecycle();
   const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, 60_000, config.botId), runtime: composition.router, queue: composition.queue, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, reviewIntervalMs: 86_400_000 });

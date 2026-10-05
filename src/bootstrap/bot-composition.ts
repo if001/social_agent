@@ -30,15 +30,7 @@ export type BotCompositionOptions = {
   readonly ids?: IdGenerator;
   readonly limits?: Partial<RunLimits>;
   readonly logger?: Logger;
-  readonly enabledToolNames?: ReadonlySet<string>;
 };
-
-export function selectEnabledTools<T extends { readonly name: string }>(tools: readonly T[], enabledToolNames?: ReadonlySet<string>): readonly T[] {
-  if (enabledToolNames === undefined) return tools;
-  const configuredToolNames = new Set(tools.map(({ name }) => name));
-  for (const name of enabledToolNames) if (!configuredToolNames.has(name)) throw new Error(`Unknown configured capability: ${name}`);
-  return tools.filter(({ name }) => enabledToolNames.has(name));
-}
 
 export function createBotComposition(options: BotCompositionOptions) {
   const { config, pool } = options;
@@ -57,7 +49,7 @@ export function createBotComposition(options: BotCompositionOptions) {
       ...(context.transport?.replyTo === undefined ? {} : { replyTo: context.transport.replyTo })
     }) })
   ];
-  const toolRegistry = new ToolRegistry(selectEnabledTools(configuredTools, options.enabledToolNames));
+  const toolRegistry = new ToolRegistry(configuredTools);
   const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, embeddingProvider, config.embedding.model);
   const contextLoader = new PostgresAgentContextLoader({
     pool, ids, tools: toolRegistry,

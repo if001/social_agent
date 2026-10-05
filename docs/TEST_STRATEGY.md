@@ -274,7 +274,7 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 
 ### 9.1 Migration
 
-- 空のPostgreSQLへ全migrationを適用できる
+- 空のPostgreSQLへDrizzle Kit生成の全migrationをDrizzle migratorで適用できる
 - pgvector extension、table、index、constraintが作成される
 - migration済みDBへ再適用して壊れない
 - production SchemaとDrizzle Schemaに意図しない差分がない

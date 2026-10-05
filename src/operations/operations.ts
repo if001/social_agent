@@ -4,12 +4,12 @@ import type { AddressedFileQueue, DeadLetter } from "../infrastructure/queue/add
 import type { LifecycleState } from "../bootstrap/lifecycle.js";
 import { redactSecrets } from "../observability/redaction.js";
 
-export type AgentSeed = { readonly familyId: string; readonly familyName: string; readonly agentId: string; readonly identity: string; readonly sharedDisposition: string; readonly initialDisposition: string; readonly capabilities: readonly string[] };
+export type AgentSeed = { readonly familyId: string; readonly familyName: string; readonly agentId: string; readonly identity: string; readonly sharedDisposition: string; readonly initialDisposition: string };
 export async function initializeAgent(pool: Pool, seed: AgentSeed): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("INSERT INTO agent_families(id,name,shared_disposition,capabilities,base_instruction) VALUES ($1,$2,$3,$4,'') ON CONFLICT (id) DO UPDATE SET capabilities=EXCLUDED.capabilities,updated_at=now()", [seed.familyId, seed.familyName, seed.sharedDisposition, JSON.stringify([...new Set(seed.capabilities)])]);
+    await client.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ($1,$2,$3,'') ON CONFLICT (id) DO UPDATE SET updated_at=now()", [seed.familyId, seed.familyName, seed.sharedDisposition]);
     await client.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [seed.agentId, seed.familyId, seed.identity, seed.initialDisposition]);
     await client.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,roles,self_narrative,self_continuity,mood,drives) VALUES ($1,'経験から形成された傾向はまだない','経験から形成された価値観はまだない','[]','経験を始めたばかりである','これからの経験を通じて連続性を形成する','特定の持続的な気分はまだ形成されていない','[]') ON CONFLICT (agent_id) DO NOTHING", [seed.agentId]);
     await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'state-review',$3,now()+interval '1 day') ON CONFLICT (id) DO NOTHING", [`state-review:${seed.agentId}`, seed.agentId, "時間経過によるMood、Drive、Current Interestの再評価"]);

@@ -16,6 +16,7 @@
     "test:system": "vitest run --config vitest.system.config.ts --passWithNoTests",
     "test:evaluation": "vitest run --config vitest.evaluation.config.ts --passWithNoTests",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:integration && pnpm test:system && pnpm test:evaluation",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "ops": "tsx src/cli.ts",
     "bot:start": "tsx src/bot.ts",
     "eval:llm": "tsx src/evaluation/run-live.ts"

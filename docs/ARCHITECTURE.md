@@ -255,7 +255,7 @@ interface ContextBuilder {
 - 登録済みTool定義
 - Runtimeの残りstep数、deadline、ファイル許可範囲等の制約
 
-`availableTools`はBot起動時にFamily capabilityをDBから読み、Deep Agentへ登録した同じToolカタログのDomain表現であり、EventごとにToolを再登録する指示ではない。稼働中にDBのcapabilityを変更しても現在のprocessには反映せず、Bot再起動時に新しいカタログを構築する。長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
+`availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
 
 Deep Agent内部の各Model callは、run内の連番、開始・終了、経過時間、入力文字数、message数、出力種別、Tool call数、providerが返した終了理由を構造化logへ記録する。調査中は一時的に`agent_core.model_call_prompt`へ実際のsystem prompt、messages、Tool名をdebug logとして出力し、原因特定後に削除する。
 
@@ -293,7 +293,7 @@ Ollama Cloudのchat modelはTool callingと要求する構造化出力を満た�
 
 ### 5.7 Tool Registry
 
-利用可能なToolを起動時に固定する。名称、説明、入力Schema、実装binding、Botへ公開する集合を`createDeepAgent({ tools })`へ渡し、EventごとにTool wrapperやDeep Agentを作り直さない。Deep Agents 1.14.1がFilesystem Middlewareの必須Capabilityとして加える`read_file`は、他の組み込みFilesystem Toolを無効にして仮想state backendだけへ限定する。一般的なファイル操作は下記の登録済みFile Toolを使う。`read_file`もrun contextの上限とTool traceを適用する。
+実装済みの全Toolを起動時に固定する。名称、説明、入力Schema、実装bindingを`createDeepAgent({ tools })`へ渡し、EventごとにTool wrapperやDeep Agentを作り直さない。Deep Agents 1.14.1がFilesystem Middlewareの必須Capabilityとして加える`read_file`は、他の組み込みFilesystem Toolを無効にして仮想state backendだけへ限定する。一般的なファイル操作は下記の登録済みFile Toolを使う。`read_file`もrun contextの上限とTool traceを適用する。
 
 ```ts
 interface AgentTool<TInput, TResult> {
@@ -461,7 +461,7 @@ Tool呼び出しは親Eventとrunに結びつく実行記録に加え、`tool-re
 
 通常Agent Coreが選んだ最終ActionはAgent Run IDをAction IDとして扱う。応答Envelopeは`causationId=runId`と`correlationId`を持ち、配送成否はOutboxの状態として記録する。外部システムが成功、失敗、相手の反応等を観測した場合は、`RuntimeEventPublisher.publishExternal`の`resultOfActionId`へ元のrun IDを指定してExternal Eventを投入する。Discordでは送信したDiscord Message IDとrun IDをAdapterが対応付け、返信参照を持つ次の投稿へ同じcausationを付ける。拒否、待機、no-actionもAgent Run result内のActionとして同じIDで参照できる。Agent Coreはこの後続Observationを通常どおり意味解釈し、必要なMemoryや状態変更を提案する。
 
-Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの再入を検査する。rateとcorrelationはPostgreSQLで全process間共有する。validation／permission違反は再試行せず理由付きdead-letterへ送り、外部障害だけをbackoff再試行する。Family capabilityから作った`availableTools`はBot起動時に固定のTool一覧としてDeep Agentへ登録し、実行直前にもregistryのSchema、run contextの上限、idempotencyを検査する。状態、Memory、Candidateが参照する根拠IDは現在Eventまたは対象AgentのContext内に存在するものに限定する。
+Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの再入を検査する。rateとcorrelationはPostgreSQLで全process間共有する。validation／permission違反は再試行せず理由付きdead-letterへ送り、外部障害だけをbackoff再試行する。実装済みToolから作った`availableTools`はBot起動時に固定のTool一覧としてDeep Agentへ登録し、実行直前にもregistryのSchema、run contextの上限、idempotencyを検査する。状態、Memory、Candidateが参照する根拠IDは現在Eventまたは対象AgentのContext内に存在するものに限定する。
 
 ### 6.1 Queueを通るもの
 
@@ -669,7 +669,7 @@ PostgreSQLを次の正本とする。
 
 | Table | 主な内容 |
 |---|---|
-| `agent_families` | Shared Disposition、共通Capability、base instruction |
+| `agent_families` | Shared Disposition、共通Safety Constraints、base instruction |
 | `agents` | Identity、family ID、Initial Individual Disposition、設定、active状態 |
 | `agent_states` | Stable / Dynamic State、Self Narrative、version、更新時刻 |
 | `social_contexts` | subjectごとの現在認識 |
@@ -695,7 +695,7 @@ PostgreSQLを次の正本とする。
 ### 10.3 SchemaとMigration
 
 - TypeScriptのDrizzle Schemaをアプリケーション管理テーブルのsource of truthとする
-- Drizzle Kitでversion管理されたSQL migrationを生成・適用する
+- `pnpm db:generate`でDrizzle Kitのversion管理されたSQL migrationを生成し、`pnpm ops migrate`でDrizzle migratorが適用する。適用済みmigrationは対象schemaの`__drizzle_migrations`へ記録する
 - pgvector extension有効化はcustom SQL migrationに含める
 - DB insert / select SchemaはDrizzle SchemaからZod Schemaを生成し、必要なrefinementを追加する
 - migrationはbot起動時に各プロセスが競合して実行せず、明示的なmigration commandで適用する
@@ -813,13 +813,13 @@ External dependencies
 
 ```bash
 pnpm ops migrate
-pnpm ops agent:init bot-a default web_list,web_page,web_archive_search,web_archive_get,file_read,file_write,file_delete,agent_send
-pnpm ops agent:init bot-b default web_list,web_page,web_archive_search,web_archive_get,file_read,file_write,file_delete,agent_send
+pnpm ops agent:init bot-a default
+pnpm ops agent:init bot-b default
 pnpm bot:start --env-file .env.bot-a
 pnpm bot:start --env-file .env.bot-b
 ```
 
-`agent:init`の第3引数はFamily共通のTool Capability allowlistである。省略または空文字の場合、そのFamilyへToolを公開しない。同じFamilyを再指定した場合は明示したallowlistでFamily設定を更新する。
+`agent:init`はAgentとFamilyの基本状態を作成する。Tool一覧はDBへ保存せず、起動時の実装済みTool Registryから構築する。
 
 各process別fileは同じ共有接続先を持ち、`BOT_ID`、任意の`BOT_PERSONA_FILE`、Discord資格情報、Discord allowlist、Discord Queue destinationを個体ごとに変える。秘密値を含む実ファイルはartifact、log、repositoryへ含めない。Persona YAMLは秘密情報を持たないためrepositoryで管理できる。
 

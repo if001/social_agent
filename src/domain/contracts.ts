@@ -16,8 +16,7 @@ export type RunLimits = z.infer<typeof RunLimitsSchema>;
 export const AgentFamilySchema = z.object({
   id: Id,
   name: NaturalLanguage,
-  sharedDisposition: NaturalLanguage,
-  capabilities: z.array(Id)
+  sharedDisposition: NaturalLanguage
 });
 
 export const AgentSchema = z.object({

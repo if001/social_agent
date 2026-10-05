@@ -3,18 +3,12 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { selectEnabledTools } from "../../src/bootstrap/bot-composition.js";
 import { createFileTools } from "../../src/infrastructure/tools/file-tools.js";
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 import { canonicalizeWebUrl, chunkWebPage, summarizeWebPage } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 describe("tools", () => {
-  it("fixes the bot tool catalog to the enabled startup capabilities", () => {
-    const tools = [{ name: "web_list" }, { name: "web_page" }];
-    expect(selectEnabledTools(tools, new Set(["web_page"]))).toEqual([{ name: "web_page" }]);
-    expect(() => selectEnabledTools(tools, new Set(["unknown"]))).toThrow("Unknown configured capability: unknown");
-  });
   it("normalizes URLs and creates deterministic bounded Web Archive text", () => {
     expect(canonicalizeWebUrl("HTTPS://Example.COM:443/page?b=2&a=1#section")).toBe("https://example.com/page?a=1&b=2");
     expect(summarizeWebPage("Title", "# Heading\n\nFirst paragraph\n\nSecond paragraph", 32)).toBe("Title\nHeading\nFirst paragraph\nSe");
