@@ -8,7 +8,7 @@ This audit compares code reachable from executable entry points with `spec/`, `R
 
 ## 2. Reachable entry points
 
-`src/cli.ts` is the only executable entry point. It supports `migrate`, `agent:init`, `dead:list`, and `dead:requeue`. It reads DB URLs directly from `process.env`; it does not call `loadConfig()` and has no `bot:start` command.
+`src/cli.ts` is the operational executable entry point. It supports `agent:init`, `memory:backfill`, `dead:list`, and `dead:requeue`. Database migration is run separately through `pnpm db:migrate`, which invokes Drizzle Kit. The CLI reads DB URLs directly from `process.env`; it does not call `loadConfig()` and has no `bot:start` command.
 
 `src/evaluation/run-live.ts` is an evaluation entry point. It constructs a Deep Agent for isolated Scenario evaluation, not a persistent bot process.
 
@@ -20,7 +20,7 @@ No executable entry point currently constructs an `AgentRuntime`, production Con
 |---|---|---|---|
 | Process-specific configuration | `loadConfig()` merges `.env.sample`, `.env`, and `process.env`; current schema has one `BOT_ID` and one Discord token/channel/user triple | Partial | No `--env-file`, owner/guild/channel lists, per-bot Discord destination, loop intervals, or autonomous output destination. Issue 030. |
 | CLI startup | `src/cli.ts` exposes operational commands | Missing | No `bot:start`, startup argument parser, signal handling, or readiness output. Issues 030 and 032. |
-| DB migration and Agent initialization | `migrate()` and `initializeAgent()` are reachable through `pnpm ops` | Implemented | Migration correctly remains separate from bot startup. |
+| DB migration and Agent initialization | `pnpm db:migrate` and `initializeAgent()` through `pnpm ops` | Implemented | Migration correctly remains separate from bot startup. |
 | Agent ownership lock | `withAgentLock()` holds a PostgreSQL session advisory lock for a callback | Component only | No stable Agent-to-lock-key mapping and no Bot Host call that holds the lock for process lifetime. Issue 032. |
 | Production Context Loader | `ContextBuilder` validates owner and applies budgets; `PostgresMemoryRetriever` retrieves memories | Missing composition | No DB loader builds `AgentCoreInput` from Agent, Family, state, social contexts, intentions, retrieval, Tool definitions, constraints, and run limits. Issue 031. |
 | Normal Agent Core | `DeepAgentHarness` and `createOllamaDeepAgentInvoker()` execute the Japanese normal prompt and internal Tool loop | Implemented component | Not constructed by a bot entry point. Issue 031. |
