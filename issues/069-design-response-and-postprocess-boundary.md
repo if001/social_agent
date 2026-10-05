@@ -76,7 +76,7 @@ flowchart LR
     I --> IC[Interaction commit<br/>応答・Emotion・Desire・Tool trace・Post-process job]
     IC --> O[Outbox]
     O --> Q[外部へ応答を配送]
-    IC --> P[Agent単位で直列の<br/>Post-process]
+    IC --> P[Agent単位で直列の<br/>Post-process LLM<br/>Tool loopなし]
     P --> PC[Post-process commit]
     PC --> S[Mood / Drive / Working Social Context]
     PC --> M[Memory]
@@ -104,7 +104,7 @@ Interaction commitは、親Event、Interaction run、即時状態変更、Tool e
 
 ### Post-process
 
-Post-process jobは親Event ID、Interaction run ID、即時結果、Tool execution trace、Interaction開始時と即時commit後のstate versionを保持する。Post-process Coreは、この固定された経験と、即時commit後の正本Contextを入力として以下だけを提案する。
+Post-process jobは親Event ID、Interaction run ID、即時結果、Tool execution trace、Interaction開始時と即時commit後のstate versionを保持する。Post-process Coreは、Deep Agentではない単発の構造化LLM呼び出しとする。この固定された経験と、即時commit後の正本Contextを入力として以下だけを提案する。
 
 ```ts
 type PostProcessOutput = {
@@ -116,6 +116,8 @@ type PostProcessOutput = {
 ```
 
 Web ToolはInteractionのTool loop中にURL、本文、Snapshot、取得時刻などを保存する。Post-processはその実行記録・Snapshotを根拠に、記事本文ではなく「何を調べ、何が分かったか」というEpisodic Memoryを提案する。Candidateが同じPost-processで新規作成したMemoryを根拠にする場合、LLMにDB IDを生成させない。Memory proposalのstable keyをCandidateに指定させ、RuntimeがMemoryをmaterializeした後にIDへ解決する。既存Memoryと親Eventの参照も利用できる。
+
+Post-processに`createDeepAgent()`、Tool Registry、Tool middleware、再帰的なTool loopを渡さない。入力はRuntimeが確定した経験であり、追加情報の収集や外部副作用は行わない。関連Memoryの追加検索、Web再調査、未完了Intentionの実行などが必要になった場合は、Post-process内でToolを許可せず、既存の`memory-recall`、`intention-review`などの明示的な後続Internal EventからInteraction Deep Agentを起動する。これにより、応答・外部相互作用を担うDeep Agentと、経験を固定入力から整理するPost-processの責務を分ける。
 
 ### 順序・失敗・再試行
 
