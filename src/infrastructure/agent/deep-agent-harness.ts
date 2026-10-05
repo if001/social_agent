@@ -259,8 +259,11 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
 
 function serializeMessageContent(content: unknown): string {
   if (typeof content === "string") return content;
-  try { return JSON.stringify(content); }
-  catch { return String(content); }
+  if (content === undefined) return "";
+  try {
+    const serialized: unknown = JSON.stringify(content);
+    return typeof serialized === "string" ? serialized : "";
+  } catch { return "[unserializable content]"; }
 }
 
 export function summarizeModelResponse(response: unknown): { readonly outputType: string; readonly outputCharacters: number; readonly toolCallCount: number; readonly finishReason: string } {
