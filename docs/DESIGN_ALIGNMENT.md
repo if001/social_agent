@@ -10,7 +10,9 @@ The normal Agent Core interprets one normal Event and returns semantic proposals
 
 Long-term Review has a separate input, output schema, prompt, and `long-term-review` Internal Event. It evaluates accumulated Candidate and evidence Memory using KEEP, UPDATE, MERGE, or DROP and is the only flow that may apply supported long-term changes.
 
-Deep Agents executes registered Tools within the normal Core run. The result returns to the same reasoning loop before the final Action. Runtime owns the available Tool set, validation, permission, deadline, call count, idempotency, and persistence of execution records. This implements the logical Runtime-mediated Tool Result flow in implementation design section 26 without creating a second external Tool loop.
+Deep Agents executes registered Tools within the normal Core run. The Bot Host fixes the Tool catalog and creates one reusable Deep Agent at startup by passing that catalog to `createDeepAgent({ tools, responseFormat })`. Each Event supplies ownership and trace IDs, transport, abort, and execution limits through run context; Tool business inputs remain model-generated Tool arguments. The result returns to the same reasoning loop before the final Action. Runtime owns validation, permission, deadline, call count, idempotency, Event ordering, and persistence of execution records. This implements the logical Runtime-mediated Tool Result flow in implementation design section 26 without creating a second external Tool loop.
+
+Reusing the Deep Agent does not make its process-local state the source of truth for Self, Memory, Intention, or conversation history. Context Builder reconstructs each Event input from PostgreSQL, and Runtime serializes state commits for the same Agent. Provider structured output is requested through `responseFormat` and is still revalidated at the Domain boundary.
 
 All LLM output is a proposal. Runtime assigns storage IDs, timestamps, and ownership after validation. The LLM must not claim that a proposal has already been persisted.
 
@@ -25,6 +27,8 @@ All LLM output is a proposal. Runtime assigns storage IDs, timestamps, and owner
 | `IMPLEMENTATION_PLAN.md` | All docs above | Maps the remaining implementation gaps to Issues 035–042 before resuming IP-16 and IP-17. |
 | `MANUAL_SMOKE.md` | Implementation design 21–26 | Adds same-run Tool trace and separate Long-term Review observations. |
 | `web_tool.md` | Implementation design 26, 29–30 | Keeps the provider contract and clarifies the internal Tool execution boundary. |
+
+Issue 068 reviewed this matrix for the reusable Deep Agent lifecycle. `ARCHITECTURE.md`, `REQUIREMENTS.md`, `IMPLEMENTATION_PLAN.md`, and `TEST_STRATEGY.md` required updates. `DOCUMENTATION_PLAN.md`, `MANUAL_SMOKE.md`, `MANUAL_SMOKE_RESULT_2026-10-03.md`, and `web_tool.md` do not prescribe Agent construction frequency and required no lifecycle change. `IMPLEMENTATION_AUDIT.md` is a dated historical audit and remains unchanged.
 
 ## 4. Time scale and output ownership
 

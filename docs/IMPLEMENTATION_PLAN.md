@@ -181,11 +181,11 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** Domain契約を保ったままDeep Agentsによるreasoning、Tool Loop、構造化出力を利用する。
 
-**実装対象:** Scripted Agent Harness、Deep Agents adapter、`OLLAMA_BASE_URL`・`OLLAMA_API_KEY`・`OLLAMA_CHAT_MODEL`を使うOllama Cloud Chat adapter、prompt version、Tool Registry変換、trace callback、deadline / abort / step上限、AgentCoreOutput parse、1回だけの構造修復、起動時の認証付きcapability check。
+**実装対象:** Scripted Agent Harness、Deep Agents adapter、`OLLAMA_BASE_URL`・`OLLAMA_API_KEY`・`OLLAMA_CHAT_MODEL`を使うOllama Cloud Chat adapter、prompt version、起動時に一度だけ行うTool Registry変換と`createDeepAgent({ tools, responseFormat })`、run context対応Middleware、trace callback、deadline / abort / step上限、structured responseのDomain再検証、1回だけの構造修復、起動時の認証付きcapability check。Tool定義はBot起動時に固定し、所有・追跡用ID、transport、実行上限だけを各runのcontextで渡す。
 
-**TDD / 検証:** AgentHarness contractをScripted Harnessと実adapterへ適用可能にする。fast testでは正常出力、Tool trace、timeout、abort、不正Schema、repair成功 / 失敗、未知Tool非公開を検証する。実Ollama接続はlive suiteへ分離する。
+**TDD / 検証:** AgentHarness contractをScripted Harnessと実adapterへ適用可能にする。fast testでは複数runでAgent生成が1回であること、並行run contextの分離、正常structured output、Tool trace、timeout、abort、不正Schema、repair成功 / 失敗、未知Tool非公開を検証する。実Ollama接続はlive suiteへ分離する。
 
-**完了条件:** Deep Agents / LangChain型がadapter外へ漏れず、未登録Toolを公開せず、不正出力時に状態更新へ進まない共通errorを返す。Cloud認証情報はlog、trace、artifactへ残さない。
+**完了条件:** Deep Agents / LangChain型がadapter外へ漏れず、Bot起動時に構築した同じAgentとTool一覧を複数Eventで再利用し、run固有情報を混線させない。未登録Toolを公開せず、不正出力時に状態更新へ進まない共通errorを返す。Cloud認証情報はlog、trace、artifactへ残さない。
 
 **依存:** IP-02、IP-03。Tool実行の完全な結合はIP-09で行う。
 
