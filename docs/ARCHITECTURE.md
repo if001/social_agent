@@ -257,6 +257,8 @@ interface ContextBuilder {
 
 `availableTools`はBot起動時にFamily capabilityをDBから読み、Deep Agentへ登録した同じToolカタログのDomain表現であり、EventごとにToolを再登録する指示ではない。稼働中にDBのcapabilityを変更しても現在のprocessには反映せず、Bot再起動時に新しいカタログを構築する。長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
 
+Deep Agent内部の各Model callは、run内の連番、開始・終了、経過時間、入力文字数、message数、出力種別、Tool call数、providerが返した終了理由を構造化logへ記録する。調査中は一時的に`agent_core.model_call_prompt`へ実際のsystem prompt、messages、Tool名をdebug logとして出力し、原因特定後に削除する。
+
 Expectation専用の保存領域は設けない。Agent Coreは入力済みのActive Intention、Social Context、関連Memory、直近Observationから、今回予期していたことと実際のObservationとの差をそのrunの意味解釈として導出する。次のEventにも影響する期待は、その意味に応じてIntention、Social ContextまたはMemoryへ提案する。
 
 ### 5.6 Agent Harness

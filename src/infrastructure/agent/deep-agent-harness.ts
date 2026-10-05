@@ -118,6 +118,7 @@ export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey:
 
 export class ToolExecutionCollector {
   count = 0;
+  modelCallCount = 0;
   readonly executions: ToolExecutionRecord[] = [];
 }
 
@@ -197,6 +198,32 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
       const context = DeepAgentToolRunContextSchema.parse(runtime.context);
       baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId }).log("info", "agent_core.deep_agent_started");
     },
+    wrapModelCall: async (request, handler) => {
+      const context = DeepAgentToolRunContextSchema.parse(request.runtime.context);
+      context.collector.modelCallCount += 1;
+      const modelCall = context.collector.modelCallCount;
+      const logger = baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, modelCall });
+      const systemPrompt = serializeMessageContent(request.systemMessage.content);
+      const messages = request.messages.map((message) => ({ role: message.type, content: message.content }));
+      const serializedMessages = JSON.stringify(messages);
+      const toolNames = request.tools.map((candidate) => "name" in candidate && typeof candidate.name === "string" ? candidate.name : "unknown");
+      const startedAt = now();
+      logger.log("info", "agent_core.model_call_started", {
+        inputCharacters: systemPrompt.length + serializedMessages.length,
+        messageCount: messages.length,
+        toolCount: toolNames.length
+      });
+      logger.log("debug", "agent_core.model_call_prompt", { systemPrompt, messages: serializedMessages, toolNames: JSON.stringify(toolNames) });
+      try {
+        const response = await handler(request);
+        const summary = summarizeModelResponse(response);
+        logger.log("info", "agent_core.model_call_completed", { elapsedMs: now().getTime() - startedAt.getTime(), ...summary });
+        return response;
+      } catch (error) {
+        logger.log("error", "agent_core.model_call_failed", { ...errorLogContext(error), elapsedMs: now().getTime() - startedAt.getTime(), aborted: context.signal.aborted });
+        throw error;
+      }
+    },
     wrapToolCall: async (request, handler) => {
       const context = DeepAgentToolRunContextSchema.parse(request.runtime.context);
       if (registeredToolNames.has(request.toolCall.name)) return handler(request);
@@ -225,9 +252,29 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
     },
     afterAgent: (_state, runtime) => {
       const context = DeepAgentToolRunContextSchema.parse(runtime.context);
-      baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId }).log("info", "agent_core.deep_agent_completed", { toolExecutionCount: context.collector.executions.length });
+      baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId }).log("info", "agent_core.deep_agent_completed", { modelCallCount: context.collector.modelCallCount, toolExecutionCount: context.collector.executions.length });
     }
   });
+}
+
+function serializeMessageContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  try { return JSON.stringify(content); }
+  catch { return String(content); }
+}
+
+export function summarizeModelResponse(response: unknown): { readonly outputType: string; readonly outputCharacters: number; readonly toolCallCount: number; readonly finishReason: string } {
+  if (typeof response !== "object" || response === null) return { outputType: typeof response, outputCharacters: 0, toolCallCount: 0, finishReason: "not-reported" };
+  const record = response as { readonly content?: unknown; readonly tool_calls?: unknown; readonly response_metadata?: unknown };
+  const toolCalls = Array.isArray(record.tool_calls) ? record.tool_calls : [];
+  const metadata = typeof record.response_metadata === "object" && record.response_metadata !== null ? record.response_metadata as Record<string, unknown> : {};
+  const reportedReason = metadata.finish_reason ?? metadata.done_reason ?? metadata.stop_reason;
+  return {
+    outputType: toolCalls.length > 0 ? "tool-calls" : typeof record.content === "string" ? "text" : Array.isArray(record.content) ? "content-blocks" : "message",
+    outputCharacters: serializeMessageContent(record.content).length,
+    toolCallCount: toolCalls.length,
+    finishReason: typeof reportedReason === "string" ? reportedReason : metadata.done === true ? "done" : "not-reported"
+  };
 }
 
 export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を持つソーシャルエージェントの通常Agent Coreです。
