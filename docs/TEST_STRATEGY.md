@@ -124,9 +124,9 @@ Testcontainersまたは同等の再現可能な方法を優先する。外部に
 
 ### 6.1 Scripted Agent Harness
 
-`InteractionHarness`のfakeは、入力EventやScenario stepに応じて事前定義したInteraction Outputを返す。`PostProcessHarness`のfakeは固定経験から持続状態・Memory・Intention・Candidateの提案を返す。次を明示的に発生させられるようにする。
+`InteractionHarness`のfakeは、入力EventやScenario stepに応じて事前定義したInteraction Outputを返す。`ContinuityHarness`、`MemoryExtractionHarness`、`CandidateDetector`のfakeは用途別の固定入力から、それぞれの提案だけを返す。次を明示的に発生させられるようにする。
 
-- Interactionの応答・Emotion・Desireと、Post-processの持続状態、Memory、Intention、Candidate
+- Interactionの応答・Emotion・Desire、Continuityの持続状態とIntention、Memory ExtractionのEpisodic Memory、保存後DetectorのCandidate
 - Tool callとTool Result後の再推論
 - 不正Schema、未知のTool、変更禁止target
 - timeout、例外、修復成功、修復失敗
@@ -281,12 +281,14 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 
 ### 9.2 PersistenceとTransaction
 
-- Interaction commitがEvent、Interaction run、Emotion、Desire、Tool trace、Post-process job、receipt、outboxをatomicにcommitする
-- Post-process commitが持続状態、Memory、Intention、Candidateをatomicにcommitする
+- Interaction commitがEvent、Interaction run、Emotion、Desire、Tool trace、Continuity / Memory Extraction job、receipt、outboxをatomicにcommitする
+- Continuity、Memory、Candidateの各commitが独立し、CandidateはMemory保存後に保存済みIDだけを参照する
 - 各commitの途中で例外を発生させるとそのcommitの更新がrollbackされる
-- Interactionのoutbox rowとPost-process jobが同じtransactionに入る
+- Interactionのoutbox rowと2つの初期jobが同じtransactionに入る
 - outbox publish後のcrashを再現しても同じMessage IDで再送される
-- Post-process失敗時も応答を重複配送せず、固定入力でjobだけを再試行する
+- Continuity失敗・Memory成功とContinuity成功・Memory失敗の双方で応答を重複配送せず、対象jobだけを再試行する
+- 用途別入力にTool定義、runtime limits、retrieval trace、raw Tool payloadが含まれない
+- `type` / `kind`混同、必須配列欠落、Intention discriminator欠落をvalidation path付きで検出し、有限回の修復後は対象jobだけをfailedにする
 - receipt unique constraintにより重複Messageの状態更新が1回だけ行われる
 - `agent_states.version`競合時に古い更新を適用しない
 
