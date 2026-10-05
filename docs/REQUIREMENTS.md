@@ -96,9 +96,7 @@ Agentは別のAgentへ情報を伝達できる。受信側はそれを自分自�
 
 #### FR-AG-01: Agent Familyと個体
 
-システムは、Family共通のShared Dispositionおよび共通Capabilityと、個体固有のIdentity、Initial Individual Disposition、Acquired Disposition、Self Narrative、Social Context、動的状態、Memoryを分離して保持しなければならない。
-
-Family Capabilityは明示allowlistとし、空配列を全Tool許可として扱ってはならない。Agent Coreへ公開するToolは登録済みToolとFamily Capabilityの積集合に限定する。
+システムは、Family共通のShared Disposition、Safety Constraints、Base Instructionsと、個体固有のIdentity、Initial Individual Disposition、Acquired Disposition、Self Narrative、Social Context、動的状態、Memoryを分離して保持しなければならない。
 
 Social Contextは対象IDだけでなく、対象種別`user | agent | team | project | organization`を保持しなければならない。作成・更新時に対象種別を明示し、自然言語descriptionとともにContextへ渡す。
 
@@ -258,7 +256,7 @@ Role、長期Interest、長期Preferenceの更新結果は統合後の配列全�
 
 #### FR-TL-01: Tool登録
 
-Agentが利用できるToolはシステム構成で明示的に登録し、Bot起動時に固定のTool一覧としてDeep Agentへ渡さなければならない。Deep Agentsが動作上必須とする組み込みToolは明示的な最小allowlistへ限定し、同じ実行上限とtraceを適用しなければならない。AgentまたはLLMが実行中に未知のToolを追加してはならず、EventごとにTool一覧またはDeep Agentを再構築してはならない。Tool一覧の固定は利用判断の固定を意味せず、実際に使うToolとその業務入力は各EventでAgent Coreが内部状態と文脈から判断しなければならない。
+Agentが利用できるToolはシステム構成で明示的に登録し、実装済みの全ToolをBot起動時に固定のTool一覧としてDeep Agentへ渡さなければならない。Deep Agentsが動作上必須とする組み込みToolは明示的な最小allowlistへ限定し、同じ実行上限とtraceを適用しなければならない。AgentまたはLLMが実行中に未知のToolを追加してはならず、EventごとにTool一覧またはDeep Agentを再構築してはならない。Tool一覧の固定は利用判断の固定を意味せず、実際に使うToolとその業務入力は各EventでAgent Coreが内部状態と文脈から判断しなければならない。
 
 #### FR-TL-02: 承認方針
 

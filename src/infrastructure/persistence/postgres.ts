@@ -1,11 +1,17 @@
-import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import type { Pool, PoolClient, QueryResultRow } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate as runDrizzleMigrations } from "drizzle-orm/node-postgres/migrator";
 
 import { DomainError } from "../../domain/contracts.js";
+import * as schema from "./schema.js";
 
-export async function migrate(pool: Pool, path = new URL("../../../drizzle/0000_persistence_foundation.sql", import.meta.url)): Promise<void> {
-  await pool.query(await readFile(path, "utf8"));
+export async function migrate(pool: Pool, migrationsFolder = fileURLToPath(new URL("../../../drizzle", import.meta.url))): Promise<void> {
+  const result = await pool.query<{ schema: string }>("SELECT current_schema() AS schema");
+  const migrationsSchema = result.rows[0]?.schema;
+  if (migrationsSchema === undefined) throw new Error("PostgreSQL current schema is unavailable");
+  await runDrizzleMigrations(drizzle(pool, { schema }), { migrationsFolder, migrationsSchema });
 }
 
 export class PostgresUnitOfWork {
