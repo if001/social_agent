@@ -1,4 +1,4 @@
-import type { Candidate, Intention, Memory, MessageEnvelope, PostProcessOutput, ToolExecutionRecord } from "../../domain/contracts.js";
+import type { Candidate, Intention, Memory, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
 import type { StateChange } from "../../application/state-update-service.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
@@ -16,12 +16,12 @@ export type CommitEventInput = {
   readonly intentionUpdates?: readonly Intention[];
   readonly candidates?: readonly Candidate[];
   readonly toolExecutions?: readonly (ToolExecutionRecord & { readonly id: string })[];
-  readonly postProcessJob?: { readonly id: string; readonly inputStateVersion: number; readonly payload: unknown };
+  readonly postProcessJobs?: readonly { readonly id: string; readonly type: "continuity" | "memory"; readonly inputStateVersion: number; readonly payload: unknown }[];
   readonly outbox: readonly MessageEnvelope[];
 };
 
-export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates" | "outbox"> & { readonly failureReason: string };
-export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates"> & { readonly jobId: string; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: PostProcessOutput };
+export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates" | "postProcessJobs" | "outbox"> & { readonly failureReason: string };
+export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates"> & { readonly jobId: string; readonly jobType: "continuity" | "memory" | "candidate"; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: unknown; readonly candidateJob?: { readonly id: string; readonly payload: unknown } };
 
 export class PostgresEventTransaction {
   constructor(private readonly unitOfWork: PostgresUnitOfWork) {}
@@ -65,7 +65,7 @@ export class PostgresEventTransaction {
       }
       await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
       for (const envelope of input.outbox) await client.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,$2,$3)", [envelope.id, input.event.agentId, JSON.stringify(envelope)]);
-      if (input.postProcessJob !== undefined) await client.query("INSERT INTO post_process_jobs(id,agent_id,event_id,interaction_run_id,input_state_version,payload) VALUES ($1,$2,$3,$4,$5,$6)", [input.postProcessJob.id, input.event.agentId, input.event.id, input.run.id, input.postProcessJob.inputStateVersion, JSON.stringify(input.postProcessJob.payload)]);
+      for (const job of input.postProcessJobs ?? []) await client.query("INSERT INTO post_process_jobs(id,agent_id,event_id,interaction_run_id,job_type,input_state_version,payload) VALUES ($1,$2,$3,$4,$5,$6,$7)", [job.id, input.event.agentId, input.event.id, input.run.id, job.type, job.inputStateVersion, JSON.stringify(job.payload)]);
       await client.query("UPDATE agent_runs SET result=$2,finished_at=now() WHERE id=$1", [input.run.id, input.run.result]);
       await client.query("UPDATE events SET status='completed' WHERE id=$1", [input.event.id]);
       await client.query("UPDATE message_receipts SET status='completed',processed_at=now() WHERE destination=$1 AND message_id=$2", [input.destination, input.messageId]);
@@ -86,8 +86,10 @@ export class PostgresEventTransaction {
       const job = await client.query<{ status: string }>("SELECT status FROM post_process_jobs WHERE id=$1 FOR UPDATE", [input.jobId]);
       if (job.rows[0]?.status === "completed") return;
       if (job.rows[0] === undefined) throw new Error("Post-process job not found");
-      const repository = new AgentStateRepository(client);
-      await repository.update(input.agentId, input.expectedStateVersion, input.stateValues);
+      if (input.jobType === "continuity") {
+        const repository = new AgentStateRepository(client);
+        await repository.update(input.agentId, input.expectedStateVersion, input.stateValues);
+      }
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.runId, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
       for (const change of input.changes.filter(({ target }) => target === "socialContext")) {
         const value = change.after as { readonly subjectId?: string; readonly subjectType?: string; readonly description?: string } | undefined;
@@ -113,7 +115,8 @@ export class PostgresEventTransaction {
         await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='persistent-drive' AND NOT (id=ANY($2::text[]))", [input.agentId, scheduleIds]);
         for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()) ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.agentId, drive]);
       }
-      await client.query("UPDATE agent_runs SET result=jsonb_set(COALESCE(result,'{}'::jsonb),'{postProcess}',$2::jsonb,true) WHERE id=$1", [input.runId, JSON.stringify(input.output)]);
+      await client.query("UPDATE agent_runs SET result=jsonb_set(COALESCE(result,'{}'::jsonb),'{postProcess}',COALESCE(result->'postProcess','{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),true) WHERE id=$1", [input.runId, input.jobType, JSON.stringify(input.output)]);
+      if (input.candidateJob !== undefined) await client.query("INSERT INTO post_process_jobs(id,agent_id,event_id,interaction_run_id,job_type,input_state_version,payload) SELECT $1,agent_id,event_id,interaction_run_id,'candidate',input_state_version,$2 FROM post_process_jobs WHERE id=$3 ON CONFLICT DO NOTHING", [input.candidateJob.id, JSON.stringify(input.candidateJob.payload), input.jobId]);
       await client.query("UPDATE post_process_jobs SET status='completed',failure_reason=NULL,lease_until=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.jobId]);
     });
   }

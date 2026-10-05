@@ -184,12 +184,14 @@ describeDatabase("PostgreSQL persistence", () => {
 
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "archive-memory-run", eventId: "archive-memory-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.availableTools = [{ name: "web_archive_get", description: "Archive", inputSchema: {} }];
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-post-job", "archive-memory"]), () => new Date(fixtureInstant));
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-continuity-job", "archive-memory-job", "archive-memory"]), () => new Date(fixtureInstant));
     const toolExecution = { callId: "tool-1", runId: "archive-memory-run", eventId: "archive-memory-event", name: "web_archive_get", input: { snapshotId: first[0]?.snapshotId }, ok: true as const, result: { snapshotId: first[0]?.snapshotId }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
     const runResult = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
     await persistence.commit(messageFixture({ id: "archive-memory-message", destination: "a" }), { id: "archive-memory-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} }, input, runResult, { state: input.dynamicState, changes: [] }, []);
-    const archiveJob = await persistence.claimPostProcess("a"); if (archiveJob === undefined) throw new Error("Post-process job was not created");
-    await persistence.completePostProcess(archiveJob, { persistentStateUpdates: [], memoryProposals: [{ kind: "episodic", content: "Vector index options were investigated", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful research", retrievalPriority: "normal", evidenceEventIds: ["archive-memory-event"], webSnapshotIds: [first[0]?.snapshotId ?? ""] }], intentionProposals: [], longTermCandidates: [] });
+    const archiveJob = await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveJob === undefined) throw new Error("Post-process job was not created");
+    if (archiveJob.type === "continuity") await persistence.completePostProcess(archiveJob, { persistentStateUpdates: [], intentionProposals: [] });
+    const archiveMemoryJob = archiveJob.type === "memory" ? archiveJob : await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveMemoryJob?.type !== "memory") throw new Error("Memory job was not created");
+    await persistence.completePostProcess(archiveMemoryJob, { memoryProposals: [{ content: "Vector index options were investigated", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful research", retrievalPriority: "normal", webSnapshotIds: [first[0]?.snapshotId ?? ""] }] });
     expect((await pool.query<{ snapshot_id: string }>("SELECT snapshot_id FROM memory_web_evidence WHERE memory_id='archive-memory'")).rows[0]?.snapshot_id).toBe(first[0]?.snapshotId);
   });
 
@@ -382,7 +384,7 @@ describeDatabase("PostgreSQL persistence", () => {
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
     const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "post-job", "memory-new", "intention-new", "candidate-new", "state-change", "social-change"]), () => new Date(fixtureInstant), memoryEmbedding);
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "continuity-job", "memory-job", "state-change", "social-change", "intention-new", "memory-new", "candidate-job", "candidate-new"]), () => new Date(fixtureInstant), memoryEmbedding);
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
@@ -390,8 +392,21 @@ describeDatabase("PostgreSQL persistence", () => {
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
     await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
-    const job = await persistence.claimPostProcess("a"); if (job === undefined) throw new Error("Post-process job was not created");
-    await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], memoryProposals: [{ kind: "episodic", content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "normal", evidenceEventIds: ["runtime-event"] }, { kind: "episodic", content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "normal", evidenceEventIds: ["runtime-event"] }], intentionProposals: [{ operation: "create", description: "Follow up", reason: "Still relevant" }, { operation: "update", intentionId: "existing-intention", status: "completed", reason: "Finished" }], longTermCandidates: [{ target: "selfNarrative", proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }, { target: "selfNarrative", proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["proposal-evidence"], evidenceEventIds: [] }] });
+    const jobPayloads = (await pool.query<{ payload: Record<string, unknown> }>("SELECT payload FROM post_process_jobs WHERE interaction_run_id='runtime-run'")).rows.map(({ payload }) => payload);
+    expect(jobPayloads).toHaveLength(2);
+    for (const payload of jobPayloads) {
+      expect(payload).not.toHaveProperty("availableTools");
+      expect(payload).not.toHaveProperty("runtimeConstraints");
+      expect(payload).not.toHaveProperty("limits");
+      expect(payload).not.toHaveProperty("memoryRetrievalTrace");
+    }
+    const job = await persistence.claimPostProcess("a", "runtime-run"); if (job === undefined) throw new Error("Post-process job was not created");
+    if (job.type !== "continuity") throw new Error("Continuity job was not created");
+    await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], intentionProposals: [{ operation: "create", description: "Follow up", reason: "Still relevant" }, { operation: "update", intentionId: "existing-intention", status: "completed", reason: "Finished" }] });
+    const memoryJob = await persistence.claimPostProcess("a", "runtime-run"); if (memoryJob?.type !== "memory") throw new Error("Memory job was not created");
+    await persistence.completePostProcess(memoryJob, { memoryProposals: [{ content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }, { content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }] });
+    const candidateJob = await persistence.claimPostProcess("a", "runtime-run"); if (candidateJob?.type !== "candidate") throw new Error("Candidate job was not created");
+    await persistence.completePostProcess(candidateJob, { longTermCandidates: [{ target: "selfNarrative", proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["memory-new"], evidenceEventIds: [] }] });
     expect((await pool.query<{ agent_id: string }>("SELECT agent_id FROM memories WHERE id='memory-new'")).rows[0]?.agent_id).toBe("a");
     expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='memory-new'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
     expect((await pool.query<{ status: string }>("SELECT status FROM intentions WHERE id='existing-intention'")).rows[0]?.status).toBe("completed");
@@ -409,11 +424,13 @@ describeDatabase("PostgreSQL persistence", () => {
   it("derives reported Memory provenance from the validated Observation actor", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "reported-run", eventId: "reported-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.observation = { eventId: "reported-event", summary: "Agent B reported a library time", facts: ["Reported by B"], observedAt: fixtureInstant, actor: { id: "b", type: "agent" }, source: { type: "agent", id: "b", direct: true } };
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-job", "reported-memory"]), () => new Date("2026-01-03T00:00:00Z"));
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-continuity-job", "reported-memory-job", "reported-memory"]), () => new Date("2026-01-03T00:00:00Z"));
     const result = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [] };
     await persistence.commit(messageFixture({ id: "reported-message", destination: "a" }), { id: "reported-event", agentId: "a", kind: "external", occurredAt: fixtureInstant, payload: { senderAgentId: "b" } }, input, result, { state: input.dynamicState, changes: [] }, []);
-    const reportedJob = await persistence.claimPostProcess("a"); if (reportedJob === undefined) throw new Error("Post-process job was not created");
-    await persistence.completePostProcess(reportedJob, { persistentStateUpdates: [], memoryProposals: [{ kind: "episodic", content: "Agent B reported that the library opens at nine", relatedSubjectIds: ["b"], relatedIntentionIds: [], importance: "Reported information", retrievalPriority: "normal", evidenceEventIds: ["reported-event"] }], intentionProposals: [], longTermCandidates: [] });
+    const reportedJob = await persistence.claimPostProcess("a", "reported-run"); if (reportedJob === undefined) throw new Error("Post-process job was not created");
+    if (reportedJob.type === "continuity") await persistence.completePostProcess(reportedJob, { persistentStateUpdates: [], intentionProposals: [] });
+    const reportedMemoryJob = reportedJob.type === "memory" ? reportedJob : await persistence.claimPostProcess("a", "reported-run"); if (reportedMemoryJob?.type !== "memory") throw new Error("Memory job was not created");
+    await persistence.completePostProcess(reportedMemoryJob, { memoryProposals: [{ content: "Agent B reported that the library opens at nine", relatedSubjectIds: ["b"], relatedIntentionIds: [], importance: "Reported information", retrievalPriority: "normal", webSnapshotIds: [] }] });
     expect((await pool.query<{ source_agent_id: string }>("SELECT source_agent_id FROM memories WHERE id='reported-memory'")).rows[0]?.source_agent_id).toBe("b");
     expect((await pool.query<{ occurred_at: Date; created_at: Date }>("SELECT occurred_at,created_at FROM memories WHERE id='reported-memory'")).rows[0]).toMatchObject({ occurred_at: new Date(fixtureInstant), created_at: new Date("2026-01-03T00:00:00Z") });
   });

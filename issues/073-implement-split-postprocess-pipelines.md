@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-05
-status: created
+status: done
 ---
 
 # 073: 応答後処理をContinuity・Memory・Candidateへ分割して実装する
@@ -100,4 +100,3 @@ Issue 072で整合したdocsに従い、応答後処理をContinuity Update、Ep
 - [Concept design](../spec/personal-agent-concept-design-restructured-v2.md)
 - [Implementation design: Short-term Update と Long-term Update](../spec/personal-agent-implementation-design-v2.md#21-short-term-update-と-long-term-update)
 - [Implementation design: Memory](../spec/personal-agent-implementation-design-v2.md#16-memory)
-
