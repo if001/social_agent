@@ -34,11 +34,12 @@
 | Domain Schema / state transition | 入出力の妥当性、許可された状態遷移 |
 | `MessageQueue` | 宛先配送、ack、retry、lease、dead-letter |
 | Repository / Unit of Work | 個体分離、transaction、version、outbox |
-| `AgentHarness` | Domain入出力、Tool公開、trace、共通error |
+| `InteractionHarness` | 応答・Emotion・Desire、Tool公開、trace、共通error |
+| `PostProcessHarness` | 固定経験から持続状態、Memory、Intention、Candidateを構造化提案 |
 | `MemoryRetriever` / `ContextBuilder` | 検索条件、選択内容、budget、個体分離 |
 | `AgentTool` | 入力検証、権限制約、共通結果 |
 | `UiAdapter` | Message変換、宛先、重複抑止、配送失敗 |
-| `AgentRuntime` | 1 Eventの確定、Tool Loop、上限、外部Action |
+| `AgentRuntime` | Interaction確定、Post-process job、順序制御、Tool Loop、外部Action |
 | `LongTermReviewService` | KEEP / UPDATE / MERGE / DROPと根拠 |
 | CLI / process boundary | 起動、終了、再起動復旧、運用操作 |
 
@@ -179,9 +180,9 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 ### IP-07: Agent HarnessとOllama Cloud Chat adapter
 
-**目的:** Domain契約を保ったままDeep Agentsによるreasoning、Tool Loop、構造化出力を利用する。
+**目的:** Domain契約を保ったまま、InteractionにはDeep AgentsによるreasoningとTool Loopを、経験整理にはToolなしの構造化LLM呼び出しを利用する。
 
-**実装対象:** Scripted Agent Harness、Deep Agents adapter、`OLLAMA_BASE_URL`・`OLLAMA_API_KEY`・`OLLAMA_CHAT_MODEL`を使うOllama Cloud Chat adapter、prompt version、起動時に一度だけ行うTool Registry変換と`createDeepAgent({ tools, responseFormat })`、run context対応Middleware、trace callback、deadline / abort / step上限、structured responseのDomain再検証、1回だけの構造修復、起動時の認証付きcapability check。Tool定義はBot起動時に固定し、所有・追跡用ID、transport、実行上限だけを各runのcontextで渡す。
+**実装対象:** Scripted Interaction / Post-process Harness、Deep Agents adapter、`OLLAMA_BASE_URL`・`OLLAMA_API_KEY`・`OLLAMA_CHAT_MODEL`を使うOllama Cloud Chat adapter、prompt version、起動時に一度だけ行うTool Registry変換と`createDeepAgent({ tools, responseFormat })`、run context対応Middleware、trace callback、deadline / abort / step上限、Interaction OutputとPost-process OutputのDomain再検証、1回だけの構造修復、起動時の認証付きcapability check。Tool定義はInteraction Deep AgentだけへBot起動時に固定し、所有・追跡用ID、transport、実行上限だけを各runのcontextで渡す。Post-processはTool、Tool middleware、再帰loopを持たない単発の構造化LLM呼び出しとする。
 
 **TDD / 検証:** AgentHarness contractをScripted Harnessと実adapterへ適用可能にする。fast testでは複数runでAgent生成が1回であること、並行run contextの分離、正常structured output、Tool trace、timeout、abort、不正Schema、repair成功 / 失敗、未知Tool非公開を検証する。実Ollama接続はlive suiteへ分離する。
 
@@ -213,9 +214,9 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 ### IP-09: Agent Runtimeの最初の縦スライスとTerminal UI
 
-**目的:** User Messageから状態確定と応答配送までの最小のend-to-end経路を完成させる。
+**目的:** User Messageから即時状態と応答を確定・配送し、経験整理を後続Post-processへ分離するend-to-end経路を完成させる。
 
-**実装対象:** MessageからEvent / Observationへの変換、agent単位直列処理、receipt、Context Builder、Harness、State Update、outbox dispatcher、通常応答の`replyTo`、Terminal Adapter、graceful drain。
+**実装対象:** MessageからEvent / Observationへの変換、agent単位直列処理、Interaction Harness、Post-process jobのatomic作成・claim・retry、Context Builder、State Update、outbox dispatcher、通常応答の`replyTo`、Terminal Adapter、graceful drain。応答、Emotion、Desire、Tool trace、Post-process jobはInteraction commitで確定し、Mood、Drive、Working Social Context、Memory、Intention、CandidateはPost-process commitで確定する。
 
 **TDD / 検証:** ST-01を最初のtracer bulletとし、Scripted HarnessでTerminal相当入力からDB更新、outbox、Terminal出力まで確認する。その後、重複入力、LLM失敗、DB失敗、publish失敗、process停止を1例ずつ追加する。
 

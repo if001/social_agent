@@ -122,9 +122,9 @@ Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然
 
 #### FR-AG-05: 状態更新案
 
-Agent Coreは永続状態を直接変更せず、変更対象、操作、値、理由を含む更新案を返さなければならない。Runtimeは更新案を検証し、有効な変更だけを反映しなければならない。
+Interaction Deep Agentは今回の応答・行動判断に必要なEmotionとDesireだけを提案し、Post-process LLMはMood、Drive、Working Social Contextなどの持続状態の更新案を返さなければならない。Runtimeは更新案を検証し、有効な変更だけを反映しなければならない。
 
-LLMが返す新規Memory、Intention、Long-term Candidateも提案として扱う。保存用ID、作成時刻、所有Agent IDは通常コードが検証後に付与し、LLMに保存済みという事実を決定させてはならない。
+Post-process LLMが返す新規Memory、Intention、Long-term Candidateも提案として扱う。保存用ID、作成時刻、所有Agent IDは通常コードが検証後に付与し、LLMに保存済みという事実を決定させてはならない。
 
 ### 6.2 EventとAgent Loop
 
@@ -152,7 +152,7 @@ Tool実行結果は論理的なTool Result Eventとして同じDeep Agent runへ
 
 #### FR-EV-06: Action Result
 
-最終ActionはAgent Run IDで識別し、応答Envelopeと後続のUser MessageまたはExternal Eventをcausationとcorrelationで関連づけなければならない。配送成否はOutboxで管理し、外部で観測された成功、失敗、相手の反応は元Action IDを持つ新しいEventとして入力する。そのResultをMemoryにするか、状態やSelf形成の根拠にするかはAgent CoreがObservationの意味を判断して提案する。
+最終ActionはInteraction Run IDで識別し、応答Envelopeと後続のUser MessageまたはExternal Eventをcausationとcorrelationで関連づけなければならない。応答、Emotion、Desire、Tool実行記録、Post-process jobは同じtransactionで確定し、配送成否はOutboxで管理する。Post-processの失敗は応答を再送せず、同じ固定経験を入力として再試行する。外部で観測された成功、失敗、相手の反応は元Action IDを持つ新しいEventとして入力する。
 
 ### 6.3 MemoryとContext
 

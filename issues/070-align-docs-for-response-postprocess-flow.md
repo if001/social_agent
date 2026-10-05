@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-05
-status: created
+status: done
 ---
 
 # 070: 応答・Post-process分離に合わせてdocsを整合する
@@ -55,3 +55,10 @@ Issue 069で、応答とEmotion / DesireをInteraction処理で確定し、Memor
 - [Implementation design: Short-term Update と Long-term Update](../spec/personal-agent-implementation-design-v2.md#21-short-term-update-と-long-term-update)
 - [Implementation design: Internal Event](../spec/personal-agent-implementation-design-v2.md#24-internal-event)
 
+## Result
+
+- `ARCHITECTURE.md`にInteraction Deep Agent、atomicなInteraction commit、Outbox配送、Tool loopなしのPost-process LLM、Agent単位の後処理直列化を記載した。
+- `REQUIREMENTS.md`に即時状態と持続状態の生成責務、応答とPost-process jobのatomicな確定、後処理だけの再試行を追加した。
+- `TEST_STRATEGY.md`に二つのHarnessと二段階commit、応答重複なしのPost-process再試行を追加した。
+- `IMPLEMENTATION_PLAN.md`にInteraction Harness、PostProcess Harness、二段階のRuntime transactionを反映した。
+- Issue 071の実装は、この文書に記載したInteraction Output、Post-process Output、job、Agent単位の順序制御を基準とする。
