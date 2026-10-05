@@ -241,9 +241,12 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 ### 8.2 AgentHarness Contract
 
 - DomainのAgentCoreInputを受け取る
-- Tool Registryに存在するToolだけを公開する
+- Bot起動時にTool Registryに存在するToolだけを固定一覧として公開する
+- 複数runを処理してもDeep AgentとTool定義の生成が1回である
+- 並行するrun contextのagent / run / event ID、transport、上限、Tool traceが混線しない
 - Tool call / result traceを返す
-- final outputをDomain Schemaへ変換する
+- providerのstructured responseをDomain Schemaへ変換し、参照整合性を再検証する
+- Markdown fenceを含む自由形式JSON parseを正常系の前提にしない
 - timeout、abort、不正構造化出力を共通errorへ変換する
 - Deep Agents固有型を呼び出し側へ漏らさない
 
@@ -332,7 +335,7 @@ allowlist内外、重複受信、thread reply、送信retryを確認する。
 
 ### ST-03: Tool Loop
 
-Deep Agentのscripted modelがWeb Toolを要求し、Tool Resultが外部Queueへ出ず、同じrun内のreasoningへ戻って最終Actionを返すことを確認する。Runtimeが最終ActionからToolを再実行しないこと、実行記録がrun / eventと関連づくことも確認する。
+Bot起動時に一度だけ構築したDeep Agentのscripted modelが、固定登録済みのWeb Toolを要求し、Tool Resultが外部Queueへ出ず、同じrun内のreasoningへ戻って最終Actionを返すことを確認する。Runtimeが最終ActionからToolを再実行しないこと、検索語等はTool引数、所有・追跡用IDと上限はrun contextから得ること、実行記録がrun / eventと関連づくことも確認する。
 
 `web_page`を使うrunではSnapshot保存とTool Result provenanceを確認する。別のInternal Eventでは`web_archive_search`から既存Snapshotを発見し、`web_archive_get`で必要chunkだけを読み、鮮度不足や未取得情報がある場合だけ`web_list`／`web_page`を再実行する。Episodic Memoryには記事本文ではなく調査経験の概要とSnapshot根拠が保存されることを確認する。
 

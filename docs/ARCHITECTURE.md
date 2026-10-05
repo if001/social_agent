@@ -121,13 +121,14 @@ Bootstrap
 - `--env-file <path>`が指定された場合は`.env.sample → .env → 指定file → process.env`の順に上書きする
 - Agent IDに対するPostgreSQL advisory lockを取得する
 - DB接続、Queue、Ollama、Tool Registry、UI Adapterを構築する
+- Botに公開するTool RegistryをLangChain Toolへ一度だけ変換し、`createDeepAgent({ tools, responseFormat })`で通常Agent Coreを構築する
 - Queue consumer、Scheduler、Discord接続、Terminal入力を開始する
 - SIGINT / SIGTERM時に新規受付を止め、処理中Eventを完了または再配送可能な状態へ戻す
 - advisory lockと外部接続を解放する
 
 同じAgent IDで2プロセスが起動した場合、後から起動したプロセスは処理を開始せず終了する。
 
-起動順序は、設定検証、DB接続、Agent存在確認、Agent advisory lock、Chat／Embedding capability check、依存component構築、Queue復旧、consumer開始、`ready`遷移とする。migrationは複数processが競合しないよう`bot:start`から実行せず、事前に明示commandで適用する。
+起動順序は、設定検証、DB接続、Agent存在確認、Agent advisory lock、Chat／Embedding capability check、Tool Registryと再利用可能なDeep Agentを含む依存component構築、Queue復旧、consumer開始、`ready`遷移とする。migrationは複数processが競合しないよう`bot:start`から実行せず、事前に明示commandで適用する。
 
 ### 5.2 Message Queue
 
@@ -212,7 +213,7 @@ UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`
 - Agent単位でEventを直列処理する
 - Context Builderを呼び出す
 - Agent Harnessを実行する
-- Deep Agents Adapterへ利用可能Toolと機械的制限を渡し、Tool実行記録を受け取る
+- 起動時に構築済みのDeep Agents Adapterへrun contextと機械的制限を渡し、Tool実行記録を受け取る
 - Agent Core Outputを検証する
 - 状態、Memory、Intention、Candidate、Event logをtransactionで保存する
 - 外部向けActionを宛先付きQueueへpublishする
@@ -254,7 +255,7 @@ interface ContextBuilder {
 - 登録済みTool定義
 - Runtimeの残りstep数、deadline、ファイル許可範囲等の制約
 
-長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
+`availableTools`は起動時にDeep Agentへ登録した同じToolカタログのDomain表現であり、EventごとにToolを再登録する指示ではない。長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
 
 Expectation専用の保存領域は設けない。Agent Coreは入力済みのActive Intention、Social Context、関連Memory、直近Observationから、今回予期していたことと実際のObservationとの差をそのrunの意味解釈として導出する。次のEventにも影響する期待は、その意味に応じてIntention、Social ContextまたはMemoryへ提案する。
 
@@ -271,21 +272,26 @@ interface AgentHarness {
 `DeepAgentsAdapter`は次を担う。
 
 - `AgentCoreInput`からsystem promptとmessagesを構築する
-- Tool RegistryのToolだけをLangChain Toolへ変換して登録する
-- API key付きOllama Cloud Chat ModelをDeep Agentsへ注入する
+- Bot起動時にTool RegistryのToolだけをLangChain Toolへ変換し、固定のTool一覧としてDeep Agentへ登録する
+- Bot起動時にAPI key付きOllama Cloud Chat Model、Tool一覧、Middleware、`AgentCoreOutputSchema`の`responseFormat`からDeep Agentを一度だけ構築する
+- Eventごとに同じDeep Agentを再利用し、`agentId`、`runId`、`eventId`、transport、AbortSignal、Tool call上限等をrun contextとして渡す
 - 各Tool callとresultをRuntime traceへ通知する
 - Tool resultを同じDeep Agent runの次のreasoning stepへ返し、最終Actionまで内部loopを完了する
 - step上限とdeadlineを強制する
-- 最終結果を`AgentCoreOutputSchema`でparseする
+- Deep Agentの`structuredResponse`を受け取り、`AgentCoreOutputSchema`でDomain境界を再検証する
 - Deep Agents / LangChain固有のmessage、tool、state型をDomain型へ変換する
 
 Deep Agentsの組み込みMemory、filesystem、subagent機能は、明示的に採用したもの以外をドメイン状態の正本として使わない。特にSelf、Disposition、Intention、Memory、Long-term CandidateはPostgreSQL側を正本とする。
+
+Deep Agentインスタンスの再利用は、Domain stateや会話履歴をprocess内の可変状態へ無条件に保持することを意味しない。各Eventの判断材料はContext BuilderがPostgreSQLを正本として組み立てる。同一AgentのEventはRuntimeが直列処理し、共有Agentの並行呼び出しが発生してもMiddlewareとToolはrun contextだけを参照してID、制限、transport、traceを混線させない。
+
+`beforeAgent`はrun contextの検証と開始trace、`wrapToolCall`はTool入力検証、上限、実行記録、`afterAgent`はstructured responseとtraceの整理に使う。これらはAgent Coreの意味判断を固定Pipelineへ分割するものではなく、機械的な実行境界である。
 
 Ollama Cloudのchat modelはTool callingと要求する構造化出力を満たすものを設定する。接続先、API key、modelはそれぞれ `OLLAMA_BASE_URL`、`OLLAMA_API_KEY`、`OLLAMA_CHAT_MODEL` から読み取る。起動時に認証を含む簡単なcapability checkを行い、満たさない場合はbotをready状態にしない。
 
 ### 5.7 Tool Registry
 
-利用可能なToolを起動時に固定する。
+利用可能なToolを起動時に固定する。名称、説明、入力Schema、実装binding、Botへ公開する集合を`createDeepAgent({ tools })`へ渡し、EventごとにTool wrapperやDeep Agentを作り直さない。
 
 ```ts
 interface AgentTool<TInput, TResult> {
@@ -309,6 +315,8 @@ interface ToolRegistry {
 - `agent_send`: 別Agent宛ての`agent-message`をQueueへpublishする
 
 Toolは個別承認なしで実行する。未知のTool名は拒否する。コード実行、shell、任意外部API、カレンダーは登録しない。
+
+Toolカタログの固定は、Tool利用の固定規則を意味しない。検索語、URL、宛先、ファイルpath等の業務入力はAgent Coreが各runの文脈からTool callとして生成する。所有・追跡用の`agentId`、`runId`、`eventId`、transport、実行上限はLLMへ生成させず、run contextからToolへ渡す。
 
 File Toolは入力pathを絶対pathへ正規化し、`realpath`で許可root配下にあることを確認する。新規ファイルは最も近い既存親の`realpath`を検証する。symlinkを使ったroot外アクセスを拒否する。
 
@@ -451,7 +459,7 @@ Tool呼び出しは親Eventとrunに結びつく実行記録に加え、`tool-re
 
 通常Agent Coreが選んだ最終ActionはAgent Run IDをAction IDとして扱う。応答Envelopeは`causationId=runId`と`correlationId`を持ち、配送成否はOutboxの状態として記録する。外部システムが成功、失敗、相手の反応等を観測した場合は、`RuntimeEventPublisher.publishExternal`の`resultOfActionId`へ元のrun IDを指定してExternal Eventを投入する。Discordでは送信したDiscord Message IDとrun IDをAdapterが対応付け、返信参照を持つ次の投稿へ同じcausationを付ける。拒否、待機、no-actionもAgent Run result内のActionとして同じIDで参照できる。Agent Coreはこの後続Observationを通常どおり意味解釈し、必要なMemoryや状態変更を提案する。
 
-Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの再入を検査する。rateとcorrelationはPostgreSQLで全process間共有する。validation／permission違反は再試行せず理由付きdead-letterへ送り、外部障害だけをbackoff再試行する。ToolはFamily capabilityから作った`availableTools`だけをDeep Agentへ渡し、実行直前にもregistryのSchemaとidempotencyを検査する。状態、Memory、Candidateが参照する根拠IDは現在Eventまたは対象AgentのContext内に存在するものに限定する。
+Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの再入を検査する。rateとcorrelationはPostgreSQLで全process間共有する。validation／permission違反は再試行せず理由付きdead-letterへ送り、外部障害だけをbackoff再試行する。Family capabilityから作った`availableTools`はBot起動時に固定のTool一覧としてDeep Agentへ登録し、実行直前にもregistryのSchema、run contextの上限、idempotencyを検査する。状態、Memory、Candidateが参照する根拠IDは現在Eventまたは対象AgentのContext内に存在するものに限定する。
 
 ### 6.1 Queueを通るもの
 
@@ -531,7 +539,7 @@ sequenceDiagram
     participant Q as Message Queue
     participant R as Agent Runtime
     participant C as Context Builder
-    participant H as Deep Agents Adapter
+    participant H as Reusable Deep Agents Adapter
     participant DB as PostgreSQL
 
     UI->>Q: publish(user-message, destination=agent)
@@ -540,7 +548,7 @@ sequenceDiagram
     R->>C: build observation context
     C->>DB: state and hybrid memory retrieval
     C-->>R: AgentCoreInput
-    R->>H: run(input, limits)
+    R->>H: run(input, run context, limits)
     H-->>R: output + tool trace
     R->>DB: validate and transactionally persist
     R->>Q: publish(agent-output, destination=replyTo)
@@ -635,7 +643,7 @@ type AgentCoreOutput = {
 
 `recentObservations`は現在Eventより前の同一Agentの完了済みObservationを古い順に最大6件保持し、代名詞や省略の解決だけに使う。通常Coreは現在Eventを中心にEpisodic Memoryを提案し、直近履歴に含まれる同じ出来事を再保存しない。
 
-Schema不適合時は、同じraw outputを添えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。
+通常出力はDeep Agentの`responseFormat`から`structuredResponse`として受け取る。HarnessはDomain固有の参照整合性を含めて再検証する。Schemaまたは参照整合性に適合しない場合は、検証issueを与えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。Markdown fenceを含む自由形式本文の`JSON.parse`を通常経路にしない。
 
 ## 10. 永続化設計
 
