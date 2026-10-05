@@ -11,7 +11,7 @@ type AgentRow = QueryResultRow & {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
   acquired_disposition: string; values: string; interests: unknown; preferences: unknown; roles: unknown; raison_detre: string | null; self_narrative: string; self_continuity: string;
   mood: string; drives: unknown; current_interests: unknown; version: number; state_updated_at: Date;
-  shared_disposition: string; capabilities: unknown; base_instruction: string;
+  shared_disposition: string; base_instruction: string;
 };
 type SocialRow = QueryResultRow & { id: string; agent_id: string; subject_id: string; subject_type: SocialContext["subjectType"]; description: string; updated_at: Date };
 type IntentionRow = QueryResultRow & { id: string; agent_id: string; description: string; reason: string; trigger: unknown; status: Intention["status"]; next_review_at: Date | null; superseded_by_id: string | null; created_at: Date; updated_at: Date };
@@ -64,7 +64,7 @@ export class PostgresAgentContextLoader {
     const observation = observationFromEvent(event);
     const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
       s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.drives,s.current_interests,s.version,s.updated_at AS state_updated_at,
-      f.shared_disposition,f.capabilities,f.base_instruction
+      f.shared_disposition,f.base_instruction
       FROM agents a JOIN agent_states s ON s.agent_id=a.id JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1`, [event.agentId]);
     const agent = agentResult.rows[0];
     if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${event.agentId}`);
@@ -84,9 +84,7 @@ export class PostgresAgentContextLoader {
     try { vectors = await this.options.embedding.embed([memoryQuery.text], embeddingSignal); } catch { /* keyword and metadata fallback */ }
     const retrieval = await this.#retriever.retrieve(event.agentId, memoryQuery, vectors[0] ?? [], this.options.retrievalLimit ?? this.options.budget.maxMemories);
     const enrichedMemories = await this.#loadMemoryLinks(retrieval.memories);
-    const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities.filter((value): value is string => typeof value === "string") : [];
-    const definitions = this.options.tools.definitions();
-    const availableTools = definitions.filter(({ name }) => capabilities.includes(name));
+    const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);
     return AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },

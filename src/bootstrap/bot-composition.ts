@@ -30,7 +30,15 @@ export type BotCompositionOptions = {
   readonly ids?: IdGenerator;
   readonly limits?: Partial<RunLimits>;
   readonly logger?: Logger;
+  readonly enabledToolNames?: ReadonlySet<string>;
 };
+
+export function selectEnabledTools<T extends { readonly name: string }>(tools: readonly T[], enabledToolNames?: ReadonlySet<string>): readonly T[] {
+  if (enabledToolNames === undefined) return tools;
+  const configuredToolNames = new Set(tools.map(({ name }) => name));
+  for (const name of enabledToolNames) if (!configuredToolNames.has(name)) throw new Error(`Unknown configured capability: ${name}`);
+  return tools.filter(({ name }) => enabledToolNames.has(name));
+}
 
 export function createBotComposition(options: BotCompositionOptions) {
   const { config, pool } = options;
@@ -40,7 +48,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 12, maxToolCalls: 8, maxHops: 4, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
   const webArchive = new PostgresWebArchive(pool, embeddingProvider, ids, () => clock.now(), config.embedding.model);
-  const toolRegistry = new ToolRegistry([
+  const configuredTools = [
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools(config.fileToolRoots),
     createAgentSendTool({ queue, clock, maxHops: limits.maxHops, provenance: (context) => ({
@@ -48,7 +56,8 @@ export function createBotComposition(options: BotCompositionOptions) {
       expiresAt: context.transport?.expiresAt ?? new Date(clock.now().getTime() + 86_400_000).toISOString(),
       ...(context.transport?.replyTo === undefined ? {} : { replyTo: context.transport.replyTo })
     }) })
-  ]);
+  ];
+  const toolRegistry = new ToolRegistry(selectEnabledTools(configuredTools, options.enabledToolNames));
   const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, embeddingProvider, config.embedding.model);
   const contextLoader = new PostgresAgentContextLoader({
     pool, ids, tools: toolRegistry,

@@ -83,6 +83,7 @@ BotがCapabilityとして利用可能なToolの定義、入力Schema、公開範
 ## Result
 
 - `createDeepAgent()`、Model、Tool定義をinvoker生成時に一度だけ構築し、複数runで同じAgentとToolインスタンスを再利用する構成へ変更した。
+- Bot起動時に対象AgentのFamily capabilityをDBから読み、許可されたToolだけで固定カタログを構築する。稼働中のcapability変更は次回起動時に反映する。
 - run固有のID、AbortSignal、Tool上限、transport、trace collectorをLangChainのruntime contextで渡し、並行するrun間で実行記録が混線しないことを確認した。
 - Agent Core入力のTool一覧と起動時に登録したTool一覧を照合し、稼働中にTool定義が変わる入力を永続化前に拒否するようにした。
 - Deep Agents 1.14.1が必要とする`read_file`だけを仮想state backend向けに残し、他のFilesystem Toolと汎用Subagentを無効化した。`read_file`にもrun単位の上限とtraceを適用した。
