@@ -70,5 +70,8 @@
 | 064 | [bot別の表現Persona](064-bot-persona-configuration.md) | 020, 030, 038 |
 | 065 | [Runtime標準出力log](065-runtime-stdout-observability.md) | 032, 041, 042 |
 | 066 | [安全な詳細エラーログ](066-detailed-safe-error-logging.md) | 065 |
+| 069 | [応答・即時状態と応答後Post-processの境界を設計](069-design-response-and-postprocess-boundary.md) | 044、045、046、067 |
+| 070 | [応答・Post-process分離に合わせたdocs整合](070-align-docs-for-response-postprocess-flow.md) | 069 |
+| 071 | [応答・即時状態とPost-processの分離実装](071-implement-response-postprocess-flow.md) | 069、070 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
