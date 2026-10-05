@@ -1,4 +1,4 @@
-import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, createOllamaDeepAgentInvoker, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, createOllamaDeepAgentInvoker, summarizeModelResponse, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
@@ -7,6 +7,10 @@ const output: AgentCoreOutput = { interpretation: {}, internalChanges: { transie
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
+  it("summarizes model output type and provider finish reason for tracing", () => {
+    expect(summarizeModelResponse({ content: "done", tool_calls: [{ name: "submit" }], response_metadata: { done_reason: "stop" } })).toEqual({ outputType: "tool-calls", outputCharacters: 4, toolCallCount: 1, finishReason: "stop" });
+    expect(summarizeModelResponse({ content: "plain", response_metadata: {} })).toMatchObject({ outputType: "text", finishReason: "not-reported" });
+  });
   it("returns domain output from the scripted harness", async () => {
     const harness = new ScriptedAgentHarness([output]);
     await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
