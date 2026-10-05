@@ -256,14 +256,27 @@ export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 export const AgentCoreOutputSchema = z.object({
   interpretation: z.object({ subjectiveMeaning: NaturalLanguage.optional() }),
   internalChanges: z.object({
-    transientStateUpdates: z.array(StateUpdateProposalSchema),
-    memoryProposals: z.array(MemoryProposalSchema),
-    intentionProposals: z.array(IntentionProposalSchema),
-    longTermCandidates: z.array(LongTermCandidateProposalSchema)
+    immediateStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
+      updates.forEach((update, index) => {
+        if (update.target !== "emotion" && update.target !== "desires") context.addIssue({ code: "custom", path: [index, "target"], message: "Interaction may update only Emotion and Desire" });
+      });
+    })
   }),
   action: FinalActionSchema
 });
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
+
+export const PostProcessOutputSchema = z.object({
+  persistentStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
+    updates.forEach((update, index) => {
+      if (update.target === "emotion" || update.target === "desires") context.addIssue({ code: "custom", path: [index, "target"], message: "Post-process may not update Emotion or Desire" });
+    });
+  }),
+  memoryProposals: z.array(MemoryProposalSchema),
+  intentionProposals: z.array(IntentionProposalSchema),
+  longTermCandidates: z.array(LongTermCandidateProposalSchema)
+});
+export type PostProcessOutput = z.infer<typeof PostProcessOutputSchema>;
 
 export const ToolExecutionRecordSchema = z.object({
   callId: Id,
@@ -284,6 +297,12 @@ export type ToolExecutionRecord = z.infer<typeof ToolExecutionRecordSchema>;
 
 export const AgentRunResultSchema = z.object({ output: AgentCoreOutputSchema, toolExecutions: z.array(ToolExecutionRecordSchema) });
 export type AgentRunResult = z.infer<typeof AgentRunResultSchema>;
+
+export const PostProcessInputSchema = z.object({
+  interactionInput: AgentCoreInputSchema,
+  interactionResult: AgentRunResultSchema
+});
+export type PostProcessInput = z.infer<typeof PostProcessInputSchema>;
 
 export const MessageEnvelopeSchema = z.object({
   id: Id,

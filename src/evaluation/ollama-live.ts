@@ -51,14 +51,14 @@ export class AgentCoreScenarioExecutor implements ScenarioExecutor {
       const result = await this.harness.run(input, signal);
       outputs.push({ agentId: input.run.agentId, output: result.output, toolExecutions: result.toolExecutions });
     }
-    const coreOutputs = outputs.map(({ output }) => output); const stateUpdates = coreOutputs.flatMap(({ internalChanges }) => internalChanges.transientStateUpdates);
-    const referencedEvidenceIds = [...new Set([...stateUpdates.flatMap(({ evidenceIds }) => evidenceIds), ...coreOutputs.flatMap(({ internalChanges }) => internalChanges.longTermCandidates.flatMap(({ evidenceMemoryIds }) => evidenceMemoryIds))])];
+    const coreOutputs = outputs.map(({ output }) => output); const stateUpdates = coreOutputs.flatMap(({ internalChanges }) => internalChanges.immediateStateUpdates);
+    const referencedEvidenceIds = [...new Set(stateUpdates.flatMap(({ evidenceIds }) => evidenceIds))];
     const toolTrace = outputs.flatMap(({ agentId, toolExecutions }) => toolExecutions.map((execution) => ({ agentId, ...execution })));
     const dataOwnerAgentIds = outputs.map(({ agentId }) => agentId); const owners = new Set(dataOwnerAgentIds);
     const outputOwnersValid = outputs.every(({ agentId }) => owners.has(agentId));
     const evidenceOwners = new Map(scenario.agentCoreInputs.flatMap((input) => [{ id: input.run.eventId, agentId: input.run.agentId }, ...input.memories.map(({ id, agentId }) => ({ id, agentId }))]).map((item) => [item.id, item.agentId]));
-    const evidenceOwnershipValid = outputs.every(({ agentId, output }) => [...output.internalChanges.transientStateUpdates.flatMap(({ evidenceIds }) => evidenceIds), ...output.internalChanges.longTermCandidates.flatMap(({ evidenceMemoryIds }) => evidenceMemoryIds)].every((id) => evidenceOwners.get(id) === agentId));
-    return { input: scenario.agentCoreInputs, output: outputs, stateDiff: outputs.map(({ agentId, output }) => ({ agentId, transientStateUpdates: output.internalChanges.transientStateUpdates, memoryProposals: output.internalChanges.memoryProposals, intentionProposals: output.internalChanges.intentionProposals, longTermCandidates: output.internalChanges.longTermCandidates })), evidenceMemories: scenario.evidenceMemories, referencedEvidenceIds, evidenceOwnershipValid, toolTrace, involvedAgentIds: scenario.involvedAgentIds, dataOwnerAgentIds, proposedStateTargets: stateUpdates.map(({ target }) => target), limitsRespected: outputOwnersValid && toolTrace.length <= scenario.maxToolCalls, schemaValid: true };
+    const evidenceOwnershipValid = outputs.every(({ agentId, output }) => output.internalChanges.immediateStateUpdates.flatMap(({ evidenceIds }) => evidenceIds).every((id) => evidenceOwners.get(id) === agentId));
+    return { input: scenario.agentCoreInputs, output: outputs, stateDiff: outputs.map(({ agentId, output }) => ({ agentId, immediateStateUpdates: output.internalChanges.immediateStateUpdates })), evidenceMemories: scenario.evidenceMemories, referencedEvidenceIds, evidenceOwnershipValid, toolTrace, involvedAgentIds: scenario.involvedAgentIds, dataOwnerAgentIds, proposedStateTargets: stateUpdates.map(({ target }) => target), limitsRespected: outputOwnersValid && toolTrace.length <= scenario.maxToolCalls, schemaValid: true };
   }
 }
 export class OllamaEvaluator implements EvaluatorAdapter {

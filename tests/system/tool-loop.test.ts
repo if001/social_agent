@@ -7,7 +7,7 @@ import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contrac
 
 const finalOutput: AgentCoreOutput = {
   interpretation: { subjectiveMeaning: "The Tool result answered the question" },
-  internalChanges: { transientStateUpdates: [], memoryProposals: [], intentionProposals: [], longTermCandidates: [] },
+  internalChanges: { immediateStateUpdates: [] },
   action: { type: "respond", content: "The result is 42" }
 };
 
