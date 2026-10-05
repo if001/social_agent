@@ -695,7 +695,7 @@ PostgreSQLを次の正本とする。
 ### 10.3 SchemaとMigration
 
 - TypeScriptのDrizzle Schemaをアプリケーション管理テーブルのsource of truthとする
-- `pnpm db:generate`でDrizzle Kitのversion管理されたSQL migrationを生成し、`pnpm ops migrate`でDrizzle migratorが適用する。適用済みmigrationは対象schemaの`__drizzle_migrations`へ記録する
+- `pnpm db:generate`でDrizzle Kitのversion管理されたSQL migrationを生成し、`pnpm db:migrate`でDrizzle Kitが適用する。適用済みmigrationは`app.__drizzle_migrations`へ記録する
 - pgvector extension有効化はcustom SQL migrationに含める
 - DB insert / select SchemaはDrizzle SchemaからZod Schemaを生成し、必要なrefinementを追加する
 - migrationはbot起動時に各プロセスが競合して実行せず、明示的なmigration commandで適用する
@@ -812,7 +812,7 @@ External dependencies
 標準起動形は次とする。
 
 ```bash
-pnpm ops migrate
+pnpm db:migrate
 pnpm ops agent:init bot-a default
 pnpm ops agent:init bot-b default
 pnpm bot:start --env-file .env.bot-a
