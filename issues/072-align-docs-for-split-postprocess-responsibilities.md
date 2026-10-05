@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-05
-status: created
+status: done
 ---
 
 # 072: Post-process責務分割に合わせてdocsを修正する
@@ -73,4 +73,3 @@ Issue 071では応答後の持続状態、Episodic Memory、Intention、Long-ter
 - [Concept design](../spec/personal-agent-concept-design-restructured-v2.md)
 - [Implementation design: Short-term Update と Long-term Update](../spec/personal-agent-implementation-design-v2.md#21-short-term-update-と-long-term-update)
 - [Implementation design: Memory](../spec/personal-agent-implementation-design-v2.md#16-memory)
-

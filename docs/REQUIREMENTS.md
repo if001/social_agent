@@ -122,9 +122,9 @@ Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然
 
 #### FR-AG-05: 状態更新案
 
-Interaction Deep Agentは今回の応答・行動判断に必要なEmotionとDesireだけを提案し、Post-process LLMはMood、Drive、Working Social Contextなどの持続状態の更新案を返さなければならない。Runtimeは更新案を検証し、有効な変更だけを反映しなければならない。
+Interaction Deep Agentは今回の応答・行動判断に必要なEmotionとDesireだけを提案し、応答後のContinuity UpdateはMood、Drive、Current Interest、Working Social Context、Intentionだけを提案しなければならない。Episodic Memory ExtractionはMemoryだけを提案し、Candidate DetectorはMemory保存後に保存済みMemory IDを根拠としてLong-term Candidateだけを提案しなければならない。Runtimeは各提案を個別に検証し、有効な変更だけを反映しなければならない。
 
-Post-process LLMが返す新規Memory、Intention、Long-term Candidateも提案として扱う。保存用ID、作成時刻、所有Agent IDは通常コードが検証後に付与し、LLMに保存済みという事実を決定させてはならない。
+LLMの出力はすべて提案として扱う。Memoryの`kind=episodic`、保存用ID、発生・作成時刻、所有Agent ID、Event evidence、source provenanceは通常コードが検証後に付与し、LLMに保存済みという事実を決定させてはならない。
 
 ### 6.2 EventとAgent Loop
 
@@ -152,7 +152,7 @@ Tool実行結果は論理的なTool Result Eventとして同じDeep Agent runへ
 
 #### FR-EV-06: Action Result
 
-最終ActionはInteraction Run IDで識別し、応答Envelopeと後続のUser MessageまたはExternal Eventをcausationとcorrelationで関連づけなければならない。応答、Emotion、Desire、Tool実行記録、Post-process jobは同じtransactionで確定し、配送成否はOutboxで管理する。Post-processの失敗は応答を再送せず、同じ固定経験を入力として再試行する。外部で観測された成功、失敗、相手の反応は元Action IDを持つ新しいEventとして入力する。
+最終ActionはInteraction Run IDで識別し、応答Envelopeと後続のUser MessageまたはExternal Eventをcausationとcorrelationで関連づけなければならない。応答、Emotion、Desire、Tool実行記録、Continuity job、Memory Extraction jobは同じtransactionで確定し、配送成否はOutboxで管理する。応答後の各jobは独立して再試行し、一方の失敗で応答を再送したり他方の成功を失ったりしてはならない。Candidate DetectorはMemory保存成功後にだけ起動する。外部で観測された成功、失敗、相手の反応は元Action IDを持つ新しいEventとして入力する。
 
 ### 6.3 MemoryとContext
 
@@ -170,9 +170,11 @@ Long-term Reviewによる長期状態の変更履歴であるSelf Change Memory�
 
 すべてのEventを無条件に記憶するのではなく、Agent CoreがMemory作成案とその理由を提示し、Runtimeが妥当性を検証して保存しなければならない。
 
-通常Agent Coreは、現在のEventを中心に、Observation、直近の対話、Tool実行結果、Active Intention、Working Social Contextを使ってEpisodic Memoryを0件以上提案する。直近の対話は文脈解決に使い、同じ出来事を毎回再保存してはならない。後続の判断を変え得る約束、予定、決定、感情的または関係上重要な出来事、Toolで得た重要な結果、Intentionの変化を主な保存対象とする。
+Episodic Memory Extractionは、現在のEventを中心に、Observation、直近の対話、応答、Tool結果の意味的な要約、Active Intention、Working Social Contextを使ってEpisodic Memoryを0件以上提案する。直近の対話は文脈解決に使い、同じ出来事を毎回再保存してはならない。後続の判断を変え得る約束、予定、決定、感情的または関係上重要な出来事、Toolで得た重要な結果、Intentionの変化を主な保存対象とする。
 
-通常Agent Coreは、SemanticおよびSelf-related Memoryを直ちに確定せず、主張、理由、根拠EventまたはMemoryを含むCandidateとして提案する。明示された安定的事実は少ない根拠でもSemantic Memoryへ確定できるが、推測による一般化と自己認識はLong-term Reviewが複数の独立した経験、既存Memoryとの重複・矛盾、一時的なEmotionやMoodだけで説明できないことを確認して確定する。
+Candidate DetectorはSemanticおよびSelf-related Memoryを直ちに確定せず、主張、理由、保存済み根拠Memoryを含むCandidateとして提案する。Runtimeは重要な経験、自己関連、同主題の蓄積、既存Selfとの矛盾、一定期間経過等から起動要否を判定し、通常Eventごとの無条件なLLM呼び出しを避ける。明示された安定的事実は少ない根拠でもSemantic Memoryへ確定できるが、推測による一般化と自己認識はLong-term Reviewが複数の独立した経験、既存Memoryとの重複・矛盾、一時的なEmotionやMoodだけで説明できないことを確認して確定する。
+
+応答後LLMの入力は用途別の固定snapshotとし、Tool定義、runtime limits、retrieval trace、不要なraw Tool payloadを含めてはならない。各出力Schemaと日本語promptは目的、入力、出力フィールド、生成条件、生成しない条件、空出力と更新ありの完全な例を明示しなければならない。Schema不適合はprovider障害と区別し、validation pathを安全に記録したうえで有限回だけ修復できなければならない。
 
 LLMはMemoryの意味内容と根拠を提案し、RuntimeはID、所有Agent、作成時刻、出典を付与してSchema、参照所有権、重複を検証する。Embedding生成の失敗によって検証済みMemory自体を失ってはならない。
 

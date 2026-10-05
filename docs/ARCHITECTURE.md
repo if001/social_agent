@@ -31,7 +31,7 @@ Application / Domain層が必要とする契約をPortとして定義し、Infra
 
 ### A-04: LLMは提案し、Runtimeが確定する
 
-Interaction Deep AgentはSubjective Meaning、今回のEmotion / Desire、最終Actionを提案する。応答後のPost-process LLMは持続状態、Memory、Intention、Long-term Candidateを提案する。いずれの提案にも保存用ID、作成時刻、所有Agent ID、保存済みという事実を生成させない。RuntimeはZod Schema、権限、参照整合性、状態version、ループ上限を検証し、IDと時刻を付与してDB transactionで確定する。
+Interaction Deep AgentはSubjective Meaning、今回のEmotion / Desire、最終Actionを提案する。応答後は、Continuity Updateが持続状態とIntention、Episodic Memory Extractionが具体的経験、Candidate Detectorが保存済みMemoryを根拠とするLong-term Candidateをそれぞれ提案する。いずれの提案にも保存用ID、作成時刻、所有Agent ID、保存済みという事実を生成させない。RuntimeはZod Schema、権限、参照整合性、状態versionを検証し、IDと時刻を付与してDB transactionで確定する。
 
 ### A-05: 配送はat-least-once、処理は冪等にする
 
@@ -215,9 +215,10 @@ UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`
 - Agent Harnessを実行する
 - 起動時に構築済みのDeep Agents Adapterへrun contextと機械的制限を渡し、Tool実行記録を受け取る
 - Interaction Outputを検証する
-- 応答、Emotion、Desire、Tool実行記録、Post-process jobをtransactionで保存する
+- 応答、Emotion、Desire、Tool実行記録、Continuity job、Memory Extraction jobをtransactionで保存する
 - Outboxを通じて外部向けActionを配送する
-- Agentごとに直列化したPost-processを実行し、持続状態、Memory、Intention、Candidateを別transactionで保存する
+- Continuity UpdateとMemory Extractionを独立したjobとして実行し、成功結果を別々に保存する
+- Episodic Memoryの保存後、必要な場合だけCandidate Detector jobを起動する
 - Internal EventとTime Eventを通常Agent CoreまたはLong-term Reviewへ振り分ける
 
 Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成し、時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interestを維持・変更・削除する機会を通常Agent Coreへ与える。Runtimeが固定規則で感情値を減衰させることはせず、時刻管理と再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
@@ -230,17 +231,23 @@ Agent初期化時は、Role、Drive、Interest、Preferenceを空集合とし、
 
 Idle Intentionの期限は、User MessageまたはExternal Eventを受理した時点を最終活動として、そのtransaction内で再計算する。Agent Coreの完了後まで更新を遅らせない。新規Idle Intentionは作成Eventの時刻から最初の期限を計算し、Scheduler自身が生成したInternal EventやSystem Eventでは最終活動を延長しない。
 
-外部Message consumerのconcurrencyはbotごとに1とする。長時間Tool実行中も同じAgentの別Eventを並行処理しない。Interaction commit後はOutbox Dispatcherが直ちに応答を配送できるが、同じAgentの次Eventは先行Post-processが持続状態を確定するまで開始しない。これにより、次Eventが直前の経験によるMood、Drive、Working Social Context、Memory、Intentionを欠いたContextで判断することを防ぐ。
+外部Message consumerのconcurrencyはbotごとに1とする。長時間Tool実行中も同じAgentの別Eventを並行処理しない。Interaction commit後はOutbox Dispatcherが直ちに応答を配送できる。Continuity UpdateとMemory Extractionは互いに依存しない固定snapshotから実行できるが、同じAgentの次Eventは先行Continuity Updateが状態versionを検証して確定するまで開始しない。Memory ExtractionやCandidate Detectorの失敗は応答配送とContinuity Updateを巻き戻さない。
 
 ```mermaid
 flowchart LR
     E[Event] --> I[Interaction Deep Agent<br/>Tool loopあり]
-    I --> C[Interaction commit<br/>応答・Emotion・Desire・Tool trace・Post-process job]
+    I --> C[Interaction commit<br/>応答・Emotion・Desire・Tool trace・2つのjob]
     C --> O[Outbox]
     O --> Q[外部へ応答を配送]
-    C --> P[Post-process LLM<br/>Tool loopなし]
-    P --> S[持続状態・Memory・Intention・Candidateをcommit]
-    S --> R[Long-term Review]
+    C --> U[Continuity Update LLM<br/>Tool loopなし]
+    C --> M[Episodic Memory Extraction LLM<br/>Tool loopなし]
+    U --> US[Mood・Drive・Interest・Social Context・Intentionをcommit]
+    M --> MS[Episodic Memoryをcommit]
+    MS --> G{Candidate起動条件}
+    G -->|満たす| D[Candidate Detector]
+    G -->|満たさない| X[終了]
+    D --> DS[保存済みMemory IDを根拠にCandidateをcommit]
+    DS --> R[Long-term Review]
 ```
 
 ### 5.5 Context Builder
@@ -295,7 +302,9 @@ interface AgentHarness {
 - Deep Agentの`structuredResponse`を受け取り、`InteractionOutputSchema`でDomain境界を再検証する
 - Deep Agents / LangChain固有のmessage、tool、state型をDomain型へ変換する
 
-Post-processはDeep Agentではない。Tool Registry、Tool middleware、再帰的なTool loopを持たない単発の構造化LLM呼び出しであり、Interaction commitで固定したEvent、Interaction結果、Tool trace、即時commit後のContextから持続状態と経験の提案だけを返す。追加のMemory検索、Web再調査、自律行動が必要なら、Post-process内でToolを使わず、`memory-recall`または`intention-review`などの明示的なInternal EventからInteraction Deep Agentを起動する。
+応答後の3処理はDeep Agentではなく、Tool Registry、Tool middleware、再帰的なTool loopを持たない用途別の構造化LLM呼び出しである。Continuity UpdateとMemory ExtractionはInteraction commit時に固定したsnapshotから独立して実行できる。Candidate DetectorはMemory保存後にだけ実行し、保存済みMemory IDを入力と根拠に使う。追加のMemory検索、Web再調査、自律行動が必要なら、これらの処理内でToolを使わず、`memory-recall`または`intention-review`などの明示的なInternal EventからInteraction Deep Agentを起動する。
+
+各用途の入力はEvent、応答の意味内容、必要な現在状態、短いTool結果要約とWeb Snapshot IDへ限定する。Tool定義、runtime limits、retrieval trace、不要なraw Tool payloadは渡さない。Continuity UpdateはMood、Drive、Current Interest、Working Social Context、Intentionだけ、Memory ExtractionはEpisodic Memoryの意味内容だけ、Candidate Detectorは保存済みMemoryと既存の関連長期状態だけを返す。`kind=episodic`、所有Agent、Event evidence、発生・作成時刻、source provenance、保存IDはRuntimeが付与する。
 
 Deep Agentsの組み込みMemory、filesystem、subagent機能は、明示的に採用したもの以外をドメイン状態の正本として使わない。特にSelf、Disposition、Intention、Memory、Long-term CandidateはPostgreSQL側を正本とする。
 
@@ -368,7 +377,7 @@ Memory保存と検索を担当する。
 
 #### Memory生成経路
 
-Post-process LLMは、Interaction commit済みのEvent、応答、Tool trace、Web Snapshotを中心に、具体的な出来事をEpisodic Memoryとして0件以上提案する。記事本文ではなく、何を調べ、何が分かったかという経験の概要を保存する。SemanticとSelf-relatedについては、Post-processでは確定Memoryではなく、主張、理由、根拠Event / Memoryを持つLong-term Candidateを提案する。Long-term Reviewは複数の根拠と既存Memoryを照合し、Semantic Memoryの作成・統合・訂正とSelf-related Memoryの作成・統合・訂正を確定する。
+Episodic Memory Extractionは、Interaction commit済みのEvent、応答、Tool結果の意味的な要約、Web Snapshotを中心に、具体的な出来事を0件以上提案する。記事本文ではなく、何を調べ、何が分かったかという経験の概要を保存する。Memory保存後、重要な経験、自己関連の経験、同じ主題の蓄積、既存Selfとの矛盾、一定期間の経過等の起動条件を通常コードが満たすときだけCandidate Detectorを呼ぶ。Candidate Detectorは保存済みMemory IDを根拠にSemanticまたはSelf-relatedのLong-term Candidateを提案する。Long-term Reviewは複数の根拠と既存Memoryを照合し、Memoryの作成・統合・訂正を確定する。
 
 Self Change MemoryはLong-term Reviewが長期状態を変更した事実を表す派生・監査記録であり、Episodic、Semantic、Self-relatedと並ぶ認知上の第4用途にはしない。既存の永続化上の`self-change`識別子は維持できるが、通常Retrievalの3種類の候補枠から除外する。
 
@@ -420,18 +429,18 @@ Retrieverは各候補について最終順位、候補化した方式、選択�
 
 ### 5.9 State Update Service
 
-Interaction Deep AgentとPost-process LLMの提案を検証し、それぞれのtransactionで適用する。
+Interaction Deep Agent、Continuity Update、Memory Extraction、Candidate Detectorの提案を検証し、それぞれのtransactionで適用する。
 
 検証内容:
 
-- Interaction OutputまたはPost-process Output全体のZod parse
+- 用途別Output全体のZod parse
 - 変更可能なtargetとoperationのallowlist
 - Shared DispositionとIdentity等、通常Eventから変更できない領域の拒否
 - 参照するMemory、Intention、subjectが同じAgentに属すること
 - 長期状態を通常更新案から直接変更していないこと
 - `agent_state.version`が読み取り時と一致すること
 
-Interaction commitはEvent log、即時状態、Tool実行記録、応答用Outbox、Post-process jobを関連づけて保存する。Post-process commitは持続状態、Memory、Intention、Candidateを関連づけて保存する。LLM提案には保存用ID、時刻、所有Agent IDを要求せず、検証後にRuntimeが付与する。外部Toolの副作用はDB rollbackで取り消せないため、Tool実行記録はInteraction Outputの検証失敗時にも失わない境界を設ける。Post-processのversion不一致時は古い提案を適用せず、jobを現在状態から再評価する。Post-processの失敗は応答を再送せず、jobだけをbackoffして再試行する。
+Interaction commitはEvent log、即時状態、Tool実行記録、応答用Outbox、Continuity job、Memory Extraction jobを関連づけて保存する。各jobはstatus、attempt、lease、failure reasonを独立して持つ。Continuity commit、Memory commit、Candidate commitは別transactionとし、一方の失敗で他方の成功結果を失わない。LLM提案には保存用ID、時刻、所有Agent IDを要求せず、検証後にRuntimeが付与する。外部Toolの副作用はDB rollbackで取り消せないため、Tool実行記録はInteraction Outputの検証失敗時にも失わない境界を設ける。Continuityのversion不一致時は古い提案を適用せず、現在状態から再評価する。各処理の失敗は応答を再送せず、対象jobだけを有限回backoffして再試行する。provider障害、timeout、Schema不適合を区別し、Schema不適合ではvalidation pathを安全に記録して副作用を伴わない限定的な修復を行う。
 
 ### 5.10 Scheduler
 
