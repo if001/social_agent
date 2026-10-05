@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-05
-status: created
+status: done
 ---
 
 # 069: 応答・即時状態と応答後Post-processの境界を設計する
@@ -66,3 +66,65 @@ status: created
 - [Implementation design: Short-term Update と Long-term Update](../spec/personal-agent-implementation-design-v2.md#21-short-term-update-と-long-term-update)
 - [Implementation design: Long-term Update Candidate](../spec/personal-agent-implementation-design-v2.md#22-long-term-update-candidate)
 
+## Result
+
+### 採用するフロー
+
+```mermaid
+flowchart LR
+    E[External / Internal / Time Event] --> I[Interaction Deep Agent<br/>内部 Tool loop]
+    I --> IC[Interaction commit<br/>応答・Emotion・Desire・Tool trace・Post-process job]
+    IC --> O[Outbox]
+    O --> Q[外部へ応答を配送]
+    IC --> P[Agent単位で直列の<br/>Post-process]
+    P --> PC[Post-process commit]
+    PC --> S[Mood / Drive / Working Social Context]
+    PC --> M[Memory]
+    PC --> N[Intention]
+    PC --> C[Long-term Candidate]
+    C --> R[Long-term Review]
+```
+
+`Interaction Deep Agent` は現在のDeep Agentを置き換える別のTool loopではない。現在と同じく、必要に応じて `LLM → Tool call → Tool result → LLM` を内部で繰り返す。最終的に返す契約を、応答に必要な情報へ縮小する。
+
+```ts
+type InteractionOutput = {
+  interpretation: { subjectiveMeaning?: string }
+  immediateChanges: {
+    emotion?: StateUpdateProposal
+    desire?: StateUpdateProposal
+  }
+  action: FinalAction
+}
+```
+
+`mood`、`drives`、`currentInterests`、`socialContext`、`memoryProposals`、`intentionProposals`、`longTermCandidates`はInteraction Outputに含めない。`Emotion`と`Desire`は今回の意味づけと最終応答・行動判断に使うEvent scopedな状態であり、Interaction commitのstate change / run resultに記録する。次EventのDynamic Stateとして復元しない既存方針を維持する。
+
+Interaction commitは、親Event、Interaction run、即時状態変更、Tool execution trace、最終応答用Outbox envelope、Post-process jobを一つのDB transactionで確定する。応答とPost-process jobの片方だけが確定する状態を作らない。Outbox Dispatcherはcommit直後から応答を配送でき、Post-processのLLM、Memory embedding、持続状態保存を待たない。
+
+### Post-process
+
+Post-process jobは親Event ID、Interaction run ID、即時結果、Tool execution trace、Interaction開始時と即時commit後のstate versionを保持する。Post-process Coreは、この固定された経験と、即時commit後の正本Contextを入力として以下だけを提案する。
+
+```ts
+type PostProcessOutput = {
+  persistentStateUpdates: StateUpdateProposal[] // mood, drives, currentInterests, socialContext
+  memoryProposals: MemoryProposal[]
+  intentionProposals: IntentionProposal[]
+  longTermCandidates: LongTermCandidateProposal[]
+}
+```
+
+Web ToolはInteractionのTool loop中にURL、本文、Snapshot、取得時刻などを保存する。Post-processはその実行記録・Snapshotを根拠に、記事本文ではなく「何を調べ、何が分かったか」というEpisodic Memoryを提案する。Candidateが同じPost-processで新規作成したMemoryを根拠にする場合、LLMにDB IDを生成させない。Memory proposalのstable keyをCandidateに指定させ、RuntimeがMemoryをmaterializeした後にIDへ解決する。既存Memoryと親Eventの参照も利用できる。
+
+### 順序・失敗・再試行
+
+Post-process jobはDBで`pending`、`processing`、`completed`、`failed`を管理し、Agentごとの単一実行laneでEvent順にclaimする。Interaction commit後、同じAgentの次のInteractionは先行Post-processが`completed`になるまで開始しない。これにより、次Eventが直前のMood、Drive、Working Social Context、Memory、Intentionを欠いたContextで判断することを防ぐ。一方、Outbox配送はこのlaneに依存しないため、ユーザーへの応答は直ちに配送できる。
+
+Post-process失敗時は親Eventや応答を再実行・再配送しない。jobに安全化した失敗理由とretry時刻を記録し、指数backoff後に同一の固定入力から再試行する。持続状態commit時は入力state versionを検査する。version不一致はjobを再読み込みして再評価するか、Agent laneの不変条件違反として失敗にし、静かに上書きしない。
+
+Long-term CandidateはPost-process commitで`pending`として保存し、既存のSchedulerが後続のLong-term Review Eventを発火する。通常EventからSelf NarrativeやAcquired Dispositionを直接変更しない。
+
+### specとの整合
+
+この分割は、基本Agent Loopを固定的な多段認知パイプラインに置き換えない。InteractionはEventへの主観的意味づけ、即時状態、Tool利用、Actionを一つのDeep Agentで判断する。Post-processはActionの結果を経験として整理する非同期の永続化・再解釈境界であり、`Result / New Experience → Memory / Self Narrative / Disposition → loop`の部分を実装する。
