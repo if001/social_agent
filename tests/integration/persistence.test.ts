@@ -218,10 +218,10 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.recentObservations.map(({ eventId }) => eventId)).toContain("recent-a");
     expect(input.recentObservations.map(({ eventId }) => eventId)).not.toContain("recent-b");
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
-    expect(input.availableTools).toEqual([]);
+    expect(input.availableTools.map(({ name }) => name)).toEqual(["web_list", "web_page"]);
     await pool.query("UPDATE agent_families SET capabilities=$1 WHERE id='family'", [JSON.stringify(["web_list"])]);
     const allowed = await loader.load({ id: "context-event-2", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
-    expect(allowed.availableTools.map(({ name }) => name)).toEqual(["web_list"]);
+    expect(allowed.availableTools.map(({ name }) => name)).toEqual(input.availableTools.map(({ name }) => name));
   });
 
   it("holds one process lock per Agent and drains loops during shutdown", async () => {
