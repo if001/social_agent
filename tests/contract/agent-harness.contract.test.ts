@@ -10,6 +10,7 @@ describe("AgentHarness contract", () => {
   it("summarizes model output type and provider finish reason for tracing", () => {
     expect(summarizeModelResponse({ content: "done", tool_calls: [{ name: "submit" }], response_metadata: { done_reason: "stop" } })).toEqual({ outputType: "tool-calls", outputCharacters: 4, toolCallCount: 1, finishReason: "stop" });
     expect(summarizeModelResponse({ content: "plain", response_metadata: {} })).toMatchObject({ outputType: "text", finishReason: "not-reported" });
+    expect(summarizeModelResponse({ tool_calls: [{ name: "submit" }] })).toMatchObject({ outputType: "tool-calls", outputCharacters: 0, toolCallCount: 1 });
   });
   it("returns domain output from the scripted harness", async () => {
     const harness = new ScriptedAgentHarness([output]);
