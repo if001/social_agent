@@ -28,4 +28,9 @@ describe("Discord UI adapter contract", () => {
     const results: string[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { results.push(message.causationId ?? ""); consume.abort(); return Promise.resolve(); }, consume.signal); expect(results).toEqual(["run-42"]);
     controller.abort(); await Promise.all([inbound, outbound]); await scope.close();
   });
+  it("posts an autonomous response to a configured channel without requiring a source message", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway(); const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
+    await queue.publish({ id: "autonomous-output", destination: "discord", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: { type: "agent-response", text: "autonomous update", autonomous: true, replyContext: { channelId: "channel" } } });
+    const controller = new AbortController(); const outbound = adapter.startOutbound(controller.signal); await eventually(() => { expect(gateway.sent).toEqual([{ context: { channelId: "channel" }, content: "autonomous update" }]); }); controller.abort(); await outbound; await scope.close();
+  });
 });

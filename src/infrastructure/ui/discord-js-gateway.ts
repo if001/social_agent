@@ -15,7 +15,7 @@ export class DiscordJsGateway implements DiscordGateway {
     if (signal.aborted) throw new Error("Discord delivery aborted");
     const channel = await this.#client.channels.fetch(context.threadId ?? context.channelId);
     if (channel === null || !channel.isTextBased() || !("send" in channel) || typeof channel.send !== "function") throw new Error("Discord reply channel is unavailable");
-    const sent = await channel.send({ content, reply: { messageReference: context.messageId, failIfNotExists: false }, allowedMentions: { repliedUser: false } });
+    const sent = await channel.send({ content, ...(context.messageId === undefined ? {} : { reply: { messageReference: context.messageId, failIfNotExists: false } }), allowedMentions: { repliedUser: false } });
     return sent.id;
   }
 }

@@ -3,7 +3,7 @@ import type { MessageEnvelope } from "../../domain/contracts.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
 
 export type DiscordInboundMessage = { readonly id: string; readonly authorId: string; readonly isBot: boolean; readonly guildId?: string; readonly channelId: string; readonly threadId?: string; readonly referencedMessageId?: string; readonly content: string; readonly createdAt: Date };
-export type DiscordReplyContext = { readonly channelId: string; readonly threadId?: string; readonly messageId: string };
+export type DiscordReplyContext = { readonly channelId: string; readonly threadId?: string; readonly messageId?: string };
 export interface DiscordGateway {
   start(handler: (message: DiscordInboundMessage) => Promise<void>, signal: AbortSignal): Promise<void>;
   send(context: DiscordReplyContext, content: string, idempotencyKey: string, signal: AbortSignal): Promise<string>;
@@ -31,9 +31,9 @@ export class DiscordAdapter {
   startOutbound(signal: AbortSignal): Promise<void> {
     return this.options.queue.subscribe(this.#destination, async (envelope: MessageEnvelope) => {
       const payload = envelope.payload; const context = payload.replyContext;
-      if (payload.type !== "agent-response" || typeof payload.text !== "string" || typeof context !== "object" || context === null || !("channelId" in context) || typeof context.channelId !== "string" || !("messageId" in context) || typeof context.messageId !== "string") throw new Error("Invalid Discord output envelope");
+      if (payload.type !== "agent-response" || typeof payload.text !== "string" || typeof context !== "object" || context === null || !("channelId" in context) || typeof context.channelId !== "string") throw new Error("Invalid Discord output envelope");
       const record = context as Record<string, unknown>;
-      const discordMessageId = await this.options.gateway.send({ channelId: context.channelId, ...(typeof record.threadId === "string" ? { threadId: record.threadId } : {}), messageId: context.messageId }, payload.text, envelope.id, signal);
+      const discordMessageId = await this.options.gateway.send({ channelId: context.channelId, ...(typeof record.threadId === "string" ? { threadId: record.threadId } : {}), ...(typeof record.messageId === "string" ? { messageId: record.messageId } : {}) }, payload.text, envelope.id, signal);
       (this.options.logger ?? noopLogger).log("info", "discord.message_delivered", { agentId: this.options.agentId, messageId: envelope.id, discordMessageId, channelId: context.channelId });
       const action = typeof payload.action === "object" && payload.action !== null ? payload.action as Record<string, unknown> : undefined;
       if (typeof action?.id === "string") this.#actionByDiscordMessage.set(discordMessageId, action.id);
