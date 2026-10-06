@@ -907,6 +907,14 @@ HTTP health serverは今回実装しない。状態は構造化ログとTerminal
 - PostgreSQL backupとQueue root backupを同じ運用単位として扱う
 - データ削除はbot停止後に所有者がDBとQueueを直接操作する。Agent単位削除では外部キー順序または管理SQLを使用する
 
+### 15.1 Agent Debug UI
+
+開発用Debug UIはBot Hostと分離したローカルHTTP processとして起動し、PostgreSQLの既存テーブルを読み取る。Agentの現在状態は`agents`、`agent_families`、`agent_states`、`social_contexts`、`intentions`から構成し、実行の因果は`events`、`agent_runs`、`state_changes`、`tool_executions`、`post_process_jobs`をRun IDで結合して表示する。Memory、Long-term Candidate、Autonomous ScheduleもAgent IDで分離する。
+
+Interaction Agent Coreが生成したEmotionとDesireは正本の持続状態ではない。Debug UIは`agent_runs.result.output.internalChanges.immediateStateUpdates`と`state_changes`を「その応答時の即時状態」として表示する。Mood、Drive、Current Interestは`agent_states`の現在値を表示し、過去の変更理由は`state_changes`から追跡する。
+
+Debug UIは`127.0.0.1`へbindし、SQLの値をparameter化し、`SELECT`以外を公開しない。Event、Memory、Tool入出力には利用者情報が含まれ得るため、一覧件数を制限し、localhostでの調査用途に限定する。Model Callの詳細traceやPrompt全文を追加保存せず、現在DBに確定済みの情報だけを対象とする。
+
 ## 16. Security境界
 
 個人利用であっても、次はRuntimeの機械的制約とする。
@@ -932,6 +940,7 @@ HTTP health serverは今回実装しない。状態は構造化ログとTerminal
 | Long-term Review | Candidate tables、Long-term Review Service |
 | Tool | Tool Registry、Deep Agents Adapter、各Tool Adapter |
 | Terminal・Discord・将来UI | Addressed Queue、UI Adapter |
+| Agent Debug UI | PostgreSQLの読み取り専用HTTP UI |
 | bot間情報伝達 | `agent_send`、Agent宛てQueue Message |
 | 永続化と再起動 | PostgreSQL、File Queue、Outbox、receipt |
 | 不正出力・自己ループ防止 | Zod、RunLimits、hop / TTL、dead-letter |
