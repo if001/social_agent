@@ -3,12 +3,13 @@ import { OllamaEmbeddingProvider } from "./infrastructure/embedding/ollama-embed
 import { PostgresMemoryEmbeddingLifecycle } from "./infrastructure/persistence/postgres-memory-embedding.js";
 import { AddressedFileQueue } from "./infrastructure/queue/addressed-file-queue.js";
 import { initializeAgent, listDeadLetters, requeueDeadLetter } from "./operations/operations.js";
+import { loadInitialSelfFile } from "./config/initial-self.js";
 
 const [command, ...args] = process.argv.slice(2);
 const databaseUrl = (process.env.POSTGRES_URL ?? "").replace("postgresql+psycopg://", "postgresql://");
 
 async function main(): Promise<void> {
-  if (command === "agent:init") { const [agentId, familyId = "default"] = args; if (agentId === undefined) throw new Error("Usage: agent:init <agent-id> [family-id]"); const pool = new Pool({ connectionString: databaseUrl }); try { await initializeAgent(pool, { agentId, familyId, familyName: familyId, identity: agentId, sharedDisposition: "Curious and thoughtful", initialDisposition: "Open to experience" }); } finally { await pool.end(); } return; }
+  if (command === "agent:init") { const [configPath] = args; if (configPath === undefined || args.length !== 1) throw new Error("Usage: agent:init <initial-self-yaml>"); const config = await loadInitialSelfFile(configPath); const pool = new Pool({ connectionString: databaseUrl }); try { await initializeAgent(pool, config); } finally { await pool.end(); } return; }
   if (command === "memory:backfill") {
     const [agentId, rawLimit] = args; const limit = rawLimit === undefined ? 100 : Number.parseInt(rawLimit, 10);
     const baseUrl = process.env.OLLAMA_EMBEDDING_BASE_URL; const model = process.env.OLLAMA_EMBEDDING_MODEL; const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10);

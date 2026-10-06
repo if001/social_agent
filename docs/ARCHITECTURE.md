@@ -857,13 +857,15 @@ External dependencies
 
 ```bash
 pnpm db:migrate
-pnpm ops agent:init bot-a default
-pnpm ops agent:init bot-b default
+pnpm ops agent:init config/initial-self/ao.yaml
+pnpm ops agent:init config/initial-self/aka.yaml
 pnpm bot:start --env-file .env.bot-a
 pnpm bot:start --env-file .env.bot-b
 ```
 
-`agent:init`はAgentとFamilyの基本状態を作成する。Tool一覧はDBへ保存せず、起動時の実装済みTool Registryから構築する。
+`agent:init <initial-self-yaml>`はversion 1の初期Self設定を検証し、Family、Agent、初期Agent Stateを初回だけ作成する。Family設定はID、名前、Shared Disposition、Base Instructionを、Agent設定はIdentity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを持つ。Moodは中立な初期値、DriveとCurrent Interestは原則空で開始する。再適用はAcquired Disposition、長期状態、Mood、Drive、Memory、Social Contextを上書きしない。
+
+`config/initial-self/*.yaml`は経験前のSelf、`config/personas/*.yaml`は発話表現を扱う独立した契約である。一人称やトーンをSelfへコピーせず、経験後のDB状態を初期設定へ同期しない。Tool一覧はDBへ保存せず、起動時の実装済みTool Registryから構築する。
 
 各process別fileは同じ共有接続先を持ち、`BOT_ID`、任意の`BOT_PERSONA_FILE`、Discord資格情報、Discord allowlist、Discord Queue destinationを個体ごとに変える。秘密値を含む実ファイルはartifact、log、repositoryへ含めない。Persona YAMLは秘密情報を持たないためrepositoryで管理できる。
 

@@ -54,6 +54,33 @@ export type BotPersona = z.infer<typeof BotPersonaSchema>;
 
 export const DriveSchema = z.object({ description: NaturalLanguage, sourceEvidenceIds: z.array(Id), since: Instant });
 export type Drive = z.infer<typeof DriveSchema>;
+export const InitialSelfConfigSchema = z.object({
+  version: z.literal(1),
+  family: z.object({
+    id: Id,
+    name: NaturalLanguage,
+    sharedDisposition: NaturalLanguage,
+    baseInstruction: z.string().trim().max(16_000).default("")
+  }),
+  agent: z.object({
+    id: Id,
+    identity: NaturalLanguage,
+    initialDisposition: NaturalLanguage,
+    values: NaturalLanguage,
+    interests: z.array(NaturalLanguage).default([]),
+    preferences: z.array(NaturalLanguage).default([]),
+    roles: z.array(NaturalLanguage).default([]),
+    raisonDetre: NaturalLanguage.optional(),
+    selfNarrative: NaturalLanguage,
+    selfContinuity: NaturalLanguage
+  }),
+  initialState: z.object({
+    mood: NaturalLanguage.default("特定の持続的な気分はまだ形成されていない"),
+    drives: z.array(DriveSchema).default([]),
+    currentInterests: z.array(NaturalLanguage).default([])
+  }).default({ mood: "特定の持続的な気分はまだ形成されていない", drives: [], currentInterests: [] })
+});
+export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
 export const DynamicStateSchema = z.object({
   agentId: Id,
   mood: NaturalLanguage,

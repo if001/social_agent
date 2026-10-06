@@ -1,19 +1,21 @@
 import type { Pool } from "pg";
 
+import type { InitialSelfConfig } from "../domain/contracts.js";
+
 import type { AddressedFileQueue, DeadLetter } from "../infrastructure/queue/addressed-file-queue.js";
 import type { LifecycleState } from "../bootstrap/lifecycle.js";
 import { redactSecrets } from "../observability/redaction.js";
 
-export type AgentSeed = { readonly familyId: string; readonly familyName: string; readonly agentId: string; readonly identity: string; readonly sharedDisposition: string; readonly initialDisposition: string };
-export async function initializeAgent(pool: Pool, seed: AgentSeed): Promise<void> {
+export async function initializeAgent(pool: Pool, config: InitialSelfConfig): Promise<void> {
+  const { family, agent, initialState } = config;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ($1,$2,$3,'') ON CONFLICT (id) DO UPDATE SET updated_at=now()", [seed.familyId, seed.familyName, seed.sharedDisposition]);
-    await client.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [seed.agentId, seed.familyId, seed.identity, seed.initialDisposition]);
-    await client.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,roles,self_narrative,self_continuity,mood,drives) VALUES ($1,'経験から形成された傾向はまだない','経験から形成された価値観はまだない','[]','経験を始めたばかりである','これからの経験を通じて連続性を形成する','特定の持続的な気分はまだ形成されていない','[]') ON CONFLICT (agent_id) DO NOTHING", [seed.agentId]);
-    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'state-review',$3,now()+interval '1 day') ON CONFLICT (id) DO NOTHING", [`state-review:${seed.agentId}`, seed.agentId, "時間経過によるMood、Drive、Current Interestの再評価"]);
-    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'memory-recall',$3,now()+interval '7 days') ON CONFLICT (id) DO NOTHING", [`memory-recall:${seed.agentId}`, seed.agentId, "現在の状態と未完了Intentionに関連するMemoryの再検討"]);
+    await client.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [family.id, family.name, family.sharedDisposition, family.baseInstruction]);
+    await client.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [agent.id, family.id, agent.identity, agent.initialDisposition]);
+    await client.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,interests,preferences,roles,raison_detre,self_narrative,self_continuity,mood,drives,current_interests) VALUES ($1,'経験から形成された傾向はまだない',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (agent_id) DO NOTHING", [agent.id, agent.values, JSON.stringify(agent.interests), JSON.stringify(agent.preferences), JSON.stringify(agent.roles), agent.raisonDetre ?? null, agent.selfNarrative, agent.selfContinuity, initialState.mood, JSON.stringify(initialState.drives), JSON.stringify(initialState.currentInterests)]);
+    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'state-review',$3,now()+interval '1 day') ON CONFLICT (id) DO NOTHING", [`state-review:${agent.id}`, agent.id, "時間経過によるMood、Drive、Current Interestの再評価"]);
+    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'memory-recall',$3,now()+interval '7 days') ON CONFLICT (id) DO NOTHING", [`memory-recall:${agent.id}`, agent.id, "現在の状態と未完了Intentionに関連するMemoryの再検討"]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }

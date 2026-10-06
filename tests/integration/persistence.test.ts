@@ -22,6 +22,7 @@ import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../../src/infrastructure/persistence/postgres-memory-embedding.js";
 import { PostgresWebArchive, summarizeWebPage } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
+import { initializeAgent } from "../../src/operations/operations.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
@@ -55,6 +56,22 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
     expect((await repository.find<{ roles: string[]; drives: { description: string }[] }>("a"))).toMatchObject({ roles: ["Helper"], drives: [{ description: "Learn" }] });
+  });
+
+  it("initializes configured Self and preserves acquired experience on reapply", async () => {
+    const config = {
+      version: 1 as const,
+      family: { id: "configured-family", name: "Configured", sharedDisposition: "共通傾向", baseInstruction: "根拠を区別する" },
+      agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "初期個体差", values: "初期価値", interests: ["最初の関心"], preferences: [], roles: ["対話相手"], selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
+      initialState: { mood: "中立", drives: [], currentInterests: [] }
+    };
+    await initializeAgent(pool, config);
+    await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', drives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ description: "継続中のDrive", sourceEvidenceIds: [], since: fixtureInstant }])]);
+    await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
+    await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } });
+    const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; acquired_disposition: string; values: string; mood: string; drives: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.acquired_disposition,s.values,s.mood,s.drives FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", acquired_disposition: "経験で得た傾向", values: "経験で変化した価値", mood: "持続する気分", drives: [{ description: "継続中のDrive" }] });
+    expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
   });
 
   it("rolls back event and outbox as one unit", async () => {
