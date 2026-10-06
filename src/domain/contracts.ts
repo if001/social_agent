@@ -23,8 +23,11 @@ export const AgentSchema = z.object({
   id: Id,
   familyId: Id,
   identity: NaturalLanguage,
-  initialDisposition: NaturalLanguage,
-  acquiredDisposition: NaturalLanguage,
+  disposition: z.object({
+    shared: NaturalLanguage,
+    initial: NaturalLanguage,
+    acquired: NaturalLanguage
+  }),
   values: NaturalLanguage,
   interests: z.array(NaturalLanguage),
   preferences: z.array(NaturalLanguage),

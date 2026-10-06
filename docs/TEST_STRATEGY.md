@@ -175,6 +175,9 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 
 - Observationに関係する状態だけを選択する
 - Shared / Initial / Acquired Dispositionを区別する
+- 3種類を`self.disposition`へ構成し、旧フラットフィールドを受理しない
+- FamilyのShared Dispositionを`runtimeConstraints`へ混入させない
+- FamilyまたはAgentが異なる入力でDispositionを取り違えない
 - 別AgentのMemoryを含めない
 - category上限とContext budgetを超えない
 - Active Intentionと関係するSocial Contextを含める

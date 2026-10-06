@@ -204,7 +204,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('recent-a','a','user-message',$1,'test','completed','2026-01-01'),('recent-b','b','user-message',$2,'test','completed','2026-01-01')", [JSON.stringify({ eventId: "recent-a", summary: "previous exchange", facts: ["prior context"], observedAt: fixtureInstant }), JSON.stringify({ eventId: "recent-b", summary: "private exchange", facts: ["other agent"], observedAt: fixtureInstant })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const loader = new PostgresAgentContextLoader({
-      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry(createWebTools("http://web.local")),
+      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry(createWebTools("http://web.local")),
       persona: { version: 1, identity: { displayName: "Agent A" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } },
       budget: { maxTokens: 10_000, maxMemories: 10, maxSocialContexts: 10 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
@@ -212,6 +212,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const input = await loader.load({ id: "context-event", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello", transport: { hop: 2, expiresAt: "2026-01-02T00:00:00Z", replyTo: "discord:a" } } });
     expect(input.run).toMatchObject({ runId: "context-run", agentId: "a", transport: { hop: 2, replyTo: "discord:a" } });
     expect(input.self.id).toBe("a");
+    expect(input.self.disposition).toEqual({ shared: "Curious", initial: "Calm", acquired: "Learning" });
     expect(input.persona).toMatchObject({ identity: { displayName: "Agent A" }, communication: { firstPerson: "僕" } });
     expect(input.socialContext.map(({ id }) => id)).toContain("social-a");
     expect(input.socialContext.map(({ id }) => id)).not.toContain("social-b");
@@ -222,9 +223,12 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.recentObservations.map(({ eventId }) => eventId)).toContain("recent-a");
     expect(input.recentObservations.map(({ eventId }) => eventId)).not.toContain("recent-b");
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
+    expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
     expect(input.availableTools.map(({ name }) => name)).toEqual(["web_list", "web_page"]);
     const allowed = await loader.load({ id: "context-event-2", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
     expect(allowed.availableTools.map(({ name }) => name)).toEqual(input.availableTools.map(({ name }) => name));
+    const other = await loader.load({ id: "context-event-b", agentId: "b", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
+    expect(other.self.disposition).toEqual({ shared: "Curious", initial: "Bold", acquired: "Learning" });
   });
 
   it("holds one process lock per Agent and drains loops during shutdown", async () => {

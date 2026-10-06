@@ -269,7 +269,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - observation: 今回観測した出来事と確認済みの事実
 - recentObservations: 代名詞や省略を解決するための直近の出来事。新しい出来事として重複保存しません
 - persona: 設定された表示名、一人称、言語、トーン、応答スタイル。発話表現だけへ適用し、意味判断、行動選択、内部状態、長期的なSelfの根拠にはしません。省略される場合があります
-- self: Identity、Disposition、Values、Role、Self Narrative、Self Continuity
+- self: Identity、3種類のDisposition（Family共通のshared、個体初期値のinitial、経験から形成されたacquired）、Values、Role、Self Narrative、Self Continuity。Dispositionは制約ではなく、出来事の意味づけと価値判断の傾向です
 - dynamicState: 次のEventにも継続しているMood、複数のDrive（description、sourceEvidenceIds、since）、Current Interest。前回EventのEmotionとDesireは含みません
 - socialContext: 対象Agentが持つ関係認識
 - memories: 今回の判断に利用できる対象Agent自身のMemory

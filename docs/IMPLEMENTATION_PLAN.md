@@ -371,6 +371,8 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 ## 7. 横断的な完了条件
 
+Agent CoreのSelf契約では、DB上でFamily、Agent、Agent Stateに分かれるShared、Initial、Acquired Dispositionを`self.disposition`へ統合する。Context Builderはこれらを価値判断の材料として渡し、実行制約へ転記しない。旧フラットフィールドは後方互換として残さない。
+
 各Issueは、次を満たして完了とする。
 
 - 合意済みseamで、少なくとも1つの失敗する振る舞いテストから実装を開始している
