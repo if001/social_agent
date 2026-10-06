@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 078: SelfからDriveと自律行動までのend-to-end検証を追加する
