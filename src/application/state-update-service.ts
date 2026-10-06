@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { DomainError, StateUpdateProposalSchema, type DynamicState, type SocialContext } from "../domain/contracts.js";
+import { DomainError, DriveProposalSchema, StateUpdateProposalSchema, type DriveProposal, type DynamicState, type SocialContext } from "../domain/contracts.js";
 
 export type StateChange = {
   readonly target: string;
@@ -12,6 +12,49 @@ export type StateChange = {
 };
 
 export type StateUpdateResult = { readonly state: DynamicState; readonly changes: readonly StateChange[] };
+
+export function applyDriveProposals(state: DynamicState, rawProposals: readonly unknown[], occurredAt = state.updatedAt): StateUpdateResult {
+  let drives = [...state.drives];
+  const changes: StateChange[] = [];
+  const find = (description: string) => drives.find((drive) => drive.description === description);
+  for (const raw of rawProposals) {
+    const proposal: DriveProposal = DriveProposalSchema.parse(raw);
+    const before = [...drives];
+    if (proposal.operation === "create") {
+      if (find(proposal.description) === undefined) drives.push({ description: proposal.description, sourceEvidenceIds: [...new Set(proposal.evidenceIds)], since: occurredAt });
+      changes.push({ target: "drives", operation: "append", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+      continue;
+    }
+    if (proposal.operation === "maintain") {
+      if (find(proposal.driveDescription) === undefined) throw new DomainError("VALIDATION", "Cannot maintain an unknown Drive");
+      changes.push({ target: "drives", operation: "set", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+      continue;
+    }
+    if (proposal.operation === "update") {
+      const existing = find(proposal.driveDescription);
+      if (existing === undefined) throw new DomainError("VALIDATION", "Cannot update an unknown Drive");
+      drives = drives.filter(({ description }) => description !== proposal.driveDescription);
+      const duplicate = find(proposal.description);
+      if (duplicate === undefined) drives.push({ description: proposal.description, since: existing.since, sourceEvidenceIds: [...new Set([...existing.sourceEvidenceIds, ...proposal.evidenceIds])] });
+      changes.push({ target: "drives", operation: "set", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+      continue;
+    }
+    if (proposal.operation === "merge") {
+      const sources = proposal.driveDescriptions.map(find);
+      if (sources.some((drive) => drive === undefined)) throw new DomainError("VALIDATION", "Cannot merge an unknown Drive");
+      const known = sources.filter((drive): drive is DynamicState["drives"][number] => drive !== undefined);
+      drives = drives.filter(({ description }) => !proposal.driveDescriptions.includes(description));
+      const since = known.map(({ since: value }) => value).sort()[0] ?? occurredAt;
+      drives.push({ description: proposal.description, since, sourceEvidenceIds: [...new Set([...known.flatMap(({ sourceEvidenceIds }) => sourceEvidenceIds), ...proposal.evidenceIds])] });
+      changes.push({ target: "drives", operation: "set", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+      continue;
+    }
+    if (find(proposal.driveDescription) === undefined) throw new DomainError("VALIDATION", "Cannot end an unknown Drive");
+    drives = drives.filter(({ description }) => description !== proposal.driveDescription);
+    changes.push({ target: "drives", operation: "remove", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+  }
+  return { state: { ...state, drives }, changes };
+}
 
 const persistentScalarTargets = new Set(["mood"]);
 const persistentCollectionTargets = new Set(["currentInterests"]);

@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 076: Selfと主観的価値判断に基づくDrive形成を実装する
@@ -60,4 +60,3 @@ status: created
 - [Concept design: Value](../spec/personal-agent-concept-design-restructured-v2.md#5-価値と主観的な意味)
 - [Concept design: Motivation / Drive](../spec/personal-agent-concept-design-restructured-v2.md#8-motivation--drive)
 - [Implementation design: Motivation / Drive](../spec/personal-agent-implementation-design-v2.md#12-motivation--drive)
-

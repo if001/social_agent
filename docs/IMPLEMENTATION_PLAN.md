@@ -375,6 +375,8 @@ Agent CoreのSelf契約では、DB上でFamily、Agent、Agent Stateに分かれ
 
 初期SelfはPersonaから分離したversioned YAMLで作成する。初期化処理は初回だけ設定値をDBへ反映し、再適用時に経験状態を上書きしない。実行中の個体差はDBを正本とし、設定ファイルへ逆同期しない。
 
+Continuity UpdateのDrive提案は汎用State Updateから分離し、Selfと主観的価値判断、具体的なEvent / Memory evidenceに基づく生成、維持、更新、統合、終了を表す。Runtimeが参照を検証し、開始時刻と所有者を管理する。
+
 各Issueは、次を満たして完了とする。
 
 - 合意済みseamで、少なくとも1つの失敗する振る舞いテストから実装を開始している

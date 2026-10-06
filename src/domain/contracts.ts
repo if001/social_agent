@@ -296,12 +296,23 @@ export const AgentCoreOutputSchema = z.object({
 });
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
+const DriveProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
+export const DriveProposalSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("create"), description: NaturalLanguage, ...DriveProposalBase }).strict(),
+  z.object({ operation: z.literal("maintain"), driveDescription: NaturalLanguage, ...DriveProposalBase }).strict(),
+  z.object({ operation: z.literal("update"), driveDescription: NaturalLanguage, description: NaturalLanguage, ...DriveProposalBase }).strict(),
+  z.object({ operation: z.literal("merge"), driveDescriptions: z.array(NaturalLanguage).min(2), description: NaturalLanguage, ...DriveProposalBase }).strict(),
+  z.object({ operation: z.literal("end"), driveDescription: NaturalLanguage, ...DriveProposalBase }).strict()
+]);
+export type DriveProposal = z.infer<typeof DriveProposalSchema>;
+
 export const ContinuityOutputSchema = z.object({
   persistentStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
     updates.forEach((update, index) => {
-      if (!["mood", "drives", "currentInterests", "socialContext"].includes(update.target)) context.addIssue({ code: "custom", path: [index, "target"], message: "Continuity may update only persistent state" });
+      if (!["mood", "currentInterests", "socialContext"].includes(update.target)) context.addIssue({ code: "custom", path: [index, "target"], message: "Continuity may update only non-Drive persistent state here" });
     });
   }),
+  driveProposals: z.array(DriveProposalSchema),
   intentionProposals: z.array(IntentionProposalSchema)
 });
 export type ContinuityOutput = z.infer<typeof ContinuityOutputSchema>;

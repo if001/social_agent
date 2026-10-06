@@ -120,6 +120,8 @@ EmotionとDesireは現在のEventに対する解釈とActionへ反映するが�
 
 永続Driveは自然言語descriptionに加えて、発生根拠のEventまたはMemory IDと開始時刻をRuntimeが付与する。LLMは意味内容と根拠を提案し、時刻を生成しない。同じdescriptionのDriveを維持する場合は元の開始時刻を保持する。
 
+DriveはDispositionから固定的に生成しない。Continuity Updateは、ObservationとInteractionのSubjective Meaningを、Selfの3種類のDisposition、Values、Self Narrative、Memory、Social Context、現在状態に照らして主観的価値を判断し、具体的な入力EventまたはMemoryを根拠に持続する動機だけを生成、維持、更新、統合、終了として提案する。Persona、今回限りのEmotionまたはDesireだけを根拠に永続Driveを作ってはならない。
+
 #### FR-AG-04: 自然言語状態
 
 Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然言語で表現できなければならない。固定カテゴリや単一の数値スコアだけに還元してはならない。

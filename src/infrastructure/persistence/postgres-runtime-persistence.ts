@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
-import { StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
+import { applyDriveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
 import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, canTransitionIntention, ContinuityInputSchema, ContinuityOutputSchema, DomainError, IntentionTriggerSchema, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type ContinuityOutput, type DomainEvent, type Intention, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
@@ -106,7 +106,12 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
 
   async completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void> {
     if (job.type === "continuity") {
-      const parsed = ContinuityOutputSchema.parse(output); const updates = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext, job.input.run.occurredAt);
+      const parsed = ContinuityOutputSchema.parse(output);
+      const evidenceIds = new Set([job.input.run.eventId, job.input.observation.eventId, ...job.input.recentObservations.map(({ eventId }) => eventId), ...job.input.memories.map(({ id }) => id)]);
+      if (parsed.driveProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Drive evidence must reference an input Event or Memory");
+      const persistent = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext, job.input.run.occurredAt);
+      const driveUpdates = applyDriveProposals(persistent.state, parsed.driveProposals, job.input.run.occurredAt);
+      const updates = { state: driveUpdates.state, changes: [...persistent.changes, ...driveUpdates.changes] };
       const intentions = this.#materializeIntentions(job.input, parsed);
       await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed, ...intentions });
       return;

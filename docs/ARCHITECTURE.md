@@ -306,6 +306,10 @@ interface AgentHarness {
 
 各用途の入力はEvent、応答の意味内容、必要な現在状態、短いTool結果要約とWeb Snapshot IDへ限定する。Tool定義、runtime limits、retrieval trace、不要なraw Tool payloadは渡さない。Continuity UpdateはMood、Drive、Current Interest、Working Social Context、Intentionだけ、Memory ExtractionはEpisodic Memoryの意味内容だけ、Candidate Detectorは保存済みMemoryと既存の関連長期状態だけを返す。`kind=episodic`、所有Agent、Event evidence、発生・作成時刻、source provenance、保存IDはRuntimeが付与する。
 
+Continuity UpdateのDriveは汎用State Updateではなく、`create | maintain | update | merge | end`の用途別提案として返す。各提案は理由と入力内のEventまたはMemory IDを持つ。Runtimeは所有と参照を検証し、create時に`since`を付与する。maintainとupdateでは既存Driveの`since`を保持し、mergeでは最も古い開始時刻と根拠を引き継ぐ。生成・変更・終了はState Changeにbefore、after、reason、evidenceを記録する。
+
+判断順序は`Observation + Current State + Memory + Social Context → Subjective Meaning / Value`を先に置き、その価値がSelf（Shared / Initial / Acquired Disposition、Values、Self Narrative）に照らして次回以降も持続するときだけDriveを提案する。短期Emotion、Desire、Personaを単独根拠にしない。
+
 Deep Agentsの組み込みMemory、filesystem、subagent機能は、明示的に採用したもの以外をドメイン状態の正本として使わない。特にSelf、Disposition、Intention、Memory、Long-term CandidateはPostgreSQL側を正本とする。
 
 Deep Agentインスタンスの再利用は、Domain stateや会話履歴をprocess内の可変状態へ無条件に保持することを意味しない。各Eventの判断材料はContext BuilderがPostgreSQLを正本として組み立てる。同一AgentのEventはRuntimeが直列処理し、共有Agentの並行呼び出しが発生してもMiddlewareとToolはrun contextだけを参照してID、制限、transport、traceを混線させない。

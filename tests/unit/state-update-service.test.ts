@@ -1,4 +1,4 @@
-import { StateUpdateService } from "../../src/application/state-update-service.js";
+import { applyDriveProposals, StateUpdateService } from "../../src/application/state-update-service.js";
 import type { DynamicState } from "../../src/domain/contracts.js";
 
 const state: DynamicState = { agentId: "a", mood: "Steady", drives: [{ description: "Learn", sourceEvidenceIds: ["old-event"], since: "2026-01-01T00:00:00Z" }], currentInterests: [], updatedAt: "2026-01-01T00:00:00Z" };
@@ -32,5 +32,21 @@ describe("StateUpdateService", () => {
   it("does not return partial state when any proposal is invalid", () => {
     expect(() => service.apply("a", state, [{ target: "mood", operation: "set", value: "Happy", reason: "First", evidenceIds: [] }, { target: "identity", operation: "set", value: "Changed", reason: "Second", evidenceIds: [] }])).toThrow();
     expect(state.mood).toBe("Steady");
+  });
+
+  it("creates, maintains, updates, merges, and ends grounded Drives while preserving since", () => {
+    const created = applyDriveProposals(state, [{ operation: "create", description: "Help", reason: "A continuing need", evidenceIds: ["event-new"] }], "2026-01-02T00:00:00Z");
+    expect(created.state.drives[1]).toMatchObject({ description: "Help", since: "2026-01-02T00:00:00Z" });
+    const maintained = applyDriveProposals(created.state, [{ operation: "maintain", driveDescription: "Learn", reason: "Still unresolved", evidenceIds: ["event-2"] }], "2026-01-03T00:00:00Z");
+    expect(maintained.state.drives[0]?.since).toBe("2026-01-01T00:00:00Z");
+    const updated = applyDriveProposals(maintained.state, [{ operation: "update", driveDescription: "Learn", description: "Learn deeply", reason: "Scope clarified", evidenceIds: ["event-3"] }], "2026-01-04T00:00:00Z");
+    expect(updated.state.drives.find(({ description }) => description === "Learn deeply")?.since).toBe("2026-01-01T00:00:00Z");
+    const merged = applyDriveProposals(updated.state, [{ operation: "merge", driveDescriptions: ["Learn deeply", "Help"], description: "Learn to help", reason: "Same value", evidenceIds: ["memory-1"] }], "2026-01-05T00:00:00Z");
+    expect(merged.state.drives).toEqual([{ description: "Learn to help", since: "2026-01-01T00:00:00Z", sourceEvidenceIds: ["old-event", "event-3", "event-new", "memory-1"] }]);
+    expect(applyDriveProposals(merged.state, [{ operation: "end", driveDescription: "Learn to help", reason: "Resolved", evidenceIds: ["event-4"] }]).state.drives).toEqual([]);
+  });
+
+  it("rejects unknown Drive references", () => {
+    expect(() => applyDriveProposals(state, [{ operation: "maintain", driveDescription: "Unknown", reason: "No source", evidenceIds: ["event"] }])).toThrow("unknown Drive");
   });
 });
