@@ -875,7 +875,7 @@ pnpm bot:start --env-file .env.bot-a
 pnpm bot:start --env-file .env.bot-b
 ```
 
-`agent:init <initial-self-yaml>`はversion 1の初期Self設定を検証し、Family、Agent、初期Agent Stateを初回だけ作成する。Family設定はID、名前、Shared Disposition、Base Instructionを、Agent設定はIdentity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを持つ。Moodは中立な初期値、DriveとCurrent Interestは原則空で開始する。再適用はAcquired Disposition、長期状態、Mood、Drive、Memory、Social Contextを上書きしない。
+`agent:init <initial-self-yaml>`はversion 1の初期Self設定を検証し、Family、Agent、初期Agent Stateを初回だけ作成する。Family設定はID、名前、Shared Disposition、Base Instructionを、Agent設定はIdentity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを持つ。Moodは中立な初期値、DriveとCurrent Interestは原則空で開始する。通常の再適用は既存Selfを変更しない。`--overwrite-configured-self`を明示した場合だけ、設定由来のFamily、Identity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを更新してstate versionを進める。Acquired Disposition、Mood、Drive、Current Interest、Memory、Social Contextは上書きしない。
 
 `config/initial-self/*.yaml`は経験前のSelf、`config/personas/*.yaml`は発話表現を扱う独立した契約である。一人称やトーンをSelfへコピーせず、経験後のDB状態を初期設定へ同期しない。Tool一覧はDBへ保存せず、起動時の実装済みTool Registryから構築する。
 

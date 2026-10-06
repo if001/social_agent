@@ -75,6 +75,10 @@ describeDatabase("PostgreSQL persistence", () => {
     const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; acquired_disposition: string; values: string; mood: string; drives: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.acquired_disposition,s.values,s.mood,s.drives FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
     expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", acquired_disposition: "経験で得た傾向", values: "経験で変化した価値", mood: "持続する気分", drives: [{ description: "継続中のDrive" }] });
     expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
+    await initializeAgent(pool, { ...config, family: { ...config.family, sharedDisposition: "更新した共通傾向" }, agent: { ...config.agent, values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"] } }, initialTimings, { overwriteConfiguredSelf: true });
+    const overwritten = await pool.query<{ shared_disposition: string; acquired_disposition: string; values: string; interests: string[]; preferences: string[]; mood: string; drives: unknown; version: number }>("SELECT f.shared_disposition,s.acquired_disposition,s.values,s.interests,s.preferences,s.mood,s.drives,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", acquired_disposition: "経験で得た傾向", values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"], mood: "持続する気分", drives: [{ description: "継続中のDrive" }], version: 1 });
+    expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
   });
 
   it("rolls back event and outbox as one unit", async () => {

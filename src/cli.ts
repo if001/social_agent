@@ -10,7 +10,7 @@ const [command, ...args] = process.argv.slice(2);
 const databaseUrl = (process.env.POSTGRES_URL ?? "").replace("postgresql+psycopg://", "postgresql://");
 
 async function main(): Promise<void> {
-  if (command === "agent:init") { const [configPath] = args; if (configPath === undefined || args.length !== 1) throw new Error("Usage: agent:init <initial-self-yaml>"); const config = await loadInitialSelfFile(configPath); const pool = new Pool({ connectionString: databaseUrl }); try { await initializeAgent(pool, config, parseSchedulerTimings(process.env)); } finally { await pool.end(); } return; }
+  if (command === "agent:init") { const [configPath, option] = args; if (configPath === undefined || args.length > 2 || (option !== undefined && option !== "--overwrite-configured-self")) throw new Error("Usage: agent:init <initial-self-yaml> [--overwrite-configured-self]"); const config = await loadInitialSelfFile(configPath); const pool = new Pool({ connectionString: databaseUrl }); try { await initializeAgent(pool, config, parseSchedulerTimings(process.env), { overwriteConfiguredSelf: option === "--overwrite-configured-self" }); } finally { await pool.end(); } return; }
   if (command === "memory:backfill") {
     const [agentId, rawLimit] = args; const limit = rawLimit === undefined ? 100 : Number.parseInt(rawLimit, 10);
     const baseUrl = process.env.OLLAMA_EMBEDDING_BASE_URL; const model = process.env.OLLAMA_EMBEDDING_MODEL; const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10);

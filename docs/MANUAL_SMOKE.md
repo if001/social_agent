@@ -6,6 +6,7 @@ Run `pnpm verify` first. Use a dedicated database, shared queue root, separate f
 
 1. Run `pnpm db:migrate` once with the administrative DB URL in `.env`. It applies the Drizzle Kit-generated migrations and records them in `__drizzle_migrations`.
 2. Run `node --env-file=.env.bot-a --import tsx src/cli.ts agent:init config/initial-self/ao.yaml` and `node --env-file=.env.bot-b --import tsx src/cli.ts agent:init config/initial-self/aka.yaml`.
+   Existing Agentsへ設定由来のSelfだけを再適用する場合は、末尾に`--overwrite-configured-self`を付ける。Acquired Disposition、Mood、Drive、Current Interest、Memory、Social Contextは保持される。
 3. Give both process files the same DB, Queue, Chat, Embedding, and Web connection settings.
 4. Give each file a distinct `BOT_ID`, Discord token, Discord bot user ID, and `DISCORD_QUEUE_DESTINATION`. Configure owner, guild, and channel allowlists explicitly.
 5. Start `pnpm bot:start --env-file .env.bot-a` and `pnpm bot:start --env-file .env.bot-b` in separate processes.
