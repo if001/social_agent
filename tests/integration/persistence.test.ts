@@ -65,11 +65,13 @@ describeDatabase("PostgreSQL persistence", () => {
       agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "初期個体差", values: "初期価値", interests: ["最初の関心"], preferences: [], roles: ["対話相手"], selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
       initialState: { mood: "中立", drives: [], currentInterests: [] }
     };
-    await initializeAgent(pool, config);
+    const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000, memoryRecallIntervalMs: 4_000 };
+    await initializeAgent(pool, config, initialTimings);
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='autonomy-review'", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review" }]);
+    expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review", delay_ms: 2_000 }, { kind: "memory-recall", delay_ms: 4_000 }, { kind: "state-review", delay_ms: 3_000 }]);
     await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', drives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ description: "継続中のDrive", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
-    await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } });
+    await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } }, initialTimings);
     const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; acquired_disposition: string; values: string; mood: string; drives: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.acquired_disposition,s.values,s.mood,s.drives FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
     expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", acquired_disposition: "経験で得た傾向", values: "経験で変化した価値", mood: "持続する気分", drives: [{ description: "継続中のDrive" }] });
     expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
@@ -323,9 +325,10 @@ describeDatabase("PostgreSQL persistence", () => {
   it("removes autonomous schedules when their persistent drives disappear", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('drive:a:obsolete','a','persistent-drive','obsolete',now()),('drive:a:keep','a','persistent-drive','keep',now())");
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
-    const unit = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
+    const unit = new PostgresEventTransaction(new PostgresUnitOfWork(pool), 5_000);
     await unit.commit({ destination: "a", messageId: "drive-sync-message", event: { id: "drive-sync-event", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date(fixtureInstant) }, run: { id: "drive-sync-run", inputStateVersion: version, startedAt: new Date(fixtureInstant), result: {} }, stateValues: { drives: [{ description: "keep" }, { description: "new" }] }, changes: [], outbox: [] });
     expect((await pool.query<{ id: string }>("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='persistent-drive' ORDER BY id")).rows.map(({ id }) => id)).toEqual(["drive:a:keep", "drive:a:new"]);
+    expect((await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='drive:a:new'")).rows[0]?.delay_ms).toBe(5_000);
   });
 
   it("updates long-term state, candidate and self-change memory atomically", async () => {

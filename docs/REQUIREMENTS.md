@@ -222,6 +222,8 @@ Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood
 
 RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、IntentionがなくてもSelf、Drive、Current Interest、関連Memory、Social Context、経過時間から主体的な行動の価値を再検討する機会を与える。Current InterestごとのScheduleは作らない。通常Coreは行動、Tool利用、Intentionへの具体化、延期、終了、no-actionを選び、弱い根拠で検索や外部通知を繰り返してはならない。
 
+Schedulerの走査、Autonomy Review、State Review、Memory Recall、Persistent Driveの初回待機と再検討、失敗時retry、leaseは個別の環境変数で設定できなければならない。各変数は`.env.sample`に単位と用途を説明するコメントを持ち、初期化時と実行時で同じ値を使用する。
+
 自律的なWebページ取得も通常Tool経路を使い、ページ本文とURLはWeb Archiveへ保存する。後処理は重要な経験を「何を調べ、何を確認したか」というEpisodic Memoryへ要約し、Web Snapshot IDを根拠として関連づける。外部配送先がない場合もAgent Run、Tool trace、状態、Memoryを保存し、応答だけを配送しない。
 
 #### FR-AU-03: 自律的な判断

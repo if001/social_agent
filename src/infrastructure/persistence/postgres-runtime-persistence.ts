@@ -13,7 +13,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool)); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }

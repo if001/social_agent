@@ -24,7 +24,7 @@ export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" 
 export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates"> & { readonly jobId: string; readonly jobType: "continuity" | "memory" | "candidate"; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: unknown; readonly candidateJob?: { readonly id: string; readonly payload: unknown } };
 
 export class PostgresEventTransaction {
-  constructor(private readonly unitOfWork: PostgresUnitOfWork) {}
+  constructor(private readonly unitOfWork: PostgresUnitOfWork, private readonly persistentDriveInitialDelayMs = 0) {}
   async commit(input: CommitEventInput): Promise<"committed" | "duplicate"> {
     return this.unitOfWork.transaction(async (client) => {
       const reserved = await client.query("INSERT INTO message_receipts(destination,message_id,status) VALUES ($1,$2,'processing') ON CONFLICT DO NOTHING RETURNING message_id", [input.destination, input.messageId]);
@@ -61,7 +61,7 @@ export class PostgresEventTransaction {
         }))];
         const scheduleIds = drives.map((drive) => `drive:${input.event.agentId}:${drive}`);
         await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='persistent-drive' AND NOT (id=ANY($2::text[]))", [input.event.agentId, scheduleIds]);
-        for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()) ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.event.agentId, drive]);
+        for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.event.agentId, drive, this.persistentDriveInitialDelayMs]);
       }
       await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
       for (const envelope of input.outbox) await client.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,$2,$3)", [envelope.id, input.event.agentId, JSON.stringify(envelope)]);
@@ -113,7 +113,7 @@ export class PostgresEventTransaction {
         const drives = [...new Set((input.stateValues.drives as unknown[]).flatMap((value): string[] => typeof value === "object" && value !== null && typeof (value as Record<string, unknown>).description === "string" ? [String((value as Record<string, unknown>).description).trim()] : []).filter(Boolean))];
         const scheduleIds = drives.map((drive) => `drive:${input.agentId}:${drive}`);
         await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='persistent-drive' AND NOT (id=ANY($2::text[]))", [input.agentId, scheduleIds]);
-        for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()) ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.agentId, drive]);
+        for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.agentId, drive, this.persistentDriveInitialDelayMs]);
       }
       await client.query("UPDATE agent_runs SET result=jsonb_set(COALESCE(result,'{}'::jsonb),'{postProcess}',COALESCE(result->'postProcess','{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),true) WHERE id=$1", [input.runId, input.jobType, JSON.stringify(input.output)]);
       if (input.candidateJob !== undefined) await client.query("INSERT INTO post_process_jobs(id,agent_id,event_id,interaction_run_id,job_type,input_state_version,payload) SELECT $1,agent_id,event_id,interaction_run_id,'candidate',input_state_version,$2 FROM post_process_jobs WHERE id=$3 ON CONFLICT DO NOTHING", [input.candidateJob.id, JSON.stringify(input.candidateJob.payload), input.jobId]);

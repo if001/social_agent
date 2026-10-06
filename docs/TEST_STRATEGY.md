@@ -197,6 +197,8 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - Drive + Current Interest + 関連Memoryを通常Contextへ渡し、Self差によりTool、wait、no-action等の判断が異なり得る
 - 配送先がない自律respondでもRun、Tool trace、状態、Memoryを保存し、外部Queueへはpublishしない
 - 自律Web page取得をArchiveへ保存し、重要な結果をSnapshot参照付きEpisodic Memoryへ要約する
+- 走査、各review、Drive初回・再検討、retry、leaseの環境変数を独立して検証する
+- `agent:init`の初回期限とbot実行後の次回期限が同じ設定値を使用する
 - pending Candidateがない場合にLong-term Reviewを起動しない
 - `next_review_at`更新により同じ対象を連続起動しない
 - CandidateをAgentとtargetごとにまとめ、期限付きleaseで複数Schedulerからの二重Reviewを防ぐ

@@ -10,7 +10,7 @@ export interface ScheduleRepository {
   release(target: ScheduledTarget): Promise<void>;
 }
 export interface InternalEventRuntime { process(event: DomainEvent, signal: AbortSignal): Promise<AgentAction>; }
-export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly reviewIntervalMs: number; readonly logger?: Logger; readonly memoryRecallIntervalMs?: number; readonly batchSize?: number };
+export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly persistentDriveReviewIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
 
 export class Scheduler {
   readonly #running = new Set<string>();
@@ -36,8 +36,8 @@ export class Scheduler {
           const destination = this.options.defaultDestination(target.agentId);
           if (destination !== undefined && destination.trim() !== "") await this.options.queue.publish({ id: this.options.ids.next(), destination, source: target.agentId, sentAt: now.toISOString(), availableAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "agent-response", text: action.content, agentId: target.agentId, autonomous: true } });
         }
-        const autonomous = target.kind === "persistent-drive" || target.kind === "state-review" || target.kind === "memory-recall" || target.kind === "autonomy-review";
-        const next = action.type === "wait" && action.until !== undefined ? new Date(action.until) : target.kind === "memory-recall" ? new Date(occurredAt.getTime() + (this.options.memoryRecallIntervalMs ?? 604_800_000)) : autonomous ? new Date(occurredAt.getTime() + this.options.reviewIntervalMs) : action.type === "no-action" ? null : new Date(occurredAt.getTime() + this.options.reviewIntervalMs);
+        const interval = target.kind === "autonomy-review" ? this.options.autonomyReviewIntervalMs : target.kind === "state-review" ? this.options.stateReviewIntervalMs : target.kind === "memory-recall" ? this.options.memoryRecallIntervalMs : target.kind === "persistent-drive" ? this.options.persistentDriveReviewIntervalMs : undefined;
+        const next = action.type === "wait" && action.until !== undefined ? new Date(action.until) : interval === undefined ? action.type === "no-action" ? null : new Date(occurredAt.getTime() + this.options.autonomyReviewIntervalMs) : new Date(occurredAt.getTime() + interval);
         await this.options.repository.complete(target, next);
         logger.log("info", "scheduler.target_completed", { actionType: action.type, nextReviewAt: next?.toISOString() });
         completed += 1;
