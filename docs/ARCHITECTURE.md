@@ -223,13 +223,33 @@ UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`
 
 Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成し、時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interestを維持・変更・削除する機会を通常Agent Coreへ与える。Runtimeが固定規則で感情値を減衰させることはせず、時刻管理と再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
 
-Agent初期化時は、Role、Drive、Interest、Preferenceを空集合とし、Mood、Values、Acquired Disposition、Self Narrative、Self Continuityには「まだ形成されていない」という中立な自然言語を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Dispositionとして明示的に入力する。
+Agent初期化時のStable Interests / Preferences / Rolesはversioned Initial Self設定から読み込む。DriveとCurrent Interestは原則として空集合で開始し、MoodとAcquired Dispositionには中立な初期値を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Selfとして明示的に入力する。
 
 各Agentは別に`memory-recall` Scheduleを1件持つ。既定では7日ごとにInternal Eventを生成し、通常のMemory Retrievalを現在状態とActive Intentionから実行する。Recall Eventは再検討の機会だけを与え、Memory選択、状態変更、Tool利用、外部Actionは通常Coreの判断に委ねる。
 
 `persistent-drive` Scheduleは保存後のDrive集合から導出する。状態commitと同じtransactionで、存在するDriveのScheduleをupsertし、集合から消えたDriveのScheduleを削除する。Scheduleを独立したDriveの複製として残してはならない。
 
-`autonomy-review` ScheduleはAgentごとに1件だけ初期化し、既定では1日ごとに再実行する。Current InterestごとのScheduleは作らない。Event payloadは`targetKind=autonomy-review`、目的、schedulerGeneratedを持ち、Context Builderは通常どおりSelfの3種類のDisposition、Drive、Current Interest、関連Memory、Social Contextを取得する。Runtimeは機会とcooldownだけを管理し、具体的な行動を固定規則で決めない。
+`autonomy-review` ScheduleはAgentごとに1件だけ初期化し、既定では1日ごとに再実行する。Current InterestごとのScheduleは作らない。Event payloadは`targetKind=autonomy-review`、目的、schedulerGeneratedを持つ。このEventを「現在は関心へ注意を向けられる」というInternal Observationとして通常Coreへ渡す。Context BuilderはSelfの3種類のDisposition、Stable Interests / Preferences、Drive、構造化Current Interest、最近の探索履歴、関連Memory、Social Contextを取得する。Runtimeは機会とcooldownだけを管理し、具体的な行動を固定規則で決めない。
+
+Drive、Current Interest、Intentionが空の場合も、通常CoreはStable Interest / PreferenceとInternal Observationから最大1件のKnowledge Gapを選び、一時的Desireとして初回探索またはユーザーへの質問を判断できる。Stable Interestを機械的に永続Driveへ変換しない。探索のTool ResultとInteractionが具体的経験になった後、Continuity Updateが継続価値を判断してCurrent Interest、Drive、Intentionを提案する。
+
+```mermaid
+flowchart LR
+    S[Stable Interest / Preference] --> O[Autonomy Review<br/>Internal Observation]
+    H[Recent exploration / Memory] --> O
+    O --> K[Knowledge Gapを最大1件選択]
+    K --> D[一時的Desire]
+    D --> A[Tool / 質問 / wait / no-action]
+    A --> E[Tool Result / Interaction experience]
+    E --> P[Continuity Update]
+    P --> C[Current Interest proposal]
+    P --> R[必要なDrive / Intention proposal]
+    C --> N{Goalへの進展}
+    N -->|進展| G[progress更新]
+    N -->|達成| X[resolveと関連状態の収束]
+    N -->|問いが変化| F[reframe]
+    N -->|停滞| W[別手段 / wait / cooldown / drop]
+```
 
 Idle Intentionの期限は、User MessageまたはExternal Eventを受理した時点を最終活動として、そのtransaction内で再計算する。Agent Coreの完了後まで更新を遅らせない。新規Idle Intentionは作成Eventの時刻から最初の期限を計算し、Scheduler自身が生成したInternal EventやSystem Eventでは最終活動を延長しない。
 
@@ -309,6 +329,21 @@ interface AgentHarness {
 各用途の入力はEvent、応答の意味内容、必要な現在状態、短いTool結果要約とWeb Snapshot IDへ限定する。Tool定義、runtime limits、retrieval trace、不要なraw Tool payloadは渡さない。Continuity UpdateはMood、Drive、Current Interest、Working Social Context、Intentionだけ、Memory ExtractionはEpisodic Memoryの意味内容だけ、Candidate Detectorは保存済みMemoryと既存の関連長期状態だけを返す。`kind=episodic`、所有Agent、Event evidence、発生・作成時刻、source provenance、保存IDはRuntimeが付与する。
 
 Continuity UpdateのDriveは汎用State Updateではなく、`create | maintain | update | merge | end`の用途別提案として返す。各提案は理由と入力内のEventまたはMemory IDを持つ。Runtimeは所有と参照を検証し、create時に`since`を付与する。maintainとupdateでは既存Driveの`since`を保持し、mergeでは最も古い開始時刻と根拠を引き継ぐ。生成・変更・終了はState Changeにbefore、after、reason、evidenceを記録する。
+
+Current Interestも汎用配列更新から分離し、`create | progress | reframe | resolve | drop`の用途別提案として返す。正本は次の最小構造とする。
+
+```ts
+type CurrentInterest = {
+  id: string
+  question: string
+  goal: string
+  progress: 0 | 25 | 50 | 75 | 100
+}
+```
+
+`question`は現在認識しているKnowledge Gap、`goal`は一旦の充足条件、`progress`はGoalとの差がどこまで縮んだかの粗い自己評価である。詳細知識やページ本文はMemory / Web Snapshotへ保存する。LLMは操作、意味内容、理由、入力内のevidence IDだけを提案する。RuntimeはIDと時刻を付与し、State Changeへbefore / after / reason / evidenceを残す。
+
+RuntimeはCurrent Interestごとの`consecutiveNoProgress`、`lastExploredAt`、`cooldownUntil`を探索制御metadataとして管理し、LLM出力Schemaへ含めない。progress増加またはreframeで停滞をresetし、進展しない探索で増加させる。Goal達成ではresolveし、関連DriveのendとIntentionのcompleteを同じ後処理から提案できる。上限到達中の同一Interest再探索は拒否するが、探索方法の変更、延期、dropの意味判断はCoreへ委ねる。
 
 判断順序は`Observation + Current State + Memory + Social Context → Subjective Meaning / Value`を先に置き、その価値がSelf（Shared / Initial / Acquired Disposition、Values、Self Narrative）に照らして次回以降も持続するときだけDriveを提案する。短期Emotion、Desire、Personaを単独根拠にしない。
 
@@ -463,7 +498,7 @@ Intention triggerは`time`、`event`、`idle`、`manual-review`の4種類とす�
 
 SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntention、persistent Drive、Candidateを期限付きleaseで取得する。停止中に期限を迎えた対象も再起動時に取得し、成功後は次回時刻を設定、失敗時は短いbackoffを設定してleaseを解放する。外部Queueへ送るのは最終Actionが`respond`の場合だけとする。
 
-自律Eventの`respond`はdefault destinationが設定されている場合だけ配送する。Discord destinationでは、設定されたchannel allowlistの先頭を自律投稿先とし、元Messageを持たない新規投稿として送信する。通常のDiscord対話応答は引き続き入力Messageまたはthreadへ返信する。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。`wait.until`があればその時刻、それ以外の自律Eventはreview interval後へ再設定するため、同じ関心による即時loopを作らない。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
+自律Eventの`respond`はdefault destinationが設定され、かつ結果がユーザーの進行中の関心や依頼に有用、重要な発見、またはユーザーへの質問を必要とする場合だけ配送する。Discord destinationでは、設定されたchannel allowlistの先頭を自律投稿先とし、元Messageを持たない新規投稿として送信する。通常のDiscord対話応答は引き続き入力Messageまたはthreadへ返信する。探索途中、既知内容の再確認、弱い進展はMemory、Web Snapshot、状態だけをcommitして外部通知しない。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。`wait.until`があればその時刻、それ以外の自律Eventはreview interval後へ再設定し、Current Interest metadataのcooldownと合わせて同じ検索と通知の即時loopを防ぐ。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
 
 E2E traceでは、初期Self設定のFamily / Agent IDとDisposition、Driveのreason / evidence / since、`autonomy-review` Event ID、取得されたMemory ID、Tool executionのrun / event / snapshot ID、最終Action、Post-process Memoryのevidenceを同じrunから追跡する。決定的testは配線と上限を検証し、LLMの判断品質はEV-02を1回実行してからSoakで評価する。
 

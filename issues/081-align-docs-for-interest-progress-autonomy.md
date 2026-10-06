@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 081: Interest進捗と自律探索の形成・減衰をdocsへ反映する
@@ -113,4 +113,3 @@ status: created
 - [Test Strategy](../docs/TEST_STRATEGY.md)
 - [Issue 076: Selfと価値判断に基づくDrive形成](./076-ground-drive-formation-in-self-and-value.md)
 - [Issue 077: Self・Drive・Interestによる自律判断](./077-ground-autonomous-decisions-in-self-drive-and-interest.md)
-

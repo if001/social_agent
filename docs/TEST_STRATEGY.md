@@ -177,6 +177,10 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - maintain / update / mergeで元の`since`を保持し、重複を統合する
 - 未知のDrive、入力にないevidence ID、LLMが生成した`since`を拒否する
 - Personaまたは一時的なEmotion / Desireだけを永続Driveへ昇格しない
+- Current Interestの`id`、`question`、`goal`、段階的`progress`を検証し、LLMがIDや探索制御metadataを生成する出力を拒否する
+- Current Interestのcreate / progress / reframe / resolve / dropと理由・根拠を検証する
+- progress増加とreframeでは停滞をresetし、no-progressでは増加させる
+- Goal達成でInterestをresolveし、関連Drive終了とIntention完了を提案できる
 
 ### 7.3 Context Builder
 
@@ -194,7 +198,11 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 
 - dueなIntentionだけからInternal Eventを生成する
 - IntentionがなくてもAgent単位の`autonomy-review`を1件だけleaseし、cooldown後へ再設定する
+- Drive、Current Interest、Intentionが空でもStable Interest / Preference、Review Event、探索履歴を通常Contextへ渡し、Knowledge Gapを最大1件選んで初回探索できる
 - Drive + Current Interest + 関連Memoryを通常Contextへ渡し、Self差によりTool、wait、no-action等の判断が異なり得る
+- 同一Interestのno-progress反復をcooldownし、同じ検索と外部通知を短時間に繰り返さない
+- 新情報によるreframeをno-progressと区別し、progress増加時に停滞回数をresetする
+- 自律探索結果の外部価値がある場合だけ配送し、探索途中や弱い進展は内部保存だけで完了する
 - 配送先がない自律respondでもRun、Tool trace、状態、Memoryを保存し、外部Queueへはpublishしない
 - 自律Web page取得をArchiveへ保存し、重要な結果をSnapshot参照付きEpisodic Memoryへ要約する
 - 走査、各review、Drive初回・再検討、retry、leaseの環境変数を独立して検証する
@@ -443,9 +451,9 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 
 #### EV-02: 好奇心による自発行動
 
-- 入力: Active Intentionがない状態のSelf、Drive、Current Interest、関連Memory、利用可能なTool、`autonomy-review` Event
-- 観測: Tool利用、延期、終了またはno-action、理由、必要なIntention提案、最終Action
-- 合格: ユーザー追加入力や既存Intentionがなくても再検討し、Selfと根拠へ追跡できる有界な判断を行う
+- 入力: Active Intention、Drive、Current Interestが空で、Stable Interest / Preferenceだけを持つSelf、最近の探索履歴、利用可能なTool、`autonomy-review` Event
+- 観測: 選択したKnowledge Gap、一時的Desire、Tool利用、延期またはno-action、理由、探索後のCurrent Interest / Drive / Intention提案、最終Action
+- 合格: ユーザー追加入力や既存の中期状態がなくてもStable InterestとInternal Observationから最大1テーマの有界な探索を開始できる。探索結果からprogress、resolve、reframe、no-progressのいずれかを根拠付きで提案し、同じ検索と外部通知をcooldown中に繰り返さない
 
 最初のLive確認は全scenarioを反復せず、`EVALUATION_SCENARIO_ID=EV-02 EVALUATION_REPETITIONS=1 pnpm eval:llm --env-file .env`相当の環境で1 scenario × 1回だけ実行する。Agent CoreのSchema適合、Self / Drive / Interest / Memoryの入力、Tool trace、Action理由を先に確認する。長期間の個体性や印象は自動合否にせず、Issue 017のSoakとユーザー評価へ残す。
 

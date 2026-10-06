@@ -4,7 +4,7 @@
 
 本プロジェクトは、ユーザーの命令を処理するだけのAssistantではなく、ユーザーとは別の価値傾向、感情、動機、意思、経験の連続性を持つように感じられる自律パーソナルエージェントを実現する。
 
-Agentは、共通する価値傾向と小さな初期個体差を持ち、出来事を現在状態や過去の経験に照らして意味づける。その結果をMemory、Self Narrative、Acquired Dispositionへ反映し、時間と経験に応じて個体化する。ユーザー入力がない場合にも、保持しているIntentionやDriveを再検討し、必要に応じて構成済みToolを使って行動できるものとする。
+Agentは、共通する価値傾向と小さな初期個体差を持ち、出来事を現在状態や過去の経験に照らして意味づける。その結果をMemory、Self Narrative、Acquired Dispositionへ反映し、時間と経験に応じて個体化する。ユーザー入力がない場合にも、保持しているIntentionやDriveを再検討し、またはStable Interestに対して未知へ注意を向ける機会から探索を始め、必要に応じて構成済みToolを使って行動できるものとする。
 
 本書は完成対象と検証可能な振る舞いを定める。内部構成、物理データ設計、採用ライブラリの最終決定は `ARCHITECTURE.md`、具体的な試験技法と評価データは `TEST_STRATEGY.md` で定める。
 
@@ -122,6 +122,10 @@ EmotionとDesireは現在のEventに対する解釈とActionへ反映するが�
 
 DriveはDispositionから固定的に生成しない。Continuity Updateは、ObservationとInteractionのSubjective Meaningを、Selfの3種類のDisposition、Values、Self Narrative、Memory、Social Context、現在状態に照らして主観的価値を判断し、具体的な入力EventまたはMemoryを根拠に持続する動機だけを生成、維持、更新、統合、終了として提案する。Persona、今回限りのEmotionまたはDesireだけを根拠に永続Driveを作ってはならない。
 
+Current Interestは、経験中の具体的なKnowledge Gapを追跡する中期状態であり、Stable InterestやPreferenceと区別する。各Current InterestはRuntimeが付与する`id`、現在何を知りたいかを表す`question`、一旦満たされたと判断する条件である`goal`、Goalに対する粗い自己評価`progress`を持つ。`progress`は客観的な知識量ではなく、`0 | 25 | 50 | 75 | 100`の段階値とする。調査で得た本文や詳細知識はCurrent Interestへ重複保存せず、Episodic / Semantic MemoryまたはWeb Snapshotへ保存する。
+
+Current Interestの変更提案は`create | progress | reframe | resolve | drop`を区別する。情報によってGoalへ近づいた場合は`progress`、未知の捉え方や充足条件が変わった場合は`reframe`、Goalを満たした場合は`resolve`、価値が薄れたか進展が見込めない場合は`drop`とする。LLMは意味内容、理由、入力内の根拠を提案し、ID、時刻、連続停滞回数、最終探索時刻、cooldownを生成しない。
+
 #### FR-AG-04: 自然言語状態
 
 Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然言語で表現できなければならない。固定カテゴリや単一の数値スコアだけに還元してはならない。
@@ -220,11 +224,17 @@ Runtimeは時間経過による状態再評価のため、Agentごとに有界�
 
 Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood、Drive、Active Intention、Social Contextを検索条件として関連Memoryを通常Coreへ提示できなければならない。想起だけを理由に過去のEmotionをそのまま復元せず、現在にとっての意味と状態変更の要否を通常Coreが判断する。
 
-RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、IntentionがなくてもSelf、Drive、Current Interest、関連Memory、Social Context、経過時間から主体的な行動の価値を再検討する機会を与える。Current InterestごとのScheduleは作らない。通常Coreは行動、Tool利用、Intentionへの具体化、延期、終了、no-actionを選び、弱い根拠で検索や外部通知を繰り返してはならない。
+RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、IntentionがなくてもSelf、Drive、Current Interest、関連Memory、Social Context、経過時間から主体的な行動の価値を再検討する機会を与える。`autonomy-review` Event自体を「関心へ注意を向けられる現在の機会」というInternal Observationとして扱うため、外部ユーザー入力を探索開始の必須条件にしない。Current InterestごとのScheduleは作らない。通常Coreは行動、Tool利用、Intentionへの具体化、延期、終了、no-actionを選び、弱い根拠で検索や外部通知を繰り返してはならない。
+
+Drive、Current Interest、Intentionがすべて空でも、通常CoreはStable Interest / Preference、現在の探索機会、最近の探索履歴、関連Memoryから具体的なKnowledge Gapを最大1件選び、一時的Desireと有界な探索Actionを形成できる。この経路はSelfから永続Driveを固定生成するものではない。探索結果という具体的経験が継続的な価値を持つ場合に限り、Continuity UpdateがCurrent Interest、Drive、Intentionを提案する。
+
+探索後はGoalへの進展を評価する。進展時はprogressを上げて停滞回数をresetし、Goal達成時はCurrent Interestをresolveして関連Driveの終了やIntentionの完了を提案できる。新情報によって問い自体が変わった場合はreframeとし、単純な停滞に数えない。進展しない場合は別手段、延期、cooldown、dropを選択できる。探索方法と粘り方の意味判断はSelf、Disposition、Preference、Mood、Driveと進捗を用いてCoreが行い、Runtimeは連続停滞回数、最終探索時刻、cooldown、Tool call数、run deadline、rate上限を管理して即時反復を拒否する。
 
 Schedulerの走査、Autonomy Review、State Review、Memory Recall、Persistent Driveの初回待機と再検討、失敗時retry、leaseは個別の環境変数で設定できなければならない。各変数は`.env.sample`に単位と用途を説明するコメントを持ち、初期化時と実行時で同じ値を使用する。
 
 自律的なWebページ取得も通常Tool経路を使い、ページ本文とURLはWeb Archiveへ保存する。後処理は重要な経験を「何を調べ、何を確認したか」というEpisodic Memoryへ要約し、Web Snapshot IDを根拠として関連づける。外部配送先がない場合もAgent Run、Tool trace、状態、Memoryを保存し、応答だけを配送しない。
+
+自律探索結果は、ユーザーの進行中の関心や依頼に有用、重要な発見、または対話でしか埋められないKnowledge Gapへの質問である場合だけ外部通知を選べる。個人的な探索の途中経過、既知内容の再確認、弱い進展は内部のMemory、Web Snapshot、状態更新だけに留める。
 
 #### FR-AU-03: 自律的な判断
 
