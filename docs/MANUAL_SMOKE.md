@@ -29,7 +29,7 @@ pnpm debug:ui --env-file .env.bot-a
 
 ブラウザで`http://127.0.0.1:4310`を開く。Agentを選択し、Self、Mood、Drive、Current Interest、Social Context、Intention、Autonomous Scheduleを確認する。Discordで一度メンションした後、Run履歴にEvent、Subjective Meaning、Action、Emotion、Desireが表示されることを確認する。Run行を選び、状態差分、Tool実行、Post-process statusとfailure reasonを確認する。
 
-EmotionとDesireは選択したRunの即時状態であり、OverviewのMood、Drive、Current Interestは現在の持続状態である。画面は5秒ごとに更新される。Debug UIは読み取り専用であり、Botを停止せずに起動・停止できる。
+EmotionとDesireは選択したRunの即時状態であり、OverviewのMood、Drive、Current Interestは現在の持続状態である。表示を更新するときはheaderの「更新」ボタンを押す。Run詳細を確認している間に画面は自動更新されない。Debug UIは読み取り専用であり、Botを停止せずに起動・停止できる。
 
 ## Terminal
 
