@@ -74,5 +74,7 @@
 | 070 | [応答・Post-process分離に合わせたdocs整合](070-align-docs-for-response-postprocess-flow.md) | 069 |
 | 071 | [応答・即時状態とPost-processの分離実装](071-implement-response-postprocess-flow.md) | 069、070 |
 | 080 | [既存DBを参照する読み取り専用Agent Debug UI](080-add-read-only-agent-debug-ui.md) | 069、073、078 |
+| 081 | [Interest進捗と自律探索の形成・減衰をdocsへ反映](081-align-docs-for-interest-progress-autonomy.md) | 076、077 |
+| 082 | [Interest進捗に基づく自律探索と減衰を実装](082-implement-interest-progress-autonomy.md) | 081 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
