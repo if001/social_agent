@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 085: 行動結果から質問・探索方法を適応させる

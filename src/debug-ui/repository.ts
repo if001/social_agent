@@ -11,6 +11,7 @@ export type AgentOverview = {
   readonly intentions: readonly Record<string, unknown>[];
   readonly schedules: readonly Record<string, unknown>[];
   readonly candidates: readonly Record<string, unknown>[];
+  readonly recentAttempts: readonly Record<string, unknown>[];
 };
 
 export type RunListItem = {
@@ -47,14 +48,19 @@ export class DebugUiRepository {
       FROM agents a JOIN agent_families f ON f.id=a.family_id LEFT JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1`, [agentId]);
     const agent = agents[0];
     if (agent === undefined) return undefined;
-    const [states, socialContexts, intentions, schedules, candidates] = await Promise.all([
+    const [states, socialContexts, intentions, schedules, candidates, recentAttempts] = await Promise.all([
       this.query<QueryResultRow>(`SELECT mood,drives,current_interests AS "currentInterests",interest_exploration AS "interestExploration",version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,subject_id AS "subjectId",subject_type AS "subjectType",description,updated_at AS "updatedAt" FROM social_contexts WHERE agent_id=$1 ORDER BY updated_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,description,reason,trigger,status,next_review_at AS "nextReviewAt",updated_at AS "updatedAt" FROM intentions WHERE agent_id=$1 ORDER BY (status='active') DESC,updated_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,kind,reason,next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
-      this.query<QueryResultRow>(`SELECT id,target,proposed_value AS "proposedValue",status,reason,evidence_event_ids AS "evidenceEventIds",review_after AS "reviewAfter",updated_at AS "updatedAt" FROM long_term_candidates WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 100`, [agentId])
+      this.query<QueryResultRow>(`SELECT id,target,proposed_value AS "proposedValue",status,reason,evidence_event_ids AS "evidenceEventIds",review_after AS "reviewAfter",updated_at AS "updatedAt" FROM long_term_candidates WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 100`, [agentId]),
+      this.query<QueryResultRow>(`SELECT r.id,e.occurred_at AS "occurredAt",r.result->'output'->'action' AS action,
+        COALESCE(jsonb_agg(jsonb_build_object('tool',t.tool,'input',t.input,'result',t.result,'error',t.error) ORDER BY t.started_at,t.id) FILTER (WHERE t.id IS NOT NULL),'[]'::jsonb) AS tools,
+        EXISTS(SELECT 1 FROM state_changes sc WHERE sc.run_id=r.id AND sc.target='currentInterests' AND sc.before IS DISTINCT FROM sc.after) AS "progressChanged"
+        FROM agent_runs r JOIN events e ON e.id=r.event_id LEFT JOIN tool_executions t ON t.run_id=r.id
+        WHERE r.agent_id=$1 AND r.finished_at IS NOT NULL AND r.result IS NOT NULL GROUP BY r.id,e.id ORDER BY e.occurred_at DESC,r.id DESC LIMIT 12`, [agentId])
     ]);
-    return { agent, state: states[0] ?? {}, socialContexts, intentions, schedules, candidates };
+    return { agent, state: states[0] ?? {}, socialContexts, intentions, schedules, candidates, recentAttempts };
   }
 
   async listRuns(agentId: string, limit = 30): Promise<readonly RunListItem[]> {
