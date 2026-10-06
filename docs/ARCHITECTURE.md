@@ -650,6 +650,27 @@ type AgentCoreInput = {
   runtimeConstraints: RuntimeConstraint[]
 }
 
+type RelevantSelf = {
+  id: string
+  familyId: string
+  identity: string
+  disposition: {
+    shared: string     // Family共通。通常Eventでは不変
+    initial: string    // 個体の初期傾向。通常Eventでは不変
+    acquired: string   // 経験由来。Long-term Reviewだけが更新
+  }
+  values: string
+  interests: string[]
+  preferences: string[]
+  roles: string[]
+  raisonDetre?: string
+  selfNarrative: string
+  selfContinuity: string
+  version: number
+}
+
+DBではFamily、Agent、Agent Stateに分けて保存するが、Context Loaderが上記Selfへ統合する。Dispositionは実行制約ではないため`runtimeConstraints`へ入れない。`runtimeConstraints`はBase Instruction、Safety、実行上限など、runが従う制約だけを保持する。
+
 type AgentCoreOutput = {
   interpretation: { subjectiveMeaning?: string }
   internalChanges: {

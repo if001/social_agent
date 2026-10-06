@@ -90,10 +90,10 @@ export class PostgresAgentContextLoader {
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
       observation, recentObservations,
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
-      self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, initialDisposition: agent.initial_disposition, acquiredDisposition: agent.acquired_disposition, values: agent.values, interests: texts(agent.interests), preferences: texts(agent.preferences), roles: texts(agent.roles), ...(agent.raison_detre === null ? {} : { raisonDetre: agent.raison_detre }), selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
+      self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, disposition: { shared: agent.shared_disposition, initial: agent.initial_disposition, acquired: agent.acquired_disposition }, values: agent.values, interests: texts(agent.interests), preferences: texts(agent.preferences), roles: texts(agent.roles), ...(agent.raison_detre === null ? {} : { raisonDetre: agent.raison_detre }), selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
       dynamicState,
       socialContext, memories: enrichedMemories, memoryRetrievalTrace: retrieval.trace, intentions, availableTools: [...availableTools],
-      runtimeConstraints: [agent.base_instruction.trim(), `Family disposition: ${agent.shared_disposition}`, "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),
+      runtimeConstraints: [agent.base_instruction.trim(), "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),
       limits: this.options.limits
     }, this.options.budget));
   }

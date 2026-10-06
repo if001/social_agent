@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 074: Shared・Initial・Acquired DispositionをSelf契約へ統合する
@@ -60,4 +60,3 @@ status: created
 - [Concept design: Self](../spec/personal-agent-concept-design-restructured-v2.md#7-self)
 - [Implementation design: Disposition](../spec/personal-agent-implementation-design-v2.md#6-disposition)
 - [Architecture](../docs/ARCHITECTURE.md)
-
