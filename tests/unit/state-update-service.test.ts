@@ -1,7 +1,7 @@
-import { applyDriveProposals, StateUpdateService } from "../../src/application/state-update-service.js";
+import { applyCurrentInterestProposals, applyDriveProposals, StateUpdateService } from "../../src/application/state-update-service.js";
 import type { DynamicState } from "../../src/domain/contracts.js";
 
-const state: DynamicState = { agentId: "a", mood: "Steady", drives: [{ description: "Learn", sourceEvidenceIds: ["old-event"], since: "2026-01-01T00:00:00Z" }], currentInterests: [], updatedAt: "2026-01-01T00:00:00Z" };
+const state: DynamicState = { agentId: "a", mood: "Steady", drives: [{ description: "Learn", sourceEvidenceIds: ["old-event"], since: "2026-01-01T00:00:00Z" }], currentInterests: [], interestExploration: [], updatedAt: "2026-01-01T00:00:00Z" };
 
 describe("StateUpdateService", () => {
   const service = new StateUpdateService();
@@ -11,12 +11,23 @@ describe("StateUpdateService", () => {
     expect(result.changes).toEqual([{ target: "mood", operation: "set", before: "Steady", after: "Encouraged", reason: "Positive response", evidenceIds: ["event-1"] }]);
     expect(state.mood).toBe("Steady");
   });
-  it("updates multiple drives, desires and current interests", () => {
-    const result = service.apply("a", state, [{ target: "drives", operation: "append", value: "Help", reason: "Need", evidenceIds: ["event-new"] }, { target: "desires", operation: "set", value: ["Listen", "Clarify"], reason: "Conversation", evidenceIds: [] }, { target: "currentInterests", operation: "append", value: "Memory design", reason: "Relevant", evidenceIds: [] }]);
+  it("updates multiple drives and desires", () => {
+    const result = service.apply("a", state, [{ target: "drives", operation: "append", value: "Help", reason: "Need", evidenceIds: ["event-new"] }, { target: "desires", operation: "set", value: ["Listen", "Clarify"], reason: "Conversation", evidenceIds: [] }]);
     expect(result.state.drives).toEqual([{ description: "Learn", sourceEvidenceIds: ["old-event"], since: "2026-01-01T00:00:00Z" }, { description: "Help", sourceEvidenceIds: ["event-new"], since: "2026-01-01T00:00:00Z" }]);
     expect(result.state).not.toHaveProperty("desires");
     expect(result.changes.find(({ target }) => target === "desires")).toMatchObject({ before: [], after: ["Listen", "Clarify"] });
-    expect(result.state.currentInterests).toEqual(["Memory design"]);
+  });
+  it("creates and progresses Current Interest with runtime metadata", () => {
+    const created = applyCurrentInterestProposals(state, [{ operation: "create", question: "Memory設計の何が未解決か", goal: "選択肢を説明できる", progress: 25, reason: "問いが具体化した", evidenceIds: ["event-new"] }], () => "interest-1");
+    const progressed = applyCurrentInterestProposals(created.state, [{ operation: "progress", interestId: "interest-1", progress: 50, reason: "比較できた", evidenceIds: ["event-new"] }], () => "unused");
+    expect(progressed.state.currentInterests[0]).toMatchObject({ id: "interest-1", progress: 50 });
+    expect(progressed.state.interestExploration[0]).toMatchObject({ consecutiveNoProgress: 0 });
+  });
+  it("cools down a Current Interest after two no-progress explorations", () => {
+    const active = { ...state, currentInterests: [{ id: "interest-1", question: "未知は何か", goal: "説明できる", progress: 25 as const }], interestExploration: [] };
+    const first = applyCurrentInterestProposals(active, [{ operation: "progress", interestId: "interest-1", progress: 25, reason: "新情報なし", evidenceIds: ["event-1"] }], () => "unused", "2026-01-01T00:00:00Z");
+    const second = applyCurrentInterestProposals(first.state, [{ operation: "progress", interestId: "interest-1", progress: 25, reason: "再び新情報なし", evidenceIds: ["event-2"] }], () => "unused", "2026-01-01T01:00:00Z");
+    expect(second.state.interestExploration[0]).toMatchObject({ consecutiveNoProgress: 2, cooldownUntil: "2026-01-01T07:00:00.000Z" });
   });
   it("rejects long-term, invalid Social Context values, invalid operations and another agent", () => {
     expect(() => service.apply("a", state, [{ target: "identity", operation: "set", value: "Changed", reason: "No", evidenceIds: [] }])).toThrow();

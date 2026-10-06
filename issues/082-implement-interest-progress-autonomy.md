@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 082: Interest進捗に基づく自律探索と減衰を実装する
@@ -131,4 +131,3 @@ Issue 081の確定仕様に従い、Current Interestの最小構造、専用Prop
 - [Test Strategy](../docs/TEST_STRATEGY.md)
 - [Issue 076: Selfと価値判断に基づくDrive形成](./076-ground-drive-formation-in-self-and-value.md)
 - [Issue 077: Self・Drive・Interestによる自律判断](./077-ground-autonomous-decisions-in-self-drive-and-interest.md)
-

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { DomainError, DriveProposalSchema, StateUpdateProposalSchema, type DriveProposal, type DynamicState, type SocialContext } from "../domain/contracts.js";
+import { CurrentInterestProposalSchema, DomainError, DriveProposalSchema, StateUpdateProposalSchema, type CurrentInterestProposal, type DriveProposal, type DynamicState, type InterestExploration, type SocialContext } from "../domain/contracts.js";
 
 export type StateChange = {
   readonly target: string;
@@ -56,8 +56,44 @@ export function applyDriveProposals(state: DynamicState, rawProposals: readonly 
   return { state: { ...state, drives }, changes };
 }
 
+export function applyCurrentInterestProposals(state: DynamicState, rawProposals: readonly unknown[], nextId: () => string, occurredAt = state.updatedAt): StateUpdateResult {
+  const currentInterests = [...state.currentInterests];
+  let interestExploration = [...state.interestExploration];
+  const changes: StateChange[] = [];
+  const metadata = (interestId: string): InterestExploration => interestExploration.find((item) => item.interestId === interestId) ?? { interestId, consecutiveNoProgress: 0 };
+  for (const raw of rawProposals) {
+    const proposal: CurrentInterestProposal = CurrentInterestProposalSchema.parse(raw);
+    const before = [...currentInterests];
+    if (proposal.operation === "create") {
+      const id = nextId();
+      currentInterests.push({ id, question: proposal.question, goal: proposal.goal, progress: proposal.progress });
+      interestExploration.push({ interestId: id, consecutiveNoProgress: 0, lastExploredAt: occurredAt });
+      changes.push({ target: "currentInterests", operation: "append", before, after: currentInterests, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+      continue;
+    }
+    const index = currentInterests.findIndex(({ id }) => id === proposal.interestId);
+    if (index < 0) throw new DomainError("VALIDATION", "Cannot update an unknown Current Interest");
+    const existing = currentInterests[index];
+    if (existing === undefined) throw new DomainError("VALIDATION", "Cannot update an unknown Current Interest");
+    if (proposal.operation === "resolve" || proposal.operation === "drop") {
+      currentInterests.splice(index, 1); interestExploration = interestExploration.filter(({ interestId }) => interestId !== proposal.interestId);
+      changes.push({ target: "currentInterests", operation: "remove", before, after: currentInterests, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+      continue;
+    }
+    const previousMeta = metadata(proposal.interestId);
+    const progressed = proposal.operation === "reframe" || proposal.progress > existing.progress;
+    const next = proposal.operation === "reframe" ? { ...existing, question: proposal.question, goal: proposal.goal, progress: proposal.progress } : { ...existing, progress: proposal.progress };
+    currentInterests[index] = next;
+    const noProgress = progressed ? 0 : previousMeta.consecutiveNoProgress + 1;
+    const cooldownUntil = noProgress >= 2 ? new Date(new Date(occurredAt).getTime() + 21_600_000).toISOString() : undefined;
+    interestExploration = [...interestExploration.filter(({ interestId }) => interestId !== proposal.interestId), { interestId: proposal.interestId, consecutiveNoProgress: noProgress, lastExploredAt: occurredAt, ...(cooldownUntil === undefined ? {} : { cooldownUntil }) }];
+    changes.push({ target: "currentInterests", operation: "set", before, after: currentInterests, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+  }
+  return { state: { ...state, currentInterests, interestExploration }, changes };
+}
+
 const persistentScalarTargets = new Set(["mood"]);
-const persistentCollectionTargets = new Set(["currentInterests"]);
+const persistentCollectionTargets = new Set<string>();
 const transientScalarTargets = new Set(["emotion"]);
 const transientCollectionTargets = new Set(["desires"]);
 const SocialContextValue = z.object({ subjectId: z.string().min(1), subjectType: z.enum(["user", "agent", "team", "project", "organization"]).optional(), description: z.string().min(1).optional() });

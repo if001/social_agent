@@ -29,7 +29,7 @@ describe("Post-process", () => {
     const service = new PostProcessService(persistence, { continuity: { run: () => {
       calls += 1;
       if (calls === 1) return Promise.reject(new Error("temporary"));
-      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], driveProposals: [], intentionProposals: [] });
+      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], driveProposals: [], currentInterestProposals: [], intentionProposals: [] });
     } }, memory: { run: () => Promise.resolve({ memoryProposals: [] }) }, candidate: { run: () => Promise.resolve({ longTermCandidates: [] }) } }, noopLogger, 1);
     await service.processAgent(input.run.agentId, new AbortController().signal);
 

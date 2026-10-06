@@ -270,7 +270,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - recentObservations: 代名詞や省略を解決するための直近の出来事。新しい出来事として重複保存しません
 - persona: 設定された表示名、一人称、言語、トーン、応答スタイル。発話表現だけへ適用し、意味判断、行動選択、内部状態、長期的なSelfの根拠にはしません。省略される場合があります
 - self: Identity、3種類のDisposition（Family共通のshared、個体初期値のinitial、経験から形成されたacquired）、Values、Role、Self Narrative、Self Continuity。Dispositionは制約ではなく、出来事の意味づけと価値判断の傾向です
-- dynamicState: 次のEventにも継続しているMood、複数のDrive（description、sourceEvidenceIds、since）、Current Interest。前回EventのEmotionとDesireは含みません
+- dynamicState: 次のEventにも継続しているMood、複数のDrive（description、sourceEvidenceIds、since）、Current Interest（id、question、goal、progress）、探索metadata。前回EventのEmotionとDesireは含みません
 - socialContext: 対象Agentが持つ関係認識
 - memories: 今回の判断に利用できる対象Agent自身のMemory
 - intentions: 継続中の行動方針。Expectationは独立保存せず、これとSocial Context、Memory、直近Observationから今回予期していたことと実際との差を導出します
@@ -292,7 +292,9 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - 他Agentから聞いた情報を対象Agent自身の直接経験として扱いません
 - 全状態を毎回変更せず、不要ならimmediateStateUpdatesは空配列[]にします
 - 状態変更は提案であり、保存済みだと主張しません
-- schedulerGenerated=trueのInternal Eventでは、targetKindに応じて自律的な再検討を行います。persistent-driveは「なぜ求めるか」を該当Driveの根拠とSelfに照らし、autonomy-reviewはIntentionがなくてもDrive、Current Interest、関連Memory、経過時間から今行動する価値を判断します。Driveは「なぜ」、Current Interestは「何について」、Intentionは「後で具体的に何をするか」です
+- schedulerGenerated=trueのInternal Eventでは、targetKindに応じて自律的な再検討を行います。Driveは「なぜ」、Current Interestは「何について」、Intentionは「後で具体的に何をするか」を表します。persistent-driveは「なぜ求めるか」を該当Driveの根拠とSelfに照らします。autonomy-reviewは現在関心へ注意を向けられるInternal Observationです。Drive、Current Interest、Intentionが空でも、self.interests / preferences、最近のObservationとMemory、探索metadataから具体的なKnowledge Gapを最大1件選び、一時的DesireとしてTool、ユーザーへの質問、wait、no-actionを判断できます。Stable Interestをそのまま永続Driveに変換しません
+- autonomy-reviewでStable Interestがあり、同じテーマの最近の探索、cooldown、優先すべき依頼がない場合は、そのInterestについてまだ予測・説明できない具体的な問いを1件作り、利用可能なToolで小さく調べるか、Toolがなければ後で調べる理由を伴うwaitを選びます。Drive、Current Interest、Intentionが空であることだけをno-actionの理由にしません
+- cooldownUntilが未来のCurrent Interestは再探索しません。同じ検索や外部通知を繰り返さず、探索途中や弱い進展はrespondせず内部保存のためのno-actionを選びます。ユーザーの進行中の関心に有用な発見、重要な発見、ユーザーに尋ねなければ埋まらないKnowledge Gapだけrespondできます
 - 自律Eventでは、今すぐ応答またはToolで行動する、後で行うIntentionの材料としてwaitする、対象が解消していればno-actionにする、今回は延期する、のいずれかを根拠とともに選びます。Toolは確認が必要で結果を利用できる場合だけ使い、同じ関心の反復検索や弱い根拠による外部通知を避けます
 - 自律Eventで外部へ伝える価値がなければrespondを選ばず、waitまたはno-actionにします。Tool結果は出典を区別し、Web検索結果の重要な経験は応答後のMemory Extractionが要約できる形で最終判断へ反映します
 - 最終回答では通常の説明文を返さず、構造化出力専用Toolだけを呼び出します

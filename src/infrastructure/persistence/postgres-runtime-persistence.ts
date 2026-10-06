@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
-import { applyDriveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
+import { applyCurrentInterestProposals, applyDriveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
 import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, canTransitionIntention, ContinuityInputSchema, ContinuityOutputSchema, DomainError, IntentionTriggerSchema, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type ContinuityOutput, type DomainEvent, type Intention, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
@@ -55,7 +55,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
-      stateValues: { mood: update.state.mood, drives: update.state.drives, current_interests: update.state.currentInterests },
+      stateValues: { mood: update.state.mood, drives: update.state.drives, current_interests: update.state.currentInterests, interest_exploration: update.state.interestExploration },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       toolExecutions: validatedTools,
       postProcessJobs: [
@@ -109,11 +109,13 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       const parsed = ContinuityOutputSchema.parse(output);
       const evidenceIds = new Set([job.input.run.eventId, job.input.observation.eventId, ...job.input.recentObservations.map(({ eventId }) => eventId), ...job.input.memories.map(({ id }) => id)]);
       if (parsed.driveProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Drive evidence must reference an input Event or Memory");
+      if (parsed.currentInterestProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Current Interest evidence must reference an input Event or Memory");
       const persistent = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext, job.input.run.occurredAt);
       const driveUpdates = applyDriveProposals(persistent.state, parsed.driveProposals, job.input.run.occurredAt);
-      const updates = { state: driveUpdates.state, changes: [...persistent.changes, ...driveUpdates.changes] };
+      const interestUpdates = applyCurrentInterestProposals(driveUpdates.state, parsed.currentInterestProposals, () => this.ids.next(), job.input.run.occurredAt);
+      const updates = { state: interestUpdates.state, changes: [...persistent.changes, ...driveUpdates.changes, ...interestUpdates.changes] };
       const intentions = this.#materializeIntentions(job.input, parsed);
-      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed, ...intentions });
+      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests, interest_exploration: updates.state.interestExploration }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed, ...intentions });
       return;
     }
     if (job.type === "memory") {
