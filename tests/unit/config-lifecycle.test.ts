@@ -27,6 +27,11 @@ describe("configuration and lifecycle", () => {
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);
     expect(ao.agent.interests.length).toBeGreaterThan(0); expect(ao.agent.preferences.length).toBeGreaterThan(0);
     expect(aka.agent.interests.length).toBeGreaterThan(0); expect(aka.agent.preferences.length).toBeGreaterThan(0);
+    expect(ao.agent.interests).toEqual(expect.arrayContaining([expect.stringContaining("対話相手"), expect.stringContaining("坂本龍一")]));
+    expect(aka.agent.interests).toEqual(expect.arrayContaining([expect.stringContaining("対話相手"), expect.stringContaining("エドワード・ホッパー")]));
+    expect(ao.agent.preferences).toEqual(expect.arrayContaining([expect.stringContaining("問いを一つ"), expect.stringContaining("問い方や試し方を変える")]));
+    expect(aka.agent.preferences).toEqual(expect.arrayContaining([expect.stringContaining("問いを一つ"), expect.stringContaining("視点や時機を変える")]));
+    expect(ao.agent.interests.some((interest) => aka.agent.interests.includes(interest))).toBe(false);
     expect(ao.agent).not.toHaveProperty("firstPerson");
     expect(aka.agent).not.toHaveProperty("tone");
   });

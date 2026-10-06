@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 084: botごとの具体的な初期嗜好とユーザー理解の関心を設定する
