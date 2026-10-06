@@ -39,4 +39,12 @@ describe("Scheduler", () => {
     await scheduler.tick(new AbortController().signal);
     expect(completions[0]?.toISOString()).toBe("2026-01-08T00:00:00.000Z");
   });
+  it("runs bounded autonomy review without an Intention and suppresses delivery without a destination", async () => {
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: unknown[] = []; const completions: (Date | null)[] = []; let publishes = 0;
+    const review: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Review Self, Drive, Interest, and Memory" };
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "Internal result" }); } }, queue: { publish: () => { publishes += 1; return Promise.resolve(); }, subscribe: () => Promise.resolve() }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, reviewIntervalMs: 86_400_000 });
+    await scheduler.tick(new AbortController().signal);
+    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "autonomy-review", schedulerGenerated: true } });
+    expect(publishes).toBe(0); expect(completions[0]?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
+  });
 });

@@ -14,6 +14,21 @@ const finalOutput: AgentCoreOutput = {
 const context = (signal: AbortSignal, maxToolCalls = 2, runId = "run-1", eventId = "event-1") => createDeepAgentToolRunContext({ agentId: "agent-a", runId, eventId, maxToolCalls, signal });
 
 describe("ST-03 Deep Agent internal Tool Loop", () => {
+  it("can choose a Tool on autonomy review from Self, Drive, Current Interest, and Memory without an Intention", async () => {
+    const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
+    const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
+      const prompt = modelInput.messages[0]?.content ?? "";
+      expect(prompt).toContain("autonomy-review"); expect(prompt).toContain("Understand vector indexes"); expect(prompt).toContain("HNSW"); expect(prompt).toContain("Previous index research");
+      const runContext = context(options.signal, options.maxToolCalls, options.runId, options.eventId);
+      const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+      await lookup?.invoke({ query: "HNSW tradeoffs" }, { context: runContext });
+      return { structuredResponse: finalOutput, toolExecutions: runContext.collector.executions };
+    } };
+    const input = agentCoreInputFixture(); input.observation = { eventId: input.run.eventId, summary: "Autonomy review", facts: ["No user request"], observedAt: fixtureInstant, content: { targetKind: "autonomy-review", schedulerGenerated: true } }; input.dynamicState = { ...input.dynamicState, drives: [{ description: "Understand vector indexes", sourceEvidenceIds: [input.run.eventId], since: fixtureInstant }], currentInterests: ["HNSW"] }; input.memories = [{ id: "memory-index", agentId: input.run.agentId, kind: "episodic", content: "Previous index research", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], relatedIntentionIds: [], importance: "Unresolved", retrievalPriority: "normal", evidenceEventIds: [input.run.eventId] }]; input.intentions = []; input.availableTools = [{ name: "lookup", description: "Search a topic", inputSchema: {} }];
+    const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
+    expect(result.toolExecutions).toHaveLength(1);
+  });
+
   it("returns Tool results to reasoning and exposes the observed execution with the final Action", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Look up a value", schema: z.object({ query: z.string() }), execute: (_input, executionContext) => Promise.resolve({ ok: true, value: { answer: 42, idempotencyKey: executionContext.idempotencyKey } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (_input, options) => {
