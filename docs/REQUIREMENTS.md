@@ -126,6 +126,10 @@ Current Interestは、経験中の具体的なKnowledge Gapを追跡する中期
 
 Current Interestの変更提案は`create | progress | reframe | resolve | drop`を区別する。情報によってGoalへ近づいた場合は`progress`、未知の捉え方や充足条件が変わった場合は`reframe`、Goalを満たした場合は`resolve`、価値が薄れたか進展が見込めない場合は`drop`とする。LLMは意味内容、理由、入力内の根拠を提案し、ID、時刻、連続停滞回数、最終探索時刻、cooldownを生成しない。
 
+Initial SelfのInterests / Preferencesは、ユーザー理解や未知の探索といった抽象的方向性と、音楽、芸術家、作品、活動、技術等に対する具体的な初期嗜好を併記できる。具体的嗜好は設定由来の初期個体差であり、過去に鑑賞・体験したというMemoryや経験事実を意味しない。対話や探索から後に形成されたInterest / Preferenceは、保存済みMemoryを根拠にLong-term Reviewで確定し、設定由来と経験由来のprovenanceを混同してはならない。
+
+ユーザーを理解したいというStable Interestは、名前、趣味、仕事等を順番に尋ねる固定質問表へ変換しない。現在の対話、Social Context、Memoryから関係上のKnowledge Gapを最大1件形成し、答えやすさと文脈を踏まえた質問、Agent自身の関心や感想の共有、延期またはno-actionを選ぶ。答えにくい個人情報を文脈なく要求してはならない。
+
 #### FR-AG-04: 自然言語状態
 
 Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然言語で表現できなければならない。固定カテゴリや単一の数値スコアだけに還元してはならない。
@@ -229,6 +233,8 @@ RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、In
 Drive、Current Interest、Intentionがすべて空でも、通常CoreはStable Interest / Preference、現在の探索機会、最近の探索履歴、関連Memoryから具体的なKnowledge Gapを最大1件選び、一時的Desireと有界な探索Actionを形成できる。この経路はSelfから永続Driveを固定生成するものではない。探索結果という具体的経験が継続的な価値を持つ場合に限り、Continuity UpdateがCurrent Interest、Drive、Intentionを提案する。
 
 探索後はGoalへの進展を評価する。進展時はprogressを上げて停滞回数をresetし、Goal達成時はCurrent Interestをresolveして関連Driveの終了やIntentionの完了を提案できる。新情報によって問い自体が変わった場合はreframeとし、単純な停滞に数えない。進展しない場合は別手段、延期、cooldown、dropを選択できる。探索方法と粘り方の意味判断はSelf、Disposition、Preference、Mood、Driveと進捗を用いてCoreが行い、Runtimeは連続停滞回数、最終探索時刻、cooldown、Tool call数、run deadline、rate上限を管理して即時反復を拒否する。
+
+Runtimeは現在のKnowledge Gapに関係する直近の試行を、保存済みAgent Run、Event、Action、Tool execution、State Changeから有界なContext projectionとして構成する。Projectionは行動種別、質問またはTool入力の短い要約、結果Observation、実行時刻、progress変化を含められるが、Current Interestの正本へ履歴を複製しない。Agent Coreは進展しなかった行動を同じ形で反復せず、同じGoalを追う場合は方法、問い方、対象または時機を変える。無応答や話題変更を固定的に拒否とみなさず、現在文脈で意味づける。
 
 Schedulerの走査、Autonomy Review、State Review、Memory Recall、Persistent Driveの初回待機と再検討、失敗時retry、leaseは個別の環境変数で設定できなければならない。各変数は`.env.sample`に単位と用途を説明するコメントを持ち、初期化時と実行時で同じ値を使用する。
 

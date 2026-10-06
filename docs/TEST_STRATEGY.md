@@ -163,6 +163,8 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - Initial Self YAMLのversion、必須項目、Personaとの責務分離
 - 同じFamilyのShared Dispositionと異なる個体Initial Disposition
 - Initial Self再適用後もAcquired Disposition、経験的状態、Memory、Social Contextが維持されること
+- Initial Selfが抽象的方向性と具体的な初期嗜好を併記でき、設定値を経験済みMemoryとして扱わないこと
+- 異なる個体の具体的な初期嗜好がContextで混同されないこと
 
 ### 7.2 State Update Service
 
@@ -181,6 +183,8 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - Current Interestのcreate / progress / reframe / resolve / dropと理由・根拠を検証する
 - progress増加とreframeでは停滞をresetし、no-progressでは増加させる
 - Goal達成でInterestをresolveし、関連Drive終了とIntention完了を提案できる
+- Current Interestに履歴フィールドを追加せず、recentAttemptsを保存済み監査記録から構成する
+- recentAttemptsの件数、文字数、時刻範囲、Agent所有権を強制する
 
 ### 7.3 Context Builder
 
@@ -203,6 +207,9 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - 同一Interestのno-progress反復をcooldownし、同じ検索と外部通知を短時間に繰り返さない
 - 新情報によるreframeをno-progressと区別し、progress増加時に停滞回数をresetする
 - 自律探索結果の外部価値がある場合だけ配送し、探索途中や弱い進展は内部保存だけで完了する
+- 進展しなかった同じ質問または同じTool入力をそのまま反復せず、問い方、検索語、手段、対象または時機を変更する
+- ユーザー理解の質問は一度に最大1テーマとし、固定質問順序を使わない
+- 無応答や話題変更を常に拒否として固定判定しない
 - 配送先がない自律respondでもRun、Tool trace、状態、Memoryを保存し、外部Queueへはpublishしない
 - 自律Web page取得をArchiveへ保存し、重要な結果をSnapshot参照付きEpisodic Memoryへ要約する
 - 走査、各review、Drive初回・再検討、retry、leaseの環境変数を独立して検証する

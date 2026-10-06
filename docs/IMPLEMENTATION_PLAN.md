@@ -381,6 +381,10 @@ Continuity UpdateのDrive提案は汎用State Updateから分離し、Selfと主
 
 Current Interestは`id`、`question`、`goal`、`progress: 0 | 25 | 50 | 75 | 100`を持ち、変更を`create | progress | reframe | resolve | drop`として提案する。RuntimeはID、時刻、連続停滞回数、最終探索時刻、cooldownと実行上限を管理する。進捗時は停滞をresetし、Goal達成時は関連状態を収束させ、停滞時は別手段、延期、cooldown、dropへ移れるようにする。詳細知識はMemory / Web Snapshotに置き、外部価値がある結果だけを通知する。
 
+Initial Selfはユーザー理解等の抽象的方向性と、個体ごとの具体的な音楽、芸術、作品等の嗜好を併記する。設定由来の初期嗜好を経験事実として扱わず、Memoryを根拠に形成された長期嗜好とprovenanceを分離する。ユーザー理解は固定質問表にせず、現在文脈から関係上のKnowledge Gapを最大1件形成する。
+
+適応的な探索と対話のため、Agent Run、Event、Action、Tool execution、State Changeからboundedな`recentAttempts`をContextへ構成する。Current Interestの契約は増やさない。Coreは進展しなかった同一手段を反復せず、方法、問い方、対象または時機を変更する。Runtimeは所有権、Context上限、cooldown、明らかな同一Tool入力の短時間反復だけを機械的に制約する。
+
 Selfから自律Actionまでの回帰は、versioned初期Self、Stable Interestだけからの初回探索、根拠付きDrive、構造化Current Interestの進展・充足・reframe・停滞・drop、Intentionなしのreview、Tool trace、Web Archive、Episodic Memory、cooldown、内部保存と外部通知の分岐を決定的testで確認する。Live評価はまずEV-02を1回だけ実行し、長期的な人格品質はSoakへ分離する。
 
 各Issueは、次を満たして完了とする。

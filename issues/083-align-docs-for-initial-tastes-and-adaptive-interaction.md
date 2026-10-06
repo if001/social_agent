@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 083: 初期の具体的嗜好と適応的な対話・探索方策をdocsへ反映する
