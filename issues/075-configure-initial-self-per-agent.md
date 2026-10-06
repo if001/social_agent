@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 075: botごとの初期SelfとDispositionを設定可能にする
@@ -63,4 +63,3 @@ status: created
 - [Concept design: Shared nature and individuality](../spec/personal-agent-concept-design-restructured-v2.md)
 - [Implementation design: Shared / Initial / Acquired Disposition](../spec/personal-agent-implementation-design-v2.md#6-disposition)
 - [Architecture: Persona configuration](../docs/ARCHITECTURE.md)
-

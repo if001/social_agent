@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { assertDistinctBotConfigs, loadConfig } from "../../src/config/config.js";
 import { loadBotStartConfig, parseBotStartArguments } from "../../src/bootstrap/bot-start.js";
+import { loadInitialSelfFile } from "../../src/config/initial-self.js";
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { redactSecrets } from "../../src/observability/redaction.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
@@ -10,6 +11,24 @@ import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-sc
 const required = `BOT_ID=sample\nPOSTGRES_URL=postgres://sample\nADMIN_POSTGRES_URL=postgres://admin\nSIMPLE_CLIENT_BASE_URL=http://web\nOLLAMA_BASE_URL=https://chat\nOLLAMA_API_KEY=sample-key\nOLLAMA_CHAT_MODEL=chat\nOLLAMA_EMBEDDING_BASE_URL=http://embedding\nOLLAMA_EMBEDDING_MODEL=embed\nOLLAMA_EMBEDDING_DIMENSION=768\n`;
 
 describe("configuration and lifecycle", () => {
+  it("validates versioned Initial Self YAML separately from Persona", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
+    const valid = `${cwd}/initial-self.yaml`;
+    await writeFile(valid, `version: 1\nfamily:\n  id: family\n  name: Family\n  sharedDisposition: 共通の傾向\nagent:\n  id: ao\n  identity: アオ\n  initialDisposition: 好奇心が強い\n  values: 発見を大切にする\n  roles: [対話相手]\n  selfNarrative: 経験を始めた\n  selfContinuity: 経験をつなぐ\n`);
+    await expect(loadInitialSelfFile(valid)).resolves.toMatchObject({ family: { id: "family", baseInstruction: "" }, agent: { id: "ao", interests: [], preferences: [] }, initialState: { drives: [], currentInterests: [] } });
+    await writeFile(`${cwd}/invalid-self.yaml`, `version: 1\nfamily: { id: family }\nagent: { id: ao }\n`);
+    await expect(loadInitialSelfFile(`${cwd}/invalid-self.yaml`)).rejects.toThrow();
+    await scope.close();
+  });
+
+  it("validates the committed Ao and Aka Initial Self files", async () => {
+    const [ao, aka] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml")]);
+    expect(ao.family).toEqual(aka.family);
+    expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);
+    expect(ao.agent).not.toHaveProperty("firstPerson");
+    expect(aka.agent).not.toHaveProperty("tone");
+  });
+
   it("loads sample, then .env, then process overrides", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
     await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");

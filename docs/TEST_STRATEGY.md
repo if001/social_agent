@@ -160,6 +160,9 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - Long-term ReviewのKEEP / UPDATE / MERGE / DROP
 - Message hop、TTL、attemptの上限
 - `.env.sample → .env → process.env`の優先順位とZod validation
+- Initial Self YAMLのversion、必須項目、Personaとの責務分離
+- 同じFamilyのShared Dispositionと異なる個体Initial Disposition
+- Initial Self再適用後もAcquired Disposition、経験的状態、Memory、Social Contextが維持されること
 
 ### 7.2 State Update Service
 

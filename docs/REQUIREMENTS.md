@@ -100,6 +100,8 @@ Agentは別のAgentへ情報を伝達できる。受信側はそれを自分自�
 
 Context Builderは、保存場所が異なるShared、Initial Individual、Acquired Dispositionを`self.disposition.shared | initial | acquired`として一つのSelf契約へ構成する。3種類はいずれも出来事の意味づけと価値判断に使う傾向であり、`runtimeConstraints`へ混在させない。SharedとInitialは通常Eventから変更せず、AcquiredはLong-term Reviewだけが更新できる。
 
+初回作成時のFamilyと個体Selfは、Personaと分離したversioned設定として検証できなければならない。再適用は経験から形成されたAcquired Disposition、Values等の長期状態、Mood、Drive、Memory、Social Contextを初期値で上書きしてはならない。
+
 Social Contextは対象IDだけでなく、対象種別`user | agent | team | project | organization`を保持しなければならない。作成・更新時に対象種別を明示し、自然言語descriptionとともにContextへ渡す。
 
 #### FR-AG-02: 複数個体
