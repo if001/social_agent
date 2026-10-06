@@ -5,9 +5,9 @@ export const debugPage = `<!doctype html>
 </style></head><body><header><h1>Agent Debug UI</h1><label>Agent <select id="agent"></select></label><button id="refresh">更新</button><span class="status" id="status"></span></header>
 <main><p class="note">読み取り専用です。Emotion・Desireは各応答時の即時状態、Mood・Drive・Current Interestは現在の持続状態として表示します。</p><div id="content"></div></main>
 <script>
-const el=id=>document.getElementById(id);const esc=value=>JSON.stringify(value,null,2);const api=async path=>{const r=await fetch(path);if(!r.ok)throw new Error(await r.text());return r.json()};
+const el=id=>document.getElementById(id);const esc=value=>JSON.stringify(value,null,2)??'—';const api=async path=>{const r=await fetch(path);if(!r.ok)throw new Error(await r.text());return r.json()};
 const panel=(title,value,wide=false)=>'<section class="panel '+(wide?'wide':'')+'"><h2>'+title+'</h2><pre>'+escapeHtml(esc(value))+'</pre></section>';
-function escapeHtml(value){return value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function escapeHtml(value){return String(value??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function actionOf(result){return result&&result.output&&result.output.action?result.output.action:null}function immediateOf(result){return result&&result.output&&result.output.internalChanges?result.output.internalChanges.immediateStateUpdates:[]}
 async function loadAgents(){const agents=await api('/api/agents');el('agent').innerHTML=agents.map(a=>'<option value="'+encodeURIComponent(a.id)+'">'+escapeHtml(a.id+' — '+a.identity)+'</option>').join('');if(agents.length)await load()}
 async function load(){const id=decodeURIComponent(el('agent').value);if(!id)return;el('status').textContent='読込中…';try{const [overview,runs,memories]=await Promise.all([api('/api/agents/'+encodeURIComponent(id)),api('/api/agents/'+encodeURIComponent(id)+'/runs'),api('/api/agents/'+encodeURIComponent(id)+'/memories')]);let html='<div class="grid">'+panel('Self',overview.agent)+panel('持続状態',overview.state)+panel('Working Social Context',overview.socialContexts)+panel('Intention',overview.intentions)+panel('Autonomous Schedule',overview.schedules)+panel('Long-term Candidate',overview.candidates)+'</div>';
