@@ -14,6 +14,15 @@ const finalOutput: AgentCoreOutput = {
 const context = (signal: AbortSignal, maxToolCalls = 2, runId = "run-1", eventId = "event-1") => createDeepAgentToolRunContext({ agentId: "agent-a", runId, eventId, maxToolCalls, signal });
 
 describe("ST-03 Deep Agent internal Tool Loop", () => {
+  it("rejects an identical recent Tool input before executing it again", async () => {
+    let executions = 0;
+    const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
+    const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 2, signal: new AbortController().signal, recentToolInputSummaries: ['[{"tool":"lookup","input":{"query":"same"}}]'] });
+    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).rejects.toThrow("Recent identical Tool input");
+    expect(executions).toBe(0);
+  });
+
   it("can choose a Tool on autonomy review from Self, Drive, Current Interest, and Memory without an Intention", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {

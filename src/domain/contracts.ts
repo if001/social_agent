@@ -160,6 +160,17 @@ export const MemoryRetrievalTraceSchema = z.object({
 });
 export type MemoryRetrievalTrace = z.infer<typeof MemoryRetrievalTraceSchema>;
 
+export const RecentAttemptSchema = z.object({
+  id: Id,
+  agentId: Id,
+  actionType: z.enum(["respond", "wait", "refuse", "no-action", "tool"]),
+  inputSummary: NaturalLanguage,
+  resultSummary: NaturalLanguage,
+  occurredAt: Instant,
+  progressChanged: z.boolean()
+});
+export type RecentAttempt = z.infer<typeof RecentAttemptSchema>;
+
 export const IntentionStatusSchema = z.enum(["active", "completed", "dropped", "superseded"]);
 export const IntentionTriggerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("time"), at: Instant }),
@@ -273,6 +284,7 @@ export const AgentCoreInputSchema = z.object({
   }),
   observation: ObservationSchema,
   recentObservations: z.array(ObservationSchema).default([]),
+  recentAttempts: z.array(RecentAttemptSchema).default([]),
   persona: BotPersonaSchema.optional(),
   self: AgentSchema,
   dynamicState: DynamicStateSchema,

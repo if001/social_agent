@@ -226,6 +226,8 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ('memory-a1','context-intention-a') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('recent-a','a','user-message',$1,'test','completed','2026-01-01'),('recent-b','b','user-message',$2,'test','completed','2026-01-01')", [JSON.stringify({ eventId: "recent-a", summary: "previous exchange", facts: ["prior context"], observedAt: fixtureInstant }), JSON.stringify({ eventId: "recent-b", summary: "private exchange", facts: ["other agent"], observedAt: fixtureInstant })]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('attempt-event-a','a','internal',$1,'scheduler','completed',now()),('attempt-event-b','b','internal',$2,'scheduler','completed',now())", [JSON.stringify({ eventId: "attempt-event-a", summary: "recent attempt", facts: [], observedAt: new Date().toISOString() }), JSON.stringify({ eventId: "attempt-event-b", summary: "foreign attempt", facts: [], observedAt: new Date().toISOString() })]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('attempt-run-a','a','attempt-event-a',0,$1,now(),now()),('attempt-run-b','b','attempt-event-b',0,$2,now(),now())", [JSON.stringify({ output: { action: { type: "respond", content: "最近、何に関心がありますか？" } } }), JSON.stringify({ output: { action: { type: "respond", content: "private" } } })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const loader = new PostgresAgentContextLoader({
       pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry(createWebTools("http://web.local")),
@@ -246,6 +248,8 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"], relatedIntentionIds: ["context-intention-a"] });
     expect(input.recentObservations.map(({ eventId }) => eventId)).toContain("recent-a");
     expect(input.recentObservations.map(({ eventId }) => eventId)).not.toContain("recent-b");
+    expect(input.recentAttempts.map(({ id }) => id)).toContain("attempt-run-a");
+    expect(input.recentAttempts.map(({ id }) => id)).not.toContain("attempt-run-b");
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
     expect(input.availableTools.map(({ name }) => name)).toEqual(["web_list", "web_page"]);
