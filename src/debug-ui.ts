@@ -12,9 +12,7 @@ const fileEnvironment = environmentFile === undefined ? {} : parse(await readFil
 const environment = { ...fileEnvironment, ...process.env };
 const databaseUrl = environment.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
 if (databaseUrl === undefined || databaseUrl.trim() === "") throw new Error("POSTGRES_URL is required");
-const host = environment.DEBUG_UI_HOST?.trim() || "127.0.0.1";
-const port = Number(environment.DEBUG_UI_PORT ?? "4310");
-if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("DEBUG_UI_PORT must be an integer from 1 to 65535");
+const host = "127.0.0.1"; const port = 4310;
 const pool = new Pool({ connectionString: databaseUrl });
 const repository = new DebugUiRepository(async <T extends QueryResultRow>(sql: string, values: readonly unknown[] = []) => (await pool.query<T>(sql, [...values])).rows);
 const server = createDebugUiServer(repository);

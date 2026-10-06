@@ -6,10 +6,9 @@ import { createDebugUiServer } from "../../src/debug-ui/server.js";
 async function request(server: Server, url: string): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string }> {
   return new Promise((resolve) => {
     let status = 200; let headers: Readonly<Record<string, string>> = {};
-    let response: ServerResponse;
-    response = {
-      writeHead: (nextStatus: number, nextHeaders: Readonly<Record<string, string>> = {}) => { status = nextStatus; headers = nextHeaders; return response; },
-      end: (body: string = "") => { resolve({ status, headers, body }); return response; }
+    const response = {
+      writeHead(nextStatus: number, nextHeaders: Readonly<Record<string, string>> = {}) { status = nextStatus; headers = nextHeaders; return this; },
+      end(body: string = "") { resolve({ status, headers, body }); return this; }
     } as unknown as ServerResponse;
     server.emit("request", { method: "GET", url } as IncomingMessage, response);
   });
