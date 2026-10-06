@@ -12,6 +12,9 @@ describe("Post-process", () => {
       expect(prompt).toContain("出力:");
       expect(prompt).toContain("空出力例:");
     }
+    expect(continuitySystemPrompt).toContain("shared・initial・acquired Disposition");
+    expect(continuitySystemPrompt).toContain("Persona、今回限りのEmotionやDesire");
+    for (const operation of ["create", "maintain", "update", "merge", "end"]) expect(continuitySystemPrompt).toContain(operation);
   });
 
   it("retries only the persistent update job after the Interaction was committed", async () => {
@@ -26,7 +29,7 @@ describe("Post-process", () => {
     const service = new PostProcessService(persistence, { continuity: { run: () => {
       calls += 1;
       if (calls === 1) return Promise.reject(new Error("temporary"));
-      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], intentionProposals: [] });
+      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], driveProposals: [], intentionProposals: [] });
     } }, memory: { run: () => Promise.resolve({ memoryProposals: [] }) }, candidate: { run: () => Promise.resolve({ longTermCandidates: [] }) } }, noopLogger, 1);
     await service.processAgent(input.run.agentId, new AbortController().signal);
 

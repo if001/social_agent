@@ -173,6 +173,10 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - before / after / reason / evidenceをState changeへ残す
 - Zod不適合時に状態を変更しない
 - repairが1回を超えてループしない
+- Driveのcreate / maintain / update / merge / endと理由・根拠を検証する
+- maintain / update / mergeで元の`since`を保持し、重複を統合する
+- 未知のDrive、入力にないevidence ID、LLMが生成した`since`を拒否する
+- Personaまたは一時的なEmotion / Desireだけを永続Driveへ昇格しない
 
 ### 7.3 Context Builder
 

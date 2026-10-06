@@ -16,17 +16,33 @@ export const continuitySystemPrompt = `あなたはソーシャルエージェ�
 run、observation、直近のobservation、persona、self、現在のdynamicState、socialContext、intentions、Interactionの意味づけと最終action、短く要約したTool結果です。
 
 出力:
-- persistentStateUpdates: targetは mood | drives | currentInterests | socialContextだけです。operation、value、reason、evidenceIdsを必ず指定します
+- persistentStateUpdates: targetは mood | currentInterests | socialContextだけです。operation、value、reason、evidenceIdsを必ず指定します
+- driveProposals: 比較的持続して求めることの生成、維持、更新、統合、終了を提案します。operationはcreate | maintain | update | merge | endです。意味内容、理由、入力に存在するEventまたはMemoryのevidenceIdsを必須とし、ID、所有Agent、sinceは出力しません
 - intentionProposals: 新規はoperation=create、description、reasonを必須とします。既存更新はoperation=update、intentionId、reasonを必須とします
 
 判断:
-一時的な反応は更新しません。次回以降も続く根拠がある項目だけを返します。変化がなければ両配列を空にします。
+1. ObservationとInteractionのsubjectiveMeaningから、今回の出来事がこのAgentにとって持つ主観的価値を確認します。
+2. selfのshared・initial・acquired Disposition、Values、Self Narrativeと、Memory、Social Context、現在のMood・Drive・Current Interestを照合します。
+3. 具体的なEventまたはMemoryを根拠に、次回以降も比較的持続して求めることだけをDriveとして提案します。SelfやDispositionだけから自動生成しません。
+4. Persona、今回限りのEmotionやDesire、単発の好悪だけを根拠にDriveへ昇格させません。
+5. 既存Driveがそのまま続くならmaintain、意味を修正するならupdate、重複をまとめるならmerge、解消または不要ならendを使います。変更も確認も不要な既存Driveは省略できます。
+6. sinceはRuntimeが作成時に付与し、maintain、update、mergeでは元の開始時刻を保持します。
+変化がなければ3配列を空にします。
 
 空出力例:
-{"persistentStateUpdates":[],"intentionProposals":[]}
+{"persistentStateUpdates":[],"driveProposals":[],"intentionProposals":[]}
 
-更新例:
-{"persistentStateUpdates":[{"target":"mood","operation":"set","value":"会話を受けて穏やかに集中している","reason":"次の判断にも続く気分だから","evidenceIds":["入力のeventId"]}],"intentionProposals":[{"operation":"create","description":"次回、調査結果を報告する","reason":"継続して行う方針が生じた"}]}`;
+生成例:
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"create","description":"未解決の原因を理解したい","reason":"技術的な不一致を重要な未解決事項と意味づけた","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
+
+維持例:
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"maintain","driveDescription":"未解決の原因を理解したい","reason":"関連する新しい手掛かりがあり、求めている理解はまだ得られていない","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
+
+更新・統合例:
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"update","driveDescription":"仕組みを知りたい","description":"失敗条件まで含めて仕組みを理解したい","reason":"今回の失敗で理解すべき範囲が具体化した","evidenceIds":["入力のeventId"]},{"operation":"merge","driveDescriptions":["相手の要望を知りたい","対話を改善したい"],"description":"相手の要望を理解して対話を改善したい","reason":"同じ関係上の価値を求める重複したDriveだから","evidenceIds":["入力のmemoryId"]}],"intentionProposals":[]}
+
+終了例:
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"end","driveDescription":"未解決の原因を理解したい","reason":"根拠を確認して原因を理解できた","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}`;
 
 export const memoryExtractionSystemPrompt = `あなたはソーシャルエージェントのEpisodic Memory抽出担当です。
 
