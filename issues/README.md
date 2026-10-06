@@ -73,5 +73,6 @@
 | 069 | [応答・即時状態と応答後Post-processの境界を設計](069-design-response-and-postprocess-boundary.md) | 044、045、046、067 |
 | 070 | [応答・Post-process分離に合わせたdocs整合](070-align-docs-for-response-postprocess-flow.md) | 069 |
 | 071 | [応答・即時状態とPost-processの分離実装](071-implement-response-postprocess-flow.md) | 069、070 |
+| 080 | [既存DBを参照する読み取り専用Agent Debug UI](080-add-read-only-agent-debug-ui.md) | 069、073、078 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
