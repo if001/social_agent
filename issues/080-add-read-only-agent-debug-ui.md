@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 080: 既存DBを参照する読み取り専用Agent Debug UIを追加する

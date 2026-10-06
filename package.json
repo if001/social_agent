@@ -20,6 +20,7 @@
     "db:migrate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "ops": "tsx src/cli.ts",
     "bot:start": "tsx src/bot.ts",
+    "debug:ui": "tsx src/debug-ui.ts",
     "eval:llm": "tsx src/evaluation/run-live.ts"
   },
   "devDependencies": {

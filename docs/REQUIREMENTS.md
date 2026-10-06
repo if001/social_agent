@@ -332,6 +332,12 @@ DiscordからAgentへメッセージを送り、応答および必要な自律�
 
 同じAgent個体へ接続するTerminal UIとDiscord bot UIは、UIごとに別人格を作らず、同じ永続状態とMemoryを参照しなければならない。
 
+#### FR-UI-05: ローカルDebug UI
+
+開発時に、既存のPostgreSQL監査記録からAgentのSelf、持続状態、Interactionごとの即時状態、Memory、Intention、状態変更、Tool実行、Post-process、自律ScheduleをAgent単位で確認できなければならない。EmotionとDesireはその応答時だけの即時状態、Mood、Drive、Current Interestは現在の持続状態として区別して表示する。
+
+Debug UIはBot Runtimeと別processで動作し、defaultでloopback interfaceだけへbindする。UIからAgent状態を変更せず、parameterized `SELECT`だけを実行する。新しいModel Call traceやPrompt全文の永続化は必須としない。
+
 ### 6.8 設定とデータ管理
 
 #### FR-CF-01: 環境設定
