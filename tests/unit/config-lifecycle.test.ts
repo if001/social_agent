@@ -25,6 +25,8 @@ describe("configuration and lifecycle", () => {
     const [ao, aka] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml")]);
     expect(ao.family).toEqual(aka.family);
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);
+    expect(ao.agent.interests.length).toBeGreaterThan(0); expect(ao.agent.preferences.length).toBeGreaterThan(0);
+    expect(aka.agent.interests.length).toBeGreaterThan(0); expect(aka.agent.preferences.length).toBeGreaterThan(0);
     expect(ao.agent).not.toHaveProperty("firstPerson");
     expect(aka.agent).not.toHaveProperty("tone");
   });
