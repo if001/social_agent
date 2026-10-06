@@ -229,6 +229,8 @@ Agent初期化時は、Role、Drive、Interest、Preferenceを空集合とし、
 
 `persistent-drive` Scheduleは保存後のDrive集合から導出する。状態commitと同じtransactionで、存在するDriveのScheduleをupsertし、集合から消えたDriveのScheduleを削除する。Scheduleを独立したDriveの複製として残してはならない。
 
+`autonomy-review` ScheduleはAgentごとに1件だけ初期化し、既定では1日ごとに再実行する。Current InterestごとのScheduleは作らない。Event payloadは`targetKind=autonomy-review`、目的、schedulerGeneratedを持ち、Context Builderは通常どおりSelfの3種類のDisposition、Drive、Current Interest、関連Memory、Social Contextを取得する。Runtimeは機会とcooldownだけを管理し、具体的な行動を固定規則で決めない。
+
 Idle Intentionの期限は、User MessageまたはExternal Eventを受理した時点を最終活動として、そのtransaction内で再計算する。Agent Coreの完了後まで更新を遅らせない。新規Idle Intentionは作成Eventの時刻から最初の期限を計算し、Scheduler自身が生成したInternal EventやSystem Eventでは最終活動を延長しない。
 
 外部Message consumerのconcurrencyはbotごとに1とする。長時間Tool実行中も同じAgentの別Eventを並行処理しない。Interaction commit後はOutbox Dispatcherが直ちに応答を配送できる。Continuity UpdateとMemory Extractionは互いに依存しない固定snapshotから実行できるが、同じAgentの次Eventは先行Continuity Updateが状態versionを検証して確定するまで開始しない。Memory ExtractionやCandidate Detectorの失敗は応答配送とContinuity Updateを巻き戻さない。
@@ -460,6 +462,8 @@ botプロセス内で、そのAgentだけを対象に定期評価する。
 Intention triggerは`time`、`event`、`idle`、`manual-review`の4種類とする。`time`は指定時刻、`event`はEvent種類と任意keyword、`idle`はAgentの最後の非Scheduler Eventからの無活動時間、`manual-review`は対象Intention IDを持つSystem/Internal Eventで`next_review_at`を設定する。Scheduler自身が生成したEventではtriggerを再評価せず、自己起動loopを防ぐ。
 
 SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntention、persistent Drive、Candidateを期限付きleaseで取得する。停止中に期限を迎えた対象も再起動時に取得し、成功後は次回時刻を設定、失敗時は短いbackoffを設定してleaseを解放する。外部Queueへ送るのは最終Actionが`respond`の場合だけとする。
+
+自律Eventの`respond`はdefault destinationが設定されている場合だけ配送する。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。`wait.until`があればその時刻、それ以外の自律Eventはreview interval後へ再設定するため、同じ関心による即時loopを作らない。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
 
 ### 5.11 Long-term Review Service
 

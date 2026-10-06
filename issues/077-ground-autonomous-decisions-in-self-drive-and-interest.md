@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-06
-status: created
+status: done
 ---
 
 # 077: 自律判断をSelf・Drive・Current Interestへ接続する
@@ -65,4 +65,3 @@ status: created
 - [Implementation design: Internal Event](../spec/personal-agent-implementation-design-v2.md#24-internal-event)
 - [Implementation design: Autonomous Action](../spec/personal-agent-implementation-design-v2.md#25-autonomous-action)
 - [Architecture: Autonomous action](../docs/ARCHITECTURE.md#84-自律行動)
-

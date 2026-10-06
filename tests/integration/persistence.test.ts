@@ -66,6 +66,7 @@ describeDatabase("PostgreSQL persistence", () => {
       initialState: { mood: "中立", drives: [], currentInterests: [] }
     };
     await initializeAgent(pool, config);
+    expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='autonomy-review'", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review" }]);
     await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', drives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ description: "継続中のDrive", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
     await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } });

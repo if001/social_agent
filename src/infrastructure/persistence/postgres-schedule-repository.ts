@@ -4,7 +4,7 @@ import type { ScheduleRepository, ScheduledTarget } from "../../application/sche
 
 type DueIntentionRow = QueryResultRow & { id: string; agent_id: string; description: string };
 type DueCandidateRow = QueryResultRow & { id: string; agent_id: string; target: string; reason: string };
-type DueAutonomousRow = QueryResultRow & { id: string; agent_id: string; kind: "persistent-drive" | "state-review" | "memory-recall"; reason: string };
+type DueAutonomousRow = QueryResultRow & { id: string; agent_id: string; kind: "persistent-drive" | "state-review" | "memory-recall" | "autonomy-review"; reason: string };
 
 export class PostgresScheduleRepository implements ScheduleRepository {
   constructor(private readonly pool: Pool, private readonly leaseMs = 60_000, private readonly agentId?: string) {}
@@ -30,12 +30,12 @@ export class PostgresScheduleRepository implements ScheduleRepository {
   }
   async complete(target: ScheduledTarget, nextReviewAt: Date | null): Promise<void> {
     if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds ?? [target.id]]); return; }
-    if (target.kind === "persistent-drive" || target.kind === "state-review" || target.kind === "memory-recall") { await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=COALESCE($2,now()+interval '1 day'),updated_at=now() WHERE id=$1", [target.id, nextReviewAt]); return; }
+    if (target.kind === "persistent-drive" || target.kind === "state-review" || target.kind === "memory-recall" || target.kind === "autonomy-review") { await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=COALESCE($2,now()+interval '1 day'),updated_at=now() WHERE id=$1", [target.id, nextReviewAt]); return; }
     await this.pool.query("UPDATE intentions SET next_review_at=$2,updated_at=now() WHERE id=$1", [target.id, nextReviewAt]);
   }
   async release(target: ScheduledTarget): Promise<void> {
     if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,review_after=now(),updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds ?? [target.id]]); return; }
-    if (target.kind === "persistent-drive" || target.kind === "state-review" || target.kind === "memory-recall") { await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=now()+interval '5 minutes',updated_at=now() WHERE id=$1", [target.id]); return; }
+    if (target.kind === "persistent-drive" || target.kind === "state-review" || target.kind === "memory-recall" || target.kind === "autonomy-review") { await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=now()+interval '5 minutes',updated_at=now() WHERE id=$1", [target.id]); return; }
     await this.pool.query("UPDATE intentions SET next_review_at=now(),updated_at=now() WHERE id=$1", [target.id]);
   }
 }
