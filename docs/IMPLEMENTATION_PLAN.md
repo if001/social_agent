@@ -377,9 +377,11 @@ Agent CoreのSelf契約では、DB上でFamily、Agent、Agent Stateに分かれ
 
 Continuity UpdateのDrive提案は汎用State Updateから分離し、Selfと主観的価値判断、具体的なEvent / Memory evidenceに基づく生成、維持、更新、統合、終了を表す。Runtimeが参照を検証し、開始時刻と所有者を管理する。
 
-自律性はIntention、persistent Driveに加え、Agent単位で有界な`autonomy-review`から通常Coreを起動する。Self、Drive、Current Interest、関連Memoryを用いた行動判断はCoreへ任せ、Schedulerはlease、cooldown、上限、任意の外部配送だけを担当する。
+自律性はIntention、persistent Driveに加え、Agent単位で有界な`autonomy-review`から通常Coreを起動する。Review Eventを探索機会というInternal Observationとして扱い、Drive、Current Interest、Intentionが空でもStable Interest / Preference、最近の探索履歴、関連MemoryからKnowledge Gapを最大1件選び、一時的Desireと初回探索を形成できる。Selfを永続Driveへ固定変換せず、具体的な探索経験から必要なCurrent Interest、Drive、Intentionだけを後処理で提案する。
 
-Selfから自律Actionまでの回帰は、versioned初期Self、根拠付きDrive、Intentionなしのreview、Tool trace、Web Archive、Episodic Memory、cooldownを決定的testで確認する。Live評価はまずEV-02を1回だけ実行し、長期的な人格品質はSoakへ分離する。
+Current Interestは`id`、`question`、`goal`、`progress: 0 | 25 | 50 | 75 | 100`を持ち、変更を`create | progress | reframe | resolve | drop`として提案する。RuntimeはID、時刻、連続停滞回数、最終探索時刻、cooldownと実行上限を管理する。進捗時は停滞をresetし、Goal達成時は関連状態を収束させ、停滞時は別手段、延期、cooldown、dropへ移れるようにする。詳細知識はMemory / Web Snapshotに置き、外部価値がある結果だけを通知する。
+
+Selfから自律Actionまでの回帰は、versioned初期Self、Stable Interestだけからの初回探索、根拠付きDrive、構造化Current Interestの進展・充足・reframe・停滞・drop、Intentionなしのreview、Tool trace、Web Archive、Episodic Memory、cooldown、内部保存と外部通知の分岐を決定的testで確認する。Live評価はまずEV-02を1回だけ実行し、長期的な人格品質はSoakへ分離する。
 
 各Issueは、次を満たして完了とする。
 
