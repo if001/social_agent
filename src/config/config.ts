@@ -9,6 +9,30 @@ import { loadPersonaFile } from "./persona.js";
 
 const HttpUrl = z.url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "must use HTTP(S)");
 const OptionalText = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().min(1).optional());
+export const SchedulerTimingsSchema = z.object({
+  SCHEDULER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  AUTONOMY_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
+  STATE_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
+  MEMORY_RECALL_INTERVAL_MS: z.coerce.number().int().positive().default(604_800_000),
+  PERSISTENT_DRIVE_INITIAL_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
+  PERSISTENT_DRIVE_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
+  SCHEDULER_RETRY_DELAY_MS: z.coerce.number().int().positive().default(300_000),
+  SCHEDULER_LEASE_MS: z.coerce.number().int().positive().default(60_000)
+});
+export type SchedulerTimings = {
+  readonly scanIntervalMs: number;
+  readonly autonomyReviewIntervalMs: number;
+  readonly stateReviewIntervalMs: number;
+  readonly memoryRecallIntervalMs: number;
+  readonly persistentDriveInitialDelayMs: number;
+  readonly persistentDriveReviewIntervalMs: number;
+  readonly retryDelayMs: number;
+  readonly leaseMs: number;
+};
+export function parseSchedulerTimings(environment: Record<string, unknown>): SchedulerTimings {
+  const value = SchedulerTimingsSchema.parse(environment);
+  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, memoryRecallIntervalMs: value.MEMORY_RECALL_INTERVAL_MS, persistentDriveInitialDelayMs: value.PERSISTENT_DRIVE_INITIAL_DELAY_MS, persistentDriveReviewIntervalMs: value.PERSISTENT_DRIVE_REVIEW_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS };
+}
 const ConfigSchema = z.object({
   BOT_ID: z.string().min(1),
   BOT_FAMILY_ID: z.string().min(1).default("default"),
@@ -33,7 +57,7 @@ const ConfigSchema = z.object({
   QUEUE_ROOT: z.string().default("./var/queue"),
   FILE_TOOL_ROOTS: z.string().default("./var/files"),
   RUN_DEADLINE_MS: z.coerce.number().int().positive().default(120_000),
-  SCHEDULER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  ...SchedulerTimingsSchema.shape,
   OUTBOX_INTERVAL_MS: z.coerce.number().int().positive().default(1_000)
 }).superRefine((value, context) => {
   if (value.OLLAMA_BASE_URL === value.OLLAMA_EMBEDDING_BASE_URL) {
@@ -59,7 +83,7 @@ export type AppConfig = {
   readonly queueRoot: string;
   readonly fileToolRoots: readonly string[];
   readonly runDeadlineMs: number;
-  readonly schedulerIntervalMs: number;
+  readonly schedulerTimings: SchedulerTimings;
   readonly outboxIntervalMs: number;
 };
 
@@ -101,7 +125,7 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
     queueRoot: resolve(cwd, value.QUEUE_ROOT),
     fileToolRoots: value.FILE_TOOL_ROOTS.split(",").map((root) => resolve(cwd, root.trim())),
     runDeadlineMs: value.RUN_DEADLINE_MS,
-    schedulerIntervalMs: value.SCHEDULER_INTERVAL_MS,
+    schedulerTimings: parseSchedulerTimings(value),
     outboxIntervalMs: value.OUTBOX_INTERVAL_MS
   };
 }

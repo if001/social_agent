@@ -133,9 +133,10 @@ export async function createProductionBotHost(config: AppConfig): Promise<BotHos
   try { composition = createBotComposition({ pool, config, logger }); }
   catch (error) { await pool.end(); throw error; }
   const lifecycle = new ProcessLifecycle();
-  const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, 60_000, config.botId), runtime: composition.router, queue: composition.queue, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, reviewIntervalMs: 86_400_000 });
+  const timings = config.schedulerTimings;
+  const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, timings.leaseMs, config.botId, timings.retryDelayMs), runtime: composition.router, queue: composition.queue, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, autonomyReviewIntervalMs: timings.autonomyReviewIntervalMs, stateReviewIntervalMs: timings.stateReviewIntervalMs, memoryRecallIntervalMs: timings.memoryRecallIntervalMs, persistentDriveReviewIntervalMs: timings.persistentDriveReviewIntervalMs });
   const discord = new DiscordAdapter({ gateway: new DiscordJsGateway(config.discord.token), queue: composition.queue, clock: composition.clock, ids: composition.ids, agentId: config.botId, botUserId: config.discord.botUserId, ownerIds: new Set(config.discord.ownerIds), guildIds: new Set(config.discord.guildIds), channelIds: new Set(config.discord.channelIds), queueDestination: config.discord.queueDestination, logger });
-  return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, postProcess: composition.postProcess, discord, logger, schedulerIntervalMs: config.schedulerIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
+  return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, postProcess: composition.postProcess, discord, logger, schedulerIntervalMs: timings.scanIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
     await checkOllamaChatCapability(config.chat); await checkOllamaEmbeddingCapability(config.embedding);
   } });
 }
