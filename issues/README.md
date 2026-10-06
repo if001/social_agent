@@ -76,5 +76,8 @@
 | 080 | [既存DBを参照する読み取り専用Agent Debug UI](080-add-read-only-agent-debug-ui.md) | 069、073、078 |
 | 081 | [Interest進捗と自律探索の形成・減衰をdocsへ反映](081-align-docs-for-interest-progress-autonomy.md) | 076、077 |
 | 082 | [Interest進捗に基づく自律探索と減衰を実装](082-implement-interest-progress-autonomy.md) | 081 |
+| 083 | [初期の具体的嗜好と適応的な対話・探索方策をdocsへ反映](083-align-docs-for-initial-tastes-and-adaptive-interaction.md) | 081、082 |
+| 084 | [botごとの具体的な初期嗜好とユーザー理解の関心を設定](084-configure-concrete-initial-tastes-and-relational-interests.md) | 083 |
+| 085 | [行動結果から質問・探索方法を適応](085-adapt-interaction-methods-from-action-results.md) | 083、084 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
