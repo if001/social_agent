@@ -225,6 +225,8 @@ Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定で�
 
 Agent初期化時のStable Interests / Preferences / Rolesはversioned Initial Self設定から読み込む。DriveとCurrent Interestは原則として空集合で開始し、MoodとAcquired Dispositionには中立な初期値を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Selfとして明示的に入力する。
 
+Initial SelfのInterests / Preferencesには抽象的方向性と具体的な初期嗜好を併記できる。設定値は`configured-initial-self`をprovenanceとする初期個体差であり、Memoryや過去の経験として保存しない。経験から形成された長期Interest / PreferenceはMemoryを根拠にLong-term Reviewだけが更新する。Contextでは両者の由来をSelfのinitial設定とacquiredな長期状態の境界から判別できなければならない。
+
 各Agentは別に`memory-recall` Scheduleを1件持つ。既定では7日ごとにInternal Eventを生成し、通常のMemory Retrievalを現在状態とActive Intentionから実行する。Recall Eventは再検討の機会だけを与え、Memory選択、状態変更、Tool利用、外部Actionは通常Coreの判断に委ねる。
 
 `persistent-drive` Scheduleは保存後のDrive集合から導出する。状態commitと同じtransactionで、存在するDriveのScheduleをupsertし、集合から消えたDriveのScheduleを削除する。Scheduleを独立したDriveの複製として残してはならない。
@@ -344,6 +346,12 @@ type CurrentInterest = {
 `question`は現在認識しているKnowledge Gap、`goal`は一旦の充足条件、`progress`はGoalとの差がどこまで縮んだかの粗い自己評価である。詳細知識やページ本文はMemory / Web Snapshotへ保存する。LLMは操作、意味内容、理由、入力内のevidence IDだけを提案する。RuntimeはIDと時刻を付与し、State Changeへbefore / after / reason / evidenceを残す。
 
 RuntimeはCurrent Interestごとの`consecutiveNoProgress`、`lastExploredAt`、`cooldownUntil`を探索制御metadataとして管理し、LLM出力Schemaへ含めない。progress増加またはreframeで停滞をresetし、進展しない探索で増加させる。Goal達成ではresolveし、関連DriveのendとIntentionのcompleteを同じ後処理から提案できる。上限到達中の同一Interest再探索は拒否するが、探索方法の変更、延期、dropの意味判断はCoreへ委ねる。
+
+Context BuilderはCurrent Interestに関係する直近の試行を、Agent Run、Event、最終Action、Tool execution、Current InterestのState Changeから`recentAttempts`として投影する。これは正本ではなく、Agent単位の所有権、最大件数、文字数、時間範囲を検証した入力用projectionである。各要素はaction種別、質問またはTool入力の短い要約、結果Observationの短い要約、実行時刻、progressが増えたかを含む。raw Web本文、秘密値、全会話履歴を含めない。
+
+Agent Coreは`recentAttempts`を用い、同じ質問や同じTool入力で進展しなかった場合に、そのまま反復しない。同じGoalを継続するなら、質問の具体化、Agent側の自己開示、別Tool、別検索語、観察または延期を選ぶ。Runtimeは明らかに同一なTool入力の短時間再実行とcooldown中の探索を機械的に拒否し、無応答や話題変更の意味は固定規則で決めない。
+
+ユーザー理解はStable Interestから関係上のKnowledge Gapを最大1件作る。質問を選ぶ場合は現在の話題とSocial Contextへ結びつけ、一方的な聞き取りを避けるため必要に応じてAgent自身の関心や質問理由も共有する。固定の質問順序は持たない。
 
 判断順序は`Observation + Current State + Memory + Social Context → Subjective Meaning / Value`を先に置き、その価値がSelf（Shared / Initial / Acquired Disposition、Values、Self Narrative）に照らして次回以降も持続するときだけDriveを提案する。短期Emotion、Desire、Personaを単独根拠にしない。
 
