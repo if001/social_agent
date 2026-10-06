@@ -463,7 +463,7 @@ Intention triggerは`time`、`event`、`idle`、`manual-review`の4種類とす�
 
 SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntention、persistent Drive、Candidateを期限付きleaseで取得する。停止中に期限を迎えた対象も再起動時に取得し、成功後は次回時刻を設定、失敗時は短いbackoffを設定してleaseを解放する。外部Queueへ送るのは最終Actionが`respond`の場合だけとする。
 
-自律Eventの`respond`はdefault destinationが設定されている場合だけ配送する。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。`wait.until`があればその時刻、それ以外の自律Eventはreview interval後へ再設定するため、同じ関心による即時loopを作らない。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
+自律Eventの`respond`はdefault destinationが設定されている場合だけ配送する。Discord destinationでは、設定されたchannel allowlistの先頭を自律投稿先とし、元Messageを持たない新規投稿として送信する。通常のDiscord対話応答は引き続き入力Messageまたはthreadへ返信する。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。`wait.until`があればその時刻、それ以外の自律Eventはreview interval後へ再設定するため、同じ関心による即時loopを作らない。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
 
 E2E traceでは、初期Self設定のFamily / Agent IDとDisposition、Driveのreason / evidence / since、`autonomy-review` Event ID、取得されたMemory ID、Tool executionのrun / event / snapshot ID、最終Action、Post-process Memoryのevidenceを同じrunから追跡する。決定的testは配線と上限を検証し、LLMの判断品質はEV-02を1回実行してからSoakで評価する。
 

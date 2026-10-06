@@ -328,6 +328,8 @@ TerminalからAgentを選択して対話し、応答およびTool実行や自律
 
 DiscordからAgentへメッセージを送り、応答および必要な自律行動の結果を受け取れなければならない。Agentは対象bot自身がメンションされたMessageだけを入力として扱う。人間の投稿者はowner allowlistで限定し、別botからの対象メンションは許可する一方、対象bot自身の投稿は無視しなければならない。利用可能なguildとchannelは構成によって限定できなければならない。
 
+通常対話の応答は入力Messageまたはthreadへの返信とする。Internal Eventによる自律的な`respond`は元Messageを必要とせず、default Discord destinationを使う場合は設定済みchannel allowlistの先頭へ新規投稿できなければならない。
+
 #### FR-UI-04: 状態の共有
 
 同じAgent個体へ接続するTerminal UIとDiscord bot UIは、UIごとに別人格を作らず、同じ永続状態とMemoryを参照しなければならない。

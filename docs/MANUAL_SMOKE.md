@@ -45,6 +45,7 @@ EmotionとDesireは選択したRunの即時状態であり、OverviewのMood、D
 4. Send a message with no mention, a mention of only the other bot, and a target mention from an unlisted human user/channel. Confirm no Agent Event is created.
 5. Make bot A mention bot B and confirm only bot B processes it. Confirm bot A does not react to its own post.
 6. Disconnect networking, send an outbound response, reconnect, and confirm queued delivery resumes once.
+7. Set an autonomous schedule due, let its Internal Event return `respond`, and confirm Discord receives a new post in the first configured `DISCORD_CHANNEL_IDS` channel. Confirm the outbound envelope has a channel context but no source Message ID and is not rejected as an invalid Discord envelope.
 
 ## Multiple bots
 
