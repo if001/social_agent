@@ -64,14 +64,14 @@ describe("domain contracts", () => {
     });
     expect(parsed.internalChanges.immediateStateUpdates[0]?.target).toBe("emotion");
     expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }] } }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], driveProposals: [], intentionProposals: [] }).success).toBe(true);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Grounded", evidenceIds: ["event-1"], since: "2026-01-01T00:00:00Z" }], intentionProposals: [] }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Ungrounded", evidenceIds: [] }], intentionProposals: [] }).success).toBe(false);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], driveProposals: [], currentInterestProposals: [], intentionProposals: [] }).success).toBe(true);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Grounded", evidenceIds: ["event-1"], since: "2026-01-01T00:00:00Z" }], currentInterestProposals: [], intentionProposals: [] }).success).toBe(false);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Ungrounded", evidenceIds: [] }], currentInterestProposals: [], intentionProposals: [] }).success).toBe(false);
     expect(MemoryExtractionOutputSchema.safeParse({ memoryProposals: [] }).success).toBe(true);
   });
 
   it("requires valid existing intention update references", () => {
-    const base = { persistentStateUpdates: [], driveProposals: [] };
+    const base = { persistentStateUpdates: [], driveProposals: [], currentInterestProposals: [] };
     expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", reason: "Refined" }] }).success).toBe(false);
     expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", supersededByIntentionId: "j", reason: "Refined" }] }).success).toBe(true);
   });

@@ -54,6 +54,11 @@ export type BotPersona = z.infer<typeof BotPersonaSchema>;
 
 export const DriveSchema = z.object({ description: NaturalLanguage, sourceEvidenceIds: z.array(Id), since: Instant });
 export type Drive = z.infer<typeof DriveSchema>;
+export const InterestProgressSchema = z.union([z.literal(0), z.literal(25), z.literal(50), z.literal(75), z.literal(100)]);
+export const CurrentInterestSchema = z.object({ id: Id, question: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema });
+export type CurrentInterest = z.infer<typeof CurrentInterestSchema>;
+export const InterestExplorationSchema = z.object({ interestId: Id, consecutiveNoProgress: z.number().int().nonnegative(), lastExploredAt: Instant.optional(), cooldownUntil: Instant.optional() });
+export type InterestExploration = z.infer<typeof InterestExplorationSchema>;
 export const InitialSelfConfigSchema = z.object({
   version: z.literal(1),
   family: z.object({
@@ -77,7 +82,7 @@ export const InitialSelfConfigSchema = z.object({
   initialState: z.object({
     mood: NaturalLanguage.default("特定の持続的な気分はまだ形成されていない"),
     drives: z.array(DriveSchema).default([]),
-    currentInterests: z.array(NaturalLanguage).default([])
+    currentInterests: z.array(CurrentInterestSchema).default([])
   }).default({ mood: "特定の持続的な気分はまだ形成されていない", drives: [], currentInterests: [] })
 });
 export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
@@ -85,7 +90,8 @@ export const DynamicStateSchema = z.object({
   agentId: Id,
   mood: NaturalLanguage,
   drives: z.array(DriveSchema),
-  currentInterests: z.array(NaturalLanguage),
+  currentInterests: z.array(CurrentInterestSchema),
+  interestExploration: z.array(InterestExplorationSchema).default([]),
   updatedAt: Instant
 });
 export type DynamicState = z.infer<typeof DynamicStateSchema>;
@@ -217,7 +223,7 @@ export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
 
 export const StateUpdateProposalSchema = z.object({
-  target: z.enum(["emotion", "mood", "drives", "desires", "currentInterests", "socialContext"]),
+  target: z.enum(["emotion", "mood", "drives", "desires", "socialContext"]),
   operation: z.enum(["set", "append", "remove"]),
   value: z.unknown(),
   reason: NaturalLanguage,
@@ -306,13 +312,24 @@ export const DriveProposalSchema = z.discriminatedUnion("operation", [
 ]);
 export type DriveProposal = z.infer<typeof DriveProposalSchema>;
 
+const InterestProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
+export const CurrentInterestProposalSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("create"), question: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema.default(0), ...InterestProposalBase }).strict(),
+  z.object({ operation: z.literal("progress"), interestId: Id, progress: InterestProgressSchema, ...InterestProposalBase }).strict(),
+  z.object({ operation: z.literal("reframe"), interestId: Id, question: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema, ...InterestProposalBase }).strict(),
+  z.object({ operation: z.literal("resolve"), interestId: Id, ...InterestProposalBase }).strict(),
+  z.object({ operation: z.literal("drop"), interestId: Id, ...InterestProposalBase }).strict()
+]);
+export type CurrentInterestProposal = z.infer<typeof CurrentInterestProposalSchema>;
+
 export const ContinuityOutputSchema = z.object({
   persistentStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
     updates.forEach((update, index) => {
-      if (!["mood", "currentInterests", "socialContext"].includes(update.target)) context.addIssue({ code: "custom", path: [index, "target"], message: "Continuity may update only non-Drive persistent state here" });
+      if (!["mood", "socialContext"].includes(update.target)) context.addIssue({ code: "custom", path: [index, "target"], message: "Continuity may update only Mood and Social Context here" });
     });
   }),
   driveProposals: z.array(DriveProposalSchema),
+  currentInterestProposals: z.array(CurrentInterestProposalSchema),
   intentionProposals: z.array(IntentionProposalSchema)
 });
 export type ContinuityOutput = z.infer<typeof ContinuityOutputSchema>;

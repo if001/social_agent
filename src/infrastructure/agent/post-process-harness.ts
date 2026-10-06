@@ -16,8 +16,9 @@ export const continuitySystemPrompt = `あなたはソーシャルエージェ�
 run、observation、直近のobservation、persona、self、現在のdynamicState、socialContext、intentions、Interactionの意味づけと最終action、短く要約したTool結果です。
 
 出力:
-- persistentStateUpdates: targetは mood | currentInterests | socialContextだけです。operation、value、reason、evidenceIdsを必ず指定します
+- persistentStateUpdates: targetは mood | socialContextだけです。operation、value、reason、evidenceIdsを必ず指定します
 - driveProposals: 比較的持続して求めることの生成、維持、更新、統合、終了を提案します。operationはcreate | maintain | update | merge | endです。意味内容、理由、入力に存在するEventまたはMemoryのevidenceIdsを必須とし、ID、所有Agent、sinceは出力しません
+- currentInterestProposals: Knowledge Gapのcreate | progress | reframe | resolve | dropです。createはquestion、goal、progress、progressはinterestIdと新しい段階値、reframeはinterestId、question、goal、progress、resolve / dropはinterestIdを返します。progressは0 | 25 | 50 | 75 | 100だけです。reasonと入力に存在するevidenceIdsを必須とし、保存ID、時刻、停滞回数、cooldownは出力しません
 - intentionProposals: 新規はoperation=create、description、reasonを必須とします。既存更新はoperation=update、intentionId、reasonを必須とします
 
 判断:
@@ -27,22 +28,24 @@ run、observation、直近のobservation、persona、self、現在のdynamicStat
 4. Persona、今回限りのEmotionやDesire、単発の好悪だけを根拠にDriveへ昇格させません。
 5. 既存Driveがそのまま続くならmaintain、意味を修正するならupdate、重複をまとめるならmerge、解消または不要ならendを使います。変更も確認も不要な既存Driveは省略できます。
 6. sinceはRuntimeが作成時に付与し、maintain、update、mergeでは元の開始時刻を保持します。
-変化がなければ3配列を空にします。
+7. Tool結果やInteractionによってKnowledge Gapが具体化したらcreate、Goalへ近づいたらprogress、問いやGoalが変わったらreframe、満たしたらresolve、価値が薄れたか進展が見込めなければdropを使います。詳細知識やWeb本文をCurrent Interestへ入れません。
+8. progressは知識量の精密な割合ではなく、Goalに対する粗い自己評価です。同じ段階のprogressは進展なしを意味します。
+変化がなければ4配列を空にします。
 
 空出力例:
-{"persistentStateUpdates":[],"driveProposals":[],"intentionProposals":[]}
+{"persistentStateUpdates":[],"driveProposals":[],"currentInterestProposals":[],"intentionProposals":[]}
 
 生成例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"create","description":"未解決の原因を理解したい","reason":"技術的な不一致を重要な未解決事項と意味づけた","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"create","description":"未解決の原因を理解したい","reason":"技術的な不一致を重要な未解決事項と意味づけた","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"create","question":"不一致はどの条件で起きるか","goal":"再現条件と原因候補を説明できる","progress":25,"reason":"Tool結果から問いと一部の条件が具体化した","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
 
 維持例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"maintain","driveDescription":"未解決の原因を理解したい","reason":"関連する新しい手掛かりがあり、求めている理解はまだ得られていない","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"maintain","driveDescription":"未解決の原因を理解したい","reason":"関連する新しい手掛かりがあり、求めている理解はまだ得られていない","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[],"intentionProposals":[]}
 
 更新・統合例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"update","driveDescription":"仕組みを知りたい","description":"失敗条件まで含めて仕組みを理解したい","reason":"今回の失敗で理解すべき範囲が具体化した","evidenceIds":["入力のeventId"]},{"operation":"merge","driveDescriptions":["相手の要望を知りたい","対話を改善したい"],"description":"相手の要望を理解して対話を改善したい","reason":"同じ関係上の価値を求める重複したDriveだから","evidenceIds":["入力のmemoryId"]}],"intentionProposals":[]}
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"update","driveDescription":"仕組みを知りたい","description":"失敗条件まで含めて仕組みを理解したい","reason":"今回の失敗で理解すべき範囲が具体化した","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"progress","interestId":"入力にあるinterestId","progress":75,"reason":"主要条件を確認できた","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
 
 終了例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"end","driveDescription":"未解決の原因を理解したい","reason":"根拠を確認して原因を理解できた","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}`;
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"end","driveDescription":"未解決の原因を理解したい","reason":"根拠を確認して原因を理解できた","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"resolve","interestId":"入力にあるinterestId","reason":"Goalを満たした","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}`;
 
 export const memoryExtractionSystemPrompt = `あなたはソーシャルエージェントのEpisodic Memory抽出担当です。
 

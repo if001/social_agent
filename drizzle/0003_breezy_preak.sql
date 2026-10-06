@@ -1,0 +1,1 @@
+ALTER TABLE "agent_states" ADD COLUMN "interest_exploration" jsonb DEFAULT '[]'::jsonb NOT NULL;
