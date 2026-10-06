@@ -465,6 +465,8 @@ SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。�
 
 自律Eventの`respond`はdefault destinationが設定されている場合だけ配送する。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。`wait.until`があればその時刻、それ以外の自律Eventはreview interval後へ再設定するため、同じ関心による即時loopを作らない。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
 
+E2E traceでは、初期Self設定のFamily / Agent IDとDisposition、Driveのreason / evidence / since、`autonomy-review` Event ID、取得されたMemory ID、Tool executionのrun / event / snapshot ID、最終Action、Post-process Memoryのevidenceを同じrunから追跡する。決定的testは配線と上限を検証し、LLMの判断品質はEV-02を1回実行してからSoakで評価する。
+
 ### 5.11 Long-term Review Service
 
 通常Agent Loopとは別のprompt / modeで長期状態を再解釈する。

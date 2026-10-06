@@ -379,6 +379,8 @@ Continuity UpdateのDrive提案は汎用State Updateから分離し、Selfと主
 
 自律性はIntention、persistent Driveに加え、Agent単位で有界な`autonomy-review`から通常Coreを起動する。Self、Drive、Current Interest、関連Memoryを用いた行動判断はCoreへ任せ、Schedulerはlease、cooldown、上限、任意の外部配送だけを担当する。
 
+Selfから自律Actionまでの回帰は、versioned初期Self、根拠付きDrive、Intentionなしのreview、Tool trace、Web Archive、Episodic Memory、cooldownを決定的testで確認する。Live評価はまずEV-02を1回だけ実行し、長期的な人格品質はSoakへ分離する。
+
 各Issueは、次を満たして完了とする。
 
 - 合意済みseamで、少なくとも1つの失敗する振る舞いテストから実装を開始している
