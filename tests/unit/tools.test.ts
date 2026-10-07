@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { createFileTools } from "../../src/infrastructure/tools/file-tools.js";
-import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
+import { createWebTools, WEB_ARCHIVE_RESULT_MAX_CHARACTERS } from "../../src/infrastructure/tools/web-tools.js";
 import { webSummarySystemPrompt } from "../../src/infrastructure/agent/web-summary-harness.js";
 import { canonicalizeWebUrl } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
@@ -50,6 +50,16 @@ describe("tools", () => {
     expect(calls).toEqual([{ url: "http://service.local/list", body: JSON.stringify({ q: "x", k: 1 }) }, { url: "http://service.local/page", body: JSON.stringify({ urls: "https://example.com/article" }) }]);
     const large = new ToolRegistry(createWebTools("http://service", { fetcher: () => Promise.resolve(new Response("x".repeat(101))), maxBytes: 100 }));
     await expect(large.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("bounds each raw Web Archive read and grep result to 2000 characters", async () => {
+    const requested: number[] = [];
+    const archive = { archivePages: () => Promise.resolve([]), search: () => Promise.resolve([]), read: (_id: string, _offset: number, max: number) => { requested.push(max); return Promise.resolve({ snapshotId: "snapshot", offset: 0, text: "x".repeat(max), truncated: true }); }, grep: (_id: string, _pattern: string, _lines: number, _matches: number, max: number) => { requested.push(max); return Promise.resolve({ snapshotId: "snapshot", matches: [], truncated: true }); } };
+    const registry = new ToolRegistry(createWebTools("http://service", { archive })); const signal = new AbortController().signal;
+    await expect(registry.execute("web_archive_read", { snapshotId: "snapshot" }, { agentId: "a", runId: "r", idempotencyKey: "read" }, signal)).resolves.toMatchObject({ ok: true });
+    await expect(registry.execute("web_archive_grep", { snapshotId: "snapshot", pattern: "needle" }, { agentId: "a", runId: "r", idempotencyKey: "grep" }, signal)).resolves.toMatchObject({ ok: true });
+    await expect(registry.execute("web_archive_read", { snapshotId: "snapshot", maxCharacters: WEB_ARCHIVE_RESULT_MAX_CHARACTERS + 1 }, { agentId: "a", runId: "r", idempotencyKey: "too-large" }, signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(requested).toEqual([WEB_ARCHIVE_RESULT_MAX_CHARACTERS, WEB_ARCHIVE_RESULT_MAX_CHARACTERS]);
   });
 
   it("normalizes web timeout, HTTP, JSON and schema failures", async () => {

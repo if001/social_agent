@@ -42,7 +42,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const queue = options.queue ?? new AddressedFileQueue(config.queueRoot);
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 12, maxToolCalls: 8, maxHops: 4, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
-  const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
+  const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools(config.fileToolRoots),

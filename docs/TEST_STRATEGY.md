@@ -252,7 +252,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - 同一URLの本文変更は新しいSnapshotになり、取得時刻とTool provenanceを保持する
 - LLM summaryが約400文字の上限とSchemaを守り、要約／Embedding失敗でもraw fileが残ってbackfillで`ready`へ復旧する
 - `web_archive_search`はsummary embeddingとtitle／summary／URLのkeywordから安定順位を返し、Bot AのSnapshotをBot Bから検索できる
-- `web_archive_read`／`web_archive_grep`は未知ID、共有root境界、範囲、前後行、出力size上限を検証する
+- `web_archive_read`／`web_archive_grep`は未知ID、共有root境界、範囲、前後行、1回2,000文字と同一run合計6,000文字の出力size上限を検証する
 - Memoryが別Bot取得の共有Snapshotを根拠参照できる
 - `web_page`、Tool Result Event、Recent Observation、post-process入力にraw本文が含まれない
 - DB commit失敗後の孤立fileとfile欠損recordを検出・回復できる
