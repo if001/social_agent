@@ -221,7 +221,7 @@ UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`
 - Episodic Memoryの保存後、必要な場合だけCandidate Detector jobを起動する
 - Internal EventとTime Eventを通常Agent CoreまたはLong-term Reviewへ振り分ける
 
-Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成し、時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interestを維持・変更・削除する機会を通常Agent Coreへ与える。Runtimeが固定規則で感情値を減衰させることはせず、時刻管理と再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
+Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成するが、通常Interaction Deep Agentへは渡さない。RuntimeはEventとRunを監査用に記録し、決定的な`no-action`と空の即時更新をcommitしてContinuity jobだけを作る。Continuity Reviewは時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interest、Working Social Context、Intentionを維持・変更・終了する。`state-review`ではTool、外部応答、Memory Extraction、Candidate Detectorを起動しない。Runtimeは固定規則で状態値を減衰させず、時刻管理、経路制御、再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
 
 Agent初期化時のStable Interests / Preferences / Rolesはversioned Initial Self設定から読み込む。DriveとCurrent Interestは原則として空集合で開始し、MoodとAcquired Dispositionには中立な初期値を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Selfとして明示的に入力する。
 
@@ -272,6 +272,10 @@ flowchart LR
     G -->|満たさない| X[終了]
     D --> DS[保存済みMemory IDを根拠にCandidateをcommit]
     DS --> R[Long-term Review]
+
+    SR[state-review Event] --> SC[監査用Event / Run commit<br/>no-action・Toolなし]
+    SC --> SU[Continuity Review LLM<br/>Tool loopなし]
+    SU --> SS[Mood・Drive・Interest・Social Context・Intentionをcommit]
 ```
 
 ### 5.5 Context Builder

@@ -224,7 +224,7 @@ Intentionは少なくともActive、Completed、Dropped、Supersededを区別し
 
 Internal EventはRuntimeが保存済み状態と構成済みTriggerから生成しなければならない。Agent Coreが制限なく自分自身を再起動する仕組みにしてはならない。
 
-Runtimeは時間経過による状態再評価のため、Agentごとに有界な`state-review` Internal Eventを定期生成しなければならない。State ReviewはMood、Drive、Current Interestを再評価し、EmotionやDesireを過去Eventから復元してはならない。
+Runtimeは時間経過による状態再評価のため、Agentごとに有界な`state-review` Internal Eventを定期生成しなければならない。`state-review`はInteraction Deep Agentへ渡さず、外部Action、Tool、Emotion / Desire更新、Memory Extractionを行わない。EventとRunを監査記録として保存し、Tool loopを持たないContinuity Reviewだけを起動してMood、Drive、Current Interest、Working Social Context、Intentionを再評価する。過去EventのEmotionやDesireを復元してはならない。
 
 Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood、Drive、Active Intention、Social Contextを検索条件として関連Memoryを通常Coreへ提示できなければならない。想起だけを理由に過去のEmotionをそのまま復元せず、現在にとっての意味と状態変更の要否を通常Coreが判断する。
 

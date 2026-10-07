@@ -456,6 +456,23 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
   });
 
+  it("creates only a Continuity job for state-review", async () => {
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const input = agentCoreInputFixture();
+    input.run = { runId: "state-review-run", eventId: "state-review-event", agentId: "a", occurredAt: fixtureInstant };
+    input.observation = { ...input.observation, eventId: "state-review-event", summary: "Review persistent state", content: { targetKind: "state-review", schedulerGenerated: true } };
+    input.self = { ...input.self, id: "a", version };
+    input.dynamicState = { ...input.dynamicState, agentId: "a" };
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["state-review-continuity-job"]), () => new Date(fixtureInstant));
+    const message = messageFixture({ id: "state-review-message", destination: "a" });
+    const event = { id: "state-review-event", agentId: "a", kind: "internal" as const, occurredAt: fixtureInstant, payload: { targetKind: "state-review", schedulerGenerated: true } };
+    const result = { output: { interpretation: { subjectiveMeaning: "Persistent state review" }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Continuity only" } }, toolExecutions: [] };
+    await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
+    const jobs = await pool.query<{ job_type: string }>("SELECT job_type FROM post_process_jobs WHERE interaction_run_id='state-review-run' ORDER BY job_type");
+    expect(jobs.rows).toEqual([{ job_type: "continuity" }]);
+    expect((await pool.query<{ result: { output: { action: { type: string } } } }>("SELECT result FROM agent_runs WHERE id='state-review-run'")).rows[0]?.result.output.action.type).toBe("no-action");
+  });
+
   it("derives reported Memory provenance from the validated Observation actor", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "reported-run", eventId: "reported-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.observation = { eventId: "reported-event", summary: "Agent B reported a library time", facts: ["Reported by B"], observedAt: fixtureInstant, actor: { id: "b", type: "agent" }, source: { type: "agent", id: "b", direct: true } };
