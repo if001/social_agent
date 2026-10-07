@@ -388,7 +388,7 @@ interface ToolRegistry {
 必須Tool:
 
 - `web_list`: `SIMPLE_CLIENT_BASE_URL` の `POST /list` へ `{ q, k }` を送り、`query`、`k`、rank付きの`title`、`url`、任意の`snippet`と`published_date`を返す
-- `web_page`: 同じサービスの `POST /page` へ `{ url }` を送り、取得した各documentの`url`、`title`、Markdown本文を返す
+- `web_page`: 同じサービスの `POST /page` へ `{ urls: string }` を送り、取得した各documentの`url`、`title`、Markdown本文を返す。field名は複数形だが、現行契約では単一URL文字列を受け取る
 - `file_read` / `file_write` / `file_delete`: 許可root配下だけを操作する
 - `agent_send`: 別Agent宛ての`agent-message`をQueueへpublishする
 

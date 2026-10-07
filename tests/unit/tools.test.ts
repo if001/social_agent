@@ -36,11 +36,14 @@ describe("tools", () => {
   });
 
   it("validates web request, response, URL, size and fixed service origin", async () => {
-    const calls: string[] = []; const fetcher: typeof fetch = (input, init) => { calls.push(input instanceof URL ? input.href : typeof input === "string" ? input : input.url); return Promise.resolve(new Response(JSON.stringify(typeof init?.body === "string" && init.body.includes("q") ? { query: "x", k: 1, results: [] } : { docs: [] }), { status: 200 })); };
+    const calls: { url: string; body: string | undefined }[] = []; const fetcher: typeof fetch = (input, init) => { calls.push({ url: input instanceof URL ? input.href : typeof input === "string" ? input : input.url, body: typeof init?.body === "string" ? init.body : undefined }); return Promise.resolve(new Response(JSON.stringify(typeof init?.body === "string" && init.body.includes("q") ? { query: "x", k: 1, results: [] } : { docs: [] }), { status: 200 })); };
     const registry = new ToolRegistry(createWebTools("http://service.local/base", { fetcher, maxBytes: 100 }));
+    expect(registry.definitions().find(({ name }) => name === "web_page")?.inputSchema).toMatchObject({ type: "object", required: ["urls"], properties: { urls: { type: "string" } } });
     await expect(registry.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).resolves.toMatchObject({ ok: true });
-    await expect(registry.execute("web_page", { url: "file:///etc/passwd" }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
-    expect(calls).toEqual(["http://service.local/list"]);
+    await expect(registry.execute("web_page", { url: "https://example.com" }, { agentId: "a", runId: "r", idempotencyKey: "legacy" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(registry.execute("web_page", { urls: "file:///etc/passwd" }, { agentId: "a", runId: "r", idempotencyKey: "invalid" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(registry.execute("web_page", { urls: "https://example.com/article" }, { agentId: "a", runId: "r", idempotencyKey: "page" }, new AbortController().signal)).resolves.toMatchObject({ ok: true });
+    expect(calls).toEqual([{ url: "http://service.local/list", body: JSON.stringify({ q: "x", k: 1 }) }, { url: "http://service.local/page", body: JSON.stringify({ urls: "https://example.com/article" }) }]);
     const large = new ToolRegistry(createWebTools("http://service", { fetcher: () => Promise.resolve(new Response("x".repeat(101))), maxBytes: 100 }));
     await expect(large.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });

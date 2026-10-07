@@ -28,7 +28,7 @@ class SearchResult:
 あるurlでページの内容をmarkdownで取得します。
 
 POST: base_url/page
-payload: {"url": url}
+payload: {"urls": string}
 return: PageResponse
 
 class PageResponse(BaseModel):
