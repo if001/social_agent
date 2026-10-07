@@ -87,7 +87,7 @@ export class PostgresAgentContextLoader {
     const [socialResult, intentionResult, recentResult, attemptResult] = await Promise.all([
       this.options.pool.query<SocialRow>("SELECT id,agent_id,subject_id,subject_type,description,updated_at FROM social_contexts WHERE agent_id=$1 ORDER BY updated_at DESC,id", [event.agentId]),
       this.options.pool.query<IntentionRow>("SELECT id,agent_id,description,reason,trigger,status,next_review_at,superseded_by_id,created_at,updated_at FROM intentions WHERE agent_id=$1 AND status='active' ORDER BY created_at,id", [event.agentId]),
-      this.options.pool.query<RecentEventRow>("SELECT observation FROM events WHERE agent_id=$1 AND status='completed' ORDER BY occurred_at DESC,id DESC LIMIT $2", [event.agentId, this.options.recentObservationLimit ?? 6]),
+      this.options.pool.query<RecentEventRow>("SELECT observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' ORDER BY occurred_at DESC,id DESC LIMIT $2", [event.agentId, this.options.recentObservationLimit ?? 6]),
       this.options.pool.query<RecentAttemptRow>(`SELECT r.id,r.agent_id,r.result,e.observation,e.occurred_at,
         COALESCE(jsonb_agg(jsonb_build_object('tool',t.tool,'input',t.input,'result',t.result,'error',t.error) ORDER BY t.started_at,t.id) FILTER (WHERE t.id IS NOT NULL),'[]'::jsonb) AS tools,
         EXISTS(SELECT 1 FROM state_changes sc WHERE sc.run_id=r.id AND sc.target='currentInterests' AND sc.before IS DISTINCT FROM sc.after) AS progress_changed

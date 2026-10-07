@@ -195,6 +195,9 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - FamilyまたはAgentが異なる入力でDispositionを取り違えない
 - 別AgentのMemoryを含めない
 - category上限とContext budgetを超えない
+- 100,000文字のTool Result EventをRecent Observationへ再投入せず、User / Agent Observationを優先する
+- 現在Observation、Self、Dynamic State、Active Intentionを件数・文字数上限付きでprojectionする
+- Tool Schema本体をAgent Coreのuser入力JSONへ重複させない
 - Active Intentionと関係するSocial Contextを含める
 - 同率候補でも安定したtie-breakを行う
 

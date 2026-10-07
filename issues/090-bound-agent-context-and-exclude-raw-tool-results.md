@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-07
-status: created
+status: done
 ---
 
 # 090: Agent Contextを有界化してraw Tool Resultの再投入を止める

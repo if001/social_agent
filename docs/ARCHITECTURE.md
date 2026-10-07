@@ -302,7 +302,7 @@ interface ContextBuilder {
 - 登録済みTool定義
 - Runtimeの残りstep数、deadline、ファイル許可範囲等の制約
 
-`availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。長期状態や全Memoryを無条件に投入しない。各カテゴリに上限を設け、Memoryには関連する種類の予約枠と全体順位による残り枠を適用し、最終的にmodelのContext budget内へ収める。
+`availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。Tool JSON SchemaはDeep AgentのTool登録経路でmodelへ渡すため、Agent Coreのuser入力JSONにはTool名と短い説明だけを含める。長期状態や全Memoryを無条件に投入しない。Recent ObservationはUser、Agent、External、Internal Eventを優先して`tool-result`を除外し、Tool履歴はboundedなRecent Attempt、Memory、Web Snapshot metadataから構成する。現在Observation、履歴、Self長文、Dynamic State、Active Intentionにも件数・文字数上限を設け、各カテゴリを優先順位に従ってmodelのContext budget内へ収める。
 
 Deep Agent内部の各Model callは、run内の連番、開始・終了、経過時間、入力文字数、message数、出力種別、Tool call数、providerが返した終了理由を構造化logへ記録する。調査中は一時的に`agent_core.model_call_prompt`へ実際のsystem prompt、messages、Tool名をdebug logとして出力し、原因特定後に削除する。
 
