@@ -201,6 +201,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 ### 7.4 Scheduler
 
 - dueなIntentionだけからInternal Eventを生成する
+- `state-review`はInternal EventとRunを保存するがInteraction Harnessを呼ばず、外部Action、Tool、Memory Extractionを生成せずContinuity jobだけを実行する
 - IntentionがなくてもAgent単位の`autonomy-review`を1件だけleaseし、cooldown後へ再設定する
 - Drive、Current Interest、Intentionが空でもStable Interest / Preference、Review Event、探索履歴を通常Contextへ渡し、Knowledge Gapを最大1件選んで初回探索できる
 - Drive + Current Interest + 関連Memoryを通常Contextへ渡し、Self差によりTool、wait、no-action等の判断が異なり得る
@@ -313,6 +314,7 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 ### 9.2 PersistenceとTransaction
 
 - Interaction commitがEvent、Interaction run、Emotion、Desire、Tool trace、Continuity / Memory Extraction job、receipt、outboxをatomicにcommitする
+- `state-review` commitは監査用Event / RunとContinuity jobだけをatomicに保存し、Memory jobとoutboxを作らない
 - Continuity、Memory、Candidateの各commitが独立し、CandidateはMemory保存後に保存済みIDだけを参照する
 - 各commitの途中で例外を発生させるとそのcommitの更新がrollbackされる
 - Interactionのoutbox rowと2つの初期jobが同じtransactionに入る

@@ -23,7 +23,7 @@ export class InMemoryRuntimePersistence implements RuntimePersistence {
     this.receipts.add(key); this.events.push(event); this.updates.push(update);
     const snapshot = { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentObservations: input.recentObservations, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, intentions: input.intentions, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults: [] } };
     this.#postProcessJobs.push({ id: `continuity:${input.run.runId}`, type: "continuity", agentId: event.agentId, inputStateVersion: input.self.version + 1, input: snapshot, attempt: 0 });
-    this.#postProcessJobs.push({ id: `memory:${input.run.runId}`, type: "memory", agentId: event.agentId, inputStateVersion: input.self.version + 1, input: snapshot, attempt: 0 });
+    if (!(event.kind === "internal" && event.payload.targetKind === "state-review")) this.#postProcessJobs.push({ id: `memory:${input.run.runId}`, type: "memory", agentId: event.agentId, inputStateVersion: input.self.version + 1, input: snapshot, attempt: 0 });
     for (const envelope of outgoing) this.#outbox.set(envelope.id, { envelope, sent: false });
     return Promise.resolve("committed");
   }

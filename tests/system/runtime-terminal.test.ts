@@ -13,6 +13,32 @@ import { createStdoutLogger } from "../../src/observability/logger.js";
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
 describe("ST-01 Terminal round trip", () => {
+  it("routes state-review directly to Continuity without calling the Interaction Harness", async () => {
+    const clock = new FixedClock(new Date("2026-01-02T03:04:05Z"));
+    const persistence = new InMemoryRuntimePersistence((event) => {
+      const input = agentCoreInputFixture();
+      input.run = { ...input.run, eventId: event.id, agentId: event.agentId };
+      input.observation = { ...input.observation, eventId: event.id, content: event.payload };
+      return input;
+    });
+    let harnessCalls = 0;
+    const runtime = new AgentRuntime({
+      destination: "agent-a",
+      defaultOutputDestination: "terminal",
+      queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
+      harness: { run: () => { harnessCalls += 1; return Promise.reject(new Error("Interaction Harness must not run")); } },
+      persistence,
+      ids: new SequenceIdGenerator([]),
+      now: () => clock.now()
+    });
+    const action = await runtime.process({ id: "state-review-event", agentId: "agent-a", kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "state-review", schedulerGenerated: true, reason: "Review persistent state" } }, new AbortController().signal);
+    expect(action).toEqual({ type: "no-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" });
+    expect(harnessCalls).toBe(0);
+    expect(persistence.events).toHaveLength(1);
+    await expect(persistence.claimPostProcess("agent-a", "run-1", "continuity")).resolves.toMatchObject({ type: "continuity" });
+    await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toBeUndefined();
+  });
+
   it("continues a conversation, commits once, dispatches outbox, and drains", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z"));
     const queue = new AddressedFileQueue(root, { now: () => clock.now() });

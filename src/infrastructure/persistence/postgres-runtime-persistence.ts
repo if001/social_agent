@@ -51,6 +51,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
 
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
+    const stateReview = event.kind === "internal" && event.payload.targetKind === "state-review";
+    const snapshot = this.#snapshot(input, result);
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
@@ -58,10 +60,12 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       stateValues: { mood: update.state.mood, drives: update.state.drives, current_interests: update.state.currentInterests, interest_exploration: update.state.interestExploration },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       toolExecutions: validatedTools,
-      postProcessJobs: [
-        { id: this.ids.next(), type: "continuity", inputStateVersion: input.self.version + 1, payload: this.#snapshot(input, result) },
-        { id: this.ids.next(), type: "memory", inputStateVersion: input.self.version + 1, payload: this.#snapshot(input, result) }
-      ],
+      postProcessJobs: stateReview
+        ? [{ id: this.ids.next(), type: "continuity", inputStateVersion: input.self.version + 1, payload: snapshot }]
+        : [
+            { id: this.ids.next(), type: "continuity", inputStateVersion: input.self.version + 1, payload: snapshot },
+            { id: this.ids.next(), type: "memory", inputStateVersion: input.self.version + 1, payload: snapshot }
+          ],
       outbox: outgoing
     });
     return committed;
