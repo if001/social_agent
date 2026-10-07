@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-07
-status: created
+status: done
 ---
 
 # 088: 共有ファイル型Web Archiveの設計をdocsへ反映する

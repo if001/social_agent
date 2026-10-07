@@ -230,11 +230,11 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** Agentが登録済みCapabilityだけを、権限と実行上限の範囲で利用できるようにする。
 
-**実装対象:** Tool Registry、Tool execution contextとidempotency key、`SIMPLE_CLIENT_BASE_URL`を使うWeb Tool Service adapter、`POST /list`による`web_list`、`POST /page`による`web_page`、`docs/web_tool.md`準拠のrequest / response Schema、file Tool、構造化success / failure、Runtime内Tool Result再投入。`web_list`はArchive保存せず、`web_page`だけをAgent所有のResource／Snapshot／chunkへ冪等保存する。raw本文先行保存、決定的要約、summary／chunk Embedding lifecycle、`web_archive_search`、`web_archive_get`、MemoryからSnapshotへの根拠参照を含む。
+**実装対象:** Tool Registry、Tool execution contextとidempotency key、`SIMPLE_CLIENT_BASE_URL`を使うWeb Tool Service adapter、`POST /list`による`web_list`、`POST /page`による`web_page`、`docs/web_tool.md`準拠のrequest / response Schema、file Tool、構造化success / failure。`web_list`はArchive保存せず、`web_page`だけをBot間共有Resource／Snapshotへ冪等保存する。共有rootへのraw Markdown file先行保存、約400文字のLLM summary、summary Embedding lifecycle、semantic＋keyword rerankの`web_archive_search`、Snapshot IDによる`web_archive_read`／`web_archive_grep`、Memoryから共有Snapshotへの根拠参照を含む。Tool Resultと後続Contextへraw本文を再投入しない。
 
-**TDD / 検証:** File Toolのroot境界とWeb Adapter契約に加え、`web_list`がArchiveを書かないこと、`web_page`のraw保存、retry冪等性、本文変更時の新Snapshot、要約／Embedding失敗からの復旧、Agent所有権、Archive検索・取得の出力上限を検証する。ST-03でTool Resultが同じrunへ戻ること、Internal Eventから既存Archiveを検索し、必要時だけWebを再取得できることを確認する。
+**TDD / 検証:** File Toolのroot境界とWeb Adapter契約に加え、`web_list`がArchiveを書かないこと、`web_page`のatomic file保存、retry冪等性、本文変更時の新Snapshot、LLM要約／Embedding失敗からの復旧、孤立file回復、Bot間共有検索、read／grepの出力上限を検証する。ST-03でbounded Tool Resultが同じrunへ戻ること、別BotのInternal Eventから既存Archiveを検索し、必要時だけWebを再取得できることを確認する。
 
-**完了条件:** 未知Toolと不正入力は副作用前に拒否され、Web Toolサービスの契約外responseを受理しない。取得済みページはMemoryと分離して再利用でき、Memoryから同じAgentの根拠Snapshotへ追跡できる。
+**完了条件:** 未知Toolと不正入力は副作用前に拒否され、Web Toolサービスの契約外responseを受理しない。取得済みページはMemoryと分離した共有資料として再利用でき、Memoryから取得Botによらず根拠Snapshotとraw fileへ追跡できる。raw本文は通常Contextへ自動投入されない。
 
 **依存:** IP-05、IP-07、IP-09。
 
