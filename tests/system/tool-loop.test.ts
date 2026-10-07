@@ -70,6 +70,16 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Tool call limit exceeded" });
   });
 
+  it("bounds cumulative raw Web Archive text within one Deep Agent run", async () => {
+    let reads = 0;
+    const registry = new ToolRegistry([{ name: "web_archive_read", description: "Read archive", schema: z.object({ snapshotId: z.string() }), execute: () => { reads += 1; return Promise.resolve({ ok: true, value: { text: "x".repeat(2_000) } }); } }]);
+    const runContext = context(new AbortController().signal, 8); const [read] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    if (read === undefined) throw new Error("web_archive_read was not registered");
+    const results = await Promise.all(["one", "two", "three", "four"].map((snapshotId) => read.invoke({ snapshotId }, { context: runContext })));
+    expect(results.filter((result) => String(result).includes("Web archive text budget exceeded"))).toHaveLength(1);
+    expect(reads).toBe(3); expect(runContext.collector.webArchiveTextCharacters).toBe(6_000); expect(runContext.collector.webArchiveReservedCharacters).toBe(6_000); expect(runContext.collector.executions.some(({ ok }) => !ok)).toBe(true);
+  });
+
   it("does not start a Tool after cancellation", async () => {
     let called = false;
     const controller = new AbortController(); controller.abort();

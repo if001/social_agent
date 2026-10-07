@@ -304,7 +304,7 @@ Web Snapshotはcanonical URL、取得URL、title、raw Markdown fileへの共有
 
 同一canonical URL、同一本文hashのSnapshotは取得Agentによらず冪等に再利用し、同一URLでも本文が変化した場合は新しいSnapshotとして保存しなければならない。要約とEmbeddingは`pending | ready | failed`を区別し、失敗後に冪等に再処理できなければならない。Tool loopを持たない用途別Chat LLMはtitle、URL、raw Markdownから日本語summaryを約400文字の上限内で生成する。summary生成に失敗したSnapshotを未検証の機械抽出summaryで`ready`にせず、有限retryとbackfillの対象にする。検証済みsummaryだけをEmbedding Providerでvector化する。
 
-保存済みページは`web_archive_search`で全Bot共有範囲をsummary embeddingの意味類似とtitle、summary、URLの語句一致、取得時刻から検索・rerankできなければならない。`web_archive_read`はSnapshot IDから登録済みfileを解決して指定範囲だけを、`web_archive_grep`は検索語に一致する行と有限の前後文脈だけを返す。任意path、共有root外、未登録fileを拒否する。Archive本文をAgent Contextへ自動投入してはならず、Bot Aが取得したSnapshotをBot Bが検索、取得、Memory根拠参照できなければならない。
+保存済みページは`web_archive_search`で全Bot共有範囲をsummary embeddingの意味類似とtitle、summary、URLの語句一致、取得時刻から検索・rerankできなければならない。`web_archive_read`はSnapshot IDから登録済みfileを解決して最大2,000文字の指定範囲だけを、`web_archive_grep`は検索語に一致する行と最大2,000文字の有限の前後文脈だけを返す。同一runで返すraw本文は合計6,000文字以内とする。任意path、共有root外、未登録fileを拒否する。Archive本文をAgent Contextへ自動投入してはならず、Bot Aが取得したSnapshotをBot Bが検索、取得、Memory根拠参照できなければならない。
 
 `web_page`がDeep Agentへ返す結果はSnapshot ID、URL、title、約400文字のsummary、Snapshot参照情報に限定し、raw Markdownや全chunkを含めてはならない。Tool Result Event、Recent Observation、Recent Attempt、post-process入力にもraw本文を複製してはならない。
 

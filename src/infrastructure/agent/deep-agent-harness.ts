@@ -98,7 +98,19 @@ export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey:
 export class ToolExecutionCollector {
   count = 0;
   modelCallCount = 0;
+  webArchiveTextCharacters = 0;
+  webArchiveReservedCharacters = 0;
   readonly executions: ToolExecutionRecord[] = [];
+}
+
+const WEB_ARCHIVE_RUN_TEXT_BUDGET = 6_000;
+const rawWebArchiveTools = new Set(["web_archive_read", "web_archive_grep"]);
+function webArchiveTextCharacters(value: unknown): number {
+  if (typeof value !== "object" || value === null) return 0;
+  const record = value as Record<string, unknown>;
+  if (typeof record.text === "string") return record.text.length;
+  if (!Array.isArray(record.matches)) return 0;
+  return record.matches.reduce((total: number, item: unknown) => total + (typeof item === "object" && item !== null && typeof (item as Record<string, unknown>).text === "string" ? ((item as Record<string, unknown>).text as string).length : 0), 0);
 }
 
 export type DeepAgentToolRunContext = {
@@ -145,6 +157,14 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: "Tool call limit exceeded", startedAt, finishedAt });
       throw new DomainError("VALIDATION", "Tool call limit exceeded");
     }
+    const requestedWebArchiveCharacters = rawWebArchiveTools.has(name) ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : 2_000) : 0;
+    if (requestedWebArchiveCharacters > 0 && context.collector.webArchiveReservedCharacters + requestedWebArchiveCharacters > WEB_ARCHIVE_RUN_TEXT_BUDGET) {
+      const finishedAt = now().toISOString(); const error = `Web archive text budget exceeded (${String(WEB_ARCHIVE_RUN_TEXT_BUDGET)} characters per run)`;
+      context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
+      logger.log("warn", "tool.completed", { ok: false, errorCode: "CONTEXT_BUDGET", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+      return JSON.stringify({ ok: false, error });
+    }
+    context.collector.webArchiveReservedCharacters += requestedWebArchiveCharacters;
     const signature = JSON.stringify({ tool: name, input: rawInput });
     if (context.recentToolInputSummaries.some((summary) => summary.includes(signature))) {
       const finishedAt = now().toISOString();
@@ -155,7 +175,7 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };
       const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }) }, context.signal);
       const finishedAt = now().toISOString();
-      if (result.ok) context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt });
+      if (result.ok) { if (rawWebArchiveTools.has(name)) context.collector.webArchiveTextCharacters += webArchiveTextCharacters(result.value); context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt }); }
       else context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
       logger.log(result.ok ? "info" : "warn", "tool.completed", { ok: result.ok, elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify(result);

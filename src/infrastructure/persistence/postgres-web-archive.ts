@@ -57,11 +57,11 @@ export class PostgresWebArchive {
     return result.rows.map((row) => ({ snapshotId: row.id, url: row.canonical_url, title: row.title, summary: row.summary, fetchedAt: row.fetched_at.toISOString(), reference: { type: "web-snapshot", id: row.id } }));
   }
 
-  async read(snapshotId: string, offset = 0, maxCharacters = 8_000): Promise<{ snapshotId: string; offset: number; text: string; truncated: boolean }> {
+  async read(snapshotId: string, offset = 0, maxCharacters = 2_000): Promise<{ snapshotId: string; offset: number; text: string; truncated: boolean }> {
     const row = await this.#snapshot(snapshotId); const text = await readFile(this.#path(row.raw_file_path), "utf8"); const bounded = text.slice(offset, offset + maxCharacters); return { snapshotId, offset, text: bounded, truncated: offset + bounded.length < text.length };
   }
 
-  async grep(snapshotId: string, pattern: string, contextLines = 2, maxMatches = 20, maxCharacters = 8_000): Promise<{ snapshotId: string; matches: readonly { line: number; text: string }[]; truncated: boolean }> {
+  async grep(snapshotId: string, pattern: string, contextLines = 2, maxMatches = 10, maxCharacters = 2_000): Promise<{ snapshotId: string; matches: readonly { line: number; text: string }[]; truncated: boolean }> {
     const row = await this.#snapshot(snapshotId); const lines = (await readFile(this.#path(row.raw_file_path), "utf8")).split(/\r?\n/u); const needle = pattern.toLocaleLowerCase("ja"); const selected = new Map<number, string>(); let matchCount = 0;
     for (let index = 0; index < lines.length && matchCount < maxMatches; index += 1) if ((lines[index] ?? "").toLocaleLowerCase("ja").includes(needle)) { matchCount += 1; for (let line = Math.max(0, index - contextLines); line <= Math.min(lines.length - 1, index + contextLines); line += 1) selected.set(line, lines[line] ?? ""); }
     let used = 0; let truncated = matchCount >= maxMatches; const matches: { line: number; text: string }[] = []; for (const [index, text] of selected) { if (used + text.length > maxCharacters) { truncated = true; break; } matches.push({ line: index + 1, text }); used += text.length; } return { snapshotId, matches, truncated };
@@ -74,9 +74,15 @@ export class PostgresWebArchive {
   async #process(snapshotId: string, signal: AbortSignal): Promise<void> {
     const row = await this.#snapshot(snapshotId); await this.pool.query("UPDATE web_snapshots SET processing_status='pending',embedding_error=NULL,embedding_last_attempt_at=now(),updated_at=now() WHERE id=$1", [snapshotId]);
     try { const markdown = await readFile(this.#path(row.raw_file_path), "utf8"); const summary = await this.summarizer.summarize({ url: row.canonical_url, title: row.title, markdown }, signal); if (summary.length === 0 || summary.length > 400) throw new DomainError("VALIDATION", "Web page summary must contain 1 to 400 characters"); const [vector] = await this.embedding.embed([summary], signal); if (vector === undefined || vector.length !== this.embedding.dimension) throw new DomainError("VALIDATION", "Web archive embedding dimension mismatch"); await this.pool.query("UPDATE web_snapshots SET summary=$2,embedding=$3::vector,embedding_model=$4,embedding_dimension=$5,processing_status='ready',embedding_error=NULL,updated_at=now() WHERE id=$1", [snapshotId, summary, `[${vector.join(",")}]`, this.embeddingModel, this.embedding.dimension]); }
-    catch (error) { await this.pool.query("UPDATE web_snapshots SET processing_status='failed',embedding_error=$2,updated_at=now() WHERE id=$1", [snapshotId, error instanceof Error ? error.message.slice(0, 2_000) : "Web archive processing failed"]); }
+    catch (error) { await this.pool.query("UPDATE web_snapshots SET processing_status='failed',embedding_error=$2,updated_at=now() WHERE id=$1", [snapshotId, errorDetails(error)]); }
   }
 
   async #snapshot(snapshotId: string): Promise<SnapshotRow> { const row = (await this.pool.query<SnapshotRow>("SELECT s.*,r.canonical_url FROM web_snapshots s JOIN web_resources r ON r.id=s.resource_id WHERE s.id=$1", [snapshotId])).rows[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Web snapshot not found"); return row; }
   #path(relativePath: string): string { const path = resolve(this.#root, relativePath); if (path !== this.#root && !path.startsWith(`${this.#root}${sep}`)) throw new DomainError("VALIDATION", "Web snapshot path escapes archive root"); return path; }
+}
+
+function errorDetails(error: unknown): string {
+  const messages: string[] = []; let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) { messages.push(current.message); current = current.cause; }
+  return (messages.filter((value, index) => value.length > 0 && messages.indexOf(value) === index).join(": ") || "Web archive processing failed").slice(0, 2_000);
 }

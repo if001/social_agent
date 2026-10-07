@@ -55,4 +55,4 @@ class DocOut(BaseModel):
 }
 ```
 
-SnapshotはBot間共有であり、取得Botとは別のBotも`web_archive_search`、`web_archive_read`、`web_archive_grep`から参照できる。raw Markdownや全chunkをTool Resultへ含めない。
+SnapshotはBot間共有であり、取得Botとは別のBotも`web_archive_search`、`web_archive_read`、`web_archive_grep`から参照できる。raw Markdownや全chunkをTool Resultへ含めない。本文確認は`web_archive_grep`を優先し、`web_archive_read`はoffsetを指定した最大2,000文字の範囲取得に限定する。同一Agent runで返せるraw本文は合計6,000文字までとし、複数Tool CallによるContext肥大を防ぐ。
