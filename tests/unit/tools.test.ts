@@ -46,7 +46,8 @@ describe("tools", () => {
     await expect(registry.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).resolves.toMatchObject({ ok: true });
     await expect(registry.execute("web_page", { url: "https://example.com" }, { agentId: "a", runId: "r", idempotencyKey: "legacy" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     await expect(registry.execute("web_page", { urls: "file:///etc/passwd" }, { agentId: "a", runId: "r", idempotencyKey: "invalid" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
-    await expect(registry.execute("web_page", { urls: "https://example.com/article" }, { agentId: "a", runId: "r", idempotencyKey: "page" }, new AbortController().signal)).resolves.toMatchObject({ ok: true });
+    const pageResult = await registry.execute("web_page", { urls: "https://example.com/article" }, { agentId: "a", runId: "r", idempotencyKey: "page" }, new AbortController().signal);
+    expect(pageResult).toEqual({ ok: true, value: { documents: [{ snapshotId: "snapshot", url: "https://example.com/article", title: "Article", summary: "Summary" }] } }); expect(JSON.stringify(pageResult)).not.toContain("reference"); expect(JSON.stringify(pageResult)).not.toContain("fetchedAt");
     expect(calls).toEqual([{ url: "http://service.local/list", body: JSON.stringify({ q: "x", k: 1 }) }, { url: "http://service.local/page", body: JSON.stringify({ urls: "https://example.com/article" }) }]);
     const large = new ToolRegistry(createWebTools("http://service", { fetcher: () => Promise.resolve(new Response("x".repeat(101))), maxBytes: 100 }));
     await expect(large.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });

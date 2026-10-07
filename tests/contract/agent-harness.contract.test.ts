@@ -1,4 +1,5 @@
-import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, createOllamaDeepAgentInvoker, summarizeModelResponse, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { ToolMessage } from "langchain";
+import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, compactPriorToolMessages, createOllamaDeepAgentInvoker, summarizeModelResponse, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
@@ -7,6 +8,13 @@ const output: AgentCoreOutput = { interpretation: {}, internalChanges: { immedia
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
+  it("compacts prior Tool results while preserving the latest Tool batch", () => {
+    const prior = new ToolMessage({ name: "web_archive_read", tool_call_id: "old", content: JSON.stringify({ ok: true, value: { snapshotId: "s1", offset: 0, text: "x".repeat(2_000), truncated: true } }) });
+    const latest = new ToolMessage({ name: "web_page", tool_call_id: "new", content: JSON.stringify({ ok: true, value: { documents: [{ snapshotId: "s2", summary: "summary" }] } }) });
+    const compacted = compactPriorToolMessages([prior, { type: "ai" }, latest]);
+    const content = (compacted[0] as ToolMessage).content; if (typeof content !== "string") throw new Error("Expected compacted string content");
+    expect(content).not.toContain("x".repeat(100)); expect(content).toContain('"textCharacters":2000'); expect(compacted[2]).toBe(latest);
+  });
   it("summarizes model output type and provider finish reason for tracing", () => {
     expect(summarizeModelResponse({ content: "done", tool_calls: [{ name: "submit" }], response_metadata: { done_reason: "stop" } })).toEqual({ outputType: "tool-calls", outputCharacters: 4, toolCallCount: 1, finishReason: "stop" });
     expect(summarizeModelResponse({ content: "plain", response_metadata: {} })).toMatchObject({ outputType: "text", finishReason: "not-reported" });

@@ -1,6 +1,6 @@
 import { ChatOllama } from "@langchain/ollama";
-import { createDeepAgent, createFilesystemMiddleware, createSubAgentMiddleware } from "deepagents";
-import { createMiddleware, tool, toolStrategy, type ToolRuntime } from "langchain";
+import { createDeepAgent, createFilesystemMiddleware, createSubAgentMiddleware, createSummarizationMiddleware, StateBackend } from "deepagents";
+import { createMiddleware, ToolMessage, tool, toolStrategy, type ToolRuntime } from "langchain";
 import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
@@ -217,6 +217,7 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
       const startedAt = now();
       logger.log("info", "agent_core.model_call_started", {
         inputCharacters: systemPrompt.length + serializedMessages.length,
+        estimatedInputTokens: Math.ceil((systemPrompt.length + serializedMessages.length) / 4),
         messageCount: messages.length,
         toolCount: toolNames.length
       });
@@ -225,6 +226,7 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
         const response = await handler(request);
         const summary = summarizeModelResponse(response);
         logger.log("info", "agent_core.model_call_completed", { elapsedMs: now().getTime() - startedAt.getTime(), ...summary });
+        if (summary.outputCharacters === 0 && summary.toolCallCount === 0) logger.log("warn", "agent_core.model_call_empty", { finishReason: summary.finishReason, ...(summary.inputTokens === undefined ? {} : { inputTokens: summary.inputTokens }), ...(summary.outputTokens === undefined ? {} : { outputTokens: summary.outputTokens }) });
         return response;
       } catch (error) {
         logger.log("error", "agent_core.model_call_failed", { ...errorLogContext(error), elapsedMs: now().getTime() - startedAt.getTime(), aborted: context.signal.aborted });
@@ -264,6 +266,37 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
   });
 }
 
+function parsedRecord(content: unknown): Record<string, unknown> | undefined {
+  if (typeof content !== "string") return undefined;
+  try { const value: unknown = JSON.parse(content); return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined; } catch { return undefined; }
+}
+function recordArray(value: unknown): readonly Record<string, unknown>[] { return Array.isArray(value) ? (value as unknown[]).filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : []; }
+
+function compactToolContent(name: string | undefined, content: unknown): string {
+  const original = serializeMessageContent(content); const envelope = parsedRecord(content); const value = envelope?.value;
+  if (typeof value !== "object" || value === null) return original.length <= 800 ? original : `${original.slice(0, 800)}…`;
+  const record = value as Record<string, unknown>;
+  const results = recordArray(record.results); const documents = recordArray(record.documents);
+  if (name === "web_list" && results.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { query: record.query, resultCount: results.length, results: results.slice(0, 5).map((item) => ({ title: item.title, url: item.url })) } });
+  if (name === "web_page" && documents.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { documents: documents.map((item) => ({ snapshotId: item.snapshotId, url: item.url, title: item.title, summary: item.summary, ...(item.status === "ready" ? {} : { status: item.status }) })) } });
+  if (name === "web_archive_search" && results.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { resultCount: results.length, results: results.slice(0, 5).map((item) => ({ snapshotId: item.snapshotId, url: item.url, title: item.title })) } });
+  if (name === "web_archive_read") return JSON.stringify({ ok: envelope?.ok, value: { snapshotId: record.snapshotId, offset: record.offset, textCharacters: typeof record.text === "string" ? record.text.length : 0, truncated: record.truncated } });
+  if (name === "web_archive_grep") return JSON.stringify({ ok: envelope?.ok, value: { snapshotId: record.snapshotId, matchCount: Array.isArray(record.matches) ? record.matches.length : 0, truncated: record.truncated } });
+  return original.length <= 800 ? original : `${original.slice(0, 800)}…`;
+}
+
+export function compactPriorToolMessages(messages: readonly unknown[]): readonly unknown[] {
+  let trailingStart = messages.length; while (trailingStart > 0 && ToolMessage.isInstance(messages[trailingStart - 1])) trailingStart -= 1;
+  return messages.map((message, index) => {
+    if (index >= trailingStart || !ToolMessage.isInstance(message)) return message;
+    return new ToolMessage({ content: compactToolContent(message.name, message.content), tool_call_id: message.tool_call_id, ...(message.name === undefined ? {} : { name: message.name }), ...(message.status === undefined ? {} : { status: message.status }) });
+  });
+}
+
+export function createToolHistoryCompactionMiddleware(): unknown {
+  return createMiddleware({ name: "AgentCoreToolHistoryCompactionMiddleware", wrapModelCall: (request, handler) => handler({ ...request, messages: compactPriorToolMessages(request.messages) as typeof request.messages }) });
+}
+
 function serializeMessageContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (content === undefined) return "";
@@ -273,17 +306,20 @@ function serializeMessageContent(content: unknown): string {
   } catch { return "[unserializable content]"; }
 }
 
-export function summarizeModelResponse(response: unknown): { readonly outputType: string; readonly outputCharacters: number; readonly toolCallCount: number; readonly finishReason: string } {
+export function summarizeModelResponse(response: unknown): { readonly outputType: string; readonly outputCharacters: number; readonly toolCallCount: number; readonly finishReason: string; readonly inputTokens?: number; readonly outputTokens?: number } {
   if (typeof response !== "object" || response === null) return { outputType: typeof response, outputCharacters: 0, toolCallCount: 0, finishReason: "not-reported" };
-  const record = response as { readonly content?: unknown; readonly tool_calls?: unknown; readonly response_metadata?: unknown };
+  const record = response as { readonly content?: unknown; readonly tool_calls?: unknown; readonly response_metadata?: unknown; readonly usage_metadata?: unknown };
   const toolCalls = Array.isArray(record.tool_calls) ? record.tool_calls : [];
   const metadata = typeof record.response_metadata === "object" && record.response_metadata !== null ? record.response_metadata as Record<string, unknown> : {};
   const reportedReason = metadata.finish_reason ?? metadata.done_reason ?? metadata.stop_reason;
+  const usage = typeof record.usage_metadata === "object" && record.usage_metadata !== null ? record.usage_metadata as Record<string, unknown> : {};
+  const inputTokens = usage.input_tokens ?? metadata.prompt_eval_count; const outputTokens = usage.output_tokens ?? metadata.eval_count;
   return {
     outputType: toolCalls.length > 0 ? "tool-calls" : typeof record.content === "string" ? "text" : Array.isArray(record.content) ? "content-blocks" : "message",
     outputCharacters: serializeMessageContent(record.content).length,
     toolCallCount: toolCalls.length,
-    finishReason: typeof reportedReason === "string" ? reportedReason : metadata.done === true ? "done" : "not-reported"
+    finishReason: typeof reportedReason === "string" ? reportedReason : metadata.done === true ? "done" : "not-reported",
+    ...(typeof inputTokens === "number" ? { inputTokens } : {}), ...(typeof outputTokens === "number" ? { outputTokens } : {})
   };
 }
 
@@ -352,6 +388,8 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   const middleware = [
     createFilesystemMiddleware({ tools: ["read_file"] }),
     createSubAgentMiddleware({ defaultModel: model, defaultTools: [], subagents: [], generalPurposeAgent: false }),
+    createSummarizationMiddleware({ model, backend: new StateBackend(), trigger: { type: "tokens", value: 16_000 }, keep: { type: "messages", value: 6 }, trimTokensToSummarize: 12_000, truncateArgsSettings: { trigger: { type: "tokens", value: 12_000 }, keep: { type: "messages", value: 8 }, maxLength: 1_000 } }),
+    createToolHistoryCompactionMiddleware(),
     createAgentCoreMiddleware(config.toolRegistry, logger, now)
   ];
   const factory: ReusableDeepAgentFactory = config.agentFactory ?? ((options) => createDeepAgent({
