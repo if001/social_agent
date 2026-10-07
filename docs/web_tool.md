@@ -38,3 +38,21 @@ class DocOut(BaseModel):
     url: str
     title: str
     markdown: str
+
+`markdown`はWeb Tool ServiceからArchive adapterまでの入力契約である。Adapterはraw Markdownを共有Archive fileへ保存し、Deep Agentへは次のbounded resultだけを返す。
+
+```json
+{
+  "documents": [
+    {
+      "snapshotId": "snapshot-id",
+      "url": "https://example.com/page",
+      "title": "ページタイトル",
+      "summary": "LLMが生成した約400文字以内の日本語要約",
+      "reference": { "type": "web-snapshot", "id": "snapshot-id" }
+    }
+  ]
+}
+```
+
+SnapshotはBot間共有であり、取得Botとは別のBotも`web_archive_search`、`web_archive_read`、`web_archive_grep`から参照できる。raw Markdownや全chunkをTool Resultへ含めない。

@@ -245,12 +245,14 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - `SIMPLE_CLIENT_BASE_URL` 以外へservice requestを送らない
 - Provider交換時にも共通結果Schemaを返す
 - `web_list`はWeb ArchiveへResource、Snapshot、chunkを作らない
-- `web_page`はraw本文を先に保存し、同一Agent・URL・本文hashのretryで重複しない
+- `web_page`はraw本文を共有rootのfileへ先に保存し、取得Agentによらず同一URL・本文hashのretryで重複しない
 - 同一URLの本文変更は新しいSnapshotになり、取得時刻とTool provenanceを保持する
-- 要約／Embedding失敗でもraw本文が残り、backfillで`ready`へ復旧する
-- `web_archive_search`はkeyword／vector／URL／取得時刻から安定順位を返し、別AgentのSnapshotを返さない
-- `web_archive_get`は所有権、未知ID、chunk指定、出力size上限を検証する
-- Memoryが同じAgentのSnapshotだけを根拠参照できる
+- LLM summaryが約400文字の上限とSchemaを守り、要約／Embedding失敗でもraw fileが残ってbackfillで`ready`へ復旧する
+- `web_archive_search`はsummary embeddingとtitle／summary／URLのkeywordから安定順位を返し、Bot AのSnapshotをBot Bから検索できる
+- `web_archive_read`／`web_archive_grep`は未知ID、共有root境界、範囲、前後行、出力size上限を検証する
+- Memoryが別Bot取得の共有Snapshotを根拠参照できる
+- `web_page`、Tool Result Event、Recent Observation、post-process入力にraw本文が含まれない
+- DB commit失敗後の孤立fileとfile欠損recordを検出・回復できる
 
 ## 8. Contract Test
 
@@ -375,7 +377,7 @@ allowlist内外、重複受信、thread reply、送信retryを確認する。
 
 Bot起動時に一度だけ構築したDeep Agentのscripted modelが、固定登録済みのWeb Toolを要求し、Tool Resultが外部Queueへ出ず、同じrun内のreasoningへ戻って最終Actionを返すことを確認する。Runtimeが最終ActionからToolを再実行しないこと、検索語等はTool引数、所有・追跡用IDと上限はrun contextから得ること、実行記録がrun / eventと関連づくことも確認する。
 
-`web_page`を使うrunではSnapshot保存とTool Result provenanceを確認する。別のInternal Eventでは`web_archive_search`から既存Snapshotを発見し、`web_archive_get`で必要chunkだけを読み、鮮度不足や未取得情報がある場合だけ`web_list`／`web_page`を再実行する。Episodic Memoryには記事本文ではなく調査経験の概要とSnapshot根拠が保存されることを確認する。
+`web_page`を使うrunでは共有file、LLM summary、summary embedding、Snapshot provenanceを確認し、Tool Resultがraw本文を含まないことを検証する。別BotのInternal Eventでは`web_archive_search`から既存Snapshotを発見し、`web_archive_read`／`web_archive_grep`で必要箇所だけを読み、鮮度不足や未取得情報がある場合だけ`web_list`／`web_page`を再実行する。Episodic Memoryには記事本文ではなく調査経験の概要とSnapshot根拠が保存されることを確認する。
 
 ### ST-04: Internal Event
 

@@ -296,15 +296,17 @@ Agentが利用できるToolはシステム構成で明示的に登録し、実�
 
 Web検索とWebページ取得を提供しなければならない。初期実装は `SIMPLE_CLIENT_BASE_URL` で指定された既存Web Toolサービスの `POST /list` と `POST /page` を利用し、`docs/web_tool.md` のrequest / response契約を検証しなければならない。Web ToolサービスはAdapter境界の内側に置き、同じTool契約を満たす別Providerへ交換可能でなければならない。
 
-`web_list`は検索候補を得るための一時的なTool Resultとし、検索結果一覧、snippet、順位をWeb Page Archiveへ保存してはならない。`web_page`で実際に取得できたdocumentだけを、Agent所有のWeb SnapshotとしてTool実行中に保存しなければならない。
+`web_list`は検索候補を得るための一時的なTool Resultとし、検索結果一覧、snippet、順位をWeb Page Archiveへ保存してはならない。`web_page`で実際に取得できたdocumentだけを、全Botから検索・参照できる共有Web SnapshotとしてTool実行中に保存しなければならない。取得したAgent、run、Event、Tool callは所有権ではなくprovenanceとして保持する。
 
 #### FR-TL-03A: Web Page Archive
 
-Web Snapshotはcanonical URL、取得URL、title、取得本文、本文hash、取得時刻、取得Agent、run、Tool call、Tool Result Eventへのprovenanceを保持しなければならない。raw本文を要約またはEmbedding処理より先に保存し、後続処理の失敗によって取得本文を失ってはならない。
+Web Snapshotはcanonical URL、取得URL、title、raw Markdown fileへの共有root相対path、本文hash、取得時刻、取得Agent、run、Tool call、Tool Result Eventへのprovenanceを保持しなければならない。raw本文をDBやTool Resultへ複製せず、一時fileから最終pathへのatomic renameによって要約またはEmbedding処理より先に保存する。後続処理の失敗によって取得本文を失ってはならず、DB recordのない孤立fileとfileのないrecordを検出・回復できなければならない。
 
-同一Agent、同一canonical URL、同一本文hashのSnapshotは冪等に再利用し、同一URLでも本文が変化した場合は新しいSnapshotとして保存しなければならない。要約とEmbeddingは`pending | ready | failed`を区別し、失敗後に冪等に再処理できなければならない。初期実装の要約は追加のChat LLM呼び出しを必須とせず、title、見出し、先頭の意味ある段落から上限付きで決定的に構築してよい。
+同一canonical URL、同一本文hashのSnapshotは取得Agentによらず冪等に再利用し、同一URLでも本文が変化した場合は新しいSnapshotとして保存しなければならない。要約とEmbeddingは`pending | ready | failed`を区別し、失敗後に冪等に再処理できなければならない。Tool loopを持たない用途別Chat LLMはtitle、URL、raw Markdownから日本語summaryを約400文字の上限内で生成する。summary生成に失敗したSnapshotを未検証の機械抽出summaryで`ready`にせず、有限retryとbackfillの対象にする。検証済みsummaryだけをEmbedding Providerでvector化する。
 
-保存済みページは`web_archive_search`でAgent所有範囲内をkeyword、summary／chunk vector、URL、取得時刻から検索でき、`web_archive_get`でSnapshot metadataと指定chunkを上限付きで取得できなければならない。Archive本文をAgent Contextへ自動投入してはならない。別Agent所有Snapshotの検索・取得・Memory根拠参照を拒否しなければならない。
+保存済みページは`web_archive_search`で全Bot共有範囲をsummary embeddingの意味類似とtitle、summary、URLの語句一致、取得時刻から検索・rerankできなければならない。`web_archive_read`はSnapshot IDから登録済みfileを解決して指定範囲だけを、`web_archive_grep`は検索語に一致する行と有限の前後文脈だけを返す。任意path、共有root外、未登録fileを拒否する。Archive本文をAgent Contextへ自動投入してはならず、Bot Aが取得したSnapshotをBot Bが検索、取得、Memory根拠参照できなければならない。
+
+`web_page`がDeep Agentへ返す結果はSnapshot ID、URL、title、約400文字のsummary、Snapshot参照情報に限定し、raw Markdownや全chunkを含めてはならない。Tool Result Event、Recent Observation、Recent Attempt、post-process入力にもraw本文を複製してはならない。
 
 #### FR-TL-04: File Tool
 
@@ -397,6 +399,8 @@ DBを利用する場合はPostgreSQLを使用し、ベクトル検索が必要�
 ### NFR-02: LLMとEmbedding
 
 LLM推論にはOllama Cloud、Embedding生成にはローカルOllamaを使用する。ChatとEmbeddingは別の接続先、認証、model設定を持たなければならない。初期値は `.env.sample` の `OLLAMA_BASE_URL`、`OLLAMA_API_KEY`、`OLLAMA_CHAT_MODEL`、`OLLAMA_EMBEDDING_BASE_URL`、`OLLAMA_EMBEDDING_MODEL`、`OLLAMA_EMBEDDING_DIMENSION` から読み取り、秘密値をlog、Agent Context、test artifactへ含めてはならない。
+
+複数Bot processは同じ`WEB_ARCHIVE_ROOT`を共有しなければならない。Archive rootはDB、Queue rootと同様にprocess間で永続化され、Bot別の秘密値を含めてはならない。
 
 ### NFR-03: Agent基盤
 

@@ -400,7 +400,7 @@ File Toolは入力pathを絶対pathへ正規化し、`realpath`で許可root配�
 
 Web Tool Adapterは `docs/web_tool.md` のrequest / responseをZodで検証し、timeout、response size、service errorを共通Tool errorへ変換する。Agentが指定するpage URLはHTTP / HTTPSだけを許可する。Web取得先へのnetwork制約とredirect検証はWeb Toolサービス側の責務であり、本システムは信頼するservice endpoint自体を `SIMPLE_CLIENT_BASE_URL` で固定する。
 
-`web_list`は候補探索だけに使い、Tool実行trace以外の永続データを作らない。`web_page`で正常取得したdocumentは、Tool Adapter内の`WebArchiveService`がAgent所有のSnapshotとして保存する。Tool ResultとしてAgentへ返す本文はrunのContext上限で切り詰めてもよいが、Archiveには取得できたraw Markdownを保持する。
+`web_list`は候補探索だけに使い、Tool実行trace以外の永続データを作らない。`web_page`で正常取得したdocumentは、Tool Adapter内の`WebArchiveService`が共有Snapshotとして保存する。raw Markdownは`WEB_ARCHIVE_ROOT`配下のSnapshot IDから決まるfileへ一時書込み後にatomic renameし、DBには共有root相対path、metadata、summary、vector、処理状態だけを置く。Tool ResultはSnapshot ID、URL、title、約400文字のsummary、参照情報に限定し、raw本文を返さない。
 
 #### Web Page Archive
 
@@ -409,20 +409,20 @@ Web Page Archiveは人格Memoryとは別の外部資料Storeである。Memory�
 ```text
 web_page
   → URL正規化
-  → raw Snapshotを冪等保存
-  → 決定的な要約とchunkを作成
-  → summary／chunk Embedding
-  → Tool ResultをAgent Coreへ返す
+  → raw Markdown fileを共有rootへ冪等保存
+  → 用途別LLMで約400文字のsummaryを生成
+  → summary Embedding
+  → bounded Tool ResultをAgent Coreへ返す
   → 必要ならAgent Coreが概要MemoryとSnapshot根拠を提案
 ```
 
-`web_resources`はcanonical URLを識別し、`web_snapshots`はAgentが取得した時点の版を表す。同一Agent、Resource、content hashは重複させず、内容が変われば新しいSnapshotを作る。Snapshotはraw本文を先に`pending`で保存し、要約／Embedding成功時に`ready`、失敗時にraw本文を残したまま`failed`へ遷移する。Tool retryはrun IDとTool call IDを冪等keyとして扱う。
+`web_resources`はcanonical URLを識別し、`web_snapshots`は取得時点の共有版を表す。Agentによらず同一Resource、content hashは重複させず、内容が変われば新しいSnapshotを作る。取得Agent IDはprovenanceであり参照権限ではない。Snapshot fileを先に保存してDB recordを`pending`で作り、要約／Embedding成功時に`ready`、失敗時にraw fileを残したまま`failed`へ遷移する。Tool retryはrun IDとTool call IDを冪等keyとして扱い、保守処理は孤立fileと欠損fileを検出する。
 
-初期要約は追加のChat LLM呼び出しを行わず、title、見出し、先頭の意味ある段落から決定的に構築する。長い本文は安定した境界でchunkへ分割し、summaryと各chunkをローカルEmbedding Providerでvector化する。model、dimension、最終試行時刻、errorを保持し、Memory Embeddingと同様にbackfill可能にする。
+要約はTool loopを持たない専用Chat LLM呼び出しで生成する。入力はURL、title、raw Markdown、目的、出力fieldの意味を明記し、日本語summaryを約400文字に制限する。Schema不適合は有限回だけ修復し、provider障害や検証失敗では`failed`としてbackfill可能にする。検証済みsummaryだけをローカルEmbedding Providerでvector化し、model、dimension、最終試行時刻、errorを保持する。raw本文全体やchunkはembeddingしない。
 
-`web_archive_search`は実行AgentのSnapshotだけを対象に、keywordとvector候補を安定順位で統合し、Snapshot ID、URL、title、summary、取得時刻、関連chunkの短いexcerptを返す。`web_archive_get`は所有権を検証し、metadataと指定chunkだけを出力上限内で返す。保存本文は外部由来の非信頼データであり、本文中の命令をsystem instructionとして扱わない。
+`web_archive_search`は全Bot共有Snapshotを対象に、summary vector候補とtitle、summary、URLのkeyword候補を順位統合し、Snapshot ID、URL、title、summary、取得時刻、file参照を返す。`web_archive_read`はSnapshot IDと行または文字範囲から必要箇所だけを、`web_archive_grep`はSnapshot IDとpatternから一致箇所と有限の前後行だけを返す。いずれもDB登録済み相対pathを共有root内へ解決し、任意pathを入力に取らない。保存本文は外部由来の非信頼データであり、本文中の命令をsystem instructionとして扱わない。
 
-Episodic Memory Proposalは任意の`webSnapshotIds`を根拠として持てる。RuntimeはSnapshotが同じAgentに属し、現在runの`web_page`結果または既存Archive検索で実際に参照可能だったことを検証し、`memory_web_evidence`へ保存する。Snapshot保存は外部Toolの副作用なのでAgent Core最終出力が失敗しても残り、Tool Result Event確定時にrun／event provenanceを補完する。
+Episodic Memory Proposalは任意の`webSnapshotIds`を根拠として持てる。RuntimeはSnapshotが共有Archiveに存在し、現在runの`web_page`、Archive検索、read、grepで実際に参照されたことを検証して`memory_web_evidence`へ保存する。取得AgentとMemory所有Agentが異なっていても参照できる。Snapshot保存は外部Toolの副作用なのでAgent Core最終出力が失敗しても残り、Tool Result Event確定時にrun／event provenanceを補完する。
 
 ### 5.8 Memory Service
 
@@ -780,8 +780,8 @@ PostgreSQLを次の正本とする。
 | `memory_intentions` | MemoryとIntentionの関連 |
 | `memory_web_evidence` | Memoryと根拠Web Snapshotの関連 |
 | `web_resources` | canonical URL、最初／最後の取得時刻 |
-| `web_snapshots` | Agent所有の取得版、title、raw本文、summary、content hash、取得・処理状態、run／Tool provenance |
-| `web_snapshot_chunks` | Snapshotの上限付き本文chunkと検索Embedding |
+| `web_snapshots` | 共有取得版、title、raw file相対path、LLM summary、summary embedding、content hash、取得・処理状態、取得Agent／run／Tool provenance |
+| Web Archive files | `WEB_ARCHIVE_ROOT`配下のSnapshot ID別raw Markdown。DB登録pathからだけ参照する |
 | `long_term_candidates` | target、proposed value、status、reason、review時刻、期限付きlease |
 | `candidate_evidence` | Candidateと根拠Memoryの関連 |
 | `events` | Event、Observation、source、correlation、処理状態 |
@@ -865,7 +865,7 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 - Runtime: max steps、deadline、tool call上限、message hop上限
 - Context: category上限、token budget、retrieval top K
 - Scheduler: scan interval、review interval
-- Tool: file roots、`SIMPLE_CLIENT_BASE_URL`、Web timeout、response size
+- Tool: file roots、`SIMPLE_CLIENT_BASE_URL`、共有`WEB_ARCHIVE_ROOT`、Web timeout、response size
 - Output: autonomous actionのdefault destinations
 
 初期実装で2 bot起動に必要な設定名は次とする。
@@ -876,7 +876,7 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 | Discord | `DISCORD_BOT_TOKEN`、`DISCORD_BOT_USER_ID`、`DISCORD_OWNER_IDS`、`DISCORD_GUILD_IDS`、`DISCORD_CHANNEL_IDS` |
 | UI destination | `DISCORD_QUEUE_DESTINATION`、`DEFAULT_OUTPUT_DESTINATION` |
 | loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
-| shared | `POSTGRES_URL`、`QUEUE_ROOT`、Chat／Embedding／Web設定 |
+| shared | `POSTGRES_URL`、`QUEUE_ROOT`、`WEB_ARCHIVE_ROOT`、Chat／Embedding／Web設定 |
 
 ID一覧はcomma区切りで受け取り、空要素と重複を正規化する。Discordを有効にする場合はtoken、bot user ID、owner、channelを必須とする。Discord Queue destinationは既定で`discord:<BOT_ID>`とし、2つのDiscord Adapterが同じoutbound destinationを競合consumeしないようにする。Agent Runtimeの入力destinationは`BOT_ID`であり、bot間通信も相手の`BOT_ID`を宛先とする。
 
