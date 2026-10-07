@@ -238,7 +238,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 
 ### 7.7 Web Tool
 
-- `/list` へ `{ q, k }`、`/page` へ `{ url }` をPOSTする
+- `/list` へ `{ q, k }`、`/page` へ `{ urls: string }` をPOSTする
 - `ListResponse`と`PageResponse`を共通Schemaへ変換する
 - page URLはHTTP / HTTPSだけを許可する
 - timeout、HTTP error、response size、不正JSON、Schema不適合を共通errorへ変換する

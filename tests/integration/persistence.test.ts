@@ -190,7 +190,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const archive = new PostgresWebArchive(pool, embedding, new SequenceIdGenerator(["resource-web", "snapshot-web", "resource-repeat", "snapshot-repeat", "resource-changed", "snapshot-changed"]), () => new Date("2026-04-01T00:00:00Z"), "web-fake");
     const context = { agentId: "a", runId: "web-run", eventId: "web-event", toolCallId: "tool-1" };
     const pageRegistry = new ToolRegistry(createWebTools("http://web.local", { archive, fetcher: () => Promise.resolve(new Response(JSON.stringify({ docs: [{ url: "https://EXAMPLE.com/article?b=2&a=1#top", title: "Postgres vectors", markdown }] }), { status: 200 })) }));
-    const pageResult = await pageRegistry.execute("web_page", { url: "https://example.com/article" }, { ...context, idempotencyKey: "web-run:tool-1" }, new AbortController().signal);
+    const pageResult = await pageRegistry.execute("web_page", { urls: "https://example.com/article" }, { ...context, idempotencyKey: "web-run:tool-1" }, new AbortController().signal);
     const first = (pageResult.value as { archivedSnapshots: { snapshotId: string; url: string; status: string }[] }).archivedSnapshots;
     const repeated = await archive.archivePages([{ url: "https://example.com/article?a=1&b=2", title: "Postgres vectors", markdown }], { ...context, toolCallId: "tool-2" }, new AbortController().signal);
     const latest = await archive.archivePages([{ url: "https://example.com/article?a=1&b=2", title: "Postgres vectors", markdown: changed }], { ...context, toolCallId: "tool-3" }, new AbortController().signal);
