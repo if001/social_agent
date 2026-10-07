@@ -422,6 +422,8 @@ web_page
 
 `web_archive_search`は全Bot共有Snapshotを対象に、summary vector候補とtitle、summary、URLのkeyword候補を順位統合し、Snapshot ID、URL、title、summary、取得時刻、file参照を返す。`web_archive_grep`で関連箇所を先に絞り、`web_archive_read`はSnapshot IDとoffsetから最大2,000文字の必要範囲だけを返す。同一runのraw本文返却は合計6,000文字までとする。いずれもDB登録済み相対pathを共有root内へ解決し、任意pathを入力に取らない。保存本文は外部由来の非信頼データであり、本文中の命令をsystem instructionとして扱わない。summary生成失敗は元のprovider errorと入力文字数を構造化ログへ記録し、空summaryを理由にページ全文をContextへ投入しない。
 
+同一Deep Agent runでは、直近のTool Result batchだけを次の判断用に保持する。それ以前のTool ResultはTool Callとの対応を維持しながら、URL、title、Snapshot ID、件数、文字数等の短いprojectionへ置換する。監査用の`tool_executions.result`は置換しない。Chat model profileからContext上限を取得できない場合にも16,000 token相当でSummarizationを開始し、直近6 messageを保持する。
+
 Episodic Memory Proposalは任意の`webSnapshotIds`を根拠として持てる。RuntimeはSnapshotが共有Archiveに存在し、現在runの`web_page`、Archive検索、read、grepで実際に参照されたことを検証して`memory_web_evidence`へ保存する。取得AgentとMemory所有Agentが異なっていても参照できる。Snapshot保存は外部Toolの副作用なのでAgent Core最終出力が失敗しても残り、Tool Result Event確定時にrun／event provenanceを補完する。
 
 ### 5.8 Memory Service

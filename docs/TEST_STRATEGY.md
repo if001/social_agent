@@ -382,6 +382,8 @@ Bot起動時に一度だけ構築したDeep Agentのscripted modelが、固定�
 
 `web_page`を使うrunでは共有file、LLM summary、summary embedding、Snapshot provenanceを確認し、Tool Resultがraw本文を含まないことを検証する。別BotのInternal Eventでは`web_archive_search`から既存Snapshotを発見し、`web_archive_read`／`web_archive_grep`で必要箇所だけを読み、鮮度不足や未取得情報がある場合だけ`web_list`／`web_page`を再実行する。Episodic Memoryには記事本文ではなく調査経験の概要とSnapshot根拠が保存されることを確認する。
 
+複数Tool Callを含むrunでは、直近batch以前のTool Messageが短いprojectionへ置換され、DBの監査用結果は欠落しないことを検証する。Chat model profileが空でも明示したtoken閾値のSummarization Middlewareが構成されることを確認する。
+
 ### ST-04: Internal Event
 
 SchedulerからIntention reviewを起動し、外部Queueを経由せずRuntime処理され、外部通知が必要なActionだけが既定宛先へpublishされることを確認する。
