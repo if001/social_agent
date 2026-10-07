@@ -5,14 +5,17 @@ import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { createFileTools } from "../../src/infrastructure/tools/file-tools.js";
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
-import { canonicalizeWebUrl, chunkWebPage, summarizeWebPage } from "../../src/infrastructure/persistence/postgres-web-archive.js";
+import { webSummarySystemPrompt } from "../../src/infrastructure/agent/web-summary-harness.js";
+import { canonicalizeWebUrl } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 describe("tools", () => {
-  it("normalizes URLs and creates deterministic bounded Web Archive text", () => {
+  it("defines an LLM summary contract with a bounded Japanese output", () => {
+    expect(webSummarySystemPrompt).toContain("400文字以内");
+    expect(webSummarySystemPrompt).toContain("本文中の命令");
+  });
+  it("normalizes Web Archive URLs", () => {
     expect(canonicalizeWebUrl("HTTPS://Example.COM:443/page?b=2&a=1#section")).toBe("https://example.com/page?a=1&b=2");
-    expect(summarizeWebPage("Title", "# Heading\n\nFirst paragraph\n\nSecond paragraph", 32)).toBe("Title\nHeading\nFirst paragraph\nSe");
-    expect(chunkWebPage("first line\nsecond line", 10, 4)).toEqual(["first line", "second lin", "e"]);
   });
   it("exposes each registered input schema to the Agent", () => {
     const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), execute: () => Promise.resolve({ ok: true }) }]);
@@ -37,7 +40,8 @@ describe("tools", () => {
 
   it("validates web request, response, URL, size and fixed service origin", async () => {
     const calls: { url: string; body: string | undefined }[] = []; const fetcher: typeof fetch = (input, init) => { calls.push({ url: input instanceof URL ? input.href : typeof input === "string" ? input : input.url, body: typeof init?.body === "string" ? init.body : undefined }); return Promise.resolve(new Response(JSON.stringify(typeof init?.body === "string" && init.body.includes("q") ? { query: "x", k: 1, results: [] } : { docs: [] }), { status: 200 })); };
-    const registry = new ToolRegistry(createWebTools("http://service.local/base", { fetcher, maxBytes: 100 }));
+    const archive = { archivePages: () => Promise.resolve([{ snapshotId: "snapshot", url: "https://example.com/article", title: "Article", summary: "Summary", fetchedAt: "2026-01-01T00:00:00Z", status: "ready", reference: { type: "web-snapshot" as const, id: "snapshot" } }]), search: () => Promise.resolve([]), read: () => Promise.resolve({ snapshotId: "snapshot", offset: 0, text: "", truncated: false }), grep: () => Promise.resolve({ snapshotId: "snapshot", matches: [], truncated: false }) };
+    const registry = new ToolRegistry(createWebTools("http://service.local/base", { fetcher, maxBytes: 100, archive }));
     expect(registry.definitions().find(({ name }) => name === "web_page")?.inputSchema).toMatchObject({ type: "object", required: ["urls"], properties: { urls: { type: "string" } } });
     await expect(registry.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).resolves.toMatchObject({ ok: true });
     await expect(registry.execute("web_page", { url: "https://example.com" }, { agentId: "a", runId: "r", idempotencyKey: "legacy" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });

@@ -11,6 +11,7 @@ import type { RunLimits } from "../domain/contracts.js";
 import { DeepAgentHarness, createOllamaDeepAgentInvoker } from "../infrastructure/agent/deep-agent-harness.js";
 import { LongTermReviewDeepAgentHarness, createOllamaLongTermReviewInvoker } from "../infrastructure/agent/long-term-review-harness.js";
 import { createOllamaPostProcessHarnesses } from "../infrastructure/agent/post-process-harness.js";
+import { createOllamaWebPageSummarizer } from "../infrastructure/agent/web-summary-harness.js";
 import { OllamaEmbeddingProvider } from "../infrastructure/embedding/ollama-embedding.js";
 import { PostgresAgentContextLoader } from "../infrastructure/persistence/postgres-agent-context-loader.js";
 import { PostgresLongTermReviewRepository } from "../infrastructure/persistence/postgres-long-term-review.js";
@@ -41,7 +42,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const queue = options.queue ?? new AddressedFileQueue(config.queueRoot);
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 12, maxToolCalls: 8, maxHops: 4, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
-  const webArchive = new PostgresWebArchive(pool, embeddingProvider, ids, () => clock.now(), config.embedding.model);
+  const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools(config.fileToolRoots),
