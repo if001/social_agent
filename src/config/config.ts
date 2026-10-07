@@ -55,6 +55,7 @@ const ConfigSchema = z.object({
   DISCORD_QUEUE_DESTINATION: OptionalText,
   DEFAULT_OUTPUT_DESTINATION: OptionalText,
   QUEUE_ROOT: z.string().default("./var/queue"),
+  WEB_ARCHIVE_ROOT: z.string().default("./var/web-archive"),
   FILE_TOOL_ROOTS: z.string().default("./var/files"),
   RUN_DEADLINE_MS: z.coerce.number().int().positive().default(120_000),
   ...SchedulerTimingsSchema.shape,
@@ -81,6 +82,7 @@ export type AppConfig = {
   readonly discord?: { readonly token: string; readonly botUserId: string; readonly ownerIds: readonly string[]; readonly guildIds: readonly string[]; readonly channelIds: readonly string[]; readonly queueDestination: string };
   readonly defaultOutputDestination: string;
   readonly queueRoot: string;
+  readonly webArchiveRoot: string;
   readonly fileToolRoots: readonly string[];
   readonly runDeadlineMs: number;
   readonly schedulerTimings: SchedulerTimings;
@@ -123,6 +125,7 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
       ? { discord: { token: value.DISCORD_BOT_TOKEN, botUserId: value.DISCORD_BOT_USER_ID, ownerIds, guildIds, channelIds, queueDestination: value.DISCORD_QUEUE_DESTINATION ?? `discord:${value.BOT_ID}` } } : {}),
     defaultOutputDestination: value.DEFAULT_OUTPUT_DESTINATION ?? `discord:${value.BOT_ID}`,
     queueRoot: resolve(cwd, value.QUEUE_ROOT),
+    webArchiveRoot: resolve(cwd, value.WEB_ARCHIVE_ROOT),
     fileToolRoots: value.FILE_TOOL_ROOTS.split(",").map((root) => resolve(cwd, root.trim())),
     runDeadlineMs: value.RUN_DEADLINE_MS,
     schedulerTimings: parseSchedulerTimings(value),

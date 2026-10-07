@@ -157,8 +157,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const observedSnapshotIds = new Set(input.interaction.toolResults.flatMap(({ webSnapshotIds }) => webSnapshotIds));
     if (referencedSnapshotIds.some((id) => !observedSnapshotIds.has(id))) throw new DomainError("VALIDATION", "Memory references a Web Snapshot not observed in this run");
     if (referencedSnapshotIds.length > 0) {
-      const owned = await this.pool.query<{ id: string }>("SELECT id FROM web_snapshots WHERE agent_id=$1 AND id=ANY($2::text[])", [input.run.agentId, referencedSnapshotIds]);
-      if (owned.rows.length !== referencedSnapshotIds.length) throw new DomainError("VALIDATION", "Memory references a Web Snapshot owned by another Agent or missing");
+      const owned = await this.pool.query<{ id: string }>("SELECT id FROM web_snapshots WHERE id=ANY($1::text[])", [referencedSnapshotIds]);
+      if (owned.rows.length !== referencedSnapshotIds.length) throw new DomainError("VALIDATION", "Memory references a missing Web Snapshot");
     }
     const memories: Memory[] = []; const memoryWebEvidence: { memoryId: string; snapshotIds: readonly string[] }[] = [];
     const sourceAgentId = input.observation.actor?.type === "agent" ? input.observation.actor.id : undefined;

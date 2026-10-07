@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-07
-status: created
+status: done
 ---
 
 # 089: 共有ファイル型Web ArchiveとLLM summary検索を実装する
