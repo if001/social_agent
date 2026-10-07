@@ -36,6 +36,18 @@ describe("embedding and context", () => {
     expect(result.recentAttempts[0]?.inputSummary).toHaveLength(480);
   });
 
+  it("bounds required state and drops oversized Observation content before budgeting", () => {
+    const input = agentCoreInputFixture();
+    input.observation = { ...input.observation, summary: "s".repeat(2_000), facts: Array.from({ length: 20 }, () => "f".repeat(500)), content: { markdown: "x".repeat(100_000) } };
+    input.self = { ...input.self, selfNarrative: "n".repeat(10_000), interests: Array.from({ length: 30 }, () => "i".repeat(1_000)) };
+    const result = new ContextBuilder().build(input, { maxTokens: 4_000, maxMemories: 1, maxSocialContexts: 1 });
+    expect(result.observation.summary).toHaveLength(1_000);
+    expect(result.observation.facts).toHaveLength(8);
+    expect(result.observation.content).toBeUndefined();
+    expect(result.self.selfNarrative).toHaveLength(2_000);
+    expect(result.self.interests).toHaveLength(16);
+  });
+
   it("builds a bounded deterministic query from observation, state, intention and social context", () => {
     const input = agentCoreInputFixture();
     input.intentions = [{ id: "goal", agentId: input.run.agentId, description: "研究発表を支援する", status: "active", reason: "約束した", createdAt: input.run.occurredAt, updatedAt: input.run.occurredAt }];

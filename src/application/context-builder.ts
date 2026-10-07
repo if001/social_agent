@@ -1,23 +1,38 @@
-import type { Agent, AgentCoreInput, BotPersona, DynamicState, Intention, Memory, MemoryRetrievalTrace, Observation, RecentAttempt, RunLimits, SocialContext } from "../domain/contracts.js";
+import type { AgentCoreInput, BotPersona, Intention, Memory, MemoryRetrievalTrace, Observation, RecentAttempt, SocialContext } from "../domain/contracts.js";
 
 export type ContextBudget = { readonly maxTokens: number; readonly maxMemories: number; readonly maxSocialContexts: number };
-export type ContextSource = { readonly run: AgentCoreInput["run"]; readonly observation: Observation; readonly recentObservations: readonly Observation[]; readonly recentAttempts: readonly RecentAttempt[]; readonly persona?: BotPersona | undefined; readonly self: Agent; readonly dynamicState: DynamicState; readonly socialContext: readonly SocialContext[]; readonly memories: readonly Memory[]; readonly memoryRetrievalTrace: readonly MemoryRetrievalTrace[]; readonly intentions: readonly Intention[]; readonly availableTools: AgentCoreInput["availableTools"]; readonly runtimeConstraints: readonly string[]; readonly limits: RunLimits };
+export type ContextSource = Omit<AgentCoreInput, "socialContext" | "memories" | "memoryRetrievalTrace"> & { readonly socialContext: readonly SocialContext[]; readonly memories: readonly Memory[]; readonly memoryRetrievalTrace: readonly MemoryRetrievalTrace[] };
 const tokens = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 4);
+const text = (value: string, limit: number): string => value.slice(0, limit);
+const texts = (values: readonly string[], count = 16, limit = 500): string[] => values.slice(0, count).map((value) => text(value, limit));
+
+function observation(value: Observation): Observation {
+  const serializedContent = value.content === undefined ? undefined : JSON.stringify(value.content);
+  return { ...value, summary: text(value.summary, 1_000), facts: texts(value.facts, 8, 240), ...(serializedContent === undefined || serializedContent.length > 4_000 ? { content: undefined } : {}) };
+}
+
+function persona(value: BotPersona | undefined): BotPersona | undefined {
+  if (value === undefined) return undefined;
+  return { ...value, identity: { displayName: text(value.identity.displayName, 200), ...(value.identity.description === undefined ? {} : { description: text(value.identity.description, 500) }) }, communication: { language: text(value.communication.language, 100), firstPerson: text(value.communication.firstPerson, 100), tone: texts(value.communication.tone, 8, 240), responseStyle: texts(value.communication.responseStyle, 8, 240), avoid: texts(value.communication.avoid, 8, 240) } };
+}
+
+function intention(value: Intention): Intention { return { ...value, description: text(value.description, 500), reason: text(value.reason, 500) }; }
 
 export class ContextBuilder {
   build(source: ContextSource, budget: ContextBudget): AgentCoreInput {
     if (source.self.id !== source.run.agentId || source.dynamicState.agentId !== source.run.agentId) throw new Error("Context owner mismatch");
-    const socialContext = source.socialContext.filter((item) => item.agentId === source.run.agentId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)).slice(0, budget.maxSocialContexts);
-    const memories = source.memories.filter((item) => item.agentId === source.run.agentId).slice(0, budget.maxMemories);
-    const intentions = source.intentions.filter((item) => item.agentId === source.run.agentId && item.status === "active").sort((a, b) => a.id.localeCompare(b.id));
-    const recentAttempts = source.recentAttempts.filter((item) => item.agentId === source.run.agentId).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.id.localeCompare(b.id)).slice(0, 6).map((item) => ({ ...item, inputSummary: item.inputSummary.slice(0, 480), resultSummary: item.resultSummary.slice(0, 480) }));
-    const base = { run: source.run, observation: source.observation, recentObservations: [...source.recentObservations], recentAttempts, ...(source.persona === undefined ? {} : { persona: source.persona }), self: source.self, dynamicState: source.dynamicState, intentions, availableTools: [...source.availableTools], runtimeConstraints: [...source.runtimeConstraints], limits: source.limits };
-    const selectedSocial: SocialContext[] = []; const selectedMemories: Memory[] = []; let used = tokens(base);
-    for (const item of socialContext) { const cost = tokens(item); if (used + cost <= budget.maxTokens) { selectedSocial.push(item); used += cost; } }
-    for (const item of memories) { const cost = tokens(item); if (used + cost <= budget.maxTokens) { selectedMemories.push(item); used += cost; } }
-    if (used > budget.maxTokens) throw new Error("Context budget is too small for required state");
-    const selectedIds = new Set(selectedMemories.map(({ id }) => id));
-    const memoryRetrievalTrace = source.memoryRetrievalTrace.map((item) => item.selected && !selectedIds.has(item.memoryId) ? { ...item, selected: false, exclusionReason: "context-budget" as const } : item);
-    return { ...base, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace };
+    const boundedSelf = { ...source.self, identity: text(source.self.identity, 500), disposition: { shared: text(source.self.disposition.shared, 2_000), initial: text(source.self.disposition.initial, 2_000), acquired: text(source.self.disposition.acquired, 2_000) }, values: text(source.self.values, 2_000), interests: texts(source.self.interests), preferences: texts(source.self.preferences), roles: texts(source.self.roles), ...(source.self.raisonDetre === undefined ? {} : { raisonDetre: text(source.self.raisonDetre, 2_000) }), selfNarrative: text(source.self.selfNarrative, 2_000), selfContinuity: text(source.self.selfContinuity, 2_000) };
+    const boundedState = { ...source.dynamicState, mood: text(source.dynamicState.mood, 1_000), drives: source.dynamicState.drives.slice(0, 16).map((drive) => ({ ...drive, description: text(drive.description, 500), sourceEvidenceIds: drive.sourceEvidenceIds.slice(0, 16) })), currentInterests: source.dynamicState.currentInterests.slice(0, 16).map((item) => ({ ...item, question: text(item.question, 500), goal: text(item.goal, 500) })), interestExploration: source.dynamicState.interestExploration.slice(0, 16) };
+    const boundedPersona = persona(source.persona);
+    const required = { run: source.run, observation: observation(source.observation), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, availableTools: source.availableTools.map(({ name, description }) => ({ name, description: text(description, 500) })), runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
+    let used = tokens(required); if (used > budget.maxTokens) throw new Error(`Context budget is too small for required state: required=${String(used)}, max=${String(budget.maxTokens)}`);
+
+    const recentObservations: Observation[] = []; for (const item of source.recentObservations.slice(-6)) { const bounded = observation(item); const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { recentObservations.push(bounded); used += cost; } }
+    const recentAttempts: RecentAttempt[] = []; for (const item of source.recentAttempts.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.id.localeCompare(b.id)).slice(0, 6)) { const bounded = { ...item, inputSummary: text(item.inputSummary, 480), resultSummary: text(item.resultSummary, 480) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { recentAttempts.push(bounded); used += cost; } }
+    const intentions: Intention[] = []; for (const item of source.intentions.filter((item) => item.agentId === source.run.agentId && item.status === "active").sort((a, b) => a.id.localeCompare(b.id)).slice(0, 16)) { const bounded = intention(item); const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { intentions.push(bounded); used += cost; } }
+    const selectedSocial: SocialContext[] = []; for (const item of source.socialContext.filter((item) => item.agentId === source.run.agentId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)).slice(0, budget.maxSocialContexts)) { const bounded = { ...item, description: text(item.description, 1_000) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { selectedSocial.push(bounded); used += cost; } }
+    const selectedMemories: Memory[] = []; for (const item of source.memories.filter((item) => item.agentId === source.run.agentId).slice(0, budget.maxMemories)) { const bounded = { ...item, content: text(item.content, 2_000), importance: text(item.importance, 500) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { selectedMemories.push(bounded); used += cost; } }
+    const selectedIds = new Set(selectedMemories.map(({ id }) => id)); const memoryRetrievalTrace = source.memoryRetrievalTrace.map((item) => item.selected && !selectedIds.has(item.memoryId) ? { ...item, selected: false, exclusionReason: "context-budget" as const } : item);
+    return { run: source.run, observation: required.observation, recentObservations, recentAttempts, ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace, intentions, availableTools: [...source.availableTools], runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
   }
 }

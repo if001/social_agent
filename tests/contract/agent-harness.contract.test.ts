@@ -25,6 +25,13 @@ describe("AgentHarness contract", () => {
     expect(prompt).not.toContain("memoryRetrievalTrace");
   });
 
+  it("does not duplicate registered Tool JSON Schemas in the Agent input prompt", async () => {
+    let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
+    const input = agentCoreInputFixture(); input.availableTools = [{ name: "lookup", description: "Search", inputSchema: { type: "object", properties: { secretSchemaMarker: { type: "string" } } } }];
+    await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
+    expect(prompt).toContain('"name":"lookup"'); expect(prompt).not.toContain("secretSchemaMarker");
+  });
+
   it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
     let creations = 0; const calls: { messages: unknown; context: { runId: string; eventId: string } }[] = [];
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", agentFactory: (options) => {
