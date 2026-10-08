@@ -16,7 +16,7 @@ const context = (signal: AbortSignal, maxToolCalls = 2, runId = "run-1", eventId
 describe("ST-03 Deep Agent internal Tool Loop", () => {
   it("rejects an identical recent Tool input before executing it again", async () => {
     let executions = 0;
-    const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
+    const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
     const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 2, signal: new AbortController().signal, recentToolInputs: ['{"tool":"lookup","input":{"query":"same"}}'] });
     await expect(lookup?.invoke({ query: "same" }, { context: runContext })).rejects.toThrow("Recent identical Tool input");
@@ -24,7 +24,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
   });
 
   it("can choose a Tool on autonomy review from Self, Drive, Current Interest, and Memory without an Intention", async () => {
-    const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
+    const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
       const prompt = modelInput.messages[0]?.content ?? "";
       expect(prompt).toContain("autonomy-review"); expect(prompt).toContain("Understand vector indexes"); expect(prompt).toContain("HNSW"); expect(prompt).toContain("Previous index research");
@@ -39,7 +39,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
   });
 
   it("returns Tool results to reasoning and exposes the observed execution with the final Action", async () => {
-    const registry = new ToolRegistry([{ name: "lookup", description: "Look up a value", schema: z.object({ query: z.string() }), execute: (_input, executionContext) => Promise.resolve({ ok: true, value: { answer: 42, idempotencyKey: executionContext.idempotencyKey } }) }]);
+    const registry = new ToolRegistry([{ name: "lookup", description: "Look up a value", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: (_input, executionContext) => Promise.resolve({ ok: true, value: { answer: 42, idempotencyKey: executionContext.idempotencyKey } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (_input, options) => {
       const runContext = context(options.signal, options.maxToolCalls, options.runId, options.eventId);
       const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
@@ -54,7 +54,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
   });
 
   it("returns Tool failures to reasoning and records them", async () => {
-    const registry = new ToolRegistry([{ name: "lookup", description: "Fails", schema: z.object({}), execute: () => Promise.reject(new Error("service unavailable")) }]);
+    const registry = new ToolRegistry([{ name: "lookup", description: "Fails", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => Promise.reject(new Error("service unavailable")) }]);
     const runContext = context(new AbortController().signal); const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     await expect(lookup?.invoke({}, { context: runContext })).resolves.toContain("service unavailable");
     expect(runContext.collector.executions[0]).toMatchObject({ ok: false, error: "service unavailable", runId: "run-1", eventId: "event-1" });
@@ -62,7 +62,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
 
   it("enforces the Tool call limit before another side effect", async () => {
     let sideEffects = 0;
-    const registry = new ToolRegistry([{ name: "write", description: "Writes", schema: z.object({}), execute: () => { sideEffects += 1; return Promise.resolve({ ok: true }); } }]);
+    const registry = new ToolRegistry([{ name: "write", description: "Writes", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { sideEffects += 1; return Promise.resolve({ ok: true }); } }]);
     const runContext = context(new AbortController().signal, 1); const [write] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     await write?.invoke({}, { context: runContext });
     await expect(write?.invoke({}, { context: runContext })).rejects.toMatchObject({ code: "VALIDATION" });
@@ -70,20 +70,24 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Tool call limit exceeded" });
   });
 
-  it("bounds cumulative raw Web Archive text within one Deep Agent run", async () => {
+  it("bounds cumulative content-read text within one Deep Agent run", async () => {
     let reads = 0;
-    const registry = new ToolRegistry([{ name: "web_archive_read", description: "Read archive", schema: z.object({ snapshotId: z.string() }), execute: () => { reads += 1; return Promise.resolve({ ok: true, value: { text: "x".repeat(2_000) } }); } }]);
-    const runContext = context(new AbortController().signal, 8); const [read] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
-    if (read === undefined) throw new Error("web_archive_read was not registered");
-    const results = await Promise.all(["one", "two", "three", "four"].map((snapshotId) => read.invoke({ snapshotId }, { context: runContext })));
-    expect(results.filter((result) => String(result).includes("Web archive text budget exceeded"))).toHaveLength(1);
-    expect(reads).toBe(3); expect(runContext.collector.webArchiveTextCharacters).toBe(6_000); expect(runContext.collector.webArchiveReservedCharacters).toBe(6_000); expect(runContext.collector.executions.some(({ ok }) => !ok)).toBe(true);
+    const contentPolicy = { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 };
+    const registry = new ToolRegistry([
+      { name: "web_archive_read", description: "Read archive", schema: z.object({ snapshotId: z.string() }), resultPolicy: contentPolicy, execute: () => { reads += 1; return Promise.resolve({ ok: true, value: { text: "x".repeat(2_000) } }); } },
+      { name: "file_read", description: "Read file", schema: z.object({ path: z.string() }), resultPolicy: contentPolicy, execute: () => { reads += 1; return Promise.resolve({ ok: true, value: { content: "x".repeat(2_000) } }); } }
+    ]);
+    const runContext = context(new AbortController().signal, 8); const [read, fileRead] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    if (read === undefined || fileRead === undefined) throw new Error("content readers were not registered");
+    const results = await Promise.all([read.invoke({ snapshotId: "one" }, { context: runContext }), fileRead.invoke({ path: "two" }, { context: runContext }), read.invoke({ snapshotId: "three" }, { context: runContext }), fileRead.invoke({ path: "four" }, { context: runContext })]);
+    expect(results.filter((result) => String(result).includes("Content-read text budget exceeded"))).toHaveLength(1);
+    expect(reads).toBe(3); expect(runContext.collector.contentReadCharacters).toBe(6_000); expect(runContext.collector.contentReadReservedCharacters).toBe(6_000); expect(runContext.collector.executions.some(({ ok }) => !ok)).toBe(true);
   });
 
   it("does not start a Tool after cancellation", async () => {
     let called = false;
     const controller = new AbortController(); controller.abort();
-    const registry = new ToolRegistry([{ name: "write", description: "Writes", schema: z.object({}), execute: () => { called = true; return Promise.resolve({ ok: true }); } }]);
+    const registry = new ToolRegistry([{ name: "write", description: "Writes", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { called = true; return Promise.resolve({ ok: true }); } }]);
     const runContext = context(controller.signal); const [write] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     await expect(write?.invoke({}, { context: runContext })).rejects.toMatchObject({ code: "ABORTED" });
     expect(called).toBe(false);
@@ -92,7 +96,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
 
   it("keeps Tool execution context isolated across concurrent runs on one Agent", async () => {
     let creations = 0;
-    const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), execute: async ({ query }: { query: string }, executionContext) => {
+    const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: async ({ query }: { query: string }, executionContext) => {
       await Promise.resolve(); return { ok: true, value: { query, runId: executionContext.runId, eventId: executionContext.eventId } };
     } }]);
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", toolRegistry: registry, now: () => new Date(fixtureInstant), agentFactory: (factoryOptions) => {

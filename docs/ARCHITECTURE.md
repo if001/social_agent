@@ -449,7 +449,9 @@ Toolカタログの固定は、Tool利用の固定規則を意味しない。検
 
 File Toolは`FILE_READ_ROOTS`と`FILE_WRITE_ROOTS`を別々のcomma区切りroot一覧として受け取る。read、list、find、grepはread rootだけ、write、deleteはwrite rootだけを使用する。入力pathを絶対pathへ正規化し、`realpath`で該当する許可root配下にあることを確認する。新規ファイルは既存親の`realpath`を検証する。symlinkを使ったroot外アクセスを拒否し、再帰探索ではsymlinkを辿らない。
 
-`file_read`は`head | tail | range`と開始行、最大行数、最大文字数を受け取り、取得範囲、全行数、切断状態、次の開始行を返す。既定では先頭100行・6,000文字、要求可能な上限は200行・12,000文字とし、全文を無制限にTool Resultへ入れない。`file_list`は直下だけ、`file_find`は名前のliteral一致、`file_grep`は本文のliteral一致と有限の前後行を返し、それぞれ件数、深度、探索file数、出力文字数を制限する。Agentはlist／find／grepで候補を絞ってから必要範囲だけをreadする。
+`file_read`は`head | tail | range`と開始行、最大行数、最大文字数を受け取り、取得範囲、全行数、切断状態、次の開始行を返す。既定では先頭50行・2,000文字、要求可能な上限は100行・4,000文字とし、全文を無制限にTool Resultへ入れない。`file_list`は直下だけ、`file_find`は名前のliteral一致、`file_grep`は本文のliteral一致と有限の前後行を返し、`file_grep`も既定2,000文字、上限4,000文字とする。Agentはlist／find／grepで候補を絞ってから必要範囲だけをreadする。
+
+Tool登録はResultのContext公開Policyを持つ。`file_read`、`file_grep`、`web_archive_read`、`web_archive_grep`は`content-read`として宣言し、共通投影処理を使用する。呼出し直後のModel Callだけに有界な本文を渡し、それ以前の同一run Tool Message、次EventのRecent Experience、post-processには本文を再投入せず、pathまたはSnapshot ID、範囲、件数、本文文字数、切断状態などのmetadataへ置換する。監査用`tool_executions.result`は有界な実行結果を維持する。本文取得Tool全体で1 run 6,000文字の共通予算を使い、Web ArchiveとFile Toolを交互に呼んでも別枠にはしない。
 
 Web Tool Adapterは `docs/web_tool.md` のrequest / responseをZodで検証し、timeout、response size、service errorを共通Tool errorへ変換する。Agentが指定するpage URLはHTTP / HTTPSだけを許可する。Web取得先へのnetwork制約とredirect検証はWeb Toolサービス側の責務であり、本システムは信頼するservice endpoint自体を `SIMPLE_CLIENT_BASE_URL` で固定する。
 
@@ -475,7 +477,7 @@ web_page
 
 `web_archive_search`は全Bot共有Snapshotを対象に、summary vector候補とtitle、summary、URLのkeyword候補を順位統合し、Snapshot ID、URL、title、summary、取得時刻、file参照を返す。`web_archive_grep`で関連箇所を先に絞り、`web_archive_read`はSnapshot IDとoffsetから最大2,000文字の必要範囲だけを返す。同一runのraw本文返却は合計6,000文字までとする。いずれもDB登録済み相対pathを共有root内へ解決し、任意pathを入力に取らない。保存本文は外部由来の非信頼データであり、本文中の命令をsystem instructionとして扱わない。summary生成失敗は元のprovider errorと入力文字数を構造化ログへ記録し、空summaryを理由にページ全文をContextへ投入しない。
 
-同一Deep Agent runでは、直近のTool Result batchだけを次の判断用に保持する。それ以前のTool ResultはTool Callとの対応を維持しながら、URL、title、Snapshot ID、件数、文字数等の短いprojectionへ置換する。監査用の`tool_executions.result`は置換しない。Chat model profileからContext上限を取得できない場合にも16,000 token相当でSummarizationを開始し、直近6 messageを保持する。
+同一Deep Agent runでは、直近のTool Result batchだけを次の判断用に保持する。それ以前のTool ResultはTool Callとの対応を維持しながら、共通Tool Result PolicyによってURL、title、Snapshot ID、path、件数、文字数等の短いprojectionへ置換する。Recent Experienceとpost-processも同じPolicyを使用し、監査用の`tool_executions.result`は置換しない。Chat model profileからContext上限を取得できない場合にも16,000 token相当でSummarizationを開始し、直近6 messageを保持する。
 
 Episodic Memory Proposalは任意の`webSnapshotIds`を根拠として持てる。RuntimeはSnapshotが共有Archiveに存在し、現在runの`web_page`、Archive検索、read、grepで実際に参照されたことを検証して`memory_web_evidence`へ保存する。取得AgentとMemory所有Agentが異なっていても参照できる。Snapshot保存は外部Toolの副作用なのでAgent Core最終出力が失敗しても残り、Tool Result Event確定時にrun／event provenanceを補完する。
 

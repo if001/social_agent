@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-08
-status: doing
+status: done
 ---
 
 # 102: Tool ResultのContext公開Policyを共通化する
