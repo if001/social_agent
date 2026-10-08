@@ -302,9 +302,40 @@ interface ContextBuilder {
 - 登録済みTool定義
 - Runtimeの残りstep数、deadline、ファイル許可範囲等の制約
 
-`availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。Tool JSON SchemaはDeep AgentのTool登録経路でmodelへ渡すため、Agent Coreのuser入力JSONにはTool名と短い説明だけを含める。長期状態や全Memoryを無条件に投入しない。Recent ObservationはUser、Agent、External、Internal Eventを優先して`tool-result`を除外し、Tool履歴はboundedなRecent Attempt、Memory、Web Snapshot metadataから構成する。現在Observation、履歴、Self長文、Dynamic State、Active Intentionにも件数・文字数上限を設け、各カテゴリを優先順位に従ってmodelのContext budget内へ収める。
+`availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。Tool JSON SchemaはDeep AgentのTool登録経路でmodelへ渡すため、Agent Coreのuser入力JSONにはTool名と短い説明だけを含める。長期状態や全Memoryを無条件に投入しない。Event間の短期履歴はRecent Experience、長く参照する経験はMemoryとして構成する。現在Observation、履歴、Self、Dynamic State、Active Intentionを各カテゴリの優先順位に従ってmodelのContext budget内へ収める。
 
-#### 5.5.1 Social ContextとActive Intentionの関連選択
+#### 5.5.1 Event間のRecent Experience
+
+Deep Agentが持つnative Message履歴は1回のAgent Core run内だけで使う。`user input → Tool Call → Tool Result → 最終Action`のTool LoopにはDeep AgentsのMessage stateを使うが、そのstateを次のEventへcheckpointerで引き継がない。過去のAgent Core入力には当時のState、Memory、制約が含まれるため、生のMessageを累積すると古いsnapshotの重複とContext肥大化を起こすためである。
+
+Event間ではPostgreSQLのEvent、Agent Run、Tool Execution、State Changeを正本とし、直近8 Eventを`recentExperiences`として時系列にprojectionする。1 Eventは入力Observation、それを契機に同じrunで実行した全Tool、最終Actionまたは失敗をひとまとまりとする。Toolを複数回使っても1 Eventであり、schedulerが生成したInternal Eventは新しい1 Eventである。Post-processは元Eventに従属する処理であり、それ自体を新しいEventとして数えない。
+
+```ts
+type RecentExperience = {
+  eventId: string
+  runId?: string
+  occurredAt: string
+  eventKind: EventKind
+  actor?: { id: string; type: string }
+  observation: string
+  steps: Array<
+    | { type: "tool"; name: string; input: unknown; result: unknown; ok: boolean }
+    | { type: "action"; action: AgentAction }
+    | { type: "failure"; reason: string }
+  >
+  progressChanged: boolean
+}
+```
+
+同一run内のToolは実行時刻とIDで並べ、その後へ最終Actionまたはfailureを置く。成功したRunだけでなく、失敗までにToolを実行したRunも含める。User、Agent、External、Internal、Time、System Eventを一律に同じ経験順序で扱い、Internal Eventを会話の外へ隠さない。
+
+`recentExperiences`は保存済み情報を再要約・途中切断しない。ObservationのsizeはEvent生成・保存境界、Tool Resultのsizeは各Tool、ActionのsizeはAgent Core出力契約が保証する。Web本文はWeb ToolとArchive Toolの有界な結果だけを記録し、raw本文をEvent、Tool Result、Recent Experienceへ複製しない。Context budgetを超える場合は古いRecent ExperienceからEvent単位で除外する。1 Eventだけでbudgetを超える場合は履歴側で黙って切らず、生成元の契約違反として記録してそのEventをPromptから除外する。
+
+`recentObservations`とPrompt向け`recentAttempts`は廃止する。Tool反復防止に必要な過去入力は`recentExperiences.steps`からRuntime用に導出し、同じ内容を別配列としてPromptへ重複投入しない。Recent Experienceは直近に何が起き、何を試し、どう行動したかを示す短期buffer、Episodic Memoryは後から検索する価値がある経験の要約、Semantic Memoryは経験から得た知識、Social Contextは関係認識、Intentionは継続する行動方針を担う。
+
+同じEventを根拠とするRecent ExperienceとMemoryが一時的に共存することは許容する。ただしMemoryがObservationまたはActionの単純な言い換えにすぎない場合はContextへ重複投入しない。Semantic化、自己解釈、重要性などRecent Experienceにない意味を加えるMemoryは併用できる。
+
+#### 5.5.2 Social ContextとActive Intentionの関連選択
 
 Social ContextとActive Intentionは、Agentが所有する全件を更新日時順で渡さない。Context LoaderはDBから有界な候補を取得し、Context Builderは明示的なID、Trigger、期限、Memory linkを使って決定的に順位づける。本文をLLMへ渡して関連度を判定する前処理は追加しない。
 
@@ -370,9 +401,7 @@ type CurrentInterest = {
 
 RuntimeはCurrent Interestごとの`consecutiveNoProgress`、`lastExploredAt`、`cooldownUntil`を探索制御metadataとして管理し、LLM出力Schemaへ含めない。progress増加またはreframeで停滞をresetし、進展しない探索で増加させる。Goal達成ではresolveし、関連DriveのendとIntentionのcompleteを同じ後処理から提案できる。上限到達中の同一Interest再探索は拒否するが、探索方法の変更、延期、dropの意味判断はCoreへ委ねる。
 
-Context BuilderはCurrent Interestに関係する直近の試行を、Agent Run、Event、最終Action、Tool execution、Current InterestのState Changeから`recentAttempts`として投影する。これは正本ではなく、Agent単位の所有権、最大件数、文字数、時間範囲を検証した入力用projectionである。各要素はaction種別、質問またはTool入力の短い要約、結果Observationの短い要約、実行時刻、progressが増えたかを含む。raw Web本文、秘密値、全会話履歴を含めない。
-
-Agent Coreは`recentAttempts`を用い、同じ質問や同じTool入力で進展しなかった場合に、そのまま反復しない。同じGoalを継続するなら、質問の具体化、Agent側の自己開示、別Tool、別検索語、観察または延期を選ぶ。Runtimeは明らかに同一なTool入力の短時間再実行とcooldown中の探索を機械的に拒否し、無応答や話題変更の意味は固定規則で決めない。
+Agent Coreは`recentExperiences`を用い、同じ質問や同じTool入力で進展しなかった場合に、そのまま反復しない。同じGoalを継続するなら、質問の具体化、Agent側の自己開示、別Tool、別検索語、観察または延期を選ぶ。RuntimeはRecent Experienceから導出したTool入力により、明らかに同一な短時間再実行とcooldown中の探索を機械的に拒否する。無応答や話題変更の意味は固定規則で決めない。
 
 ユーザー理解はStable Interestから関係上のKnowledge Gapを最大1件作る。質問を選ぶ場合は現在の話題とSocial Contextへ結びつけ、一方的な聞き取りを避けるため必要に応じてAgent自身の関心や質問理由も共有する。固定の質問順序は持たない。
 
@@ -719,7 +748,7 @@ type AgentCoreInput = {
     occurredAt: string
   }
   observation: Observation
-  recentObservations: Observation[]
+  recentExperiences: RecentExperience[]
   self: RelevantSelf
   dynamicState: RelevantPersistentDynamicState
   socialContext: SocialContext[]
@@ -765,7 +794,7 @@ type AgentCoreOutput = {
 
 `MemoryProposal`、新規`IntentionProposal`、`LongTermUpdateCandidateProposal`は意味内容と根拠を持つが、保存用ID、作成時刻、所有Agent IDを持たない。既存Intention等を更新する提案は、入力Contextに存在する対象IDだけを参照できる。
 
-`recentObservations`は現在Eventより前の同一Agentの完了済みObservationを古い順に最大6件保持し、代名詞や省略の解決だけに使う。通常Coreは現在Eventを中心にEpisodic Memoryを提案し、直近履歴に含まれる同じ出来事を再保存しない。
+`recentExperiences`は現在Eventより前の同一Agentの直近8 Eventを古い順に保持する。各EventはObservation、同一runの全Tool、最終Actionまたはfailureを含み、会話継続、行動結果、反復回避に使う。通常Coreは現在Eventを中心にEpisodic Memoryを提案し、直近履歴の単純な言い換えを重複MemoryとしてContextへ投入しない。
 
 通常出力はDeep Agentの`responseFormat`から`structuredResponse`として受け取る。Ollamaではprovider-native strategyではなくSchema付きの`toolStrategy`を使い、形式不適合を同じAgent loop内で修復させる。HarnessはDomain固有の参照整合性を含めて再検証する。Schemaまたは参照整合性に適合しない場合は、検証issueを与えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。Markdown fenceを含む自由形式本文の`JSON.parse`を通常経路にしない。
 
