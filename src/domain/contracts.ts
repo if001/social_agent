@@ -171,6 +171,23 @@ export const RecentAttemptSchema = z.object({
 });
 export type RecentAttempt = z.infer<typeof RecentAttemptSchema>;
 
+export const RecentExperienceStepSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("tool"), name: Id, input: z.unknown(), result: z.unknown(), ok: z.boolean() }),
+  z.object({ type: z.literal("action"), action: z.lazy(() => FinalActionSchema) }),
+  z.object({ type: z.literal("failure"), reason: NaturalLanguage })
+]);
+export const RecentExperienceSchema = z.object({
+  eventId: Id,
+  runId: Id.optional(),
+  agentId: Id,
+  occurredAt: Instant,
+  eventKind: EventKindSchema,
+  observation: ObservationSchema,
+  steps: z.array(RecentExperienceStepSchema),
+  progressChanged: z.boolean()
+});
+export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
+
 export const IntentionStatusSchema = z.enum(["active", "completed", "dropped", "superseded"]);
 export const IntentionTriggerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("time"), at: Instant }),
@@ -283,6 +300,7 @@ export const AgentCoreInputSchema = z.object({
     transport: z.object({ hop: z.number().int().min(0).max(32), expiresAt: Instant, replyTo: Id.optional() }).optional()
   }),
   observation: ObservationSchema,
+  recentExperiences: z.array(RecentExperienceSchema).max(8).default([]),
   recentObservations: z.array(ObservationSchema).default([]),
   recentAttempts: z.array(RecentAttemptSchema).default([]),
   persona: BotPersonaSchema.optional(),
@@ -296,7 +314,7 @@ export const AgentCoreInputSchema = z.object({
   runtimeConstraints: z.array(NaturalLanguage),
   limits: RunLimitsSchema
 }).superRefine((value, context) => {
-  const owners = [value.self.id, value.dynamicState.agentId, ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId), ...value.intentions.map((item) => item.agentId)];
+  const owners = [value.self.id, value.dynamicState.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId), ...value.intentions.map((item) => item.agentId)];
   if (owners.some((owner) => owner !== value.run.agentId)) context.addIssue({ code: "custom", message: "context contains data owned by another agent" });
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;

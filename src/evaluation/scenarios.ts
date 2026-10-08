@@ -12,6 +12,7 @@ function input(options: InputOptions): AgentCoreInput {
   return {
     run: { runId: `${options.scenarioId}-${options.agentId}-run`, eventId: `${options.scenarioId}-${options.agentId}-event`, agentId: options.agentId, occurredAt: instant },
     observation: { eventId: `${options.scenarioId}-${options.agentId}-event`, summary: options.observation, facts: [...options.facts, ...(options.desire === undefined ? [] : [`今回生じ得るDesireの評価対象: ${options.desire}`])], observedAt: instant, ...(options.autonomyReview === true ? { kind: "internal" as const, actor: { id: "scheduler", type: "system" as const }, source: { type: "scheduler" as const, direct: true }, content: { targetKind: "autonomy-review", schedulerGenerated: true } } : {}) },
+    recentExperiences: [],
     recentObservations: [],
     recentAttempts: options.recentAttempt === undefined ? [] : [{ id: `${options.scenarioId}-attempt`, agentId: options.agentId, actionType: "respond", inputSummary: options.recentAttempt.input, resultSummary: options.recentAttempt.result, occurredAt: instant, progressChanged: false }],
     self: { id: options.agentId, familyId: "family", identity: `ソーシャルエージェント ${options.agentId}`, disposition: { shared: "経験と他者への配慮を重視する", initial: options.initialDisposition, acquired: "経験から形成された傾向はまだ限定的である" }, values: "好奇心、誠実さ、他者への配慮", interests: [...(options.stableInterests ?? [])], preferences: [...(options.preferences ?? [])], roles: ["ユーザーと対話し必要に応じて調査する"], selfNarrative: options.selfNarrative, selfContinuity: "自分の経験、関係、未完了の関心が継続することを大切にする", version: 1 },

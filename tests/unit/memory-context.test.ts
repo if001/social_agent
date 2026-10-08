@@ -76,4 +76,13 @@ describe("embedding and context", () => {
     expect(result.intentions.every(({ description, reason }) => description.length <= 500 && reason.length <= 500)).toBe(true);
     expect(result.socialContext.every(({ description }) => description.length <= 600)).toBe(true);
   });
+
+  it("keeps recent experience as whole events and removes oldest events for budget", () => {
+    const input = agentCoreInputFixture();
+    input.recentExperiences = Array.from({ length: 10 }, (_, index) => ({ eventId: `history-${String(index)}`, runId: `run-${String(index)}`, agentId: input.run.agentId, occurredAt: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`, eventKind: index % 2 === 0 ? "user-message" as const : "internal" as const, observation: { eventId: `history-${String(index)}`, summary: `event-${String(index)}-${"x".repeat(300)}`, facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "action" as const, action: { type: "no-action" as const, reason: `result-${String(index)}` } }], progressChanged: false }));
+    const result = new ContextBuilder().build(input, { maxTokens: 3_000, maxMemories: 1, maxSocialContexts: 1 });
+    expect(result.recentExperiences.length).toBeLessThanOrEqual(8);
+    expect(result.recentExperiences.at(-1)?.eventId).toBe("history-9");
+    expect(result.recentExperiences.every(({ observation }) => observation.summary.endsWith("x".repeat(300)))).toBe(true);
+  });
 });

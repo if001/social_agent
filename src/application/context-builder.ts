@@ -1,4 +1,5 @@
-import type { AgentCoreInput, BotPersona, Intention, Memory, MemoryRetrievalTrace, Observation, RecentAttempt, SocialContext } from "../domain/contracts.js";
+import type { AgentCoreInput, BotPersona, Intention, Memory, MemoryRetrievalTrace, Observation, RecentAttempt, RecentExperience, SocialContext } from "../domain/contracts.js";
+import { noopLogger, type Logger } from "../observability/logger.js";
 
 export type ContextBudget = { readonly maxTokens: number; readonly maxMemories: number; readonly maxSocialContexts: number };
 export type ContextSource = Omit<AgentCoreInput, "socialContext" | "memories" | "memoryRetrievalTrace"> & { readonly socialContext: readonly SocialContext[]; readonly memories: readonly Memory[]; readonly memoryRetrievalTrace: readonly MemoryRetrievalTrace[]; readonly requiredSocialContextIds?: ReadonlySet<string>; readonly requiredIntentionIds?: ReadonlySet<string> };
@@ -19,6 +20,7 @@ function persona(value: BotPersona | undefined): BotPersona | undefined {
 function intention(value: Intention): Intention { return { ...value, description: text(value.description, 500), reason: text(value.reason, 500) }; }
 
 export class ContextBuilder {
+  constructor(private readonly logger: Logger = noopLogger) {}
   build(source: ContextSource, budget: ContextBudget): AgentCoreInput {
     if (source.self.id !== source.run.agentId || source.dynamicState.agentId !== source.run.agentId) throw new Error("Context owner mismatch");
     const boundedSelf = { ...source.self, identity: text(source.self.identity, 500), disposition: { shared: text(source.self.disposition.shared, 2_000), initial: text(source.self.disposition.initial, 2_000), acquired: text(source.self.disposition.acquired, 2_000) }, values: text(source.self.values, 2_000), interests: texts(source.self.interests), preferences: texts(source.self.preferences), roles: texts(source.self.roles), ...(source.self.raisonDetre === undefined ? {} : { raisonDetre: text(source.self.raisonDetre, 2_000) }), selfNarrative: text(source.self.selfNarrative, 2_000), selfContinuity: text(source.self.selfContinuity, 2_000) };
@@ -27,6 +29,10 @@ export class ContextBuilder {
     const required = { run: source.run, observation: observation(source.observation), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, availableTools: source.availableTools.map(({ name, description }) => ({ name, description: text(description, 500) })), runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
     let used = tokens(required); if (used > budget.maxTokens) throw new Error(`Context budget is too small for required state: required=${String(used)}, max=${String(budget.maxTokens)}`);
 
+    const recentCandidates = source.recentExperiences.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId)).slice(-8);
+    const recentExperiences: RecentExperience[] = [...recentCandidates]; let recentCost = recentExperiences.reduce((sum, value) => sum + tokens(value), 0);
+    while (recentExperiences.length > 0 && used + recentCost > budget.maxTokens) { const removed = recentExperiences.shift(); if (removed !== undefined) { recentCost -= tokens(removed); this.logger.log("warn", "context.recent_experience_excluded", { agentId: source.run.agentId, eventId: removed.eventId, reason: recentExperiences.length === 0 ? "single-event-budget" : "context-budget" }); } }
+    used += recentCost;
     const recentObservations: Observation[] = []; for (const item of source.recentObservations.slice(-6)) { const bounded = observation(item); const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { recentObservations.push(bounded); used += cost; } }
     const recentAttempts: RecentAttempt[] = []; for (const item of source.recentAttempts.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.id.localeCompare(b.id)).slice(0, 6)) { const bounded = { ...item, inputSummary: text(item.inputSummary, 480), resultSummary: text(item.resultSummary, 480) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { recentAttempts.push(bounded); used += cost; } }
     const intentions: Intention[] = []; const selectedSocial: SocialContext[] = [];
@@ -40,6 +46,6 @@ export class ContextBuilder {
     const selectedIntentionIds = new Set(intentions.map(({ id }) => id)); for (const item of ownedIntentions) if (!selectedIntentionIds.has(item.id)) addIntention(item);
     const selectedSocialIds = new Set(selectedSocial.map(({ id }) => id)); for (const item of ownedSocial) if (!selectedSocialIds.has(item.id)) addSocial(item);
     const selectedIds = new Set(selectedMemories.map(({ id }) => id)); const memoryRetrievalTrace = source.memoryRetrievalTrace.map((item) => item.selected && !selectedIds.has(item.memoryId) ? { ...item, selected: false, exclusionReason: "context-budget" as const } : item);
-    return { run: source.run, observation: required.observation, recentObservations, recentAttempts, ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace, intentions, availableTools: [...source.availableTools], runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
+    return { run: source.run, observation: required.observation, recentExperiences, recentObservations, recentAttempts, ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace, intentions, availableTools: [...source.availableTools], runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
   }
 }
