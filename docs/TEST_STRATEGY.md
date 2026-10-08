@@ -199,6 +199,15 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - 現在Observation、Self、Dynamic State、Active Intentionを件数・文字数上限付きでprojectionする
 - Tool Schema本体をAgent Coreのuser入力JSONへ重複させない
 - Active Intentionと関係するSocial Contextを含める
+- Observation actorまたは正規化済みsubject IDに一致するSocial Contextを、より新しい無関係なSocial Contextより優先する
+- schedulerが直接指定したIntention、成立したevent trigger、期限到来したIntentionを、より新しい無関係なIntentionより優先する
+- Memory検索前のseedと検索後の`relatedSubjectIds`／`relatedIntentionIds`補完により、関連状態を循環なく選べる
+- Current Interestとのkeyword一致は補助順位として働き、自由文から存在しないsubject IDを生成しない
+- Social ContextとActive Intentionを各6件、fallbackを各2件以内に制限し、同率候補を`updatedAt DESC, id ASC`で安定選択する
+- Social Context 600文字、Intentionのdescription／reason各500文字のprojectionを適用する
+- 関連候補がない場合は空配列になり、fallbackが関連MemoryをContext budgetから押し出さない
+- `trigger`も`nextReviewAt`もないactive Intentionを診断し、直接または関連linkがない限り投入しない
+- 選択理由、除外理由、必須候補overflow、context budget除外を本文なしのdebug logで追跡できる
 - 同率候補でも安定したtie-breakを行う
 
 ### 7.4 Scheduler
