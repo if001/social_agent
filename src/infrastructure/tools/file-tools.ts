@@ -1,26 +1,90 @@
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 
 import type { RegisteredTool } from "../../application/tool-registry.js";
 import { DomainError } from "../../domain/contracts.js";
 
+const MAX_READ_CHARACTERS = 12_000;
+const MAX_READ_LINES = 200;
+const MAX_LIST_ENTRIES = 200;
+const MAX_FIND_RESULTS = 200;
+const MAX_FIND_DEPTH = 10;
+const MAX_GREP_MATCHES = 50;
+const MAX_GREP_CHARACTERS = 12_000;
+const MAX_GREP_FILES = 500;
+const MAX_GREP_FILE_BYTES = 2_000_000;
+
 const PathInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1) });
 const WriteInput = PathInput.extend({ content: z.string() });
+const ReadInput = PathInput.extend({ mode: z.enum(["head", "tail", "range"]).default("head"), startLine: z.number().int().positive().optional(), maxLines: z.number().int().positive().max(MAX_READ_LINES).default(100), maxCharacters: z.number().int().positive().max(MAX_READ_CHARACTERS).default(6_000) }).superRefine((value, context) => {
+  if (value.mode === "range" && value.startLine === undefined) context.addIssue({ code: "custom", path: ["startLine"], message: "range mode requires startLine" });
+});
+const ListInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1).default("."), maxEntries: z.number().int().positive().max(MAX_LIST_ENTRIES).default(100) });
+const FindInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1).default("."), query: z.string().min(1), maxDepth: z.number().int().nonnegative().max(MAX_FIND_DEPTH).default(5), maxResults: z.number().int().positive().max(MAX_FIND_RESULTS).default(100) });
+const GrepInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1).default("."), pattern: z.string().min(1), contextLines: z.number().int().nonnegative().max(5).default(2), maxMatches: z.number().int().positive().max(MAX_GREP_MATCHES).default(20), maxCharacters: z.number().int().positive().max(MAX_GREP_CHARACTERS).default(6_000) });
+
 const within = (root: string, target: string): boolean => { const path = relative(root, target); return path === "" || (!path.startsWith("..") && !isAbsolute(path)); };
 
-async function checked(roots: readonly string[], index: number, path: string, mode: "existing" | "write"): Promise<string> {
+async function checked(roots: readonly string[], index: number, path: string, mode: "existing" | "write"): Promise<{ readonly root: string; readonly target: string }> {
   if (isAbsolute(path) || path.split(/[\\/]/u).includes("..")) throw new DomainError("VALIDATION", "File path escapes its allowed root");
   const root = await realpath(roots[index] ?? "").catch(() => undefined); if (root === undefined) throw new DomainError("VALIDATION", "Unknown or missing file root");
   const target = resolve(root, path);
   const verified = mode === "existing" ? await realpath(target).catch((error: unknown) => { throw new DomainError("NOT_FOUND", "File does not exist", { cause: error }); }) : resolve(await realpath(dirname(target)).catch((error: unknown) => { throw new DomainError("VALIDATION", "File parent does not exist", { cause: error }); }), target.split(/[\\/]/u).at(-1) ?? "");
   if (!within(root, verified)) throw new DomainError("VALIDATION", "File path resolves outside its allowed root");
-  return verified;
+  return { root, target: verified };
 }
 
-export function createFileTools(roots: readonly string[]): readonly RegisteredTool[] {
-  const read: RegisteredTool<z.infer<typeof PathInput>> = { name: "file_read", description: "Read an allowed file", schema: PathInput, execute: async (input) => ({ ok: true, value: await readFile(await checked(roots, input.root, input.path, "existing"), "utf8") }) };
-  const write: RegisteredTool<z.infer<typeof WriteInput>> = { name: "file_write", description: "Write an allowed file", schema: WriteInput, execute: async (input) => { const path = await checked(roots, input.root, input.path, "write"); await mkdir(dirname(path), { recursive: true }); await writeFile(path, input.content); return { ok: true, value: { path: input.path } }; } };
-  const remove: RegisteredTool<z.infer<typeof PathInput>> = { name: "file_delete", description: "Delete an allowed file", schema: PathInput, execute: async (input) => { await rm(await checked(roots, input.root, input.path, "existing")); return { ok: true, value: { path: input.path } }; } };
-  return [read, write, remove];
+const rootMap = (roots: readonly string[]): string => roots.map((root, index) => `${String(index)}=${root}`).join(", ") || "none";
+const relativePath = (root: string, target: string): string => relative(root, target) || ".";
+
+async function walk(root: string, start: string, maxDepth: number, visit: (path: string, type: "file" | "directory") => boolean | Promise<boolean>): Promise<void> {
+  const queue: { path: string; depth: number }[] = [{ path: start, depth: 0 }];
+  while (queue.length > 0) {
+    const current = queue.shift(); if (current === undefined) break;
+    const entries = (await readdir(current.path, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const path = resolve(current.path, entry.name); if (!within(root, path)) continue;
+      const type = entry.isDirectory() ? "directory" : entry.isFile() ? "file" : undefined; if (type === undefined) continue;
+      if (!await visit(path, type)) return;
+      if (type === "directory" && current.depth < maxDepth) queue.push({ path, depth: current.depth + 1 });
+    }
+  }
+}
+
+export function createFileTools(options: { readonly readRoots: readonly string[]; readonly writeRoots: readonly string[] }): readonly RegisteredTool[] {
+  const readRoots = options.readRoots; const writeRoots = options.writeRoots;
+  const read: RegisteredTool<z.infer<typeof ReadInput>> = { name: "file_read", description: `Read a bounded line range from an allowed text file. Read roots: ${rootMap(readRoots)}`, schema: ReadInput, execute: async (input) => {
+    const { root, target } = await checked(readRoots, input.root, input.path, "existing"); const info = await stat(target); if (!info.isFile()) throw new DomainError("VALIDATION", "File path is not a regular file");
+    const lines = (await readFile(target, "utf8")).split(/\r?\n/u); const requestedStart = input.mode === "tail" ? Math.max(0, lines.length - input.maxLines) : input.mode === "range" ? (input.startLine ?? 1) - 1 : 0;
+    const selected: string[] = []; let characters = 0; let consumed = 0; let lineTruncated = false;
+    for (const line of lines.slice(requestedStart, requestedStart + input.maxLines)) { const addition = (selected.length === 0 ? 0 : 1) + line.length; if (characters + addition > input.maxCharacters) break; selected.push(line); characters += addition; consumed += 1; }
+    if (selected.length === 0 && requestedStart < lines.length) { selected.push((lines[requestedStart] ?? "").slice(0, input.maxCharacters)); consumed = 1; lineTruncated = (lines[requestedStart]?.length ?? 0) > input.maxCharacters; }
+    const startLine = Math.min(requestedStart + 1, lines.length); const endLine = consumed === 0 ? startLine : startLine + consumed - 1; const nextStartLine = requestedStart + consumed < lines.length ? requestedStart + consumed + 1 : undefined;
+    return { ok: true, value: { path: relativePath(root, target), mode: input.mode, startLine, endLine, totalLines: lines.length, content: selected.join("\n"), truncated: lineTruncated || nextStartLine !== undefined, lineTruncated, ...(nextStartLine === undefined ? {} : { nextStartLine }) } };
+  } };
+  const list: RegisteredTool<z.infer<typeof ListInput>> = { name: "file_list", description: `List entries directly inside an allowed directory. Read roots: ${rootMap(readRoots)}`, schema: ListInput, execute: async (input) => {
+    const { root, target } = await checked(readRoots, input.root, input.path, "existing"); const info = await stat(target); if (!info.isDirectory()) throw new DomainError("VALIDATION", "File path is not a directory");
+    const all = (await readdir(target, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name)); const entries = all.slice(0, input.maxEntries).map((entry) => ({ name: entry.name, type: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : entry.isSymbolicLink() ? "symlink" : "other" }));
+    return { ok: true, value: { path: relativePath(root, target), entries, truncated: all.length > entries.length } };
+  } };
+  const find: RegisteredTool<z.infer<typeof FindInput>> = { name: "file_find", description: `Find file and directory names below an allowed directory using literal case-insensitive matching. Read roots: ${rootMap(readRoots)}`, schema: FindInput, execute: async (input) => {
+    const { root, target } = await checked(readRoots, input.root, input.path, "existing"); if (!(await stat(target)).isDirectory()) throw new DomainError("VALIDATION", "File path is not a directory"); const matches: { path: string; type: "file" | "directory" }[] = []; let truncated = false; const query = input.query.normalize("NFKC").toLocaleLowerCase("ja");
+    await walk(root, target, input.maxDepth, (path, type) => { if (path.split(/[\\/]/u).at(-1)?.normalize("NFKC").toLocaleLowerCase("ja").includes(query) === true) matches.push({ path: relativePath(root, path), type }); if (matches.length >= input.maxResults) { truncated = true; return false; } return true; });
+    return { ok: true, value: { path: relativePath(root, target), query: input.query, matches, truncated } };
+  } };
+  const grep: RegisteredTool<z.infer<typeof GrepInput>> = { name: "file_grep", description: `Search bounded text snippets below an allowed path using literal case-insensitive matching. Read roots: ${rootMap(readRoots)}`, schema: GrepInput, execute: async (input) => {
+    const { root, target } = await checked(readRoots, input.root, input.path, "existing"); const targetInfo = await stat(target); const files: string[] = []; let fileLimitReached = false; if (targetInfo.isFile()) files.push(target); else if (targetInfo.isDirectory()) await walk(root, target, MAX_FIND_DEPTH, (path, type) => { if (type === "file") files.push(path); if (files.length >= MAX_GREP_FILES) { fileLimitReached = true; return false; } return true; }); else throw new DomainError("VALIDATION", "File path is not a regular file or directory");
+    const pattern = input.pattern.normalize("NFKC").toLocaleLowerCase("ja"); const matches: { path: string; line: number; snippet: string }[] = []; let outputCharacters = 0; let outputTruncated = false;
+    for (const file of files) {
+      if ((await stat(file)).size > MAX_GREP_FILE_BYTES) continue; let content: string; try { content = await readFile(file, "utf8"); } catch { continue; } if (content.includes("\u0000")) continue; const lines = content.split(/\r?\n/u);
+      for (let index = 0; index < lines.length; index += 1) if (lines[index]?.normalize("NFKC").toLocaleLowerCase("ja").includes(pattern) === true) { const snippet = lines.slice(Math.max(0, index - input.contextLines), Math.min(lines.length, index + input.contextLines + 1)).join("\n"); const addition = relativePath(root, file).length + snippet.length; if (matches.length >= input.maxMatches || outputCharacters + addition > input.maxCharacters) { outputTruncated = true; break; } matches.push({ path: relativePath(root, file), line: index + 1, snippet }); outputCharacters += addition; }
+      if (outputTruncated) break;
+    }
+    return { ok: true, value: { path: relativePath(root, target), pattern: input.pattern, matches, truncated: fileLimitReached || outputTruncated } };
+  } };
+  const write: RegisteredTool<z.infer<typeof WriteInput>> = { name: "file_write", description: `Write an allowed file. Write roots: ${rootMap(writeRoots)}`, schema: WriteInput, execute: async (input) => { const { target } = await checked(writeRoots, input.root, input.path, "write"); await mkdir(dirname(target), { recursive: true }); await writeFile(target, input.content); return { ok: true, value: { path: input.path } }; } };
+  const remove: RegisteredTool<z.infer<typeof PathInput>> = { name: "file_delete", description: `Delete an allowed file. Write roots: ${rootMap(writeRoots)}`, schema: PathInput, execute: async (input) => { await rm((await checked(writeRoots, input.root, input.path, "existing")).target); return { ok: true, value: { path: input.path } }; } };
+  return [read, list, find, grep, write, remove];
 }

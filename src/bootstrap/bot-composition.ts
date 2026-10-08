@@ -45,7 +45,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
-    ...createFileTools(config.fileToolRoots),
+    ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
     createAgentSendTool({ queue, clock, maxHops: limits.maxHops, provenance: (context) => ({
       parentHop: context.transport?.hop ?? 0,
       expiresAt: context.transport?.expiresAt ?? new Date(clock.now().getTime() + 86_400_000).toISOString(),

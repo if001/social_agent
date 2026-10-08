@@ -73,13 +73,28 @@ describe("tools", () => {
     await expect(execute(pending, 1)).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 
-  it("keeps read, write and delete inside real roots including symlinks", async () => {
-    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const outside = await temporaryDirectory(scope); await mkdir(join(root, "sub")); await writeFile(join(outside, "secret"), "secret"); await symlink(outside, join(root, "escape"));
-    const registry = new ToolRegistry(createFileTools([root])); const context = (idempotencyKey: string) => ({ agentId: "a", runId: "r", idempotencyKey }); const signal = new AbortController().signal;
-    await registry.execute("file_write", { root: 0, path: "sub/note", content: "hello" }, context("write"), signal); expect(await readFile(join(root, "sub/note"), "utf8")).toBe("hello");
+  it("separates read and write roots and keeps access inside real roots", async () => {
+    const scope = new ResourceScope(); const readRoot = await temporaryDirectory(scope); const writeRoot = await temporaryDirectory(scope); const outside = await temporaryDirectory(scope); await mkdir(join(readRoot, "sub")); await mkdir(join(writeRoot, "sub")); await writeFile(join(readRoot, "sub", "readme.md"), "first\nneedle\nlast"); await writeFile(join(outside, "secret"), "secret"); await symlink(outside, join(readRoot, "escape"));
+    const registry = new ToolRegistry(createFileTools({ readRoots: [readRoot], writeRoots: [writeRoot] })); const context = (idempotencyKey: string) => ({ agentId: "a", runId: "r", idempotencyKey }); const signal = new AbortController().signal;
+    await registry.execute("file_write", { root: 0, path: "sub/note", content: "hello" }, context("write"), signal); expect(await readFile(join(writeRoot, "sub/note"), "utf8")).toBe("hello");
+    await expect(registry.execute("file_read", { root: 0, path: "sub/note" }, context("read-write-only"), signal)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(registry.execute("file_write", { root: 0, path: "sub/readme.md", content: "changed" }, context("write-read-only"), signal)).resolves.toMatchObject({ ok: true });
+    expect(await readFile(join(readRoot, "sub/readme.md"), "utf8")).toBe("first\nneedle\nlast");
     await expect(registry.execute("file_read", { root: 0, path: "../outside" }, context("read-parent"), signal)).rejects.toMatchObject({ code: "VALIDATION" });
     await expect(registry.execute("file_read", { root: 0, path: join(outside, "secret") }, context("read-absolute"), signal)).rejects.toMatchObject({ code: "VALIDATION" });
     await expect(registry.execute("file_read", { root: 0, path: "escape/secret" }, context("read-symlink"), signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await scope.close();
+  });
+
+  it("lists, finds, greps and reads bounded file regions", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); await mkdir(join(root, "docs", "nested"), { recursive: true }); await writeFile(join(root, "docs", "alpha.md"), "one\ntwo needle\nthree\nfour"); await writeFile(join(root, "docs", "nested", "needle-notes.txt"), "before\nNeedle here\nafter");
+    const registry = new ToolRegistry(createFileTools({ readRoots: [root], writeRoots: [] })); const signal = new AbortController().signal; const context = (idempotencyKey: string) => ({ agentId: "a", runId: "r", idempotencyKey });
+    await expect(registry.execute("file_list", { root: 0, path: "docs" }, context("list"), signal)).resolves.toMatchObject({ value: { entries: [{ name: "alpha.md", type: "file" }, { name: "nested", type: "directory" }] } });
+    await expect(registry.execute("file_find", { root: 0, path: "docs", query: "needle" }, context("find"), signal)).resolves.toMatchObject({ value: { matches: [{ path: "docs/nested/needle-notes.txt", type: "file" }] } });
+    await expect(registry.execute("file_grep", { root: 0, path: "docs", pattern: "needle", contextLines: 1 }, context("grep"), signal)).resolves.toMatchObject({ value: { matches: [{ path: "docs/alpha.md", line: 2, snippet: "one\ntwo needle\nthree" }, { path: "docs/nested/needle-notes.txt", line: 2, snippet: "before\nNeedle here\nafter" }] } });
+    await expect(registry.execute("file_read", { root: 0, path: "docs/alpha.md", mode: "range", startLine: 2, maxLines: 2 }, context("range"), signal)).resolves.toMatchObject({ value: { startLine: 2, endLine: 3, content: "two needle\nthree", truncated: true, nextStartLine: 4 } });
+    await expect(registry.execute("file_read", { root: 0, path: "docs/alpha.md", mode: "tail", maxLines: 2 }, context("tail"), signal)).resolves.toMatchObject({ value: { startLine: 3, content: "three\nfour", truncated: false } });
+    await expect(registry.execute("file_read", { root: 0, path: "docs/alpha.md", maxCharacters: 2 }, context("bounded"), signal)).resolves.toMatchObject({ value: { content: "on", truncated: true, lineTruncated: true, nextStartLine: 2 } });
     await scope.close();
   });
 });
