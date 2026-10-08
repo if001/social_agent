@@ -300,11 +300,23 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,review_after) VALUES ('due-candidate','a','selfNarrative','Review me','pending','Due','2026-01-01')");
     const first = new PostgresScheduleRepository(pool); const second = new PostgresScheduleRepository(pool);
     const claims = await Promise.all([first.claimDue(new Date("2026-01-02T00:00:00Z"), 10), second.claimDue(new Date("2026-01-02T00:00:00Z"), 10)]);
-    expect(claims.flat().map(({ id }) => id).sort()).toEqual(["due-1", "due-candidate"]);
-    await first.complete({ id: "due-1", agentId: "a", kind: "intention", reason: "Review goal" }, null);
+    const claimed = claims.flat(); const claimedIds = claimed.map(({ id }) => id);
+    expect(claimedIds.filter((id) => id === "due-1")).toHaveLength(1);
+    expect(claimedIds.filter((id) => id === "due-candidate")).toHaveLength(1);
+    expect(new Set(claimedIds).size).toBe(claimedIds.length);
+    for (const target of claimed.filter(({ kind }) => kind === "intention")) await first.complete(target, new Date("2026-01-04T00:00:00Z"));
     await pool.query("UPDATE long_term_candidates SET status='kept' WHERE id='due-candidate'");
     await first.complete({ id: "due-candidate", agentId: "a", kind: "long-term-review", reason: "Due", candidateIds: ["due-candidate"] }, null);
     expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
+  });
+
+  it("recovers active intentions that have neither a trigger nor a review time", async () => {
+    await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('orphan-intention','a','Follow up later','Missing review path','active')");
+    const repository = new PostgresScheduleRepository(pool);
+    const claimed = await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10);
+    expect(claimed).toContainEqual({ id: "orphan-intention", agentId: "a", kind: "intention", reason: "Follow up later" });
+    await repository.complete({ id: "orphan-intention", agentId: "a", kind: "intention", reason: "Follow up later" }, new Date("2026-01-03T00:00:00Z"));
+    expect((await pool.query<{ next_review_at: Date }>("SELECT next_review_at FROM intentions WHERE id='orphan-intention'")).rows[0]?.next_review_at.toISOString()).toBe("2026-01-03T00:00:00.000Z");
   });
 
   it("shares correlation-loop and rate limits across Runtime instances", async () => {
@@ -432,7 +444,7 @@ describeDatabase("PostgreSQL persistence", () => {
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
     const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "continuity-job", "memory-job", "interest-new", "intention-new", "state-change-mood", "state-change-social", "state-change-drive", "state-change-interest", "memory-new", "candidate-job", "candidate-new"]), () => new Date(fixtureInstant), memoryEmbedding);
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "continuity-job", "memory-job", "interest-new", "intention-new", "intention-time", "state-change-mood", "state-change-social", "state-change-drive", "state-change-interest", "memory-new", "candidate-job", "candidate-new"]), () => new Date(fixtureInstant), memoryEmbedding);
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
@@ -450,7 +462,7 @@ describeDatabase("PostgreSQL persistence", () => {
     }
     const job = await persistence.claimPostProcess("a", "runtime-run"); if (job === undefined) throw new Error("Post-process job was not created");
     if (job.type !== "continuity") throw new Error("Continuity job was not created");
-    await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], driveProposals: [{ operation: "create", description: "Understand the exchange", reason: "The event remains meaningful", evidenceIds: ["runtime-event"] }], currentInterestProposals: [{ operation: "create", question: "What made the exchange useful?", goal: "Explain the useful part", progress: 25, reason: "The interaction created a concrete question", evidenceIds: ["runtime-event"] }], intentionProposals: [{ operation: "create", description: "Follow up", reason: "Still relevant" }, { operation: "update", intentionId: "existing-intention", status: "completed", reason: "Finished" }] });
+    await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], driveProposals: [{ operation: "create", description: "Understand the exchange", reason: "The event remains meaningful", evidenceIds: ["runtime-event"] }], currentInterestProposals: [{ operation: "create", question: "What made the exchange useful?", goal: "Explain the useful part", progress: 25, reason: "The interaction created a concrete question", evidenceIds: ["runtime-event"] }], intentionProposals: [{ operation: "create", description: "Follow up", reason: "Still relevant" }, { operation: "create", description: "Review at the requested time", reason: "Time-specific follow-up", trigger: { kind: "time", at: "2026-01-03T00:00:00Z" } }, { operation: "update", intentionId: "existing-intention", status: "completed", reason: "Finished" }] });
     const memoryJob = await persistence.claimPostProcess("a", "runtime-run"); if (memoryJob?.type !== "memory") throw new Error("Memory job was not created");
     await persistence.completePostProcess(memoryJob, { memoryProposals: [{ content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }, { content: "A useful exchange", relatedSubjectIds: ["owner"], relatedIntentionIds: ["existing-intention"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }] });
     const candidateJob = await persistence.claimPostProcess("a", "runtime-run"); if (candidateJob?.type !== "candidate") throw new Error("Candidate job was not created");
@@ -458,6 +470,8 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ agent_id: string }>("SELECT agent_id FROM memories WHERE id='memory-new'")).rows[0]?.agent_id).toBe("a");
     expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='memory-new'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
     expect((await pool.query<{ status: string }>("SELECT status FROM intentions WHERE id='existing-intention'")).rows[0]?.status).toBe("completed");
+    expect((await pool.query<{ next_review_at: Date }>("SELECT next_review_at FROM intentions WHERE id='intention-new'")).rows[0]?.next_review_at.toISOString()).toBe(new Date(Date.parse(fixtureInstant) + 86_400_000).toISOString());
+    expect((await pool.query<{ next_review_at: Date }>("SELECT next_review_at FROM intentions WHERE id='intention-time'")).rows[0]?.next_review_at.toISOString()).toBe("2026-01-03T00:00:00.000Z");
     expect((await pool.query<{ agent_id: string; status: string }>("SELECT agent_id,status FROM long_term_candidates WHERE id='candidate-new'")).rows[0]).toMatchObject({ agent_id: "a", status: "pending" });
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM memories WHERE evidence_event_ids ? 'runtime-event' AND content='A useful exchange'")).rows[0]?.count).toBe("1");
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM long_term_candidates WHERE proposed_value='I follow through'")).rows[0]?.count).toBe("1");

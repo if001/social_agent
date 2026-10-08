@@ -19,7 +19,7 @@ run、observation、直近のobservation、persona、self、現在のdynamicStat
 - persistentStateUpdates: targetは mood | socialContextだけです。operation、value、reason、evidenceIdsを必ず指定します
 - driveProposals: 比較的持続して求めることの生成、維持、更新、統合、終了を提案します。operationはcreate | maintain | update | merge | endです。意味内容、理由、入力に存在するEventまたはMemoryのevidenceIdsを必須とし、ID、所有Agent、sinceは出力しません
 - currentInterestProposals: Knowledge Gapのcreate | progress | reframe | resolve | dropです。createはquestion、goal、progress、progressはinterestIdと新しい段階値、reframeはinterestId、question、goal、progress、resolve / dropはinterestIdを返します。progressは0 | 25 | 50 | 75 | 100だけです。reasonと入力に存在するevidenceIdsを必須とし、保存ID、時刻、停滞回数、cooldownは出力しません
-- intentionProposals: 新規はoperation=create、description、reasonを必須とします。既存更新はoperation=update、intentionId、reasonを必須とします
+- intentionProposals: 新規はoperation=create、description、reasonを必須とし、実行契機が明確ならtriggerまたはnextReviewAtを指定します。既存更新はoperation=update、intentionId、reasonを必須とします。時刻、Event、idle、manual-reviewのどれを契機に再評価するか判断できる場合はtriggerを指定してください。指定しない新規IntentionにはRuntimeが既定の再評価時刻を付与します
 
 判断:
 1. ObservationとInteractionのsubjectiveMeaningから、今回の出来事がこのAgentにとって持つ主観的価値を確認します。

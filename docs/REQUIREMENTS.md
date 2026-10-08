@@ -234,6 +234,8 @@ Agent Coreへ渡す上限はSocial Context 6件、Active Intention 6件とし、
 
 Intentionは少なくともActive、Completed、Dropped、Supersededを区別し、関連Event、Trigger成立、時間経過、Drive競合、前提変更、長期放置によって再評価できなければならない。
 
+Active Intentionは必ず再評価経路を持たなければならない。`time` Triggerは指定時刻、`idle` Triggerは作成時または最後の非Scheduler Eventからの期限、`event`と`manual-review` Triggerは条件成立時に`nextReviewAt`へ具体化する。Triggerを指定しない新規IntentionにはRuntimeが既定の再評価時刻を付与する。LLMが時刻を省略したことだけを理由に、起動不能なActive Intentionを保存してはならない。既存の`trigger`も`nextReviewAt`もないActive IntentionはSchedulerが診断・回収し、通常のIntention Reviewへ送らなければならない。
+
 #### FR-AU-02: Internal Event
 
 Internal EventはRuntimeが保存済み状態と構成済みTriggerから生成しなければならない。Agent Coreが制限なく自分自身を再起動する仕組みにしてはならない。
@@ -250,7 +252,7 @@ Drive、Current Interest、Intentionがすべて空でも、通常CoreはStable 
 
 Runtimeは現在のKnowledge Gapに関係する直近の試行を、保存済みAgent Run、Event、Action、Tool execution、State Changeから有界なContext projectionとして構成する。Projectionは行動種別、質問またはTool入力の短い要約、結果Observation、実行時刻、progress変化を含められるが、Current Interestの正本へ履歴を複製しない。Agent Coreは進展しなかった行動を同じ形で反復せず、同じGoalを追う場合は方法、問い方、対象または時機を変える。無応答や話題変更を固定的に拒否とみなさず、現在文脈で意味づける。
 
-Schedulerの走査、Autonomy Review、State Review、Memory Recall、Persistent Driveの初回待機と再検討、失敗時retry、leaseは個別の環境変数で設定できなければならない。各変数は`.env.sample`に単位と用途を説明するコメントを持ち、初期化時と実行時で同じ値を使用する。
+Schedulerの走査、Autonomy Review、State Review、Memory Recall、Intention Review、Persistent Driveの初回待機と再検討、失敗時retry、leaseは個別の環境変数で設定できなければならない。各変数は`.env.sample`に単位と用途を説明するコメントを持ち、初期化時と実行時で同じ値を使用する。
 
 自律的なWebページ取得も通常Tool経路を使い、ページ本文とURLはWeb Archiveへ保存する。後処理は重要な経験を「何を調べ、何を確認したか」というEpisodic Memoryへ要約し、Web Snapshot IDを根拠として関連づける。外部配送先がない場合もAgent Run、Tool trace、状態、Memoryを保存し、応答だけを配送しない。
 
