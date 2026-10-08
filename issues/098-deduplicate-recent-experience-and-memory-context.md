@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-08
-status: created
+status: done
 ---
 
 # 098: Recent ExperienceとMemoryのContext重複を抑制する

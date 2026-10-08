@@ -156,7 +156,7 @@ export const MemoryRetrievalTraceSchema = z.object({
   matchedBy: z.array(z.enum(["vector", "keyword", "subject", "intention", "recency"])),
   kind: MemorySchema.shape.kind,
   selected: z.boolean(),
-  exclusionReason: z.enum(["rank-limit", "category-diversity", "context-budget"]).optional()
+  exclusionReason: z.enum(["rank-limit", "category-diversity", "context-budget", "recent-experience-duplicate"]).optional()
 });
 export type MemoryRetrievalTrace = z.infer<typeof MemoryRetrievalTraceSchema>;
 
