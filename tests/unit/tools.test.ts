@@ -18,19 +18,31 @@ describe("tools", () => {
     expect(canonicalizeWebUrl("HTTPS://Example.COM:443/page?b=2&a=1#section")).toBe("https://example.com/page?a=1&b=2");
   });
   it("exposes each registered input schema to the Agent", () => {
-    const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), execute: () => Promise.resolve({ ok: true }) }]);
+    const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true }) }]);
     expect(registry.definitions()[0]?.inputSchema).toMatchObject({ type: "object", required: ["value"] });
   });
 
+  it("projects content-read results to metadata outside the immediate and audit destinations", () => {
+    const registry = new ToolRegistry([{ name: "reader", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
+    const result = { path: "notes/a.md", content: "secret body", matches: [{ line: 2, snippet: "secret match" }], truncated: true };
+    expect(registry.projectResult("reader", result, "immediate")).toEqual(result);
+    expect(registry.projectResult("reader", result, "audit")).toEqual(result);
+    for (const destination of ["conversation-history", "recent-experience", "post-process"] as const) {
+      const projected = registry.projectResult("reader", result, destination);
+      expect(JSON.stringify(projected)).not.toContain("secret");
+      expect(projected).toEqual({ path: "notes/a.md", contentCharacters: 11, matches: [{ line: 2, snippetCharacters: 12 }], truncated: true });
+    }
+  });
+
   it("rejects unknown tools and invalid input before side effects", async () => {
-    let calls = 0; const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), execute: () => { calls += 1; return Promise.resolve({ ok: true }); } }]);
+    let calls = 0; const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { calls += 1; return Promise.resolve({ ok: true }); } }]);
     await expect(registry.execute("missing", {}, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(registry.execute("known", {}, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" }); expect(calls).toBe(0);
   });
 
   it("returns the same execution for a repeated idempotency key and rejects conflicting input", async () => {
     let calls = 0;
-    const registry = new ToolRegistry([{ name: "write", description: "Write", schema: z.object({ value: z.string() }), execute: () => { calls += 1; return Promise.resolve({ ok: true, value: calls }); } }]);
+    const registry = new ToolRegistry([{ name: "write", description: "Write", schema: z.object({ value: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { calls += 1; return Promise.resolve({ ok: true, value: calls }); } }]);
     const context = { agentId: "a", runId: "r", idempotencyKey: "r:tool-1" };
     await expect(registry.execute("write", { value: "same" }, context, new AbortController().signal)).resolves.toEqual({ ok: true, value: 1 });
     await expect(registry.execute("write", { value: "same" }, context, new AbortController().signal)).resolves.toEqual({ ok: true, value: 1 });

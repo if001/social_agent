@@ -99,19 +99,15 @@ export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey:
 export class ToolExecutionCollector {
   count = 0;
   modelCallCount = 0;
-  webArchiveTextCharacters = 0;
-  webArchiveReservedCharacters = 0;
+  contentReadCharacters = 0;
+  contentReadReservedCharacters = 0;
   readonly executions: ToolExecutionRecord[] = [];
 }
 
-const WEB_ARCHIVE_RUN_TEXT_BUDGET = 6_000;
-const rawWebArchiveTools = new Set(["web_archive_read", "web_archive_grep"]);
-function webArchiveTextCharacters(value: unknown): number {
+function contentTextCharacters(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((total: number, item) => total + contentTextCharacters(item), 0);
   if (typeof value !== "object" || value === null) return 0;
-  const record = value as Record<string, unknown>;
-  if (typeof record.text === "string") return record.text.length;
-  if (!Array.isArray(record.matches)) return 0;
-  return record.matches.reduce((total: number, item: unknown) => total + (typeof item === "object" && item !== null && typeof (item as Record<string, unknown>).text === "string" ? ((item as Record<string, unknown>).text as string).length : 0), 0);
+  return Object.entries(value).reduce((total, [key, item]) => total + (["content", "text", "markdown", "snippet"].includes(key) && typeof item === "string" ? item.length : contentTextCharacters(item)), 0);
 }
 
 export type DeepAgentToolRunContext = {
@@ -158,14 +154,15 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: "Tool call limit exceeded", startedAt, finishedAt });
       throw new DomainError("VALIDATION", "Tool call limit exceeded");
     }
-    const requestedWebArchiveCharacters = rawWebArchiveTools.has(name) ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : 2_000) : 0;
-    if (requestedWebArchiveCharacters > 0 && context.collector.webArchiveReservedCharacters + requestedWebArchiveCharacters > WEB_ARCHIVE_RUN_TEXT_BUDGET) {
-      const finishedAt = now().toISOString(); const error = `Web archive text budget exceeded (${String(WEB_ARCHIVE_RUN_TEXT_BUDGET)} characters per run)`;
+    const policy = registry.resultPolicy(name);
+    const requestedContentCharacters = policy?.kind === "content-read" ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : policy.defaultRequestCharacters) : 0;
+    if (policy?.kind === "content-read" && context.collector.contentReadReservedCharacters + requestedContentCharacters > policy.runCharacterBudget) {
+      const finishedAt = now().toISOString(); const error = `Content-read text budget exceeded (${String(policy.runCharacterBudget)} characters per run)`;
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
       logger.log("warn", "tool.completed", { ok: false, errorCode: "CONTEXT_BUDGET", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify({ ok: false, error });
     }
-    context.collector.webArchiveReservedCharacters += requestedWebArchiveCharacters;
+    context.collector.contentReadReservedCharacters += requestedContentCharacters;
     const signature = JSON.stringify({ tool: name, input: rawInput });
     if (context.recentToolInputs.includes(signature)) {
       const finishedAt = now().toISOString();
@@ -176,7 +173,7 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };
       const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }) }, context.signal);
       const finishedAt = now().toISOString();
-      if (result.ok) { if (rawWebArchiveTools.has(name)) context.collector.webArchiveTextCharacters += webArchiveTextCharacters(result.value); context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt }); }
+      if (result.ok) { if (policy?.kind === "content-read") context.collector.contentReadCharacters += contentTextCharacters(result.value); context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt }); }
       else context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
       logger.log(result.ok ? "info" : "warn", "tool.completed", { ok: result.ok, elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify(result);
@@ -273,29 +270,28 @@ function parsedRecord(content: unknown): Record<string, unknown> | undefined {
 }
 function recordArray(value: unknown): readonly Record<string, unknown>[] { return Array.isArray(value) ? (value as unknown[]).filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : []; }
 
-function compactToolContent(name: string | undefined, content: unknown): string {
+function compactToolContent(name: string | undefined, content: unknown, registry?: ToolRegistry): string {
   const original = serializeMessageContent(content); const envelope = parsedRecord(content); const value = envelope?.value;
+  if (name !== undefined && registry?.resultPolicy(name)?.kind === "content-read") return JSON.stringify(registry.projectResult(name, envelope ?? content, "conversation-history"));
   if (typeof value !== "object" || value === null) return original.length <= 800 ? original : `${original.slice(0, 800)}…`;
   const record = value as Record<string, unknown>;
   const results = recordArray(record.results); const documents = recordArray(record.documents);
   if (name === "web_list" && results.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { query: record.query, resultCount: results.length, results: results.slice(0, 5).map((item) => ({ title: item.title, url: item.url })) } });
   if (name === "web_page" && documents.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { documents: documents.map((item) => ({ snapshotId: item.snapshotId, url: item.url, title: item.title, summary: item.summary, ...(item.status === "ready" ? {} : { status: item.status }) })) } });
   if (name === "web_archive_search" && results.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { resultCount: results.length, results: results.slice(0, 5).map((item) => ({ snapshotId: item.snapshotId, url: item.url, title: item.title })) } });
-  if (name === "web_archive_read") return JSON.stringify({ ok: envelope?.ok, value: { snapshotId: record.snapshotId, offset: record.offset, textCharacters: typeof record.text === "string" ? record.text.length : 0, truncated: record.truncated } });
-  if (name === "web_archive_grep") return JSON.stringify({ ok: envelope?.ok, value: { snapshotId: record.snapshotId, matchCount: Array.isArray(record.matches) ? record.matches.length : 0, truncated: record.truncated } });
   return original.length <= 800 ? original : `${original.slice(0, 800)}…`;
 }
 
-export function compactPriorToolMessages(messages: readonly unknown[]): readonly unknown[] {
+export function compactPriorToolMessages(messages: readonly unknown[], registry?: ToolRegistry): readonly unknown[] {
   let trailingStart = messages.length; while (trailingStart > 0 && ToolMessage.isInstance(messages[trailingStart - 1])) trailingStart -= 1;
   return messages.map((message, index) => {
     if (index >= trailingStart || !ToolMessage.isInstance(message)) return message;
-    return new ToolMessage({ content: compactToolContent(message.name, message.content), tool_call_id: message.tool_call_id, ...(message.name === undefined ? {} : { name: message.name }), ...(message.status === undefined ? {} : { status: message.status }) });
+    return new ToolMessage({ content: compactToolContent(message.name, message.content, registry), tool_call_id: message.tool_call_id, ...(message.name === undefined ? {} : { name: message.name }), ...(message.status === undefined ? {} : { status: message.status }) });
   });
 }
 
-export function createToolHistoryCompactionMiddleware(): unknown {
-  return createMiddleware({ name: "AgentCoreToolHistoryCompactionMiddleware", wrapModelCall: (request, handler) => handler({ ...request, messages: compactPriorToolMessages(request.messages) as typeof request.messages }) });
+export function createToolHistoryCompactionMiddleware(registry?: ToolRegistry): unknown {
+  return createMiddleware({ name: "AgentCoreToolHistoryCompactionMiddleware", wrapModelCall: (request, handler) => handler({ ...request, messages: compactPriorToolMessages(request.messages, registry) as typeof request.messages }) });
 }
 
 function serializeMessageContent(content: unknown): string {
@@ -389,7 +385,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     createFilesystemMiddleware({ tools: ["read_file"] }),
     createSubAgentMiddleware({ defaultModel: model, defaultTools: [], subagents: [], generalPurposeAgent: false }),
     createSummarizationMiddleware({ model, backend: new StateBackend(), trigger: { type: "tokens", value: 16_000 }, keep: { type: "messages", value: 6 }, trimTokensToSummarize: 12_000, truncateArgsSettings: { trigger: { type: "tokens", value: 12_000 }, keep: { type: "messages", value: 8 }, maxLength: 1_000 } }),
-    createToolHistoryCompactionMiddleware(),
+    createToolHistoryCompactionMiddleware(config.toolRegistry),
     createAgentCoreMiddleware(config.toolRegistry, logger, now)
   ];
   const factory: ReusableDeepAgentFactory = config.agentFactory ?? ((options) => createDeepAgent({

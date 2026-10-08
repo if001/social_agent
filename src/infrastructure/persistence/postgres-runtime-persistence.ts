@@ -2,6 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
+import type { ToolRegistry } from "../../application/tool-registry.js";
 import { applyCurrentInterestProposals, applyDriveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
 import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, canTransitionIntention, ContinuityInputSchema, ContinuityOutputSchema, DomainError, IntentionTriggerSchema, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type ContinuityOutput, type DomainEvent, type Intention, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
@@ -13,7 +14,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0, private readonly intentionReviewIntervalMs = 86_400_000) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0, private readonly intentionReviewIntervalMs = 86_400_000, private readonly tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -146,7 +147,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const toolResults = result.toolExecutions.map((execution) => {
       const snapshotIds: string[] = []; const collect = (value: unknown): void => { if (Array.isArray(value)) value.forEach(collect); else if (typeof value === "object" && value !== null) for (const [key, item] of Object.entries(value)) { if (/snapshotId/i.test(key) && typeof item === "string") snapshotIds.push(item); collect(item); } };
       collect(execution.result);
-      return { name: execution.name, ok: execution.ok, summary: (execution.ok ? JSON.stringify(execution.result ?? null) : execution.error ?? "Tool failed").slice(0, 2_000), webSnapshotIds: [...new Set(snapshotIds)] };
+      const projected = execution.ok ? this.tools?.projectResult(execution.name, execution.result ?? null, "post-process") ?? execution.result ?? null : execution.error ?? "Tool failed";
+      return { name: execution.name, ok: execution.ok, summary: JSON.stringify(projected).slice(0, 2_000), webSnapshotIds: [...new Set(snapshotIds)] };
     });
     return { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentExperiences: input.recentExperiences, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, intentions: input.intentions, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults } };
   }

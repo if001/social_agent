@@ -254,6 +254,8 @@ Runtimeは現在のKnowledge Gapに関係する直近の試行を、保存済み
 
 File Toolは参照可能rootと変更可能rootを別設定にしなければならない。read、list、find、grepは参照rootだけ、write、deleteは変更rootだけを使用し、root外pathとroot外symlinkを拒否しなければならない。`file_read`はhead、tailまたは行範囲と文字数上限による部分取得とし、ファイル全文を無制限にTool Resultへ含めてはならない。list、名前検索、本文検索も深度、件数、探索file数、出力文字数を制限し、必要箇所を絞ってから読む経路を提供しなければならない。
 
+本文を返すToolはTool登録時に共通のResult公開Policyを宣言しなければならない。呼出し直後のModel CallにはTool自身が制限した本文を渡せるが、過去の同一run Tool Message、Recent Experience、post-processへ本文を再投入してはならず、参照先、取得範囲、件数、文字数、切断状態等のmetadataへ共通処理で投影しなければならない。監査用Tool実行記録は有界な元結果を保持する。本文取得量はTool単位に加えて、本文取得Toolを横断する1 run共通予算で制限しなければならない。
+
 Schedulerの走査、Autonomy Review、State Review、Memory Recall、Intention Review、Persistent Driveの初回待機と再検討、失敗時retry、leaseは個別の環境変数で設定できなければならない。各変数は`.env.sample`に単位と用途を説明するコメントを持ち、初期化時と実行時で同じ値を使用する。
 
 自律的なWebページ取得も通常Tool経路を使い、ページ本文とURLはWeb Archiveへ保存する。後処理は重要な経験を「何を調べ、何を確認したか」というEpisodic Memoryへ要約し、Web Snapshot IDを根拠として関連づける。外部配送先がない場合もAgent Run、Tool trace、状態、Memoryを保存し、応答だけを配送しない。

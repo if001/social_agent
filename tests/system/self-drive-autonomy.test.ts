@@ -15,7 +15,7 @@ describe("Stable Interest → autonomous action", () => {
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);
 
     let toolCalls = 0;
-    const registry = new ToolRegistry([{ name: "web_page", description: "Read and archive a page", schema: z.object({ urls: z.url() }), execute: () => { toolCalls += 1; return Promise.resolve({ ok: true, value: { docs: [], archivedSnapshots: [{ snapshotId: "snapshot-1" }] } }); } }]);
+    const registry = new ToolRegistry([{ name: "web_page", description: "Read and archive a page", schema: z.object({ urls: z.url() }), resultPolicy: { kind: "standard" }, execute: () => { toolCalls += 1; return Promise.resolve({ ok: true, value: { docs: [], archivedSnapshots: [{ snapshotId: "snapshot-1" }] } }); } }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
       const prompt = modelInput.messages[0]?.content ?? "";
       expect(prompt).toContain(ao.agent.initialDisposition); expect(prompt).toContain("Agentが経験や対話から変化していく仕組み"); expect(prompt).toContain('"drives":[]'); expect(prompt).toContain('"currentInterests":[]');

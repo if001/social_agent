@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { parse } from "dotenv";
 import { Pool } from "pg";
+import { z } from "zod";
 
 import { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "../../src/infrastructure/persistence/postgres.js";
 import { PostgresEventTransaction } from "../../src/infrastructure/persistence/event-transaction.js";
@@ -213,11 +214,13 @@ describeDatabase("PostgreSQL persistence", () => {
 
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "archive-memory-run", eventId: "archive-memory-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.availableTools = [{ name: "web_archive_read", description: "Archive", inputSchema: {} }];
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-continuity-job", "archive-memory-job", "archive-memory"]), () => new Date(fixtureInstant));
-    const toolExecution = { callId: "tool-1", runId: "archive-memory-run", eventId: "archive-memory-event", name: "web_archive_read", input: { snapshotId: first[0]?.snapshotId }, ok: true as const, result: { snapshotId: first[0]?.snapshotId }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-continuity-job", "archive-memory-job", "archive-memory"]), () => new Date(fixtureInstant), undefined, 0, 86_400_000, registry);
+    const toolExecution = { callId: "tool-1", runId: "archive-memory-run", eventId: "archive-memory-event", name: "web_archive_read", input: { snapshotId: first[0]?.snapshotId }, ok: true as const, result: { snapshotId: first[0]?.snapshotId, offset: 0, text: "raw page must not enter post-process", truncated: true }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
     const runResult = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
     await persistence.commit(messageFixture({ id: "archive-memory-message", destination: "a" }), { id: "archive-memory-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} }, input, runResult, { state: input.dynamicState, changes: [] }, []);
     const archiveJob = await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveJob === undefined) throw new Error("Post-process job was not created");
+    expect(JSON.stringify(archiveJob.input)).not.toContain("raw page must not enter post-process");
+    expect(JSON.stringify(archiveJob.input)).toContain("textCharacters");
     if (archiveJob.type === "continuity") await persistence.completePostProcess(archiveJob, { persistentStateUpdates: [], driveProposals: [], currentInterestProposals: [], intentionProposals: [] });
     const archiveMemoryJob = archiveJob.type === "memory" ? archiveJob : await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveMemoryJob?.type !== "memory") throw new Error("Memory job was not created");
     await persistence.completePostProcess(archiveMemoryJob, { memoryProposals: [{ content: "Vector index options were investigated", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful research", retrievalPriority: "normal", webSnapshotIds: [first[0]?.snapshotId ?? ""] }] });
@@ -238,9 +241,10 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('failed-experience-a','a','internal',$1,'scheduler','failed',now())", [JSON.stringify({ eventId: "failed-experience-a", summary: "failed exploration", facts: [], observedAt: new Date().toISOString(), kind: "internal" })]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,failure_reason,started_at,finished_at) VALUES ('failed-run-a','a','failed-experience-a',0,NULL,'provider timeout',now(),now())");
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-tool-a','failed-run-a','failed-experience-a','call-1','web_list',$1,$2,NULL,now(),now())", [JSON.stringify({ q: "agent memory" }), JSON.stringify({ results: [] })]);
+    await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-file-tool-a','failed-run-a','failed-experience-a','call-2','file_read',$1,$2,NULL,now(),now())", [JSON.stringify({ path: "notes.md" }), JSON.stringify({ path: "notes.md", content: "raw file must not enter recent experiences", truncated: false })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const loader = new PostgresAgentContextLoader({
-      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry(createWebTools("http://web.local")),
+      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry([...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]),
       persona: { version: 1, identity: { displayName: "Agent A" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } },
       budget: { maxTokens: 10_000, maxMemories: 10, maxSocialContexts: 10 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
@@ -263,11 +267,13 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("attempt-event-b");
     expect(input.recentExperiences.find(({ eventId }) => eventId === "failed-experience-a")?.steps).toEqual([
       { type: "tool", name: "web_list", input: { q: "agent memory" }, result: { results: [] }, ok: true },
+      { type: "tool", name: "file_read", input: { path: "notes.md" }, result: { path: "notes.md", contentCharacters: 42, truncated: false }, ok: true },
       { type: "failure", reason: "provider timeout" }
     ]);
+    expect(JSON.stringify(input.recentExperiences)).not.toContain("raw file must not enter recent experiences");
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
-    expect(input.availableTools.map(({ name }) => name)).toEqual(["web_list", "web_page"]);
+    expect(input.availableTools.map(({ name }) => name)).toEqual(["web_list", "web_page", "file_read"]);
     const allowed = await loader.load({ id: "context-event-2", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
     expect(allowed.availableTools.map(({ name }) => name)).toEqual(input.availableTools.map(({ name }) => name));
     const other = await loader.load({ id: "context-event-b", agentId: "b", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });

@@ -11,7 +11,30 @@ export type ToolExecutionContext = {
   readonly idempotencyKey: string;
   readonly transport?: { readonly hop: number; readonly expiresAt: string; readonly replyTo?: string };
 };
-export type RegisteredTool<T = unknown> = { readonly name: string; readonly description: string; readonly schema: z.ZodType<T>; execute(input: T, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> };
+export type ToolResultPolicy =
+  | { readonly kind: "standard" }
+  | { readonly kind: "content-read"; readonly defaultRequestCharacters: number; readonly runCharacterBudget: number };
+export type ToolResultDestination = "immediate" | "conversation-history" | "recent-experience" | "post-process" | "audit";
+export type RegisteredTool<T = unknown> = { readonly name: string; readonly description: string; readonly schema: z.ZodType<T>; readonly resultPolicy: ToolResultPolicy; execute(input: T, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> };
+
+const bodyKeys = new Set(["content", "text", "markdown", "snippet"]);
+function metadataOnly(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(metadataOnly);
+  if (typeof value !== "object" || value === null) return value;
+  const projected: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (bodyKeys.has(key) && typeof item === "string") projected[`${key}Characters`] = item.length;
+    else projected[key] = metadataOnly(item);
+  }
+  return projected;
+}
+
+export function projectToolResult(policy: ToolResultPolicy | undefined, result: unknown, destination: ToolResultDestination): unknown {
+  if (destination === "immediate" || destination === "audit") return result;
+  if (policy?.kind === "content-read") return metadataOnly(result);
+  const serialized = JSON.stringify(result ?? null);
+  return serialized.length <= 800 ? result : { summary: `${serialized.slice(0, 800)}…`, originalCharacters: serialized.length };
+}
 
 export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
@@ -21,6 +44,8 @@ export class ToolRegistry {
   }
   definitions(): readonly { name: string; description: string; inputSchema: Record<string, unknown> }[] { return [...this.#tools.values()].map(({ name, description, schema }) => ({ name, description, inputSchema: z.toJSONSchema(schema) })); }
   registered(): readonly RegisteredTool[] { return [...this.#tools.values()]; }
+  resultPolicy(name: string): ToolResultPolicy | undefined { return this.#tools.get(name)?.resultPolicy; }
+  projectResult(name: string, result: unknown, destination: ToolResultDestination): unknown { return projectToolResult(this.resultPolicy(name), result, destination); }
   async execute(name: string, input: unknown, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> {
     const tool = this.#tools.get(name);
     if (tool === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${name}`);

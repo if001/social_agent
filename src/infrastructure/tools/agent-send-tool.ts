@@ -10,7 +10,7 @@ export type AgentMessageProvenance = { readonly parentHop: number; readonly expi
 export type AgentSendOptions = { readonly queue: MessageQueue; readonly clock: Clock; readonly maxHops: number; readonly provenance: (context: ToolExecutionContext) => AgentMessageProvenance };
 
 export function createAgentSendTool(options: AgentSendOptions): RegisteredTool<z.infer<typeof Input>> {
-  return { name: "agent_send", description: "Send information to another agent", schema: Input, execute: async (input, context) => {
+  return { name: "agent_send", description: "Send information to another agent", schema: Input, resultPolicy: { kind: "standard" }, execute: async (input, context) => {
     const provenance = options.provenance(context); const hop = provenance.parentHop + 1; const now = options.clock.now();
     if (hop > options.maxHops) throw new DomainError("VALIDATION", "Agent message hop limit exceeded");
     if (Date.parse(provenance.expiresAt) <= now.getTime()) throw new DomainError("VALIDATION", "Agent message TTL expired");
