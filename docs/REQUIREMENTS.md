@@ -210,6 +210,12 @@ Context BuilderはAgent Coreへ渡すSelf、Disposition、動的状態、Social 
 
 Memory Retrieverが確定した関連度順をContext Builderが新しさ等の別基準で並べ替えてはならない。3種類のMemoryは、関連する種類の予約枠と全体順位による残り枠を組み合わせ、件数を満たすためだけに無関係なMemoryを投入せず、最終的にContext budget内へ収める。
 
+Social ContextとActive Intentionは全件取得後の単純な更新日時順で選ばず、Observationのactor／明示subject、schedulerの直接対象、成立Trigger、期限、Current Interest、関連Memoryの明示linkに基づいて選択しなければならない。Memory検索前のseed選択と検索後のlink補完を分け、自由文からsubject IDを推測してはならない。
+
+Agent Coreへ渡す上限はSocial Context 6件、Active Intention 6件とし、fallbackは各カテゴリ最大2件とする。Social Context本文は1件600文字、Intentionのdescriptionとreasonは各500文字までに制限する。関連候補がなければ空配列を許容し、fallback状態が関連MemoryをContext budgetから押し出してはならない。
+
+選択処理は候補総数、採用IDと選択理由、理由別除外件数、必須候補のoverflow、再評価経路がないactive Intention件数、context budgetによる除外を本文なしで観測可能にしなければならない。`trigger`も`nextReviewAt`もないactive Intentionは診断対象とし、古さだけで自動削除せず、直接または関連linkがある場合だけ通常Contextへ含めなければならない。
+
 #### FR-ME-05: 個体間分離
 
 あるAgent自身のMemoryを、別Agent自身の経験として同期してはならない。bot間で受け取った情報には送信元と伝達された情報であることを保持しなければならない。

@@ -304,6 +304,25 @@ interface ContextBuilder {
 
 `availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。Tool JSON SchemaはDeep AgentのTool登録経路でmodelへ渡すため、Agent Coreのuser入力JSONにはTool名と短い説明だけを含める。長期状態や全Memoryを無条件に投入しない。Recent ObservationはUser、Agent、External、Internal Eventを優先して`tool-result`を除外し、Tool履歴はboundedなRecent Attempt、Memory、Web Snapshot metadataから構成する。現在Observation、履歴、Self長文、Dynamic State、Active Intentionにも件数・文字数上限を設け、各カテゴリを優先順位に従ってmodelのContext budget内へ収める。
 
+#### 5.5.1 Social ContextとActive Intentionの関連選択
+
+Social ContextとActive Intentionは、Agentが所有する全件を更新日時順で渡さない。Context LoaderはDBから有界な候補を取得し、Context Builderは明示的なID、Trigger、期限、Memory linkを使って決定的に順位づける。本文をLLMへ渡して関連度を判定する前処理は追加しない。
+
+選択はMemory検索との循環を避けるため、次の2段階で行う。
+
+1. Observationと保存済み状態だけでseedを選ぶ。Social Contextは`observation.actor.id`およびEventが正規化済みIDとして明示するsubjectを優先する。Intentionはscheduler Eventの`targetKind=intention`と`targetId`、一致するevent trigger、期限到来した`nextReviewAt`を優先する。
+2. seedを使ってMemoryを検索した後、選択Memoryの`relatedSubjectIds`と`relatedIntentionIds`を使って最終候補を補う。同じMemory上で選択Intentionと結びつくsubjectは、Intentionに関連するSocial Contextとして扱う。
+
+自由文からsubject IDを推測しない。Current InterestにはIntentionとの永続的な関連IDがないため、`question`と`goal`から作ったkeywordとIntentionの`description`、`reason`の一致は補助順位にだけ使う。日本語を含むkeyword分割はMemory Retrievalと同じ正規化を使う。
+
+Social Contextの順位は、現在actorまたは明示subject、選択Memoryのsubject、選択Intentionと同じMemoryに結びつくsubject、更新時刻fallbackの順とする。Active Intentionの順位は、schedulerの直接対象、成立したtrigger、期限到来、選択MemoryのIntention、Current Interestとのkeyword一致、更新時刻fallbackの順とする。同じ階層では`updatedAt DESC, id ASC`で安定させる。上位理由を持つ候補は、下位理由も持つ候補より常に先になる。
+
+Agent Coreへ渡す上限はSocial Context 6件、Active Intention 6件とする。Social Contextの`description`は1件600文字、Intentionの`description`と`reason`は各500文字までにprojectionする。直接対象、成立trigger、期限到来は必須候補とし、6件を超えた場合は必須候補内で安定順位を適用してoverflowを記録する。fallbackは関連候補が上限に満たない場合だけ使い、最大2件とする。候補がなければ空配列を正しい結果とし、件数を満たすためだけに無関係な状態を投入しない。
+
+Context budgetの投入順は、Required Stateと現在Observation、直接対象・成立trigger・期限到来の状態、関連Memory、Memory linkまたはkeywordで関連する状態、fallbackの順とする。fallbackのSocial ContextやIntentionが関連Memoryを押し出してはならない。
+
+Active Intentionは古さだけで自動的に除外しない。`trigger`も`nextReviewAt`もないactive Intentionは再評価経路が欠けた状態として診断し、直接対象、Memory link、keyword一致のいずれかがある場合だけ通常Contextへ含める。active総数、再評価経路なし件数、候補数、採用IDと理由、理由別除外件数、必須候補overflow、context budgetによる除外を`context.selection` debug logへ記録する。本文はlogへ含めない。上限超過が継続する場合は切り捨てで解決済みとせず、Intentionの完了・破棄・統合処理の不足として扱う。
+
 Deep Agent内部の各Model callは、run内の連番、開始・終了、経過時間、入力文字数、message数、出力種別、Tool call数、providerが返した終了理由を構造化logへ記録する。調査中は一時的に`agent_core.model_call_prompt`へ実際のsystem prompt、messages、Tool名をdebug logとして出力し、原因特定後に削除する。
 
 Expectation専用の保存領域は設けない。Agent Coreは入力済みのActive Intention、Social Context、関連Memory、直近Observationから、今回予期していたことと実際のObservationとの差をそのrunの意味解釈として導出する。次のEventにも影響する期待は、その意味に応じてIntention、Social ContextまたはMemoryへ提案する。
