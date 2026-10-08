@@ -30,7 +30,7 @@ type ReusableDeepAgentFactoryOptions = {
 export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions) => ReusableDeepAgent;
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[] };
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly recentToolInputSummaries?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>; }
 
 export type DeepAgentHarnessOptions = {
@@ -73,7 +73,8 @@ export class DeepAgentHarness implements AgentHarness {
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
           : JSON.stringify({ instruction: "元の入力に対する回答をInteraction出力Schemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、Interaction出力以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, recentToolInputSummaries: input.recentAttempts.filter(({ actionType }) => actionType === "tool").map(({ inputSummary }) => inputSummary), ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
@@ -120,7 +121,7 @@ export type DeepAgentToolRunContext = {
   readonly maxToolCalls: number;
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
-  readonly recentToolInputSummaries: readonly string[];
+  readonly recentToolInputs: readonly string[];
   readonly transport?: AgentCoreInput["run"]["transport"];
 };
 
@@ -131,12 +132,12 @@ export const DeepAgentToolRunContextSchema = z.object({
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
-  recentToolInputSummaries: z.array(z.string()).default([]),
+  recentToolInputs: z.array(z.string()).default([]),
   transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
 });
 
-export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputSummaries"> & { readonly recentToolInputSummaries?: readonly string[] }): DeepAgentToolRunContext {
-  return { ...options, recentToolInputSummaries: options.recentToolInputSummaries ?? [], collector: new ToolExecutionCollector() };
+export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs"> & { readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
+  return { ...options, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
 }
 
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };
@@ -166,7 +167,7 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
     context.collector.webArchiveReservedCharacters += requestedWebArchiveCharacters;
     const signature = JSON.stringify({ tool: name, input: rawInput });
-    if (context.recentToolInputSummaries.some((summary) => summary.includes(signature))) {
+    if (context.recentToolInputs.includes(signature)) {
       const finishedAt = now().toISOString();
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: "Recent identical Tool input must not be repeated", startedAt, finishedAt });
       throw new DomainError("CONFLICT", "Recent identical Tool input must not be repeated");
@@ -331,8 +332,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 入力:
 - run: run、Event、対象Agent、発生時刻
 - observation: 今回観測した出来事と確認済みの事実
-- recentObservations: 代名詞や省略を解決するための直近の出来事。新しい出来事として重複保存しません
-- recentAttempts: 現在の関心に利用できる直近の質問・Tool・待機等の試行要約と結果、時刻、progress変化。履歴の正本ではなく有界な判断材料です
+- recentExperiences: 直近8 Eventの時系列です。各EventにObservation、同一runのTool、最終Actionまたはfailure、progress変化を含みます。会話継続と反復回避に使い、新しい出来事として重複保存しません
 - persona: 設定された表示名、一人称、言語、トーン、応答スタイル。発話表現だけへ適用し、意味判断、行動選択、内部状態、長期的なSelfの根拠にはしません。省略される場合があります
 - self: Identity、3種類のDisposition（Family共通のshared、個体初期値のinitial、経験から形成されたacquired）、Values、Role、Self Narrative、Self Continuity。Dispositionは制約ではなく、出来事の意味づけと価値判断の傾向です
 - dynamicState: 次のEventにも継続しているMood、複数のDrive（description、sourceEvidenceIds、since）、Current Interest（id、question、goal、progress）、探索metadata。前回EventのEmotionとDesireは含みません
@@ -359,7 +359,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - 状態変更は提案であり、保存済みだと主張しません
 - schedulerGenerated=trueのInternal Eventでは、targetKindに応じて自律的な再検討を行います。Driveは「なぜ」、Current Interestは「何について」、Intentionは「後で具体的に何をするか」を表します。persistent-driveは「なぜ求めるか」を該当Driveの根拠とSelfに照らします。autonomy-reviewは現在関心へ注意を向けられるInternal Observationです。Drive、Current Interest、Intentionが空でも、self.interests / preferences、最近のObservationとMemory、探索metadataから具体的なKnowledge Gapを最大1件選び、一時的DesireとしてTool、ユーザーへの質問、wait、no-actionを判断できます。Stable Interestをそのまま永続Driveに変換しません
 - autonomy-reviewでStable Interestがあり、同じテーマの最近の探索、cooldown、優先すべき依頼がない場合は、そのInterestについてまだ予測・説明できない具体的な問いを1件作り、利用可能なToolで小さく調べるか、Toolがなければ後で調べる理由を伴うwaitを選びます。Drive、Current Interest、Intentionが空であることだけをno-actionの理由にしません
-- recentAttemptsで進展しなかった質問やTool入力を同じ形で繰り返しません。同じGoalを追うなら、質問を具体化する、自分の関心や質問理由を先に共有する、検索語・Tool・対象を変える、または別の時機までwaitする、のいずれかを選びます。別手段でも進展が期待できなければno-actionにします
+- recentExperiencesで進展しなかった質問やTool入力を同じ形で繰り返しません。同じGoalを追うなら、質問を具体化する、自分の関心や質問理由を先に共有する、検索語・Tool・対象を変える、または別の時機までwaitする、のいずれかを選びます。別手段でも進展が期待できなければno-actionにします
 - ユーザーを知るための質問は、固定の質問順序を使わず、現在の話題とSocial Contextに関係するKnowledge Gapを最大1件だけ扱います。無応答や話題変更を常に拒否と決めつけません
 - cooldownUntilが未来のCurrent Interestは再探索しません。同じ検索や外部通知を繰り返さず、探索途中や弱い進展はrespondせず内部保存のためのno-actionを選びます。ユーザーの進行中の関心に有用な発見、重要な発見、ユーザーに尋ねなければ埋まらないKnowledge Gapだけrespondできます
 - 自律Eventでは、今すぐ応答またはToolで行動する、後で行うIntentionの材料としてwaitする、対象が解消していればno-actionにする、今回は延期する、のいずれかを根拠とともに選びます。Toolは確認が必要で結果を利用できる場合だけ使い、同じ関心の反復検索や弱い根拠による外部通知を避けます
@@ -409,7 +409,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         eventId: options.eventId,
         maxToolCalls: options.maxToolCalls,
         signal: options.signal,
-        ...(options.recentToolInputSummaries === undefined ? {} : { recentToolInputSummaries: options.recentToolInputSummaries }),
+        ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }),
         ...(options.transport === undefined ? {} : { transport: options.transport })
       });
       try {

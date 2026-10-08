@@ -18,7 +18,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
     const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
-    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 2, signal: new AbortController().signal, recentToolInputSummaries: ['[{"tool":"lookup","input":{"query":"same"}}]'] });
+    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 2, signal: new AbortController().signal, recentToolInputs: ['{"tool":"lookup","input":{"query":"same"}}'] });
     await expect(lookup?.invoke({ query: "same" }, { context: runContext })).rejects.toThrow("Recent identical Tool input");
     expect(executions).toBe(0);
   });

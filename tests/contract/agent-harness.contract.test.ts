@@ -27,10 +27,14 @@ describe("AgentHarness contract", () => {
 
   it("parses structured Deep Agent output", async () => {
     let prompt = "";
-    const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
+    let recentToolInputs: readonly string[] | undefined;
+    const invoker: DeepAgentInvoker = { invoke: (input, options) => { prompt = input.messages[0]?.content ?? ""; recentToolInputs = options.recentToolInputs; return Promise.resolve({ structuredResponse: output }); } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
-    await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
+    const input = agentCoreInputFixture(); input.recentExperiences = [{ eventId: "history-event", runId: "history-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "internal", observation: { eventId: "history-event", summary: "history marker", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "tool", name: "lookup", input: { query: "same" }, result: { ok: true }, ok: true }, { type: "action", action: { type: "no-action", reason: "done" } }], progressChanged: false }];
+    await expect(harness.run(input, new AbortController().signal)).resolves.toEqual(result);
     expect(prompt).not.toContain("memoryRetrievalTrace");
+    expect(prompt).toContain("recentExperiences"); expect(prompt).toContain("history marker"); expect(prompt).not.toContain("recentAttempts"); expect(prompt).not.toContain("recentObservations");
+    expect(recentToolInputs).toEqual(['{"tool":"lookup","input":{"query":"same"}}']);
   });
 
   it("does not duplicate registered Tool JSON Schemas in the Agent input prompt", async () => {
@@ -123,5 +127,7 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
     expect(agentCoreSystemPrompt).toContain("Driveは「なぜ」");
     expect(agentCoreSystemPrompt).toContain("反復検索");
+    expect(agentCoreSystemPrompt).toContain("recentExperiences");
+    expect(agentCoreSystemPrompt).not.toContain("recentAttempts");
   });
 });

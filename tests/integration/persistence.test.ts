@@ -256,12 +256,10 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.intentions.map(({ id }) => id)).not.toContain("context-intention-b");
     expect(input.memories.every(({ agentId }) => agentId === "a")).toBe(true);
     expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"], relatedIntentionIds: ["context-intention-a"] });
-    expect(input.recentObservations.map(({ eventId }) => eventId)).toContain("recent-a");
-    expect(input.recentObservations.map(({ eventId }) => eventId)).not.toContain("recent-b");
-    expect(input.recentObservations.map(({ eventId }) => eventId)).not.toContain("large-tool-result");
-    expect(input.recentAttempts.map(({ id }) => id)).toContain("attempt-run-a");
-    expect(input.recentAttempts.map(({ id }) => id)).not.toContain("attempt-run-b");
     expect(input.recentExperiences.map(({ eventId }) => eventId)).toEqual(expect.arrayContaining(["attempt-event-a", "failed-experience-a"]));
+    expect(input.recentExperiences.map(({ eventId }) => eventId)).toContain("recent-a");
+    expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("recent-b");
+    expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("large-tool-result");
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("attempt-event-b");
     expect(input.recentExperiences.find(({ eventId }) => eventId === "failed-experience-a")?.steps).toEqual([
       { type: "tool", name: "web_list", input: { q: "agent memory" }, result: { results: [] }, ok: true },

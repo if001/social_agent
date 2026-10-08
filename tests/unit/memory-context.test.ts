@@ -26,16 +26,6 @@ describe("embedding and context", () => {
     expect(() => new ContextBuilder().build({ ...input, memories: [] }, { maxTokens: 1, maxMemories: 1, maxSocialContexts: 1 })).toThrow("too small");
   });
 
-  it("keeps at most six recent attempts for the owning Agent", () => {
-    const input = agentCoreInputFixture();
-    const attempts = Array.from({ length: 8 }, (_, index) => ({ id: `attempt-${String(index)}`, agentId: index === 7 ? "agent-b" : input.run.agentId, actionType: "respond" as const, inputSummary: index === 6 ? "q".repeat(600) : `question-${String(index)}`, resultSummary: "no progress", occurredAt: `2026-01-0${String(index + 1)}T00:00:00.000Z`, progressChanged: false }));
-    const result = new ContextBuilder().build({ ...input, recentAttempts: attempts }, { maxTokens: 4_000, maxMemories: 1, maxSocialContexts: 1 });
-    expect(result.recentAttempts).toHaveLength(6);
-    expect(result.recentAttempts.every(({ agentId }) => agentId === input.run.agentId)).toBe(true);
-    expect(result.recentAttempts[0]?.id).toBe("attempt-6");
-    expect(result.recentAttempts[0]?.inputSummary).toHaveLength(480);
-  });
-
   it("bounds required state and drops oversized Observation content before budgeting", () => {
     const input = agentCoreInputFixture();
     input.observation = { ...input.observation, summary: "s".repeat(2_000), facts: Array.from({ length: 20 }, () => "f".repeat(500)), content: { markdown: "x".repeat(100_000) } };

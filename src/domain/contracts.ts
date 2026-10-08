@@ -160,17 +160,6 @@ export const MemoryRetrievalTraceSchema = z.object({
 });
 export type MemoryRetrievalTrace = z.infer<typeof MemoryRetrievalTraceSchema>;
 
-export const RecentAttemptSchema = z.object({
-  id: Id,
-  agentId: Id,
-  actionType: z.enum(["respond", "wait", "refuse", "no-action", "tool"]),
-  inputSummary: NaturalLanguage,
-  resultSummary: NaturalLanguage,
-  occurredAt: Instant,
-  progressChanged: z.boolean()
-});
-export type RecentAttempt = z.infer<typeof RecentAttemptSchema>;
-
 export const RecentExperienceStepSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool"), name: Id, input: z.unknown(), result: z.unknown(), ok: z.boolean() }),
   z.object({ type: z.literal("action"), action: z.lazy(() => FinalActionSchema) }),
@@ -301,8 +290,6 @@ export const AgentCoreInputSchema = z.object({
   }),
   observation: ObservationSchema,
   recentExperiences: z.array(RecentExperienceSchema).max(8).default([]),
-  recentObservations: z.array(ObservationSchema).default([]),
-  recentAttempts: z.array(RecentAttemptSchema).default([]),
   persona: BotPersonaSchema.optional(),
   self: AgentSchema,
   dynamicState: DynamicStateSchema,
@@ -392,7 +379,7 @@ const PostProcessToolResultSchema = z.object({ name: Id, ok: z.boolean(), summar
 export const PostProcessSnapshotSchema = z.object({
   run: AgentCoreInputSchema.shape.run.pick({ runId: true, eventId: true, agentId: true, occurredAt: true }),
   observation: ObservationSchema,
-  recentObservations: z.array(ObservationSchema),
+  recentExperiences: z.array(RecentExperienceSchema),
   persona: BotPersonaSchema.optional(),
   self: AgentSchema,
   dynamicState: DynamicStateSchema,

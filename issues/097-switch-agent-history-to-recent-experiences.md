@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-08
-status: created
+status: done
 ---
 
 # 097: Agent Core履歴とTool反復防止をRecent Experienceへ切り替える

@@ -98,7 +98,7 @@ export class AgentRuntime {
     eventLogger.log("info", "context.loading");
     const input = await this.options.persistence.loadInput(event);
     const logger = eventLogger.child({ runId: input.run.runId });
-    logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentObservationCount: input.recentObservations.length, socialContextCount: input.socialContext.length, intentionCount: input.intentions.length, availableToolCount: input.availableTools.length });
+    logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, socialContextCount: input.socialContext.length, intentionCount: input.intentions.length, availableToolCount: input.availableTools.length });
     let result: AgentRunResult;
     const stateReview = isStateReview(event);
     try {
