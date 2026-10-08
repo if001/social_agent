@@ -50,7 +50,7 @@ status: done
 
 - Memory検索前にObservation actor／明示subjectと直接対象／trigger／期限からseedを選び、検索後にMemoryの関連IDで補完する2段階選択とする。
 - Social ContextとActive Intentionは各6件、fallbackは各2件までとする。Social Context本文は600文字、Intentionのdescription／reasonは各500文字へprojectionする。
-- 優先順位、tie-break、fallback、Context budget順、stale active診断、`context.selection` logの項目は`docs/ARCHITECTURE.md` §5.5.1を正とする。
+- 優先順位、tie-break、fallback、Context budget順、stale active診断、`context.selection` logの項目は`docs/ARCHITECTURE.md` §5.5.2を正とする。
 - 再評価経路がないactive Intentionを古さだけで削除しない。直接対象または関連linkがなければ通常Contextへ含めず、診断件数として記録する。
 
 ## Acceptance criteria

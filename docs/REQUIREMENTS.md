@@ -208,6 +208,12 @@ Embedding未生成またはEmbedding Provider障害時も、語句一致、関�
 
 Context BuilderはAgent Coreへ渡すSelf、Disposition、動的状態、Social Context、Intention、Memory、Tool、実行制約を選択し、入力サイズを制御しなければならない。
 
+Event間の短期履歴は、Event、Agent Run、Tool Execution、State Changeを正本として直近8 Eventの`recentExperiences`へ時系列projectionしなければならない。1 Eventには入力Observation、同一runの全Tool、最終Actionまたはfailureを順番どおり含める。Internal Eventと失敗Runを除外してはならず、Post-processを独立Eventとして数えてはならない。
+
+Deep Agentのnative Message stateは同一runのTool Loopにだけ使用し、過去EventのAgent Core入力を生のMessageとして累積してはならない。`recentObservations`とPrompt向け`recentAttempts`を別々に投入せず、反復防止情報は`recentExperiences`から導出しなければならない。
+
+Recent Experience Builderは保存済みObservation、Tool input/result、Actionを独自の文字数またはTool件数で途中切断してはならない。各生成元が保存前にsize契約を保証し、Context budget超過時は古いEvent単位で除外する。単一Eventがbudgetを超えた場合は生成元の契約違反として観測し、そのEvent全体をPromptから除外しなければならない。
+
 Memory Retrieverが確定した関連度順をContext Builderが新しさ等の別基準で並べ替えてはならない。3種類のMemoryは、関連する種類の予約枠と全体順位による残り枠を組み合わせ、件数を満たすためだけに無関係なMemoryを投入せず、最終的にContext budget内へ収める。
 
 Social ContextとActive Intentionは全件取得後の単純な更新日時順で選ばず、Observationのactor／明示subject、schedulerの直接対象、成立Trigger、期限、Current Interest、関連Memoryの明示linkに基づいて選択しなければならない。Memory検索前のseed選択と検索後のlink補完を分け、自由文からsubject IDを推測してはならない。
@@ -312,7 +318,7 @@ Web Snapshotはcanonical URL、取得URL、title、raw Markdown fileへの共有
 
 保存済みページは`web_archive_search`で全Bot共有範囲をsummary embeddingの意味類似とtitle、summary、URLの語句一致、取得時刻から検索・rerankできなければならない。`web_archive_read`はSnapshot IDから登録済みfileを解決して最大2,000文字の指定範囲だけを、`web_archive_grep`は検索語に一致する行と最大2,000文字の有限の前後文脈だけを返す。同一runで返すraw本文は合計6,000文字以内とする。任意path、共有root外、未登録fileを拒否する。Archive本文をAgent Contextへ自動投入してはならず、Bot Aが取得したSnapshotをBot Bが検索、取得、Memory根拠参照できなければならない。
 
-`web_page`がDeep Agentへ返す結果はSnapshot ID、URL、title、約400文字のsummary、Snapshot参照情報に限定し、raw Markdownや全chunkを含めてはならない。Tool Result Event、Recent Observation、Recent Attempt、post-process入力にもraw本文を複製してはならない。
+`web_page`がDeep Agentへ返す結果はSnapshot ID、URL、title、約400文字のsummary、Snapshot参照情報に限定し、raw Markdownや全chunkを含めてはならない。Tool Result Event、Recent Experience、post-process入力にもraw本文を複製してはならない。
 
 #### FR-TL-04: File Tool
 

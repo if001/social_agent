@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-07
-status: created
+status: done
 ---
 
 # 095: Agent Message履歴とrecentAttemptsの責務を再検討する
@@ -35,6 +35,23 @@ status: created
 - Message履歴を採用する場合も、永続正本、Prompt用projection、監査記録を区別する。
 - Tool ResultはIssue 091／092の有界化と圧縮を維持する。
 - `recentAttempts`を残す場合は、同一runのTool Loop再現ではなく、runをまたぐ失敗反復防止など固有の責務を明示する。
+
+## Adopted design
+
+- Deep Agentのnative Message履歴は同一run内のTool Loopだけに使い、Event間では引き継がない。
+- Event間の履歴はDBのEvent、Agent Run、Tool Execution、State Changeから直近8 Eventを`recentExperiences`へ投影する。
+- 1 Eventは入力Observation、同じrunの全Tool、最終Actionまたはfailureをひとまとまりとする。Internal Eventは1 Event、Post-processは元Eventの従属処理として扱う。
+- `recentObservations`とPrompt向け`recentAttempts`は廃止する。Tool反復防止情報はRecent Experienceから導出する。
+- projection独自の文字数とTool件数上限は設けない。size制御はObservation、Tool、Agent Core出力の生成・保存境界で行う。
+- Context budget超過時は古いEvent単位で除外し、本文を途中切断しない。単一Eventがbudgetを超えた場合は生成元の契約違反として観測して除外する。
+- Recent Experienceと同じEventを根拠にするMemoryは、単純な言い換えなら重複投入せず、新しい意味を加える場合だけ併用する。
+
+## Investigation result
+
+- 現在のDeep AgentはEventごとに`agent.invoke({ messages: [...] })`を新しく呼び、Message stateはrun内だけである。
+- `recentObservations`は完了Event最大6件、`recentAttempts`は24時間以内の成功Runから最大6件で、同じEventを重複して表現する。
+- Toolを含む現行Recent Attemptは最終Actionを失い、複数Toolをまとめた要約になり、失敗Runを含まない。
+- Deep Agentの生MessageをEvent間で累積すると、過去のState、Memory、制約を含むAgent Core入力snapshotまで重複するため採用しない。
 
 ## Acceptance criteria
 

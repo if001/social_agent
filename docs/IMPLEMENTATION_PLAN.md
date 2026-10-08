@@ -383,7 +383,7 @@ Current Interestは`id`、`question`、`goal`、`progress: 0 | 25 | 50 | 75 | 10
 
 Initial Selfはユーザー理解等の抽象的方向性と、個体ごとの具体的な音楽、芸術、作品等の嗜好を併記する。設定由来の初期嗜好を経験事実として扱わず、Memoryを根拠に形成された長期嗜好とprovenanceを分離する。ユーザー理解は固定質問表にせず、現在文脈から関係上のKnowledge Gapを最大1件形成する。
 
-適応的な探索と対話のため、Agent Run、Event、Action、Tool execution、State Changeからboundedな`recentAttempts`をContextへ構成する。Current Interestの契約は増やさない。Coreは進展しなかった同一手段を反復せず、方法、問い方、対象または時機を変更する。Runtimeは所有権、Context上限、cooldown、明らかな同一Tool入力の短時間反復だけを機械的に制約する。
+適応的な探索と対話のため、Agent Run、Event、Action、Tool execution、State Changeから直近8 Eventの`recentExperiences`をContextへ時系列に構成する。Current Interestの契約は増やさない。Coreは進展しなかった同一手段を反復せず、方法、問い方、対象または時機を変更する。RuntimeはRecent Experienceから反復防止情報を導出し、所有権、Context上限、cooldown、明らかな同一Tool入力の短時間反復だけを機械的に制約する。
 
 Selfから自律Actionまでの回帰は、versioned初期Self、Stable Interestだけからの初回探索、根拠付きDrive、構造化Current Interestの進展・充足・reframe・停滞・drop、Intentionなしのreview、Tool trace、Web Archive、Episodic Memory、cooldown、内部保存と外部通知の分岐を決定的testで確認する。Live評価はまずEV-02を1回だけ実行し、長期的な人格品質はSoakへ分離する。
 

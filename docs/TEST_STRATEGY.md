@@ -183,8 +183,11 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - Current Interestのcreate / progress / reframe / resolve / dropと理由・根拠を検証する
 - progress増加とreframeでは停滞をresetし、no-progressでは増加させる
 - Goal達成でInterestをresolveし、関連Drive終了とIntention完了を提案できる
-- Current Interestに履歴フィールドを追加せず、recentAttemptsを保存済み監査記録から構成する
-- recentAttemptsの件数、文字数、時刻範囲、Agent所有権を強制する
+- Current Interestに履歴フィールドを追加せず、反復防止情報をRecent Experienceから導出する
+- Recent Experienceの直近8 Event、時系列、Agent所有権を強制する
+- 1 Event内のObservation、複数Tool、最終Actionまたはfailureの順序を保持する
+- Internal Eventを経験順序へ含め、Post-processを独立Eventとして数えない
+- 生成元で検証済みの本文をRecent Experience Builderが途中切断せず、budget超過時は古いEvent単位で除外する
 
 ### 7.3 Context Builder
 
@@ -195,7 +198,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - FamilyまたはAgentが異なる入力でDispositionを取り違えない
 - 別AgentのMemoryを含めない
 - category上限とContext budgetを超えない
-- 100,000文字のTool Result EventをRecent Observationへ再投入せず、User / Agent Observationを優先する
+- raw Web本文をTool Result EventまたはRecent Experienceへ再投入しない
 - 現在Observation、Self、Dynamic State、Active Intentionを件数・文字数上限付きでprojectionする
 - Tool Schema本体をAgent Coreのuser入力JSONへ重複させない
 - Active Intentionと関係するSocial Contextを含める
@@ -263,7 +266,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - `web_archive_search`はsummary embeddingとtitle／summary／URLのkeywordから安定順位を返し、Bot AのSnapshotをBot Bから検索できる
 - `web_archive_read`／`web_archive_grep`は未知ID、共有root境界、範囲、前後行、1回2,000文字と同一run合計6,000文字の出力size上限を検証する
 - Memoryが別Bot取得の共有Snapshotを根拠参照できる
-- `web_page`、Tool Result Event、Recent Observation、post-process入力にraw本文が含まれない
+- `web_page`、Tool Result Event、Recent Experience、post-process入力にraw本文が含まれない
 - DB commit失敗後の孤立fileとfile欠損recordを検出・回復できる
 
 ## 8. Contract Test
