@@ -439,14 +439,17 @@ interface ToolRegistry {
 
 - `web_list`: `SIMPLE_CLIENT_BASE_URL` の `POST /list` へ `{ q, k }` を送り、`query`、`k`、rank付きの`title`、`url`、任意の`snippet`と`published_date`を返す
 - `web_page`: 同じサービスの `POST /page` へ `{ urls: string }` を送り、取得した各documentの`url`、`title`、Markdown本文を返す。field名は複数形だが、現行契約では単一URL文字列を受け取る
-- `file_read` / `file_write` / `file_delete`: 許可root配下だけを操作する
+- `file_read` / `file_list` / `file_find` / `file_grep`: read許可root配下だけを有界に参照・探索する
+- `file_write` / `file_delete`: write許可root配下だけを変更する
 - `agent_send`: 別Agent宛ての`agent-message`をQueueへpublishする
 
 Toolは個別承認なしで実行する。未知のTool名は拒否する。コード実行、shell、任意外部API、カレンダーは登録しない。
 
 Toolカタログの固定は、Tool利用の固定規則を意味しない。検索語、URL、宛先、ファイルpath等の業務入力はAgent Coreが各runの文脈からTool callとして生成する。所有・追跡用の`agentId`、`runId`、`eventId`、transport、実行上限はLLMへ生成させず、run contextからToolへ渡す。
 
-File Toolは入力pathを絶対pathへ正規化し、`realpath`で許可root配下にあることを確認する。新規ファイルは最も近い既存親の`realpath`を検証する。symlinkを使ったroot外アクセスを拒否する。
+File Toolは`FILE_READ_ROOTS`と`FILE_WRITE_ROOTS`を別々のcomma区切りroot一覧として受け取る。read、list、find、grepはread rootだけ、write、deleteはwrite rootだけを使用する。入力pathを絶対pathへ正規化し、`realpath`で該当する許可root配下にあることを確認する。新規ファイルは既存親の`realpath`を検証する。symlinkを使ったroot外アクセスを拒否し、再帰探索ではsymlinkを辿らない。
+
+`file_read`は`head | tail | range`と開始行、最大行数、最大文字数を受け取り、取得範囲、全行数、切断状態、次の開始行を返す。既定では先頭100行・6,000文字、要求可能な上限は200行・12,000文字とし、全文を無制限にTool Resultへ入れない。`file_list`は直下だけ、`file_find`は名前のliteral一致、`file_grep`は本文のliteral一致と有限の前後行を返し、それぞれ件数、深度、探索file数、出力文字数を制限する。Agentはlist／find／grepで候補を絞ってから必要範囲だけをreadする。
 
 Web Tool Adapterは `docs/web_tool.md` のrequest / responseをZodで検証し、timeout、response size、service errorを共通Tool errorへ変換する。Agentが指定するpage URLはHTTP / HTTPSだけを許可する。Web取得先へのnetwork制約とredirect検証はWeb Toolサービス側の責務であり、本システムは信頼するservice endpoint自体を `SIMPLE_CLIENT_BASE_URL` で固定する。
 
@@ -929,6 +932,7 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 | bot | `BOT_ID`、`BOT_FAMILY_ID`、`BOT_PERSONA_FILE` |
 | Discord | `DISCORD_BOT_TOKEN`、`DISCORD_BOT_USER_ID`、`DISCORD_OWNER_IDS`、`DISCORD_GUILD_IDS`、`DISCORD_CHANNEL_IDS` |
 | UI destination | `DISCORD_QUEUE_DESTINATION`、`DEFAULT_OUTPUT_DESTINATION` |
+| file tools | `FILE_READ_ROOTS`、`FILE_WRITE_ROOTS`、`WEB_ARCHIVE_ROOT` |
 | loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`INTENTION_REVIEW_INTERVAL_MS`、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
 | shared | `POSTGRES_URL`、`QUEUE_ROOT`、`WEB_ARCHIVE_ROOT`、Chat／Embedding／Web設定 |
 

@@ -58,7 +58,8 @@ const ConfigSchema = z.object({
   DEFAULT_OUTPUT_DESTINATION: OptionalText,
   QUEUE_ROOT: z.string().default("./var/queue"),
   WEB_ARCHIVE_ROOT: z.string().default("./var/web-archive"),
-  FILE_TOOL_ROOTS: z.string().default("./var/files"),
+  FILE_READ_ROOTS: z.string().default("./var/files"),
+  FILE_WRITE_ROOTS: z.string().default("./var/files"),
   RUN_DEADLINE_MS: z.coerce.number().int().positive().default(120_000),
   ...SchedulerTimingsSchema.shape,
   OUTBOX_INTERVAL_MS: z.coerce.number().int().positive().default(1_000)
@@ -85,13 +86,15 @@ export type AppConfig = {
   readonly defaultOutputDestination: string;
   readonly queueRoot: string;
   readonly webArchiveRoot: string;
-  readonly fileToolRoots: readonly string[];
+  readonly fileReadRoots: readonly string[];
+  readonly fileWriteRoots: readonly string[];
   readonly runDeadlineMs: number;
   readonly schedulerTimings: SchedulerTimings;
   readonly outboxIntervalMs: number;
 };
 
 const list = (value: string): readonly string[] => [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+const paths = (cwd: string, value: string): readonly string[] => list(value).map((root) => resolve(cwd, root));
 
 async function readEnvironmentFile(path: string): Promise<Record<string, string>> {
   try { return parse(await readFile(path)); } catch (error) {
@@ -128,7 +131,8 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
     defaultOutputDestination: value.DEFAULT_OUTPUT_DESTINATION ?? `discord:${value.BOT_ID}`,
     queueRoot: resolve(cwd, value.QUEUE_ROOT),
     webArchiveRoot: resolve(cwd, value.WEB_ARCHIVE_ROOT),
-    fileToolRoots: value.FILE_TOOL_ROOTS.split(",").map((root) => resolve(cwd, root.trim())),
+    fileReadRoots: paths(cwd, value.FILE_READ_ROOTS),
+    fileWriteRoots: paths(cwd, value.FILE_WRITE_ROOTS),
     runDeadlineMs: value.RUN_DEADLINE_MS,
     schedulerTimings: parseSchedulerTimings(value),
     outboxIntervalMs: value.OUTBOX_INTERVAL_MS

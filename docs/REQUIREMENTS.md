@@ -252,6 +252,8 @@ Drive、Current Interest、Intentionがすべて空でも、通常CoreはStable 
 
 Runtimeは現在のKnowledge Gapに関係する直近の試行を、保存済みAgent Run、Event、Action、Tool execution、State Changeから有界なContext projectionとして構成する。Projectionは行動種別、質問またはTool入力の短い要約、結果Observation、実行時刻、progress変化を含められるが、Current Interestの正本へ履歴を複製しない。Agent Coreは進展しなかった行動を同じ形で反復せず、同じGoalを追う場合は方法、問い方、対象または時機を変える。無応答や話題変更を固定的に拒否とみなさず、現在文脈で意味づける。
 
+File Toolは参照可能rootと変更可能rootを別設定にしなければならない。read、list、find、grepは参照rootだけ、write、deleteは変更rootだけを使用し、root外pathとroot外symlinkを拒否しなければならない。`file_read`はhead、tailまたは行範囲と文字数上限による部分取得とし、ファイル全文を無制限にTool Resultへ含めてはならない。list、名前検索、本文検索も深度、件数、探索file数、出力文字数を制限し、必要箇所を絞ってから読む経路を提供しなければならない。
+
 Schedulerの走査、Autonomy Review、State Review、Memory Recall、Intention Review、Persistent Driveの初回待機と再検討、失敗時retry、leaseは個別の環境変数で設定できなければならない。各変数は`.env.sample`に単位と用途を説明するコメントを持ち、初期化時と実行時で同じ値を使用する。
 
 自律的なWebページ取得も通常Tool経路を使い、ページ本文とURLはWeb Archiveへ保存する。後処理は重要な経験を「何を調べ、何を確認したか」というEpisodic Memoryへ要約し、Web Snapshot IDを根拠として関連づける。外部配送先がない場合もAgent Run、Tool trace、状態、Memoryを保存し、応答だけを配送しない。
