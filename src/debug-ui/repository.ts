@@ -18,6 +18,7 @@ export type RunListItem = {
   readonly id: string;
   readonly eventId: string;
   readonly eventKind: string;
+  readonly internalKind: string | null;
   readonly eventSummary: unknown;
   readonly startedAt: Date;
   readonly finishedAt: Date | null;
@@ -67,7 +68,8 @@ export class DebugUiRepository {
 
   async listRuns(agentId: string, limit = 30): Promise<readonly RunListItem[]> {
     const bounded = Math.min(Math.max(limit, 1), 100);
-    return this.query<RunListItem & QueryResultRow>(`SELECT r.id,r.event_id AS "eventId",e.kind AS "eventKind",e.observation AS "eventSummary",
+    return this.query<RunListItem & QueryResultRow>(`SELECT r.id,r.event_id AS "eventId",e.kind AS "eventKind",
+      CASE WHEN e.kind='internal' THEN e.observation#>>'{content,targetKind}' ELSE NULL END AS "internalKind",e.observation AS "eventSummary",
       r.started_at AS "startedAt",r.finished_at AS "finishedAt",r.failure_reason AS "failureReason",r.result
       FROM agent_runs r JOIN events e ON e.id=r.event_id WHERE r.agent_id=$1 ORDER BY r.started_at DESC,r.id LIMIT $2`, [agentId, bounded]);
   }
