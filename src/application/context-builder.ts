@@ -1,4 +1,4 @@
-import type { AgentCoreInput, BotPersona, Intention, Memory, MemoryRetrievalTrace, Observation, RecentAttempt, RecentExperience, SocialContext } from "../domain/contracts.js";
+import type { AgentCoreInput, BotPersona, Intention, Memory, MemoryRetrievalTrace, Observation, RecentExperience, SocialContext } from "../domain/contracts.js";
 import { noopLogger, type Logger } from "../observability/logger.js";
 
 export type ContextBudget = { readonly maxTokens: number; readonly maxMemories: number; readonly maxSocialContexts: number };
@@ -33,8 +33,6 @@ export class ContextBuilder {
     const recentExperiences: RecentExperience[] = [...recentCandidates]; let recentCost = recentExperiences.reduce((sum, value) => sum + tokens(value), 0);
     while (recentExperiences.length > 0 && used + recentCost > budget.maxTokens) { const removed = recentExperiences.shift(); if (removed !== undefined) { recentCost -= tokens(removed); this.logger.log("warn", "context.recent_experience_excluded", { agentId: source.run.agentId, eventId: removed.eventId, reason: recentExperiences.length === 0 ? "single-event-budget" : "context-budget" }); } }
     used += recentCost;
-    const recentObservations: Observation[] = []; for (const item of source.recentObservations.slice(-6)) { const bounded = observation(item); const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { recentObservations.push(bounded); used += cost; } }
-    const recentAttempts: RecentAttempt[] = []; for (const item of source.recentAttempts.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.id.localeCompare(b.id)).slice(0, 6)) { const bounded = { ...item, inputSummary: text(item.inputSummary, 480), resultSummary: text(item.resultSummary, 480) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { recentAttempts.push(bounded); used += cost; } }
     const intentions: Intention[] = []; const selectedSocial: SocialContext[] = [];
     const addIntention = (item: Intention): void => { const bounded = intention(item); const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { intentions.push(bounded); used += cost; } };
     const addSocial = (item: SocialContext): void => { const bounded = { ...item, description: text(item.description, 600) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { selectedSocial.push(bounded); used += cost; } };
@@ -46,6 +44,6 @@ export class ContextBuilder {
     const selectedIntentionIds = new Set(intentions.map(({ id }) => id)); for (const item of ownedIntentions) if (!selectedIntentionIds.has(item.id)) addIntention(item);
     const selectedSocialIds = new Set(selectedSocial.map(({ id }) => id)); for (const item of ownedSocial) if (!selectedSocialIds.has(item.id)) addSocial(item);
     const selectedIds = new Set(selectedMemories.map(({ id }) => id)); const memoryRetrievalTrace = source.memoryRetrievalTrace.map((item) => item.selected && !selectedIds.has(item.memoryId) ? { ...item, selected: false, exclusionReason: "context-budget" as const } : item);
-    return { run: source.run, observation: required.observation, recentExperiences, recentObservations, recentAttempts, ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace, intentions, availableTools: [...source.availableTools], runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
+    return { run: source.run, observation: required.observation, recentExperiences, ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace, intentions, availableTools: [...source.availableTools], runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
   }
 }

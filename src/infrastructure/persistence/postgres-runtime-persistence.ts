@@ -111,7 +111,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   async completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void> {
     if (job.type === "continuity") {
       const parsed = ContinuityOutputSchema.parse(output);
-      const evidenceIds = new Set([job.input.run.eventId, job.input.observation.eventId, ...job.input.recentObservations.map(({ eventId }) => eventId), ...job.input.memories.map(({ id }) => id)]);
+      const evidenceIds = new Set([job.input.run.eventId, job.input.observation.eventId, ...job.input.recentExperiences.map(({ eventId }) => eventId), ...job.input.memories.map(({ id }) => id)]);
       if (parsed.driveProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Drive evidence must reference an input Event or Memory");
       if (parsed.currentInterestProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Current Interest evidence must reference an input Event or Memory");
       const persistent = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext, job.input.run.occurredAt);
@@ -148,7 +148,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       collect(execution.result);
       return { name: execution.name, ok: execution.ok, summary: (execution.ok ? JSON.stringify(execution.result ?? null) : execution.error ?? "Tool failed").slice(0, 2_000), webSnapshotIds: [...new Set(snapshotIds)] };
     });
-    return { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentObservations: input.recentObservations, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, intentions: input.intentions, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults } };
+    return { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentExperiences: input.recentExperiences, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, intentions: input.intentions, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults } };
   }
 
   async #materializeMemories(input: PostProcessSnapshot, output: MemoryExtractionOutput): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[] }> {
