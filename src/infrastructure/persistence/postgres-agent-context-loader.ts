@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, CurrentInterestSchema, DomainError, DriveSchema, InterestExplorationSchema, IntentionTriggerSchema, ObservationSchema, RecentAttemptSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Intention, type Memory, type Observation, type RecentAttempt, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, CurrentInterestSchema, DomainError, DriveSchema, FinalActionSchema, InterestExplorationSchema, IntentionTriggerSchema, ObservationSchema, RecentAttemptSchema, RecentExperienceSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Intention, type Memory, type Observation, type RecentAttempt, type RecentExperience, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { explicitSubjectIds, requiredIntentionReason, selectIntentions, selectSocialContexts, type SelectedContext } from "../../application/context-selection.js";
@@ -20,6 +20,7 @@ type IntentionRow = QueryResultRow & { id: string; agent_id: string; description
 type LinkRow = QueryResultRow & { memory_id: string; value: string };
 type RecentEventRow = QueryResultRow & { observation: unknown };
 type RecentAttemptRow = QueryResultRow & { id: string; agent_id: string; result: unknown; observation: unknown; occurred_at: Date; tools: unknown; progress_changed: boolean };
+type RecentExperienceRow = QueryResultRow & { event_id: string; agent_id: string; event_kind: DomainEvent["kind"]; observation: unknown; occurred_at: Date; run_id: string | null; result: unknown; failure_reason: string | null; tools: unknown; progress_changed: boolean };
 
 export type PostgresAgentContextLoaderOptions = {
   readonly pool: Pool;
@@ -52,6 +53,15 @@ function recentAttempt(row: RecentAttemptRow): RecentAttempt | undefined {
   const candidate = { id: row.id, agentId: row.agent_id, actionType: tools.length > 0 ? "tool" : actionType, inputSummary: boundedSummary(tools.length > 0 ? toolInput : action.content ?? action.reason ?? row.observation), resultSummary: boundedSummary(tools.length > 0 ? toolResult : action.reason ?? action.content ?? row.observation), occurredAt: row.occurred_at.toISOString(), progressChanged: row.progress_changed };
   const parsed = RecentAttemptSchema.safeParse(candidate); return parsed.success ? parsed.data : undefined;
 }
+function recentExperience(row: RecentExperienceRow): RecentExperience | undefined {
+  const observation = ObservationSchema.safeParse(row.observation); if (!observation.success) return undefined;
+  const tools = Array.isArray(row.tools) ? row.tools : []; const steps: RecentExperience["steps"] = [];
+  for (const raw of tools) if (typeof raw === "object" && raw !== null) { const value = raw as Record<string, unknown>; if (typeof value.tool === "string") steps.push({ type: "tool", name: value.tool, input: value.input, result: value.error === null || value.error === undefined ? value.result : { error: value.error }, ok: value.error === null || value.error === undefined }); }
+  const result = typeof row.result === "object" && row.result !== null ? row.result as Record<string, unknown> : {}; const output = typeof result.output === "object" && result.output !== null ? result.output as Record<string, unknown> : {}; const action = FinalActionSchema.safeParse(output.action);
+  if (action.success) steps.push({ type: "action", action: action.data }); else if (row.failure_reason !== null) steps.push({ type: "failure", reason: row.failure_reason });
+  const parsed = RecentExperienceSchema.safeParse({ eventId: row.event_id, ...(row.run_id === null ? {} : { runId: row.run_id }), agentId: row.agent_id, occurredAt: row.occurred_at.toISOString(), eventKind: row.event_kind, observation: observation.data, steps, progressChanged: row.progress_changed });
+  return parsed.success ? parsed.data : undefined;
+}
 function transport(event: DomainEvent): AgentCoreInput["run"]["transport"] {
   const value = event.payload.transport;
   if (typeof value !== "object" || value === null) return undefined;
@@ -75,8 +85,8 @@ export function observationFromEvent(event: DomainEvent): Observation {
 
 export class PostgresAgentContextLoader {
   readonly #retriever: PostgresMemoryRetriever;
-  readonly #builder = new ContextBuilder();
-  constructor(private readonly options: PostgresAgentContextLoaderOptions) { this.#retriever = new PostgresMemoryRetriever(options.pool); }
+  readonly #builder: ContextBuilder;
+  constructor(private readonly options: PostgresAgentContextLoaderOptions) { this.#retriever = new PostgresMemoryRetriever(options.pool); this.#builder = new ContextBuilder(options.logger); }
 
   async load(event: DomainEvent): Promise<AgentCoreInput> {
     const observation = observationFromEvent(event);
@@ -88,7 +98,7 @@ export class PostgresAgentContextLoader {
     if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${event.agentId}`);
 
     const subjectIds = explicitSubjectIds(observation); const targetId = event.payload.targetKind === "intention" && typeof event.payload.targetId === "string" ? event.payload.targetId : null; const manualReviewId = typeof event.payload.manualReviewIntentionId === "string" ? event.payload.manualReviewIntentionId : null;
-    const [socialResult, intentionResult, recentResult, attemptResult] = await Promise.all([
+    const [socialResult, intentionResult, recentExperienceResult, recentResult, attemptResult] = await Promise.all([
       this.options.pool.query<SocialRow>("SELECT id,agent_id,subject_id,subject_type,description,updated_at FROM social_contexts WHERE agent_id=$1 ORDER BY CASE WHEN subject_id=ANY($2::text[]) THEN 0 ELSE 1 END,updated_at DESC,id LIMIT 64", [event.agentId, subjectIds]),
       this.options.pool.query<IntentionRow>(`SELECT id,agent_id,description,reason,trigger,status,next_review_at,superseded_by_id,created_at,updated_at FROM intentions
         WHERE agent_id=$1 AND status='active' AND (
@@ -97,6 +107,15 @@ export class PostgresAgentContextLoader {
           (trigger->>'kind'='manual-review' AND id=$6) OR
           id IN (SELECT recent.id FROM intentions recent WHERE recent.agent_id=$1 AND recent.status='active' ORDER BY recent.updated_at DESC,recent.id LIMIT 32)
         ) ORDER BY CASE WHEN id=$2 THEN 0 WHEN next_review_at IS NOT NULL AND next_review_at<=$3 THEN 1 WHEN trigger IS NOT NULL THEN 2 ELSE 3 END,updated_at DESC,id LIMIT 64`, [event.agentId, targetId, event.occurredAt, event.kind, JSON.stringify(observation), manualReviewId]),
+      this.options.pool.query<RecentExperienceRow>(`WITH recent_events AS (
+          SELECT id,agent_id,kind,observation,occurred_at FROM events WHERE agent_id=$1 AND kind<>'tool-result' ORDER BY occurred_at DESC,id DESC LIMIT 8
+        ) SELECT e.id AS event_id,e.agent_id,e.kind AS event_kind,e.observation,e.occurred_at,r.id AS run_id,r.result,r.failure_reason,
+          COALESCE(t.tools,'[]'::jsonb) AS tools,
+          COALESCE(EXISTS(SELECT 1 FROM state_changes sc WHERE sc.run_id=r.id AND sc.target='currentInterests' AND sc.before IS DISTINCT FROM sc.after),false) AS progress_changed
+        FROM recent_events e
+        LEFT JOIN LATERAL (SELECT id,result,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id AND finished_at IS NOT NULL ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
+        LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('tool',x.tool,'input',x.input,'result',x.result,'error',x.error) ORDER BY x.started_at,x.id) AS tools FROM tool_executions x WHERE x.run_id=r.id) t ON true
+        ORDER BY e.occurred_at,e.id`, [event.agentId]),
       this.options.pool.query<RecentEventRow>("SELECT observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' ORDER BY occurred_at DESC,id DESC LIMIT $2", [event.agentId, this.options.recentObservationLimit ?? 6]),
       this.options.pool.query<RecentAttemptRow>(`SELECT r.id,r.agent_id,r.result,e.observation,e.occurred_at,
         COALESCE(jsonb_agg(jsonb_build_object('tool',t.tool,'input',t.input,'result',t.result,'error',t.error) ORDER BY t.started_at,t.id) FILTER (WHERE t.id IS NOT NULL),'[]'::jsonb) AS tools,
@@ -105,6 +124,7 @@ export class PostgresAgentContextLoader {
         WHERE r.agent_id=$1 AND r.finished_at IS NOT NULL AND r.result IS NOT NULL AND e.occurred_at>=now()-interval '24 hours'
         GROUP BY r.id,e.id ORDER BY e.occurred_at DESC,r.id DESC LIMIT 12`, [event.agentId])
     ]);
+    const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row); return value === undefined ? [] : [value]; });
     const recentObservations = recentResult.rows.flatMap(({ observation: value }) => { const parsed = ObservationSchema.safeParse(value); return parsed.success ? [parsed.data] : []; }).reverse();
     const recentAttempts = attemptResult.rows.flatMap((row) => { const value = recentAttempt(row); return value === undefined ? [] : [value]; });
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, subjectType: row.subject_type, description: row.description, updatedAt: row.updated_at.toISOString() }));
@@ -129,7 +149,7 @@ export class PostgresAgentContextLoader {
     const runTransport = transport(event);
     const built = AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
-      observation, recentObservations, recentAttempts,
+      observation, recentExperiences, recentObservations, recentAttempts,
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
       self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, disposition: { shared: agent.shared_disposition, initial: agent.initial_disposition, acquired: agent.acquired_disposition }, values: agent.values, interests: texts(agent.interests), preferences: texts(agent.preferences), roles: texts(agent.roles), ...(agent.raison_detre === null ? {} : { raisonDetre: agent.raison_detre }), selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
       dynamicState,

@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-08
-status: created
+status: done
 ---
 
 # 096: Event監査記録からRecent Experienceを構成する

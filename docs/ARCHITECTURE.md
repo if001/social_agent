@@ -317,7 +317,7 @@ type RecentExperience = {
   occurredAt: string
   eventKind: EventKind
   actor?: { id: string; type: string }
-  observation: string
+  observation: Observation
   steps: Array<
     | { type: "tool"; name: string; input: unknown; result: unknown; ok: boolean }
     | { type: "action"; action: AgentAction }
