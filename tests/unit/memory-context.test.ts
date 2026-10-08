@@ -75,4 +75,17 @@ describe("embedding and context", () => {
     expect(result.recentExperiences.at(-1)?.eventId).toBe("history-9");
     expect(result.recentExperiences.every(({ observation }) => observation.summary.endsWith("x".repeat(300)))).toBe(true);
   });
+
+  it("deduplicates ordinary episodic Memory covered by Recent Experience", () => {
+    const input = agentCoreInputFixture(); const eventId = "recent-event";
+    input.recentExperiences = [{ eventId, runId: "recent-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "user-message", observation: { eventId, summary: "recent exchange", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "action", action: { type: "respond", content: "answer" } }], progressChanged: false }];
+    const makeMemory = (id: string, kind: Memory["kind"], priority: Memory["retrievalPriority"], evidenceEventIds: string[]): Memory => ({ id, agentId: input.run.agentId, kind, content: id, occurredAt: input.run.occurredAt, createdAt: input.run.occurredAt, relatedSubjectIds: [], relatedIntentionIds: [], importance: "useful", retrievalPriority: priority, evidenceEventIds });
+    input.memories = [makeMemory("duplicate", "episodic", "normal", [eventId]), makeMemory("important", "episodic", "high", [eventId]), makeMemory("semantic", "semantic", "normal", [eventId]), makeMemory("older", "episodic", "normal", ["older-event"])];
+    input.memoryRetrievalTrace = input.memories.map((item, index) => ({ memoryId: item.id, finalRank: index + 1, matchedBy: ["recency" as const], kind: item.kind, selected: true }));
+    const logs: { message: string; context?: Readonly<Record<string, unknown>> }[] = []; const logger = { child: () => logger, log: (_level: string, message: string, context?: Readonly<Record<string, unknown>>) => { logs.push({ message, ...(context === undefined ? {} : { context }) }); } } as ConstructorParameters<typeof ContextBuilder>[0];
+    const result = new ContextBuilder(logger).build(input, { maxTokens: 8_000, maxMemories: 10, maxSocialContexts: 1 });
+    expect(result.memories.map(({ id }) => id)).toEqual(["important", "semantic", "older"]);
+    expect(result.memoryRetrievalTrace.find(({ memoryId }) => memoryId === "duplicate")).toMatchObject({ selected: false, exclusionReason: "recent-experience-duplicate" });
+    expect(logs.find(({ message }) => message === "context.memory_duplicates_excluded")?.context?.count).toBe(1);
+  });
 });

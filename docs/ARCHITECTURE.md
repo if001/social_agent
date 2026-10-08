@@ -333,7 +333,7 @@ type RecentExperience = {
 
 `recentObservations`とPrompt向け`recentAttempts`は廃止する。Tool反復防止に必要な過去入力は`recentExperiences.steps`からRuntime用に導出し、同じ内容を別配列としてPromptへ重複投入しない。Recent Experienceは直近に何が起き、何を試し、どう行動したかを示す短期buffer、Episodic Memoryは後から検索する価値がある経験の要約、Semantic Memoryは経験から得た知識、Social Contextは関係認識、Intentionは継続する行動方針を担う。
 
-同じEventを根拠とするRecent ExperienceとMemoryが一時的に共存することは許容する。ただしMemoryがObservationまたはActionの単純な言い換えにすぎない場合はContextへ重複投入しない。Semantic化、自己解釈、重要性などRecent Experienceにない意味を加えるMemoryは併用できる。
+同じEventを根拠とするRecent ExperienceとMemoryが一時的に共存することは許容する。ただし`evidenceEventIds`がRecent Experienceと重なる`episodic` Memoryのうち、`retrievalPriority`が`low`または`normal`のものは単純な再述としてContextへ重複投入しない。`high`／`critical`、semantic、self-related、self-changeは追加の意味または重要性を持つものとして併用できる。Recent Experienceの直近8 Eventから外れた後は通常のMemory候補へ戻す。除外はMemory Retrieval traceの`recent-experience-duplicate`とdebug logへ記録する。
 
 #### 5.5.2 Social ContextとActive Intentionの関連選択
 

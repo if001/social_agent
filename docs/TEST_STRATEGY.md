@@ -188,6 +188,8 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - 1 Event内のObservation、複数Tool、最終Actionまたはfailureの順序を保持する
 - Internal Eventを経験順序へ含め、Post-processを独立Eventとして数えない
 - 生成元で検証済みの本文をRecent Experience Builderが途中切断せず、budget超過時は古いEvent単位で除外する
+- Recent Experienceと根拠Eventが重なるlow／normal Episodic Memoryを除外し、high／criticalおよび他kindを保持する
+- Recent Experienceのwindow外ではMemoryを通常候補へ戻し、重複除外理由をtraceとlogへ残す
 
 ### 7.3 Context Builder
 
