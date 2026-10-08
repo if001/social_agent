@@ -5,7 +5,7 @@ import type { MessageEnvelope } from "../../src/domain/contracts.js";
 
 describe("Scheduler", () => {
   const target: ScheduledTarget = { id: "intention-1", agentId: "agent-a", kind: "intention", reason: "Due" };
-  const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000, persistentDriveReviewIntervalMs: 3_600_000 };
+  const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000, intentionReviewIntervalMs: 120_000, persistentDriveReviewIntervalMs: 3_600_000 };
   const setup = (action: { type: "no-action"; reason: string } | { type: "respond"; content: string } | { type: "wait"; reason: string; until?: string }, replyContext?: Readonly<Record<string, unknown>>) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const published: MessageEnvelope[] = []; let claimed = false; const completions: (Date | null)[] = [];
     const repository = { claimDue: () => { if (claimed) return Promise.resolve([]); claimed = true; return Promise.resolve([target]); }, complete: (_target: ScheduledTarget, next: Date | null) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() };
@@ -16,11 +16,11 @@ describe("Scheduler", () => {
   it("runs due targets once and does not queue internal events", async () => {
     const value = setup({ type: "no-action", reason: "Nothing needed" });
     await expect(value.scheduler.tick(new AbortController().signal)).resolves.toBe(1); await expect(value.scheduler.tick(new AbortController().signal)).resolves.toBe(0);
-    expect(value.published).toEqual([]); expect(value.completions).toEqual([null]);
+    expect(value.published).toEqual([]); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:02:00.000Z");
   });
   it("publishes only externally visible actions to the default destination", async () => {
     const value = setup({ type: "respond", content: "An autonomous update" }, { channelId: "discord-channel" }); await value.scheduler.tick(new AbortController().signal);
-    expect(value.published).toHaveLength(1); expect(value.published[0]).toMatchObject({ destination: "terminal", payload: { autonomous: true, replyContext: { channelId: "discord-channel" } } }); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
+    expect(value.published).toHaveLength(1); expect(value.published[0]).toMatchObject({ destination: "terminal", payload: { autonomous: true, replyContext: { channelId: "discord-channel" } } }); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:02:00.000Z");
   });
   it("uses explicit wait time and starts no work while stopping", async () => {
     const value = setup({ type: "wait", reason: "Later", until: "2026-01-02T00:00:00Z" }); await value.scheduler.tick(new AbortController().signal); expect(value.completions[0]?.toISOString()).toBe("2026-01-02T00:00:00.000Z");

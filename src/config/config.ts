@@ -14,6 +14,7 @@ export const SchedulerTimingsSchema = z.object({
   AUTONOMY_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   STATE_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   MEMORY_RECALL_INTERVAL_MS: z.coerce.number().int().positive().default(604_800_000),
+  INTENTION_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   PERSISTENT_DRIVE_INITIAL_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
   PERSISTENT_DRIVE_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   SCHEDULER_RETRY_DELAY_MS: z.coerce.number().int().positive().default(300_000),
@@ -24,6 +25,7 @@ export type SchedulerTimings = {
   readonly autonomyReviewIntervalMs: number;
   readonly stateReviewIntervalMs: number;
   readonly memoryRecallIntervalMs: number;
+  readonly intentionReviewIntervalMs: number;
   readonly persistentDriveInitialDelayMs: number;
   readonly persistentDriveReviewIntervalMs: number;
   readonly retryDelayMs: number;
@@ -31,7 +33,7 @@ export type SchedulerTimings = {
 };
 export function parseSchedulerTimings(environment: Record<string, unknown>): SchedulerTimings {
   const value = SchedulerTimingsSchema.parse(environment);
-  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, memoryRecallIntervalMs: value.MEMORY_RECALL_INTERVAL_MS, persistentDriveInitialDelayMs: value.PERSISTENT_DRIVE_INITIAL_DELAY_MS, persistentDriveReviewIntervalMs: value.PERSISTENT_DRIVE_REVIEW_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS };
+  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, memoryRecallIntervalMs: value.MEMORY_RECALL_INTERVAL_MS, intentionReviewIntervalMs: value.INTENTION_REVIEW_INTERVAL_MS, persistentDriveInitialDelayMs: value.PERSISTENT_DRIVE_INITIAL_DELAY_MS, persistentDriveReviewIntervalMs: value.PERSISTENT_DRIVE_REVIEW_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS };
 }
 const ConfigSchema = z.object({
   BOT_ID: z.string().min(1),

@@ -13,7 +13,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0, private readonly intentionReviewIntervalMs = 86_400_000) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -173,13 +173,18 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     for (const proposal of output.intentionProposals) {
       if (proposal.operation === "create") {
         const idleReviewAt = proposal.trigger?.kind === "idle" ? new Date(new Date(occurredAt).getTime() + proposal.trigger.idleForMs).toISOString() : undefined;
-        intentionCreates.push({ id: this.ids.next(), agentId: input.run.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(proposal.nextReviewAt === undefined && idleReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt ?? idleReviewAt }) });
+        const timeReviewAt = proposal.trigger?.kind === "time" ? proposal.trigger.at : undefined;
+        const defaultReviewAt = proposal.trigger === undefined ? new Date(new Date(occurredAt).getTime() + this.intentionReviewIntervalMs).toISOString() : undefined;
+        const nextReviewAt = proposal.nextReviewAt ?? idleReviewAt ?? timeReviewAt ?? defaultReviewAt;
+        intentionCreates.push({ id: this.ids.next(), agentId: input.run.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(nextReviewAt === undefined ? {} : { nextReviewAt }) });
       }
       else {
         const current = intentionsById.get(proposal.intentionId); if (current === undefined) throw new DomainError("VALIDATION", `Unknown intention: ${proposal.intentionId}`);
         const status = proposal.status ?? current.status;
         if (status !== current.status && !canTransitionIntention(current.status, status)) throw new DomainError("VALIDATION", `Invalid intention transition: ${current.status} -> ${status}`);
-        intentionUpdates.push({ ...current, description: proposal.description ?? current.description, status, reason: proposal.reason, updatedAt: occurredAt, ...(proposal.nextReviewAt === null ? { nextReviewAt: undefined } : proposal.nextReviewAt === undefined ? {} : { nextReviewAt: proposal.nextReviewAt }), ...(proposal.supersededByIntentionId === undefined ? {} : { supersededById: proposal.supersededByIntentionId }) });
+        const proposedReviewAt = proposal.nextReviewAt === null ? undefined : proposal.nextReviewAt ?? current.nextReviewAt;
+        const nextReviewAt = status === "active" && current.trigger === undefined && proposedReviewAt === undefined ? new Date(new Date(occurredAt).getTime() + this.intentionReviewIntervalMs).toISOString() : proposedReviewAt;
+        intentionUpdates.push({ ...current, description: proposal.description ?? current.description, status, reason: proposal.reason, updatedAt: occurredAt, nextReviewAt, ...(proposal.supersededByIntentionId === undefined ? {} : { supersededById: proposal.supersededByIntentionId }) });
       }
     }
     return { intentionCreates, intentionUpdates };

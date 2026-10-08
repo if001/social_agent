@@ -255,6 +255,8 @@ flowchart LR
 
 Idle Intentionの期限は、User MessageまたはExternal Eventを受理した時点を最終活動として、そのtransaction内で再計算する。Agent Coreの完了後まで更新を遅らせない。新規Idle Intentionは作成Eventの時刻から最初の期限を計算し、Scheduler自身が生成したInternal EventやSystem Eventでは最終活動を延長しない。
 
+Active IntentionにはRuntimeが必ず再評価経路を与える。`time` Triggerの`at`と`idle` Triggerから初回`next_review_at`を決定し、`event`と`manual-review`は条件成立時に`next_review_at`へ具体化する。Triggerを持たず、Continuity Updateも`nextReviewAt`を指定しなかった新規Intentionには、作成Event時刻から`INTENTION_REVIEW_INTERVAL_MS`後を設定する。既存の`trigger`も`next_review_at`もないActive Intentionは、Schedulerが期限到来済みとして一度回収する。Intention Reviewが完了してもActiveのままなら、Actionが`wait.until`を返した場合はその時刻、それ以外は`INTENTION_REVIEW_INTERVAL_MS`後へ再設定する。具体的な行動内容や完了判断はRuntimeの固定規則で決めない。
+
 外部Message consumerのconcurrencyはbotごとに1とする。長時間Tool実行中も同じAgentの別Eventを並行処理しない。Interaction commit後はOutbox Dispatcherが直ちに応答を配送できる。Continuity UpdateとMemory Extractionは互いに依存しない固定snapshotから実行できるが、同じAgentの次Eventは先行Continuity Updateが状態versionを検証して確定するまで開始しない。Memory ExtractionやCandidate Detectorの失敗は応答配送とContinuity Updateを巻き戻さない。
 
 ```mermaid
@@ -557,6 +559,8 @@ botプロセス内で、そのAgentだけを対象に定期評価する。
 - Mood等の時間経過による再評価機会の生成
 
 Intention triggerは`time`、`event`、`idle`、`manual-review`の4種類とする。`time`は指定時刻、`event`はEvent種類と任意keyword、`idle`はAgentの最後の非Scheduler Eventからの無活動時間、`manual-review`は対象Intention IDを持つSystem/Internal Eventで`next_review_at`を設定する。Scheduler自身が生成したEventではtriggerを再評価せず、自己起動loopを防ぐ。
+
+TriggerなしのIntentionも長期放置されないよう、既定のIntention Review間隔を持つ。SchedulerはReview完了後に次回時刻を設定してからleaseを解放する。`no-action`を`next_review_at=NULL`へ変換して即時再取得してはならない。Debug UIはTrigger、`nextReviewAt`と、`scheduled | trigger | missing | inactive`の再評価経路を表示する。
 
 SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntention、persistent Drive、Candidateを期限付きleaseで取得する。停止中に期限を迎えた対象も再起動時に取得し、成功後は次回時刻を設定、失敗時は短いbackoffを設定してleaseを解放する。外部Queueへ送るのは最終Actionが`respond`の場合だけとする。
 
@@ -925,12 +929,12 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 | bot | `BOT_ID`、`BOT_FAMILY_ID`、`BOT_PERSONA_FILE` |
 | Discord | `DISCORD_BOT_TOKEN`、`DISCORD_BOT_USER_ID`、`DISCORD_OWNER_IDS`、`DISCORD_GUILD_IDS`、`DISCORD_CHANNEL_IDS` |
 | UI destination | `DISCORD_QUEUE_DESTINATION`、`DEFAULT_OUTPUT_DESTINATION` |
-| loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
+| loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`INTENTION_REVIEW_INTERVAL_MS`、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
 | shared | `POSTGRES_URL`、`QUEUE_ROOT`、`WEB_ARCHIVE_ROOT`、Chat／Embedding／Web設定 |
 
 ID一覧はcomma区切りで受け取り、空要素と重複を正規化する。Discordを有効にする場合はtoken、bot user ID、owner、channelを必須とする。Discord Queue destinationは既定で`discord:<BOT_ID>`とし、2つのDiscord Adapterが同じoutbound destinationを競合consumeしないようにする。Agent Runtimeの入力destinationは`BOT_ID`であり、bot間通信も相手の`BOT_ID`を宛先とする。
 
-自律処理の時間設定はすべてmillisecond単位の環境変数とする。`SCHEDULER_INTERVAL_MS`はDB走査頻度であり、各処理の実行間隔ではない。`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`は目的別の再実行間隔、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`はDrive保存後の初回待機、`SCHEDULER_RETRY_DELAY_MS`は失敗後のbackoff、`SCHEDULER_LEASE_MS`は重複取得防止時間を表す。`agent:init`とbot processは同じ値を読み、初回`next_due_at`と実行後の再設定を一致させる。
+自律処理の時間設定はすべてmillisecond単位の環境変数とする。`SCHEDULER_INTERVAL_MS`はDB走査頻度であり、各処理の実行間隔ではない。`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`INTENTION_REVIEW_INTERVAL_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`は目的別の再実行間隔、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`はDrive保存後の初回待機、`SCHEDULER_RETRY_DELAY_MS`は失敗後のbackoff、`SCHEDULER_LEASE_MS`は重複取得防止時間を表す。`agent:init`とbot processは同じ値を読み、初回期限と実行後の再設定を一致させる。
 
 `BOT_PERSONA_FILE`はbot別Persona YAMLへの相対または絶対pathである。未指定時は`config/personas/<BOT_ID>.yaml`が存在すれば使用する。Personaは起動時にZodで検証し、`AgentCoreInput.persona`として通常Coreへ渡す。DBのSelfへ書き込まず、表示名、一人称、言語、トーン、応答スタイル、避ける表現だけを応答文へ適用する。ユーザーの呼び方は設定せず、対話とSocial ContextからAgentが判断する。Persona単独では内部状態や長期Candidateを生成しない。
 

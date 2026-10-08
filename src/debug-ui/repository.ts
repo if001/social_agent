@@ -51,7 +51,9 @@ export class DebugUiRepository {
     const [states, socialContexts, intentions, schedules, candidates, recentAttempts] = await Promise.all([
       this.query<QueryResultRow>(`SELECT mood,drives,current_interests AS "currentInterests",interest_exploration AS "interestExploration",version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,subject_id AS "subjectId",subject_type AS "subjectType",description,updated_at AS "updatedAt" FROM social_contexts WHERE agent_id=$1 ORDER BY updated_at DESC,id LIMIT 100`, [agentId]),
-      this.query<QueryResultRow>(`SELECT id,description,reason,trigger,status,next_review_at AS "nextReviewAt",updated_at AS "updatedAt" FROM intentions WHERE agent_id=$1 ORDER BY (status='active') DESC,updated_at DESC,id LIMIT 100`, [agentId]),
+      this.query<QueryResultRow>(`SELECT id,description,reason,trigger,status,next_review_at AS "nextReviewAt",
+        CASE WHEN status<>'active' THEN 'inactive' WHEN next_review_at IS NOT NULL THEN 'scheduled' WHEN trigger IS NOT NULL THEN 'trigger' ELSE 'missing' END AS "reviewPath",
+        updated_at AS "updatedAt" FROM intentions WHERE agent_id=$1 ORDER BY (status='active') DESC,updated_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,kind,reason,next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,target,proposed_value AS "proposedValue",status,reason,evidence_event_ids AS "evidenceEventIds",review_after AS "reviewAfter",updated_at AS "updatedAt" FROM long_term_candidates WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT r.id,e.occurred_at AS "occurredAt",r.result->'output'->'action' AS action,
