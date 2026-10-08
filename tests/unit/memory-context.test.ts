@@ -61,4 +61,19 @@ describe("embedding and context", () => {
     expect(query.keywords.length).toBeGreaterThan(0);
     expect(buildRelevantMemoryQuery(input)).toEqual(query);
   });
+
+  it("reserves required context, then memories, and bounds selected state text", () => {
+    const input = agentCoreInputFixture();
+    input.intentions = Array.from({ length: 8 }, (_, index) => ({ id: `intention-${String(index)}`, agentId: input.run.agentId, description: "d".repeat(800), status: "active" as const, reason: "r".repeat(800), createdAt: input.run.occurredAt, updatedAt: input.run.occurredAt }));
+    input.socialContext = Array.from({ length: 8 }, (_, index) => ({ id: `social-${String(index)}`, agentId: input.run.agentId, subjectId: `subject-${String(index)}`, subjectType: "user" as const, description: "s".repeat(800), updatedAt: input.run.occurredAt }));
+    input.memories = [{ id: "relevant-memory", agentId: input.run.agentId, kind: "episodic", content: "important", occurredAt: input.run.occurredAt, createdAt: input.run.occurredAt, relatedSubjectIds: [], relatedIntentionIds: [], importance: "useful", retrievalPriority: "normal", evidenceEventIds: [input.run.eventId] }];
+    const result = new ContextBuilder().build({ ...input, requiredIntentionIds: new Set(["intention-0"]), requiredSocialContextIds: new Set(["social-0"]) }, { maxTokens: 4_000, maxMemories: 2, maxSocialContexts: 24 });
+    expect(result.intentions.length).toBeLessThanOrEqual(6);
+    expect(result.socialContext.length).toBeLessThanOrEqual(6);
+    expect(result.intentions[0]).toMatchObject({ id: "intention-0" });
+    expect(result.socialContext[0]).toMatchObject({ id: "social-0" });
+    expect(result.memories.map(({ id }) => id)).toContain("relevant-memory");
+    expect(result.intentions.every(({ description, reason }) => description.length <= 500 && reason.length <= 500)).toBe(true);
+    expect(result.socialContext.every(({ description }) => description.length <= 600)).toBe(true);
+  });
 });
