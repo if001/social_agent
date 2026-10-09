@@ -19,6 +19,6 @@ export class AgentEventRouter implements InternalEventRuntime {
     const candidateIds = Array.isArray(event.payload.candidateIds) ? event.payload.candidateIds.filter((id): id is string => typeof id === "string") : typeof event.payload.targetId === "string" ? [event.payload.targetId] : [];
     if (candidateIds.length === 0) throw new DomainError("VALIDATION", "Long-term Review Event requires Candidate IDs");
     await this.review.review(candidateIds, signal);
-    return { type: "no-action", reason: "Long-term Review completed" };
+    return { type: "no-external-action", reason: "Long-term Review completed" };
   }
 }

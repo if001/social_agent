@@ -903,7 +903,7 @@ type AgentAction =
   | { type: "tool"; toolName: string; input: unknown }
   | { type: "wait"; reason?: string }
   | { type: "refuse"; content: string }
-  | { type: "no-action"; reason?: string }
+  | { type: "no-external-action"; reason?: string }
 ```
 
 Emotion、Mood、Driveなどの全Stateを毎回再生成するのではなく、変更が必要なものだけProposalとして返す。

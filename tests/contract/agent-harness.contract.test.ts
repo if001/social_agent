@@ -33,7 +33,7 @@ describe("AgentHarness contract", () => {
     let recentToolInputs: readonly string[] | undefined;
     const invoker: DeepAgentInvoker = { invoke: (input, options) => { prompt = input.messages[0]?.content ?? ""; recentToolInputs = options.recentToolInputs; return Promise.resolve({ structuredResponse: output }); } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
-    const input = agentCoreInputFixture(); input.recentExperiences = [{ eventId: "history-event", runId: "history-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "internal", observation: { eventId: "history-event", summary: "history marker", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "tool", name: "lookup", input: { query: "same" }, result: { ok: true }, ok: true }, { type: "action", action: { type: "no-action", reason: "done" } }], progressChanged: false }];
+    const input = agentCoreInputFixture(); input.recentExperiences = [{ eventId: "history-event", runId: "history-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "internal", observation: { eventId: "history-event", summary: "history marker", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "tool", name: "lookup", input: { query: "same" }, result: { ok: true }, ok: true }, { type: "action", action: { type: "no-external-action", reason: "done" } }], progressChanged: false }];
     await expect(harness.run(input, new AbortController().signal)).resolves.toEqual(result);
     expect(prompt).not.toContain("memoryRetrievalTrace");
     expect(prompt).toContain("recentExperiences"); expect(prompt).toContain("history marker"); expect(prompt).not.toContain("recentAttempts"); expect(prompt).not.toContain("recentObservations");
@@ -103,6 +103,25 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(2);
   });
 
+  it("repairs wait returned for an autonomous event", async () => {
+    const input = agentCoreInputFixture();
+    input.observation.content = { schedulerGenerated: true, targetKind: "autonomy-review" };
+    let calls = 0;
+    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "wait", reason: "対話を待つ" } } : output }) };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toEqual(result);
+    expect(calls).toBe(2);
+  });
+
+  it("repairs actionless autonomous output while an active Drive exists", async () => {
+    const input = agentCoreInputFixture();
+    input.observation.content = { schedulerGenerated: true, targetKind: "persistent-drive" };
+    input.dynamicState = { ...input.dynamicState, drives: [{ description: "仕組みを理解したい", sourceEvidenceIds: [input.run.eventId], since: input.run.occurredAt }] };
+    let calls = 0;
+    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "no-external-action", reason: "対話相手を待つ" } } : output }) };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toEqual(result);
+    expect(calls).toBe(2);
+  });
+
   it("normalizes provider errors, abort and timeout", async () => {
     const failure: DeepAgentInvoker = { invoke: () => Promise.reject(new Error("provider secret-key failed")) };
     await expect(new DeepAgentHarness({ invoker: failure, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "EXTERNAL", message: "Agent provider failed" });
@@ -129,6 +148,8 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("Expectationは独立保存せず");
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
     expect(agentCoreSystemPrompt).toContain("Driveは「なぜ求めるか」");
+    expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
+    expect(agentCoreSystemPrompt).toContain("Tool未使用のno-external-actionを返しません");
     expect(agentCoreSystemPrompt).toContain("反復検索");
     expect(agentCoreSystemPrompt).toContain("recentExperiences");
     expect(agentCoreSystemPrompt).not.toContain("recentAttempts");

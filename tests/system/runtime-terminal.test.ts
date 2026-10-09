@@ -32,7 +32,7 @@ describe("ST-01 Terminal round trip", () => {
       now: () => clock.now()
     });
     const action = await runtime.process({ id: "state-review-event", agentId: "agent-a", kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "state-review", schedulerGenerated: true, reason: "Review persistent state" } }, new AbortController().signal);
-    expect(action).toEqual({ type: "no-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" });
+    expect(action).toEqual({ type: "no-external-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" });
     expect(harnessCalls).toBe(0);
     expect(persistence.events).toHaveLength(1);
     await expect(persistence.claimPostProcess("agent-a", "run-1", "continuity")).resolves.toMatchObject({ type: "continuity" });
@@ -65,7 +65,7 @@ describe("ST-01 Terminal round trip", () => {
   it("does not publish or mark an outbox record when publish fails", async () => {
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
-    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().dynamicState, changes: [] }, [message]);
+    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().dynamicState, changes: [] }, [message]);
     const queue = { publish: () => Promise.reject(new Error("down")), subscribe: () => Promise.resolve() };
     await expect(new OutboxDispatcher(persistence, queue).dispatch()).rejects.toThrow("down");
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);
@@ -74,7 +74,7 @@ describe("ST-01 Terminal round trip", () => {
   it("accepts External, Time and System Events through the production queue contract", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.observation.eventId = event.id; return input; });
-    const noAction = { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Observed" } };
+    const noAction = { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Observed" } };
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness: new ScriptedAgentHarness([noAction, noAction, noAction]), persistence, ids: new SequenceIdGenerator(["external-domain-event", "time-domain-event", "system-domain-event"]), now: () => clock.now() });
     const publisher = new RuntimeEventPublisher(queue, clock, new SequenceIdGenerator(["external-message", "time-message", "system-message"])); const controller = new AbortController(); const running = runtime.start(controller.signal);
     await publisher.publishExternal("agent-a", { text: "A build completed", sourceId: "ci", facts: ["status=success"], resultOfActionId: "prior-run", correlationId: "conversation" });

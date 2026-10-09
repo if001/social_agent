@@ -87,7 +87,7 @@ flowchart LR
 | Preference | Self・長期 | 対象、方法、様式への好みや避ける傾向 | Actionの方法、探索対象、応答スタイルの選択 |
 | Self Narrative / Continuity | Self・長期 | 過去から現在までの自分についての理解 | Subjective Meaning、自己整合的な判断 |
 | Mood | 持続状態・中期 | 複数Eventへ影響する気分 | Emotion、Subjective Meaning、Action傾向 |
-| Drive | 持続状態・中期 | 現在、継続して求めていることとその理由 | Desire、Current Interest、Intention、自律行動 |
+| Drive | 持続状態・中期 | 現在、継続して求めていることとその理由 | 自律EventでのAction、Desire、Current Interest、Intention |
 | Current Interest | 持続状態・中期 | 現在注意が向く対象と、当面の満足点・進捗 | 次に調べる対象、質問、Tool利用、探索の収束 |
 | Emotion | Event内・短期 | 今回のEventに対する一時的感情 | 今回の応答・行動 |
 | Desire | Event内・短期 | 今回したい、またはしたくないこと | 今回のAction、継続させるIntentionの候補 |
@@ -100,7 +100,7 @@ flowchart LR
 flowchart TB
     E["Event"] --> IA["Interaction Agent<br/>意味づけ・Tool loop・即時Action"]
     IA --> SHORT["Emotion / Desire<br/>今回のrunに記録"]
-    IA --> ACTION["応答・Tool・待機・拒否・no-action"]
+    IA --> ACTION["応答・Tool・待機・拒否・no-external-action"]
 
     IA --> PP["応答後のPost-process"]
     PP --> CONT["Continuity Update"]
