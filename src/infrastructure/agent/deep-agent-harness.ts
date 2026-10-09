@@ -54,6 +54,16 @@ function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["
   return issues;
 }
 
+function autonomousActionIssues(input: AgentCoreInput, output: AgentRunResult["output"], toolExecutions: readonly ToolExecutionRecord[]): ProposalIssue[] {
+  const content = typeof input.observation.content === "object" && input.observation.content !== null ? input.observation.content as Record<string, unknown> : {};
+  if (content.schedulerGenerated !== true) return [];
+  if (output.action.type === "wait") return [{ code: "invalid_reference", path: ["action", "type"], message: "Autonomous events must act now and cannot return wait" }];
+  if (input.dynamicState.drives.length > 0 && output.action.type === "no-external-action" && toolExecutions.length === 0) {
+    return [{ code: "invalid_reference", path: ["action", "type"], message: "An autonomous event with an active Drive must perform a Tool action or choose an external action" }];
+  }
+  return [];
+}
+
 export class DeepAgentHarness implements AgentHarness {
   readonly #maxRepairs: number;
   constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 1; }
@@ -79,7 +89,7 @@ export class DeepAgentHarness implements AgentHarness {
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
-          const referenceIssues = proposalReferenceIssues(input, parsed.data);
+          const referenceIssues = [...proposalReferenceIssues(input, parsed.data), ...autonomousActionIssues(input, parsed.data, observedToolExecutions)];
           if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1 }); return { output: parsed.data, toolExecutions: observedToolExecutions }; }
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
@@ -341,7 +351,7 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 最終出力は、提供された構造化出力専用Toolをちょうど1回呼び出し、その引数として次のInteraction出力を渡します。通常の本文やMarkdownのJSONとして返しません:
 - interpretation.subjectiveMeaning: 今回のEventがこのAgentにとって持つ意味。意味づけが不要な場合だけ省略できます
 - internalChanges.immediateStateUpdates: 今回の応答判断に直接関係するEmotionとDesireだけの更新提案。targetはemotionまたはdesiresです。Emotionはset、Desireはset | append | removeを使い、value、reason、evidenceIdsを持ちます。不要なら空配列にします
-- action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-actionはreasonを持ちます。Tool利用はreasoning中に行い、最終actionへtoolを返しません
+- action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-external-actionはreasonを持ちます。no-external-actionは「何もしなかった」ではなく、Tool利用や内部判断の後に外部配送を行わない最終判断です。Tool利用はreasoning中に行い、最終actionへtoolを返しません
 
 時間スケール:
 - Emotionと各Desireは今回のEventに対する短期状態であり、次回入力には引き継がれません
@@ -353,15 +363,16 @@ export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を
 - 他Agentから聞いた情報を対象Agent自身の直接経験として扱いません
 - 全状態を毎回変更せず、不要ならimmediateStateUpdatesは空配列[]にします
 - 状態変更は提案であり、保存済みだと主張しません
-- schedulerGenerated=trueのInternal Eventでは、targetKindに応じて自律的な再検討を行います。Driveは「なぜ求めるか」、Current Interestは「現在何に注意が向き、当面どこまで満たしたいか」、Desireは「今回したい／したくないこと」、Intentionは「後のEventまで維持する具体的行動方針」を表します。Current InterestとIntentionを同一視しません。persistent-driveは該当Driveの根拠とSelfに照らします。autonomy-reviewは現在関心へ注意を向けられるInternal Observationです
+- schedulerGenerated=trueのInternal Eventでは、targetKindに応じて自律的な再検討を行います。Driveは「なぜ求めるか」という現在の動機であり、行動機会である自律Eventでは現在可能な小さなActionを生みます。Current Interestは「現在何に注意が向き、当面どこまで満たしたいか」、Desireは「今回したい／したくないこと」、Intentionは「後のEventまで維持する具体的行動方針」を表します。Current InterestとIntentionを同一視しません。persistent-driveは該当Driveの根拠とSelfに照らして現在可能な行動を選びます。autonomy-reviewは現在関心へ注意を向けられるInternal Observationです
+- 自律Eventではwaitを返しません。外部条件待ちのIntentionはそのIntentionだけの条件であり、Event全体の停止理由にしません。Active Driveがあれば、利用可能なToolによる探索、ユーザーへの自然な質問、発見の共有など、Driveを一歩進める現在可能なActionを少なくとも一つ実行します
 - autonomy-reviewでは、まず既存Current Interestに今できる小さな行動、reframe、resolve、dropの材料があるかを検討します。追加探索で理解や経験が大きく更新される見込みが薄く、当面のgoalを十分満たしているなら、ユーザーへ発信する機会がないことを理由にInterestの収束を延期しません。後で説明・共有する必要だけが残る場合、それはCurrent InterestではなくIntentionの材料です
 - 行動可能なCurrent Interestが存在しない、すべてcooldown中、または既存Interestが収束可能な場合は、新しいCurrent Interestにつながるfocusを検討します。候補源はself.interests / preferencesだけに限定せず、最近の会話、Social Contextの不足、Memoryの未解決・矛盾、Tool結果、Web Snapshot、Drive、Intentionの結果を含みます。具体的なfocusと当面のgoalがあり、次のEventにも注意を持ち越す価値がある場合だけ継続候補とし、件数を満たす目的では作りません。今回だけの「したい」はDesireとして扱います
-- Stable Interestや他の候補源から現在小さく確かめられるfocusがあり、同じテーマの最近の探索、cooldown、優先すべき依頼がない場合は、利用可能なToolで小さく調べるか、ユーザーとの文脈に自然な問いを最大1件選びます。Drive、Current Interest、Intentionが空であることだけをno-actionの理由にしません
-- recentExperiencesで進展しなかった質問やTool入力を同じ形で繰り返しません。同じGoalを追うなら、質問を具体化する、自分の関心や質問理由を先に共有する、検索語・Tool・対象を変える、または別の時機までwaitする、のいずれかを選びます。別手段でも進展が期待できなければno-actionにします
+- Stable Interestや他の候補源から現在小さく確かめられるfocusがあり、同じテーマの最近の探索、cooldown、優先すべき依頼がない場合は、利用可能なToolで小さく調べるか、ユーザーとの文脈に自然な問いを最大1件選びます。Drive、Current Interest、Intentionが空であることだけをno-external-actionの理由にしません
+- recentExperiencesで進展しなかった質問やTool入力を同じ形で繰り返しません。同じGoalを追うなら、質問を具体化する、自分の関心や質問理由を先に共有する、検索語・Tool・対象を変える、または別の時機までwaitする、のいずれかを選びます。別手段でも進展が期待できなければno-external-actionにします
 - ユーザーを知るための質問は、固定の質問順序を使わず、現在の話題とSocial Contextに関係するKnowledge Gapを最大1件だけ扱います。無応答や話題変更を常に拒否と決めつけません
-- cooldownUntilが未来のCurrent Interestは再探索しません。同じ検索や外部通知を繰り返さず、探索途中や弱い進展はrespondせず内部保存のためのno-actionを選びます。ユーザーの進行中の関心に有用な発見、重要な発見、ユーザーに尋ねなければ埋まらないKnowledge Gapだけrespondできます
-- 自律Eventでは、今すぐ応答またはToolで行動する、後で行うIntentionの材料としてwaitする、対象が解消していればno-actionにする、今回は延期する、のいずれかを根拠とともに選びます。Toolは確認が必要で結果を利用できる場合だけ使い、同じ関心の反復検索や弱い根拠による外部通知を避けます
-- 自律Eventで外部へ伝える価値がなければrespondを選ばず、waitまたはno-actionにします。Tool結果は出典を区別し、Web検索結果の重要な経験は応答後のMemory Extractionが要約できる形で最終判断へ反映します
+- cooldownUntilが未来のCurrent Interestは再探索しません。同じ検索や外部通知を繰り返さず、探索途中や弱い進展はrespondせず内部保存のためのno-external-actionを選びます。ユーザーの進行中の関心に有用な発見、重要な発見、ユーザーに尋ねなければ埋まらないKnowledge Gapだけrespondできます
+- 自律Eventでは、今すぐ応答またはToolで行動します。Toolは結果を利用できる場合だけ使い、同じ関心の反復検索や弱い根拠による外部通知を避けます。Active Driveがあるのに、外部条件がないことだけを理由としてTool未使用のno-external-actionを返しません
+- 自律EventでToolを使って内部探索した結果、外部へ伝える価値がなければno-external-actionにします。Tool結果は出典を区別し、Web検索結果の重要な経験は応答後のMemory Extractionが要約できる形で最終判断へ反映します
 - 最終回答では通常の説明文を返さず、構造化出力専用Toolだけを呼び出します
 
 構造化出力専用Toolへ渡す最小引数例:

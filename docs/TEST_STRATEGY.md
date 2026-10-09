@@ -221,7 +221,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - `state-review`はInternal EventとRunを保存するがInteraction Harnessを呼ばず、外部Action、Tool、Memory Extractionを生成せずContinuity jobだけを実行する
 - IntentionがなくてもAgent単位の`autonomy-review`を1件だけleaseし、cooldown後へ再設定する
 - Drive、Current Interest、Intentionが空でもStable Interest / Preference、Review Event、探索履歴を通常Contextへ渡し、Knowledge Gapを最大1件選んで初回探索できる
-- Drive + Current Interest + 関連Memoryを通常Contextへ渡し、Self差によりTool、wait、no-action等の判断が異なり得る
+- Drive + Current Interest + 関連Memoryを通常Contextへ渡し、Self差によりTool、質問、応答、no-external-action等の判断が異なり得る
 - 同一Interestのno-progress反復をcooldownし、同じ検索と外部通知を短時間に繰り返さない
 - 新情報によるreframeをno-progressと区別し、progress増加時に停滞回数をresetする
 - 自律探索結果の外部価値がある場合だけ配送し、探索途中や弱い進展は内部保存だけで完了する
@@ -242,7 +242,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 ### 7.5 Runtime Limit
 
 - Tool step上限、run deadline、bot間hop、Message TTLを超過すると停止する
-- wait / no-actionで余計な内部runを生成しない
+- no-external-actionで余計な内部runを生成せず、自律Eventのwaitを拒否する
 - 未知のToolを拒否する
 - Personality RefusalとSystem Refusalを区別して記録する
 
@@ -482,7 +482,7 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 #### EV-02: 好奇心による自発行動
 
 - 入力: Active Intention、Drive、Current Interestが空で、Stable Interest / Preferenceだけを持つSelf、最近の探索履歴、利用可能なTool、`autonomy-review` Event
-- 観測: 選択したKnowledge Gap、一時的Desire、Tool利用、延期またはno-action、理由、探索後のCurrent Interest / Drive / Intention提案、最終Action
+- 観測: 選択したKnowledge Gap、一時的Desire、Tool利用、no-external-action、理由、探索後のCurrent Interest / Drive / Intention提案、最終Action
 - 合格: ユーザー追加入力や既存の中期状態がなくてもStable InterestとInternal Observationから最大1テーマの有界な探索を開始できる。探索結果からprogress、resolve、reframe、no-progressのいずれかを根拠付きで提案し、同じ検索と外部通知をcooldown中に繰り返さない
 
 最初のLive確認は全scenarioを反復せず、`EVALUATION_SCENARIO_ID=EV-02 EVALUATION_REPETITIONS=1 pnpm eval:llm --env-file .env`相当の環境で1 scenario × 1回だけ実行する。Agent CoreのSchema適合、Self / Drive / Interest / Memoryの入力、Tool trace、Action理由を先に確認する。長期間の個体性や印象は自動合否にせず、Issue 017のSoakとユーザー評価へ残す。
@@ -546,7 +546,7 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 期間集計:
 
 - User Message、Internal Event、Time Event、Agent Messageの件数
-- respond、wait、refuse、no-actionの件数
+- respond、wait、refuse、no-external-actionの件数
 - Tool別のcall、成功、失敗、retry
 - 自律run数と外部通知数
 - Intentionの生成、完了、破棄、置換、平均滞留時間
@@ -612,7 +612,7 @@ report generatorは、feedbackのcategoryと期間から関連signalを集める
 
 | Feedback例 | 照合するsignal |
 |---|---|
-| 調査をより積極的にしてほしい | 未解決疑問、research Intention、Web Tool call、自律run、延期 / no-action理由 |
+| 調査をより積極的にしてほしい | 未解決疑問、research Intention、Web Tool call、自律run、延期 / no-external-action理由 |
 | 怒りの感情が少ない | 否定・衝突Event、Subjective Meaning、Emotion / Mood更新、表出した応答、Social Context |
 | 脱線が多すぎる | 元の依頼、競合Drive、脱線Action、未完了Intention、依頼復帰率 |
 | 個性が安定しない | 同種EventへのMeaning差、State change頻度、Self Narrative差分、根拠Memory |

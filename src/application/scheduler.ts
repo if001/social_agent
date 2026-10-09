@@ -1,5 +1,5 @@
 import type { Clock, IdGenerator, MessageQueue } from "./ports.js";
-import type { AgentAction, DomainEvent } from "../domain/contracts.js";
+import { DomainError, type AgentAction, type DomainEvent } from "../domain/contracts.js";
 import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
@@ -31,6 +31,7 @@ export class Scheduler {
         const occurredAt = this.options.clock.now();
         const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.candidateIds === undefined ? {} : { candidateIds: target.candidateIds }) } };
         const action = await this.options.runtime.process(event, signal);
+        if (action.type === "wait") throw new DomainError("VALIDATION", "Autonomous events cannot wait; the Scheduler owns the next execution time");
         if (action.type === "respond") {
           const now = this.options.clock.now();
           const destination = this.options.defaultDestination(target.agentId);
@@ -41,7 +42,7 @@ export class Scheduler {
           }
         }
         const interval = target.kind === "intention" ? this.options.intentionReviewIntervalMs ?? this.options.autonomyReviewIntervalMs : target.kind === "autonomy-review" ? this.options.autonomyReviewIntervalMs : target.kind === "state-review" ? this.options.stateReviewIntervalMs : target.kind === "memory-recall" ? this.options.memoryRecallIntervalMs : target.kind === "persistent-drive" ? this.options.persistentDriveReviewIntervalMs : undefined;
-        const next = action.type === "wait" && action.until !== undefined ? new Date(action.until) : interval === undefined ? action.type === "no-action" ? null : new Date(occurredAt.getTime() + this.options.autonomyReviewIntervalMs) : new Date(occurredAt.getTime() + interval);
+        const next = interval === undefined ? action.type === "no-external-action" ? null : new Date(occurredAt.getTime() + this.options.autonomyReviewIntervalMs) : new Date(occurredAt.getTime() + interval);
         await this.options.repository.complete(target, next);
         logger.log("info", "scheduler.target_completed", { actionType: action.type, nextReviewAt: next?.toISOString() });
         completed += 1;

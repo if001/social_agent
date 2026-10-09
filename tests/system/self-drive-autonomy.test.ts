@@ -21,7 +21,7 @@ describe("Stable Interest → autonomous action", () => {
       expect(prompt).toContain(ao.agent.initialDisposition); expect(prompt).toContain("Agentが経験や対話から変化していく仕組み"); expect(prompt).toContain('"drives":[]'); expect(prompt).toContain('"currentInterests":[]');
       const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: options.maxToolCalls, signal: options.signal });
       const [webPage] = createDeepAgentTools(registry, () => new Date(fixtureInstant)); await webPage?.invoke({ urls: "https://example.com/hnsw" }, { context });
-      return { structuredResponse: { interpretation: { subjectiveMeaning: "自分の関心を一歩進める根拠を確認できた" }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action", reason: "外部へ通知する必要はない" } }, toolExecutions: context.collector.executions };
+      return { structuredResponse: { interpretation: { subjectiveMeaning: "自分の関心を一歩進める根拠を確認できた" }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action", reason: "外部へ通知する必要はない" } }, toolExecutions: context.collector.executions };
     } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set(["web_page"]) });
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); let claimed = false; const completions: (Date | null)[] = [];

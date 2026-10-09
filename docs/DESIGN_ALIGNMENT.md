@@ -43,7 +43,7 @@ Issue 068 reviewed this matrix for the reusable Deep Agent lifecycle. `ARCHITECT
 | Self Narrative, Acquired Disposition | creates Candidate only | KEEP/UPDATE/MERGE/DROP | validates evidence and persists atomically |
 | Role, Raison d'être, long-term preference/interest | creates Candidate only | specified by primary design but outside the current implemented schema | remains unresolved until the contract is extended deliberately |
 | Tool execution | chooses and consumes result within the run | normally unavailable unless separately registered | enforces capability and records execution |
-| External Action | returns final respond/wait/refuse/no-action | normally no external Action; may produce a review result | routes or schedules the validated result |
+| External Action | returns final respond/wait/refuse/no-external-action | normally no external Action; may produce a review result | routes or schedules the validated result |
 
 ## 5. Event routing
 

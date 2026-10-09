@@ -221,7 +221,7 @@ UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`
 - Episodic Memoryの保存後、必要な場合だけCandidate Detector jobを起動する
 - Internal EventとTime Eventを通常Agent CoreまたはLong-term Reviewへ振り分ける
 
-Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成するが、通常Interaction Deep Agentへは渡さない。RuntimeはEventとRunを監査用に記録し、決定的な`no-action`と空の即時更新をcommitしてContinuity jobだけを作る。Continuity Reviewは時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interest、Working Social Context、Intentionを維持・変更・終了する。`state-review`ではTool、外部応答、Memory Extraction、Candidate Detectorを起動しない。Runtimeは固定規則で状態値を減衰させず、時刻管理、経路制御、再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
+Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成するが、通常Interaction Deep Agentへは渡さない。RuntimeはEventとRunを監査用に記録し、決定的な`no-external-action`と空の即時更新をcommitしてContinuity jobだけを作る。Continuity Reviewは時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interest、Working Social Context、Intentionを維持・変更・終了する。`state-review`ではTool、外部応答、Memory Extraction、Candidate Detectorを起動しない。Runtimeは固定規則で状態値を減衰させず、時刻管理、経路制御、再検討機会の生成だけを担当する。EmotionとDesireはEvent内で完結するためState Reviewの永続対象にしない。
 
 Agent初期化時のStable Interests / Preferences / Rolesはversioned Initial Self設定から読み込む。DriveとCurrent Interestは原則として空集合で開始し、MoodとAcquired Dispositionには中立な初期値を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Selfとして明示的に入力する。
 
@@ -235,13 +235,15 @@ Initial SelfのInterests / Preferencesには抽象的方向性と具体的な初
 
 Drive、Current Interest、Intentionが空の場合も、通常CoreはStable Interest / PreferenceとInternal Observationから最大1件のKnowledge Gapを選び、一時的Desireとして初回探索またはユーザーへの質問を判断できる。Stable Interestを機械的に永続Driveへ変換しない。探索のTool ResultとInteractionが具体的経験になった後、Continuity Updateが継続価値を判断してCurrent Interest、Drive、Intentionを提案する。
 
+Active Driveがある自律Eventでは、CoreはそのDriveを現在可能な有界Actionへ具体化する。外部条件待ちのIntentionは候補から外して別のDrive、Current Interest、Memory、Stable Interestを検討し、Event全体を待機させない。自律Eventの`wait`はHarness validationで拒否する。Active DriveがあるのにToolを実行せず`no-external-action`を返した出力もrepair対象とする。Tool利用後に外部配送を行わない最終判断は`no-external-action`として正常に記録する。
+
 ```mermaid
 flowchart LR
     S[Stable Interest / Preference] --> O[Autonomy Review<br/>Internal Observation]
     H[Recent exploration / Memory] --> O
     O --> K[Knowledge Gapを最大1件選択]
     K --> D[一時的Desire]
-    D --> A[Tool / 質問 / wait / no-action]
+    D --> A[Tool / 質問 / 外部応答]
     A --> E[Tool Result / Interaction experience]
     E --> P[Continuity Update]
     P --> C[Current Interest proposal]
@@ -250,7 +252,7 @@ flowchart LR
     N -->|進展| G[progress更新]
     N -->|達成| X[resolveと関連状態の収束]
     N -->|問いが変化| F[reframe]
-    N -->|停滞| W[別手段 / wait / cooldown / drop]
+    N -->|停滞| W[別手段 / cooldown / drop]
 ```
 
 Idle Intentionの期限は、User MessageまたはExternal Eventを受理した時点を最終活動として、そのtransaction内で再計算する。Agent Coreの完了後まで更新を遅らせない。新規Idle Intentionは作成Eventの時刻から最初の期限を計算し、Scheduler自身が生成したInternal EventやSystem Eventでは最終活動を延長しない。
@@ -275,7 +277,7 @@ flowchart LR
     D --> DS[保存済みMemory IDを根拠にCandidateをcommit]
     DS --> R[Long-term Review]
 
-    SR[state-review Event] --> SC[監査用Event / Run commit<br/>no-action・Toolなし]
+    SR[state-review Event] --> SC[監査用Event / Run commit<br/>no-external-action・Toolなし]
     SC --> SU[Continuity Review LLM<br/>Tool loopなし]
     SU --> SS[Mood・Drive・Interest・Social Context・Intentionをcommit]
 ```
@@ -565,11 +567,11 @@ botプロセス内で、そのAgentだけを対象に定期評価する。
 
 Intention triggerは`time`、`event`、`idle`、`manual-review`の4種類とする。`time`は指定時刻、`event`はEvent種類と任意keyword、`idle`はAgentの最後の非Scheduler Eventからの無活動時間、`manual-review`は対象Intention IDを持つSystem/Internal Eventで`next_review_at`を設定する。Scheduler自身が生成したEventではtriggerを再評価せず、自己起動loopを防ぐ。
 
-TriggerなしのIntentionも長期放置されないよう、既定のIntention Review間隔を持つ。SchedulerはReview完了後に次回時刻を設定してからleaseを解放する。`no-action`を`next_review_at=NULL`へ変換して即時再取得してはならない。Debug UIはTrigger、`nextReviewAt`と、`scheduled | trigger | missing | inactive`の再評価経路を表示する。
+TriggerなしのIntentionも長期放置されないよう、既定のIntention Review間隔を持つ。SchedulerはReview完了後に次回時刻を設定してからleaseを解放する。`no-external-action`を`next_review_at=NULL`へ変換して即時再取得してはならない。Debug UIはTrigger、`nextReviewAt`と、`scheduled | trigger | missing | inactive`の再評価経路を表示する。
 
 SchedulerはDomain EventをRuntimeへ直接渡す。Queueへpublishしない。通常のInternal Eventは通常Coreへ、`long-term-review` EventはLong-term Review Coreへ振り分ける。同一プロセスではAgent単位で直列化し、DBではIntention、persistent Drive、Candidateを期限付きleaseで取得する。停止中に期限を迎えた対象も再起動時に取得し、成功後は次回時刻を設定、失敗時は短いbackoffを設定してleaseを解放する。外部Queueへ送るのは最終Actionが`respond`の場合だけとする。
 
-自律Eventの`respond`はdefault destinationが設定され、かつ結果がユーザーの進行中の関心や依頼に有用、重要な発見、またはユーザーへの質問を必要とする場合だけ配送する。Discord destinationでは、設定されたchannel allowlistの先頭を自律投稿先とし、元Messageを持たない新規投稿として送信する。通常のDiscord対話応答は引き続き入力Messageまたはthreadへ返信する。探索途中、既知内容の再確認、弱い進展はMemory、Web Snapshot、状態だけをcommitして外部通知しない。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。`wait.until`があればその時刻、それ以外の自律Eventはreview interval後へ再設定し、Current Interest metadataのcooldownと合わせて同じ検索と通知の即時loopを防ぐ。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
+自律Eventの`respond`はdefault destinationが設定され、かつ結果がユーザーの進行中の関心や依頼に有用、重要な発見、またはユーザーへの質問を必要とする場合だけ配送する。Discord destinationでは、設定されたchannel allowlistの先頭を自律投稿先とし、元Messageを持たない新規投稿として送信する。通常のDiscord対話応答は引き続き入力Messageまたはthreadへ返信する。探索途中、既知内容の再確認、弱い進展はMemory、Web Snapshot、状態だけをcommitして`no-external-action`とし、外部通知しない。未設定でもInteraction、Tool trace、Post-processはcommit済みであり、状態やMemoryを失わない。次回の自律Eventは種類ごとのreview intervalへ再設定し、Current Interest metadataのcooldownと合わせて同じ検索と通知の即時loopを防ぐ。Tool call数、run deadline、lease、Agent単位直列化も通常runと同じ上限を適用する。
 
 E2E traceでは、初期Self設定のFamily / Agent IDとDisposition、Driveのreason / evidence / since、`autonomy-review` Event ID、取得されたMemory ID、Tool executionのrun / event / snapshot ID、最終Action、Post-process Memoryのevidenceを同じrunから追跡する。決定的testは配線と上限を検証し、LLMの判断品質はEV-02を1回実行してからSoakで評価する。
 
@@ -598,7 +600,7 @@ Eventは客観的な入力記録であり、ObservationはそのEventから決�
 
 Tool呼び出しは親Eventとrunに結びつく実行記録に加え、`tool-result`の論理Eventを作る。論理Eventはtool call ID、run ID、親Event、correlationを保持するため、後続のMemory根拠と障害調査から同じ実行へ遡れる。Agent Contextへ渡すresultは検索とbudgetで制限し、資格情報を含む値はredaction対象とする。
 
-通常Agent Coreが選んだ最終ActionはAgent Run IDをAction IDとして扱う。応答Envelopeは`causationId=runId`と`correlationId`を持ち、配送成否はOutboxの状態として記録する。外部システムが成功、失敗、相手の反応等を観測した場合は、`RuntimeEventPublisher.publishExternal`の`resultOfActionId`へ元のrun IDを指定してExternal Eventを投入する。Discordでは送信したDiscord Message IDとrun IDをAdapterが対応付け、返信参照を持つ次の投稿へ同じcausationを付ける。拒否、待機、no-actionもAgent Run result内のActionとして同じIDで参照できる。Agent Coreはこの後続Observationを通常どおり意味解釈し、必要なMemoryや状態変更を提案する。
+通常Agent Coreが選んだ最終ActionはAgent Run IDをAction IDとして扱う。応答Envelopeは`causationId=runId`と`correlationId`を持ち、配送成否はOutboxの状態として記録する。外部システムが成功、失敗、相手の反応等を観測した場合は、`RuntimeEventPublisher.publishExternal`の`resultOfActionId`へ元のrun IDを指定してExternal Eventを投入する。Discordでは送信したDiscord Message IDとrun IDをAdapterが対応付け、返信参照を持つ次の投稿へ同じcausationを付ける。拒否、待機、no-external-actionもAgent Run result内のActionとして同じIDで参照できる。Agent Coreはこの後続Observationを通常どおり意味解釈し、必要なMemoryや状態変更を提案する。
 
 Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの再入を検査する。rateとcorrelationはPostgreSQLで全process間共有する。validation／permission違反は再試行せず理由付きdead-letterへ送り、外部障害だけをbackoff再試行する。実装済みToolから作った`availableTools`はBot起動時に固定のTool一覧としてDeep Agentへ登録し、実行直前にもregistryのSchema、run contextの上限、idempotencyを検査する。状態、Memory、Candidateが参照する根拠IDは現在Eventまたは対象AgentのContext内に存在するものに限定する。
 
@@ -799,7 +801,7 @@ type AgentCoreOutput = {
 }
 ```
 
-`FinalAction`はrespond、wait、refuse、no-actionを表現する。Tool callはDeep Agents内部loopの中間操作であり、最終Actionには含めない。Harnessは`AgentCoreOutput`と、通常コードが観測した`ToolExecutionRecord[]`を`AgentRunResult`としてRuntimeへ返す。
+`FinalAction`はrespond、wait、refuse、no-external-actionを表現する。Tool callはDeep Agents内部loopの中間操作であり、最終Actionには含めない。Harnessは`AgentCoreOutput`と、通常コードが観測した`ToolExecutionRecord[]`を`AgentRunResult`としてRuntimeへ返す。
 
 `MemoryProposal`、新規`IntentionProposal`、`LongTermUpdateCandidateProposal`は意味内容と根拠を持つが、保存用ID、作成時刻、所有Agent IDを持たない。既存Intention等を更新する提案は、入力Contextに存在する対象IDだけを参照できる。
 

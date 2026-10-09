@@ -216,7 +216,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const input = agentCoreInputFixture(); input.run = { runId: "archive-memory-run", eventId: "archive-memory-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.availableTools = [{ name: "web_archive_read", description: "Archive", inputSchema: {} }];
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-continuity-job", "archive-memory-job", "archive-memory"]), () => new Date(fixtureInstant), undefined, 0, 86_400_000, registry);
     const toolExecution = { callId: "tool-1", runId: "archive-memory-run", eventId: "archive-memory-event", name: "web_archive_read", input: { snapshotId: first[0]?.snapshotId }, ok: true as const, result: { snapshotId: first[0]?.snapshotId, offset: 0, text: "raw page must not enter post-process", truncated: true }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
-    const runResult = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
+    const runResult = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
     await persistence.commit(messageFixture({ id: "archive-memory-message", destination: "a" }), { id: "archive-memory-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} }, input, runResult, { state: input.dynamicState, changes: [] }, []);
     const archiveJob = await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveJob === undefined) throw new Error("Post-process job was not created");
     expect(JSON.stringify(archiveJob.input)).not.toContain("raw page must not enter post-process");
@@ -501,18 +501,18 @@ describeDatabase("PostgreSQL persistence", () => {
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["state-review-continuity-job"]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "state-review-message", destination: "a" });
     const event = { id: "state-review-event", agentId: "a", kind: "internal" as const, occurredAt: fixtureInstant, payload: { targetKind: "state-review", schedulerGenerated: true } };
-    const result = { output: { interpretation: { subjectiveMeaning: "Persistent state review" }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Continuity only" } }, toolExecutions: [] };
+    const result = { output: { interpretation: { subjectiveMeaning: "Persistent state review" }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Continuity only" } }, toolExecutions: [] };
     await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
     const jobs = await pool.query<{ job_type: string }>("SELECT job_type FROM post_process_jobs WHERE interaction_run_id='state-review-run' ORDER BY job_type");
     expect(jobs.rows).toEqual([{ job_type: "continuity" }]);
-    expect((await pool.query<{ result: { output: { action: { type: string } } } }>("SELECT result FROM agent_runs WHERE id='state-review-run'")).rows[0]?.result.output.action.type).toBe("no-action");
+    expect((await pool.query<{ result: { output: { action: { type: string } } } }>("SELECT result FROM agent_runs WHERE id='state-review-run'")).rows[0]?.result.output.action.type).toBe("no-external-action");
   });
 
   it("derives reported Memory provenance from the validated Observation actor", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "reported-run", eventId: "reported-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.observation = { eventId: "reported-event", summary: "Agent B reported a library time", facts: ["Reported by B"], observedAt: fixtureInstant, actor: { id: "b", type: "agent" }, source: { type: "agent", id: "b", direct: true } };
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-continuity-job", "reported-memory-job", "reported-memory"]), () => new Date("2026-01-03T00:00:00Z"));
-    const result = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-action" as const, reason: "Recorded" } }, toolExecutions: [] };
+    const result = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [] };
     await persistence.commit(messageFixture({ id: "reported-message", destination: "a" }), { id: "reported-event", agentId: "a", kind: "external", occurredAt: fixtureInstant, payload: { senderAgentId: "b" } }, input, result, { state: input.dynamicState, changes: [] }, []);
     const reportedJob = await persistence.claimPostProcess("a", "reported-run"); if (reportedJob === undefined) throw new Error("Post-process job was not created");
     if (reportedJob.type === "continuity") await persistence.completePostProcess(reportedJob, { persistentStateUpdates: [], driveProposals: [], currentInterestProposals: [], intentionProposals: [] });

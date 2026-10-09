@@ -41,7 +41,7 @@ const stateReviewResult = (): AgentRunResult => ({
   output: {
     interpretation: { subjectiveMeaning: "時間経過に伴う持続状態の再評価機会" },
     internalChanges: { immediateStateUpdates: [] },
-    action: { type: "no-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" }
+    action: { type: "no-external-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" }
   },
   toolExecutions: []
 });

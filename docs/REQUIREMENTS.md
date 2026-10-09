@@ -130,7 +130,7 @@ Self Interestは比較的安定して注意を引かれやすい対象、Prefere
 
 Initial SelfのInterests / Preferencesは、ユーザー理解や未知の探索といった抽象的方向性と、音楽、芸術家、作品、活動、技術等に対する具体的な初期嗜好を併記できる。具体的嗜好は設定由来の初期個体差であり、過去に鑑賞・体験したというMemoryや経験事実を意味しない。対話や探索から後に形成されたInterest / Preferenceは、保存済みMemoryを根拠にLong-term Reviewで確定し、設定由来と経験由来のprovenanceを混同してはならない。
 
-ユーザーを理解したいというStable Interestは、名前、趣味、仕事等を順番に尋ねる固定質問表へ変換しない。現在の対話、Social Context、Memoryから関係上のKnowledge Gapを最大1件形成し、答えやすさと文脈を踏まえた質問、Agent自身の関心や感想の共有、延期またはno-actionを選ぶ。答えにくい個人情報を文脈なく要求してはならない。
+ユーザーを理解したいというStable Interestは、名前、趣味、仕事等を順番に尋ねる固定質問表へ変換しない。現在の対話、Social Context、Memoryから関係上のKnowledge Gapを最大1件形成し、答えやすさと文脈を踏まえた質問、Agent自身の関心や感想の共有、延期またはno-external-actionを選ぶ。答えにくい個人情報を文脈なく要求してはならない。
 
 #### FR-AG-04: 自然言語状態
 
@@ -246,7 +246,9 @@ Runtimeは時間経過による状態再評価のため、Agentごとに有界�
 
 Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood、Drive、Active Intention、Social Contextを検索条件として関連Memoryを通常Coreへ提示できなければならない。想起だけを理由に過去のEmotionをそのまま復元せず、現在にとっての意味と状態変更の要否を通常Coreが判断する。
 
-RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、IntentionがなくてもSelf、Drive、Current Interest、関連Memory、Social Context、経過時間から主体的な行動の価値を再検討する機会を与える。`autonomy-review` Event自体を「関心へ注意を向けられる現在の機会」というInternal Observationとして扱うため、外部ユーザー入力を探索開始の必須条件にしない。Current InterestごとのScheduleは作らない。通常Coreは行動、Tool利用、Intentionへの具体化、延期、終了、no-actionを選び、弱い根拠で検索や外部通知を繰り返してはならない。
+RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、IntentionがなくてもSelf、Drive、Current Interest、関連Memory、Social Context、経過時間から主体的な行動の価値を再検討する機会を与える。`autonomy-review` Event自体を「関心へ注意を向けられる現在の機会」というInternal Observationとして扱うため、外部ユーザー入力を探索開始の必須条件にしない。Current InterestごとのScheduleは作らない。通常Coreは行動、Tool利用、Intentionへの具体化、終了、no-external-actionを選び、弱い根拠で検索や外部通知を繰り返してはならない。自律Eventでは`wait`を選ばず、次回の機会はSchedulerが管理する。
+
+Driveは現在継続している動機であり、自律Eventでは現在可能な小さな行動を生まなければならない。外部条件待ちのIntentionはそのIntentionだけの実行条件であり、別のDrive由来Actionを止める理由にしてはならない。Active Driveがある自律Eventは、Tool利用、ユーザーへの自然な質問、発見の共有等のActionを少なくとも一つ実行する。Tool利用後に外部へ配送しない場合は`no-external-action`を返せるが、外部条件がないことだけを理由にTool未使用の`no-external-action`を返してはならない。
 
 行動可能なCurrent Interestが存在しない、すべてcooldown中、または既存Interestが収束可能な場合も、通常Coreは最近の会話、Social Context、Memory、Tool結果、Web Snapshot、Drive、Intentionの結果、Stable Interest / Preferenceから現在小さく確かめられるfocusを最大1件選び、一時的Desireと有界な探索Actionを形成できる。この経路は件数を満たすためにCurrent Interestを作るものでも、Selfから永続Driveを固定生成するものでもない。探索結果という具体的経験から次のEventにも注意を持ち越す価値と当面のgoalが生じた場合に限り、Continuity UpdateがCurrent Interestを提案する。
 
