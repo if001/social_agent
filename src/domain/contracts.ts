@@ -55,7 +55,7 @@ export type BotPersona = z.infer<typeof BotPersonaSchema>;
 export const DriveSchema = z.object({ description: NaturalLanguage, sourceEvidenceIds: z.array(Id), since: Instant });
 export type Drive = z.infer<typeof DriveSchema>;
 export const InterestProgressSchema = z.union([z.literal(0), z.literal(25), z.literal(50), z.literal(75), z.literal(100)]);
-export const CurrentInterestSchema = z.object({ id: Id, question: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema });
+export const CurrentInterestSchema = z.object({ id: Id, focus: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema });
 export type CurrentInterest = z.infer<typeof CurrentInterestSchema>;
 export const InterestExplorationSchema = z.object({ interestId: Id, consecutiveNoProgress: z.number().int().nonnegative(), lastExploredAt: Instant.optional(), cooldownUntil: Instant.optional() });
 export type InterestExploration = z.infer<typeof InterestExplorationSchema>;
@@ -331,9 +331,9 @@ export type DriveProposal = z.infer<typeof DriveProposalSchema>;
 
 const InterestProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
 export const CurrentInterestProposalSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("create"), question: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema.default(0), ...InterestProposalBase }).strict(),
+  z.object({ operation: z.literal("create"), focus: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema.default(0), ...InterestProposalBase }).strict(),
   z.object({ operation: z.literal("progress"), interestId: Id, progress: InterestProgressSchema, ...InterestProposalBase }).strict(),
-  z.object({ operation: z.literal("reframe"), interestId: Id, question: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema, ...InterestProposalBase }).strict(),
+  z.object({ operation: z.literal("reframe"), interestId: Id, focus: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema, ...InterestProposalBase }).strict(),
   z.object({ operation: z.literal("resolve"), interestId: Id, ...InterestProposalBase }).strict(),
   z.object({ operation: z.literal("drop"), interestId: Id, ...InterestProposalBase }).strict()
 ]);

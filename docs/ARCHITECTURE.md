@@ -346,7 +346,7 @@ Social ContextとActive Intentionは、Agentが所有する全件を更新日時
 1. Observationと保存済み状態だけでseedを選ぶ。Social Contextは`observation.actor.id`およびEventが正規化済みIDとして明示するsubjectを優先する。Intentionはscheduler Eventの`targetKind=intention`と`targetId`、一致するevent trigger、期限到来した`nextReviewAt`を優先する。
 2. seedを使ってMemoryを検索した後、選択Memoryの`relatedSubjectIds`と`relatedIntentionIds`を使って最終候補を補う。同じMemory上で選択Intentionと結びつくsubjectは、Intentionに関連するSocial Contextとして扱う。
 
-自由文からsubject IDを推測しない。Current InterestにはIntentionとの永続的な関連IDがないため、`question`と`goal`から作ったkeywordとIntentionの`description`、`reason`の一致は補助順位にだけ使う。日本語を含むkeyword分割はMemory Retrievalと同じ正規化を使う。
+自由文からsubject IDを推測しない。Current InterestにはIntentionとの永続的な関連IDがないため、`focus`と`goal`から作ったkeywordとIntentionの`description`、`reason`の一致は補助順位にだけ使う。日本語を含むkeyword分割はMemory Retrievalと同じ正規化を使う。
 
 Social Contextの順位は、現在actorまたは明示subject、選択Memoryのsubject、選択Intentionと同じMemoryに結びつくsubject、更新時刻fallbackの順とする。Active Intentionの順位は、schedulerの直接対象、成立したtrigger、期限到来、選択MemoryのIntention、Current Interestとのkeyword一致、更新時刻fallbackの順とする。同じ階層では`updatedAt DESC, id ASC`で安定させる。上位理由を持つ候補は、下位理由も持つ候補より常に先になる。
 
@@ -393,17 +393,17 @@ Current Interestも汎用配列更新から分離し、`create | progress | refr
 ```ts
 type CurrentInterest = {
   id: string
-  question: string
+  focus: string
   goal: string
   progress: 0 | 25 | 50 | 75 | 100
 }
 ```
 
-`question`は現在認識しているKnowledge Gap、`goal`は一旦の充足条件、`progress`はGoalとの差がどこまで縮んだかの粗い自己評価である。詳細知識やページ本文はMemory / Web Snapshotへ保存する。LLMは操作、意味内容、理由、入力内のevidence IDだけを提案する。RuntimeはIDと時刻を付与し、State Changeへbefore / after / reason / evidenceを残す。
+`focus`は現在注意や探索が向く対象、`goal`は現在の知識や経験に応じた当面の満足点、`progress`はGoalとの差がどこまで縮んだかの粗い自己評価である。Goalは対象への興味全体を終了する最終目的ではない。詳細知識やページ本文はMemory / Web Snapshotへ保存する。LLMは操作、意味内容、理由、入力内のevidence IDだけを提案する。RuntimeはIDと時刻を付与し、State Changeへbefore / after / reason / evidenceを残す。
 
 RuntimeはCurrent Interestごとの`consecutiveNoProgress`、`lastExploredAt`、`cooldownUntil`を探索制御metadataとして管理し、LLM出力Schemaへ含めない。progress増加またはreframeで停滞をresetし、進展しない探索で増加させる。Goal達成ではresolveし、関連DriveのendとIntentionのcompleteを同じ後処理から提案できる。上限到達中の同一Interest再探索は拒否するが、探索方法の変更、延期、dropの意味判断はCoreへ委ねる。
 
-Agent Coreは`recentExperiences`を用い、同じ質問や同じTool入力で進展しなかった場合に、そのまま反復しない。同じGoalを継続するなら、質問の具体化、Agent側の自己開示、別Tool、別検索語、観察または延期を選ぶ。RuntimeはRecent Experienceから導出したTool入力により、明らかに同一な短時間再実行とcooldown中の探索を機械的に拒否する。無応答や話題変更の意味は固定規則で決めない。
+Agent Coreは`recentExperiences`を用い、同じfocusへの同じ質問やTool入力で進展しなかった場合に、そのまま反復しない。同じGoalを継続するなら、焦点の具体化、Agent側の自己開示、別Tool、別検索語、観察または延期を選ぶ。追加探索の価値が低く当面のGoalを十分満たした場合は、外部へ説明する機会の不在を理由に維持せずresolveする。説明・共有など後の具体的行動だけが残る場合はIntentionへ分離する。RuntimeはRecent Experienceから導出したTool入力により、明らかに同一な短時間再実行とcooldown中の探索を機械的に拒否する。無応答や話題変更の意味は固定規則で決めない。
 
 ユーザー理解はStable Interestから関係上のKnowledge Gapを最大1件作る。質問を選ぶ場合は現在の話題とSocial Contextへ結びつけ、一方的な聞き取りを避けるため必要に応じてAgent自身の関心や質問理由も共有する。固定の質問順序は持たない。
 

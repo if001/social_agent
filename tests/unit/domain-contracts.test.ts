@@ -75,4 +75,16 @@ describe("domain contracts", () => {
     expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", reason: "Refined" }] }).success).toBe(false);
     expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", supersededByIntentionId: "j", reason: "Refined" }] }).success).toBe(true);
   });
+
+  it("represents Current Interest as a focus with a provisional goal", () => {
+    const base = { persistentStateUpdates: [], driveProposals: [], intentionProposals: [] };
+    expect(ContinuityOutputSchema.safeParse({
+      ...base,
+      currentInterestProposals: [{ operation: "create", focus: "三角関数", goal: "sinとcosの関係を説明できる", progress: 25, reason: "今の理解に合う関心", evidenceIds: ["event-1"] }]
+    }).success).toBe(true);
+    expect(ContinuityOutputSchema.safeParse({
+      ...base,
+      currentInterestProposals: [{ operation: "create", question: "三角関数とは何か", goal: "sinとcosの関係を説明できる", progress: 25, reason: "旧契約", evidenceIds: ["event-1"] }]
+    }).success).toBe(false);
+  });
 });

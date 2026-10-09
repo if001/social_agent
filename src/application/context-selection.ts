@@ -44,7 +44,7 @@ export function requiredIntentionReason(intention: Intention, observation: Obser
 }
 
 function interestKeywords(state: DynamicState): ReadonlySet<string> {
-  return new Set(memoryKeywords(state.currentInterests.flatMap(({ question, goal }) => [question, goal]), 32));
+  return new Set(memoryKeywords(state.currentInterests.flatMap(({ focus, goal }) => [focus, goal]), 32));
 }
 
 function hasKeywordMatch(intention: Intention, keywords: ReadonlySet<string>): boolean {

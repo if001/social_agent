@@ -32,7 +32,7 @@ describe("relevant context selection", () => {
 
   it("uses Memory links and current interests but excludes unrelated reviewless intentions", () => {
     const input = agentCoreInputFixture();
-    input.dynamicState = { ...input.dynamicState, currentInterests: [{ id: "interest", question: "分散検索を知りたい", goal: "分散検索を説明する", progress: 25 }] };
+    input.dynamicState = { ...input.dynamicState, currentInterests: [{ id: "interest", focus: "分散検索を知りたい", goal: "分散検索を説明する", progress: 25 }] };
     const selected = selectIntentions({ intentions: [intention("linked", instant), intention("keyword", instant, { description: "分散検索を調べる" }), intention("unrelated", instant)], observation: input.observation, dynamicState: input.dynamicState, memories: [memory([], ["linked"])] });
     expect(selected.map(({ value, reason }) => [value.id, reason])).toEqual([["linked", "memory-link"], ["keyword", "current-interest-keyword"]]);
   });

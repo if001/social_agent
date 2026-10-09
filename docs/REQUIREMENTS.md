@@ -122,9 +122,11 @@ EmotionとDesireは現在のEventに対する解釈とActionへ反映するが�
 
 DriveはDispositionから固定的に生成しない。Continuity Updateは、ObservationとInteractionのSubjective Meaningを、Selfの3種類のDisposition、Values、Self Narrative、Memory、Social Context、現在状態に照らして主観的価値を判断し、具体的な入力EventまたはMemoryを根拠に持続する動機だけを生成、維持、更新、統合、終了として提案する。Persona、今回限りのEmotionまたはDesireだけを根拠に永続Driveを作ってはならない。
 
-Current Interestは、経験中の具体的なKnowledge Gapを追跡する中期状態であり、Stable InterestやPreferenceと区別する。各Current InterestはRuntimeが付与する`id`、現在何を知りたいかを表す`question`、一旦満たされたと判断する条件である`goal`、Goalに対する粗い自己評価`progress`を持つ。`progress`は客観的な知識量ではなく、`0 | 25 | 50 | 75 | 100`の段階値とする。調査で得た本文や詳細知識はCurrent Interestへ重複保存せず、Episodic / Semantic MemoryまたはWeb Snapshotへ保存する。
+Current Interestは、現在注意や探索が向いている対象を追跡する中期状態であり、SelfのStable InterestやPreferenceと区別する。各Current InterestはRuntimeが付与する`id`、現在の興味対象を表す`focus`、現在の知識や経験に応じて一旦満たされたと判断する目安である`goal`、Goalに対する粗い自己評価`progress`を持つ。Goalは対象への興味が最終的に終了する条件ではない。`progress`は客観的な知識量ではなく、`0 | 25 | 50 | 75 | 100`の段階値とする。調査で得た本文や詳細知識はCurrent Interestへ重複保存せず、Episodic / Semantic MemoryまたはWeb Snapshotへ保存する。
 
 Current Interestの変更提案は`create | progress | reframe | resolve | drop`を区別する。情報によってGoalへ近づいた場合は`progress`、未知の捉え方や充足条件が変わった場合は`reframe`、Goalを満たした場合は`resolve`、価値が薄れたか進展が見込めない場合は`drop`とする。LLMは意味内容、理由、入力内の根拠を提案し、ID、時刻、連続停滞回数、最終探索時刻、cooldownを生成しない。
+
+Self Interestは比較的安定して注意を引かれやすい対象、Preferenceは対象・方法・様式に対する好みや避ける傾向、Current Interestは現在注意が向く対象と当面のgoal、DesireはEvent内の「したい／したくない」、Intentionは後のEventまで維持する具体的行動方針とする。Current InterestとIntentionを統合しない。Current Interestのgoalを満たした後も説明・共有等が必要ならInterestをresolveし、その行動だけをIntentionとして維持できなければならない。
 
 Initial SelfのInterests / Preferencesは、ユーザー理解や未知の探索といった抽象的方向性と、音楽、芸術家、作品、活動、技術等に対する具体的な初期嗜好を併記できる。具体的嗜好は設定由来の初期個体差であり、過去に鑑賞・体験したというMemoryや経験事実を意味しない。対話や探索から後に形成されたInterest / Preferenceは、保存済みMemoryを根拠にLong-term Reviewで確定し、設定由来と経験由来のprovenanceを混同してはならない。
 
@@ -246,7 +248,7 @@ Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood
 
 RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、IntentionがなくてもSelf、Drive、Current Interest、関連Memory、Social Context、経過時間から主体的な行動の価値を再検討する機会を与える。`autonomy-review` Event自体を「関心へ注意を向けられる現在の機会」というInternal Observationとして扱うため、外部ユーザー入力を探索開始の必須条件にしない。Current InterestごとのScheduleは作らない。通常Coreは行動、Tool利用、Intentionへの具体化、延期、終了、no-actionを選び、弱い根拠で検索や外部通知を繰り返してはならない。
 
-Drive、Current Interest、Intentionがすべて空でも、通常CoreはStable Interest / Preference、現在の探索機会、最近の探索履歴、関連Memoryから具体的なKnowledge Gapを最大1件選び、一時的Desireと有界な探索Actionを形成できる。この経路はSelfから永続Driveを固定生成するものではない。探索結果という具体的経験が継続的な価値を持つ場合に限り、Continuity UpdateがCurrent Interest、Drive、Intentionを提案する。
+行動可能なCurrent Interestが存在しない、すべてcooldown中、または既存Interestが収束可能な場合も、通常Coreは最近の会話、Social Context、Memory、Tool結果、Web Snapshot、Drive、Intentionの結果、Stable Interest / Preferenceから現在小さく確かめられるfocusを最大1件選び、一時的Desireと有界な探索Actionを形成できる。この経路は件数を満たすためにCurrent Interestを作るものでも、Selfから永続Driveを固定生成するものでもない。探索結果という具体的経験から次のEventにも注意を持ち越す価値と当面のgoalが生じた場合に限り、Continuity UpdateがCurrent Interestを提案する。
 
 探索後はGoalへの進展を評価する。進展時はprogressを上げて停滞回数をresetし、Goal達成時はCurrent Interestをresolveして関連Driveの終了やIntentionの完了を提案できる。新情報によって問い自体が変わった場合はreframeとし、単純な停滞に数えない。進展しない場合は別手段、延期、cooldown、dropを選択できる。探索方法と粘り方の意味判断はSelf、Disposition、Preference、Mood、Driveと進捗を用いてCoreが行い、Runtimeは連続停滞回数、最終探索時刻、cooldown、Tool call数、run deadline、rate上限を管理して即時反復を拒否する。
 
