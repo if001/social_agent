@@ -14,6 +14,9 @@ describe("Post-process", () => {
     }
     expect(continuitySystemPrompt).toContain("shared・initial・acquired Disposition");
     expect(continuitySystemPrompt).toContain("Persona、今回限りのEmotionやDesire");
+    expect(continuitySystemPrompt).toContain("当面の満足点");
+    expect(continuitySystemPrompt).toContain("具体的行動だけをIntention");
+    expect(continuitySystemPrompt).toContain("件数を満たす目的では作りません");
     for (const operation of ["create", "maintain", "update", "merge", "end"]) expect(continuitySystemPrompt).toContain(operation);
   });
 

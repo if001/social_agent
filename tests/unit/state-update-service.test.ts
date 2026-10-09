@@ -18,13 +18,13 @@ describe("StateUpdateService", () => {
     expect(result.changes.find(({ target }) => target === "desires")).toMatchObject({ before: [], after: ["Listen", "Clarify"] });
   });
   it("creates and progresses Current Interest with runtime metadata", () => {
-    const created = applyCurrentInterestProposals(state, [{ operation: "create", question: "Memory設計の何が未解決か", goal: "選択肢を説明できる", progress: 25, reason: "問いが具体化した", evidenceIds: ["event-new"] }], () => "interest-1");
+    const created = applyCurrentInterestProposals(state, [{ operation: "create", focus: "Memory設計の未解決点", goal: "選択肢を説明できる", progress: 25, reason: "問いが具体化した", evidenceIds: ["event-new"] }], () => "interest-1");
     const progressed = applyCurrentInterestProposals(created.state, [{ operation: "progress", interestId: "interest-1", progress: 50, reason: "比較できた", evidenceIds: ["event-new"] }], () => "unused");
     expect(progressed.state.currentInterests[0]).toMatchObject({ id: "interest-1", progress: 50 });
     expect(progressed.state.interestExploration[0]).toMatchObject({ consecutiveNoProgress: 0 });
   });
   it("cools down a Current Interest after two no-progress explorations", () => {
-    const active = { ...state, currentInterests: [{ id: "interest-1", question: "未知は何か", goal: "説明できる", progress: 25 as const }], interestExploration: [] };
+    const active = { ...state, currentInterests: [{ id: "interest-1", focus: "未知の内容", goal: "説明できる", progress: 25 as const }], interestExploration: [] };
     const first = applyCurrentInterestProposals(active, [{ operation: "progress", interestId: "interest-1", progress: 25, reason: "新情報なし", evidenceIds: ["event-1"] }], () => "unused", "2026-01-01T00:00:00Z");
     const second = applyCurrentInterestProposals(first.state, [{ operation: "progress", interestId: "interest-1", progress: 25, reason: "再び新情報なし", evidenceIds: ["event-2"] }], () => "unused", "2026-01-01T01:00:00Z");
     expect(second.state.interestExploration[0]).toMatchObject({ consecutiveNoProgress: 2, cooldownUntil: "2026-01-01T07:00:00.000Z" });

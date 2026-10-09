@@ -179,7 +179,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - maintain / update / mergeで元の`since`を保持し、重複を統合する
 - 未知のDrive、入力にないevidence ID、LLMが生成した`since`を拒否する
 - Personaまたは一時的なEmotion / Desireだけを永続Driveへ昇格しない
-- Current Interestの`id`、`question`、`goal`、段階的`progress`を検証し、LLMがIDや探索制御metadataを生成する出力を拒否する
+- Current Interestの`id`、`focus`、`goal`、段階的`progress`を検証し、LLMがIDや探索制御metadataを生成する出力を拒否する
 - Current Interestのcreate / progress / reframe / resolve / dropと理由・根拠を検証する
 - progress増加とreframeでは停滞をresetし、no-progressでは増加させる
 - Goal達成でInterestをresolveし、関連Drive終了とIntention完了を提案できる

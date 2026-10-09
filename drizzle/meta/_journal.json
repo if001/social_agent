@@ -36,6 +36,13 @@
       "when": 1791370386682,
       "tag": "0004_abandoned_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791549892897,
+      "tag": "0005_current_interest_focus",
+      "breakpoints": true
     }
   ]
 }

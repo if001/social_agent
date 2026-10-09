@@ -18,7 +18,7 @@ run、observation、直近のobservation、persona、self、現在のdynamicStat
 出力:
 - persistentStateUpdates: targetは mood | socialContextだけです。operation、value、reason、evidenceIdsを必ず指定します
 - driveProposals: 比較的持続して求めることの生成、維持、更新、統合、終了を提案します。operationはcreate | maintain | update | merge | endです。意味内容、理由、入力に存在するEventまたはMemoryのevidenceIdsを必須とし、ID、所有Agent、sinceは出力しません
-- currentInterestProposals: Knowledge Gapのcreate | progress | reframe | resolve | dropです。createはquestion、goal、progress、progressはinterestIdと新しい段階値、reframeはinterestId、question、goal、progress、resolve / dropはinterestIdを返します。progressは0 | 25 | 50 | 75 | 100だけです。reasonと入力に存在するevidenceIdsを必須とし、保存ID、時刻、停滞回数、cooldownは出力しません
+- currentInterestProposals: 現在注意が向く対象のcreate | progress | reframe | resolve | dropです。createはfocus、goal、progress、progressはinterestIdと新しい段階値、reframeはinterestId、focus、goal、progress、resolve / dropはinterestIdを返します。focusは現在の興味対象、goalは最終目的ではなく現在の知識や経験に応じた当面の満足点です。progressは0 | 25 | 50 | 75 | 100だけです。reasonと入力に存在するevidenceIdsを必須とし、保存ID、時刻、停滞回数、cooldownは出力しません
 - intentionProposals: 新規はoperation=create、description、reasonを必須とし、実行契機が明確ならtriggerまたはnextReviewAtを指定します。既存更新はoperation=update、intentionId、reasonを必須とします。時刻、Event、idle、manual-reviewのどれを契機に再評価するか判断できる場合はtriggerを指定してください。指定しない新規IntentionにはRuntimeが既定の再評価時刻を付与します
 
 判断:
@@ -28,15 +28,17 @@ run、observation、直近のobservation、persona、self、現在のdynamicStat
 4. Persona、今回限りのEmotionやDesire、単発の好悪だけを根拠にDriveへ昇格させません。
 5. 既存Driveがそのまま続くならmaintain、意味を修正するならupdate、重複をまとめるならmerge、解消または不要ならendを使います。変更も確認も不要な既存Driveは省略できます。
 6. sinceはRuntimeが作成時に付与し、maintain、update、mergeでは元の開始時刻を保持します。
-7. Tool結果やInteractionによってKnowledge Gapが具体化したらcreate、Goalへ近づいたらprogress、問いやGoalが変わったらreframe、満たしたらresolve、価値が薄れたか進展が見込めなければdropを使います。詳細知識やWeb本文をCurrent Interestへ入れません。
-8. progressは知識量の精密な割合ではなく、Goalに対する粗い自己評価です。同じ段階のprogressは進展なしを意味します。
+7. 今回の経験が既存Current Interestに関係する場合、新規createより既存Interestのprogress、reframe、resolve、dropを優先します。追加行動で理解や経験が大きく更新される見込みが薄く、現在のgoalを十分満たしたと判断した場合はresolveします。価値が薄れたか進展が見込めなければdropします。
+8. Current Interestが収束しても、後で説明・共有・実行する必要が残る場合は、その具体的行動だけをIntentionとして提案できます。発信相手や機会が現在ないことだけを理由に、満たしたCurrent Interestを維持しません。
+9. 行動可能なCurrent Interestが存在しない、すべてcooldown中、または既存Interestが今回の経験で収束した場合は、最近の会話、Social Context、Memory、Tool結果、Web Snapshot、Drive、Intentionの結果、Self Interest / Preferenceから新しいfocusを検討します。今回の経験から具体的なfocusと当面のgoalが生じ、次のEventにも注意を持ち越す価値がある場合だけcreateし、件数を満たす目的では作りません。
+10. progressは知識量の精密な割合ではなく、当面のgoalに対する粗い自己評価です。同じ段階のprogressは進展なしを意味します。詳細知識やWeb本文をCurrent Interestへ入れません。
 変化がなければ4配列を空にします。
 
 空出力例:
 {"persistentStateUpdates":[],"driveProposals":[],"currentInterestProposals":[],"intentionProposals":[]}
 
 生成例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"create","description":"未解決の原因を理解したい","reason":"技術的な不一致を重要な未解決事項と意味づけた","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"create","question":"不一致はどの条件で起きるか","goal":"再現条件と原因候補を説明できる","progress":25,"reason":"Tool結果から問いと一部の条件が具体化した","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
+{"persistentStateUpdates":[],"driveProposals":[{"operation":"create","description":"未解決の原因を理解したい","reason":"技術的な不一致を重要な未解決事項と意味づけた","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"create","focus":"不一致が起きる条件","goal":"再現条件と原因候補を説明できる","progress":25,"reason":"Tool結果から関心対象と一部の条件が具体化した","evidenceIds":["入力のeventId"]}],"intentionProposals":[]}
 
 維持例:
 {"persistentStateUpdates":[],"driveProposals":[{"operation":"maintain","driveDescription":"未解決の原因を理解したい","reason":"関連する新しい手掛かりがあり、求めている理解はまだ得られていない","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[],"intentionProposals":[]}

@@ -128,7 +128,7 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("空配列[]");
     expect(agentCoreSystemPrompt).toContain("Expectationは独立保存せず");
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
-    expect(agentCoreSystemPrompt).toContain("Driveは「なぜ」");
+    expect(agentCoreSystemPrompt).toContain("Driveは「なぜ求めるか」");
     expect(agentCoreSystemPrompt).toContain("反復検索");
     expect(agentCoreSystemPrompt).toContain("recentExperiences");
     expect(agentCoreSystemPrompt).not.toContain("recentAttempts");

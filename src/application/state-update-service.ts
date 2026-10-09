@@ -66,7 +66,7 @@ export function applyCurrentInterestProposals(state: DynamicState, rawProposals:
     const before = [...currentInterests];
     if (proposal.operation === "create") {
       const id = nextId();
-      currentInterests.push({ id, question: proposal.question, goal: proposal.goal, progress: proposal.progress });
+      currentInterests.push({ id, focus: proposal.focus, goal: proposal.goal, progress: proposal.progress });
       interestExploration.push({ interestId: id, consecutiveNoProgress: 0, lastExploredAt: occurredAt });
       changes.push({ target: "currentInterests", operation: "append", before, after: currentInterests, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
       continue;
@@ -82,7 +82,7 @@ export function applyCurrentInterestProposals(state: DynamicState, rawProposals:
     }
     const previousMeta = metadata(proposal.interestId);
     const progressed = proposal.operation === "reframe" || proposal.progress > existing.progress;
-    const next = proposal.operation === "reframe" ? { ...existing, question: proposal.question, goal: proposal.goal, progress: proposal.progress } : { ...existing, progress: proposal.progress };
+    const next = proposal.operation === "reframe" ? { ...existing, focus: proposal.focus, goal: proposal.goal, progress: proposal.progress } : { ...existing, progress: proposal.progress };
     currentInterests[index] = next;
     const noProgress = progressed ? 0 : previousMeta.consecutiveNoProgress + 1;
     const cooldownUntil = noProgress >= 2 ? new Date(new Date(occurredAt).getTime() + 21_600_000).toISOString() : undefined;

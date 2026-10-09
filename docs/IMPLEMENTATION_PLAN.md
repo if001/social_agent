@@ -379,7 +379,7 @@ Continuity UpdateのDrive提案は汎用State Updateから分離し、Selfと主
 
 自律性はIntention、persistent Driveに加え、Agent単位で有界な`autonomy-review`から通常Coreを起動する。Review Eventを探索機会というInternal Observationとして扱い、Drive、Current Interest、Intentionが空でもStable Interest / Preference、最近の探索履歴、関連MemoryからKnowledge Gapを最大1件選び、一時的Desireと初回探索を形成できる。Selfを永続Driveへ固定変換せず、具体的な探索経験から必要なCurrent Interest、Drive、Intentionだけを後処理で提案する。
 
-Current Interestは`id`、`question`、`goal`、`progress: 0 | 25 | 50 | 75 | 100`を持ち、変更を`create | progress | reframe | resolve | drop`として提案する。RuntimeはID、時刻、連続停滞回数、最終探索時刻、cooldownと実行上限を管理する。進捗時は停滞をresetし、Goal達成時は関連状態を収束させ、停滞時は別手段、延期、cooldown、dropへ移れるようにする。詳細知識はMemory / Web Snapshotに置き、外部価値がある結果だけを通知する。
+Current Interestは`id`、`focus`、`goal`、`progress: 0 | 25 | 50 | 75 | 100`を持ち、変更を`create | progress | reframe | resolve | drop`として提案する。RuntimeはID、時刻、連続停滞回数、最終探索時刻、cooldownと実行上限を管理する。進捗時は停滞をresetし、Goal達成時は関連状態を収束させ、停滞時は別手段、延期、cooldown、dropへ移れるようにする。詳細知識はMemory / Web Snapshotに置き、外部価値がある結果だけを通知する。
 
 Initial Selfはユーザー理解等の抽象的方向性と、個体ごとの具体的な音楽、芸術、作品等の嗜好を併記する。設定由来の初期嗜好を経験事実として扱わず、Memoryを根拠に形成された長期嗜好とprovenanceを分離する。ユーザー理解は固定質問表にせず、現在文脈から関係上のKnowledge Gapを最大1件形成する。
 

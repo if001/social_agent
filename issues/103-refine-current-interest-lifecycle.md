@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-09
-status: doing
+status: done
 ---
 
 # 103: Current Interestの意味と収束・再形成フローを修正する
@@ -20,7 +20,7 @@ Current Interestが具体的なKnowledge Gapの`question`に限定され、主�
 - `goal`を最終目的ではなく、現在の知識・経験に応じた当面の満足点として定義する
 - Self Interest、Preference、Drive、Current Interest、Desire、Intentionの違いをdocsへ反映する
 - 追加行動の価値が低く現在のgoalを十分満たしたInterestを`resolve`し、必要な将来行動だけIntentionへ分離する判断をPost-processへ追加する
-- 行動可能なCurrent Interestが少ない場合、件数を機械的に補充せず、会話、Social Context、Memory、Tool結果、Web Snapshot、Drive、Intention結果、Self Interestから新しいfocusを検討する
+- 行動可能なCurrent Interestが存在しない、すべてcooldown中、または既存Interestが収束した場合、件数を機械的に補充せず、会話、Social Context、Memory、Tool結果、Web Snapshot、Drive、Intention結果、Self Interestから新しいfocusを検討する
 - 既存Current Interestに関係する経験は新規作成より`progress | reframe | resolve | drop`を優先する
 - Schema、検索・Context構築、Debug UI、評価fixture、テストを更新する
 - 既存JSONB状態の`question`を`focus`へ変換するDrizzle migrationを追加する
