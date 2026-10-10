@@ -3,7 +3,7 @@ import type { Pool, QueryResultRow } from "pg";
 import type { ScheduleRepository, ScheduledTarget } from "../../application/scheduler.js";
 
 type DueCandidateRow = QueryResultRow & { id: string; agent_id: string; target: string; reason: string };
-type DueAutonomousRow = QueryResultRow & { id: string; agent_id: string; kind: "persistent-drive" | "state-review" | "memory-recall" | "autonomy-review"; reason: string };
+type DueAutonomousRow = QueryResultRow & { id: string; agent_id: string; kind: "state-review" | "memory-recall" | "autonomy-review"; reason: string };
 type DueTaskRow = QueryResultRow & { id: string; agent_id: string; instruction: string; reason: string | null; destination: string | null };
 
 export class PostgresScheduleRepository implements ScheduleRepository {

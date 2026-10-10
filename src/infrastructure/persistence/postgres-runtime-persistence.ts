@@ -3,7 +3,7 @@ import type { Pool, QueryResultRow } from "pg";
 import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
-import { applyCurrentInterestProposals, applyDriveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
+import { applyMotiveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
 import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, ContinuityInputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
@@ -14,7 +14,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0, private readonly tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, private readonly tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool)); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -38,7 +38,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
-      stateValues: { mood: update.state.mood, drives: update.state.drives, current_interests: update.state.currentInterests, interest_exploration: update.state.interestExploration },
+      stateValues: { mood: update.state.mood, motives: update.state.motives, motive_exploration: update.state.motiveExploration },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       toolExecutions: validatedTools,
       postProcessJobs: stateReview
@@ -93,13 +93,11 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     if (job.type === "continuity") {
       const parsed = ContinuityOutputSchema.parse(output);
       const evidenceIds = new Set([job.input.run.eventId, job.input.observation.eventId, ...job.input.recentExperiences.map(({ eventId }) => eventId), ...job.input.memories.map(({ id }) => id)]);
-      if (parsed.driveProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Drive evidence must reference an input Event or Memory");
-      if (parsed.currentInterestProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Current Interest evidence must reference an input Event or Memory");
-      const persistent = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext, job.input.run.occurredAt);
-      const driveUpdates = applyDriveProposals(persistent.state, parsed.driveProposals, job.input.run.occurredAt);
-      const interestUpdates = applyCurrentInterestProposals(driveUpdates.state, parsed.currentInterestProposals, () => this.ids.next(), job.input.run.occurredAt);
-      const updates = { state: interestUpdates.state, changes: [...persistent.changes, ...driveUpdates.changes, ...interestUpdates.changes] };
-      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests, interest_exploration: updates.state.interestExploration }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed });
+      if (parsed.motiveProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Motive evidence must reference an input Event or Memory");
+      const persistent = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext);
+      const motiveUpdates = applyMotiveProposals(persistent.state, parsed.motiveProposals, () => this.ids.next(), job.input.run.occurredAt);
+      const updates = { state: motiveUpdates.state, changes: [...persistent.changes, ...motiveUpdates.changes] };
+      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, motives: updates.state.motives, motive_exploration: updates.state.motiveExploration }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed });
       return;
     }
     if (job.type === "memory") {

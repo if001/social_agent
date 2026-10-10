@@ -1,13 +1,13 @@
 ---
 created_at: 2026-10-10
-status: created
+status: done
 ---
 
-# 111: Drive・Current Interest・Actionの自律フローを再接続する
+# 111: DriveとCurrent InterestをMotiveへ統合する
 
 ## Background
 
-直近12時間の自律Runでは59件中41件が失敗し、成功18件もすべて`no-external-action`だった。`autonomy-review`と`persistent-drive`が同じ動機を重複処理し、Current Interestを失った広いDriveが無限定なTool探索を始め、Timeoutした試行は状態更新へ反映されない。新しいPlannerを追加せず、既存のDrive、Current Interest、Emotion、Mood、Preference、ObservationからActionを選ぶ流れを整える。
+DriveとCurrent InterestはともにActionを直接生じさせる持続的な動機であり、広さや探索性の違いだけで別状態になっていた。この分離により、DriveがあってもCurrent Interestがないため行動対象がないと判断する不整合が生じている。すべてのActionを、そのEventで活性化した動機から選ぶ単一モデルへ変更する。
 
 ## Dependencies
 
@@ -18,62 +18,52 @@ status: created
 
 ## Scope
 
-- DriveとCurrent InterestがActionへ直接影響するInteraction promptと契約へ統一する
-- Active Driveに関係するCurrent Interestを終了する場合、Drive終了または現在実行可能なCurrent Interestへのreframe / createを同じ更新で行う整合条件を設ける
-- Current Interestがある場合、Action / Toolがfocusと当面のgoalへ対応するよう検証する
-- Current InterestがなくActive Driveがある場合、今回の小さなActionを実行し、継続価値が生じたらPost-processでCurrent Interestを作る
-- 1 Eventで扱うfocusとgoalを一つに限定し、探索を別テーマへ拡張しない
-- `autonomy-review`と`persistent-drive`が同じ動機を重複処理しない起動経路へ統合する
-- Timeout / Provider failureでもTool試行、失敗、経過時間をOutcomeとして保存する
-- 失敗Outcomeを反復防止、Current Interest停滞、cooldown、次回判断へ反映する
-- Timeout時は短いretryでRun stormを作らず、通常review周期または指数backoffへ戻す
-- 自律的な質問や共有では「ユーザー不在」を外部Actionの禁止理由にしない
-- Recent Experiences、Debug UI、評価scenarioを更新する
+- DriveとCurrent Interestを単一の`Motive`契約・DB状態・提案へ統合する
+- Motiveは`id`、`description`、任意の`goal / progress`、根拠、開始時刻を持つ
+- 探索以外の動機へgoal / progressを強制しない
+- 外部Eventと自律Eventの双方で、保存済みMotiveまたは今回のEventから活性化したMotiveに基づきActionを選ぶ
+- Interaction出力へ、今回Actionの根拠となったEvent内の`activeMotive`を必須で1件追加する。これは永続状態にしない
+- Interaction Agentが処理するすべてのEventでMotiveを必ず1件活性化し、そのMotiveに基づくActionを必ず実行する
+- 保存済みMotiveがない場合は、今回のEvent、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成する
+- Tool利用、応答、質問、共有、拒否などの具体的実行を伴わず、理由だけを返す`no-external-action`を禁止する。Tool実行後に外部配送しない最終結果は許可する
+- Post-processはMotiveをcreate / maintain / update / merge / resolve / dropする
+- 自律ScheduleをMotive単位に統合し、旧Drive・Current Interest用の状態と処理を削除する
+- Recent Experience、Memory検索、Debug UI、評価scenario、初期Self、docsを更新する
+- Timeout / Provider failureの試行をOutcomeとして保存し、反復とRun stormを抑止する
 
 ## Out of scope
 
-- Autonomy Plannerという新しい状態またはLLMフロー
-- DesireまたはIntentionの再導入
-- DriveとCurrent Interestの単一Schemaへの統合
-- Scheduler間隔の固定値変更だけで問題を回避すること
-
-## Implementation notes
-
-- 自律行動は`Drive / Current Interest + Observation + Self / Mood / Emotion / Preference → Action`とする。
-- Driveは行動理由、Current Interestは探索対象と当面の満足点を提供する。
-- Deep AgentのTool loopは利用するが、今回のfocus、goal、Tool回数、残り時間を越えて探索を広げない。
-- 成否に関係なくAttemptを記録し、同じ探索を新しい経験なしに反復しない。
+- Planner、Desire、Intentionの追加
+- 動機生成専用Eventの追加
+- Scheduled Taskの心理状態化
 
 ## Acceptance criteria
 
-- Current Interestのfocusとgoalが自律Actionの対象と完了範囲へ反映される
-- Active Driveだけが残った場合も有界なActionまたはDrive終了へ進む
-- Current Interestを失って広いDriveだけが反復探索する状態を防げる
-- autonomy-reviewとpersistent-driveが同じ目的で二重にDeep Agentを起動しない
-- 失敗Runの試行が次回判断とcooldownへ反映される
-- 1時間設定時に失敗retryで1時間あたり多数のRunが発生しない
-- 自律的な質問または有用な共有を外部へ配送できる
+- 永続的なDrive / Current Interest契約がなく、Motiveへ統合されている
+- 全Actionに今回のactiveMotiveがあり、既存Motive IDまたはEvent内根拠へ結び付く
+- Interaction Agentが処理した全RunでactiveMotiveがちょうど1件選ばれ、対応する具体的Actionが実行される
+- Motiveがない場合もEvent、Self、Mood、Memory、Social Contextから今回の動機を形成して行動できる
+- 次のEventにも残る動機だけPost-processでMotiveとして保存する
+- goal / progressを持つ探索Motiveと、持たない非探索Motiveの両方を扱える
+- 同一Motiveを複数Scheduleが重複起動しない
+- 失敗試行を同じ形で反復せず、通常周期またはbackoffへ戻る
 
 ## Tests
 
-- Drive / Current Interest → Action contract test
-- Current Interest resolve/drop時のDrive整合test
-- focus外Tool探索の拒否test
-- 重複Schedule統合test
-- Timeout / Provider failure outcome test
-- 反復Tool抑制とcooldown test
-- Scheduler retry密度test
+- Motive contract / lifecycle test
+- Event-derived activeMotive → Action test
+- activeMotiveの必須性と、理由だけのno-external-action拒否test
+- exploratory / non-exploratory Motive test
+- Schedule重複防止test
+- Timeout / failure outcome test
 - `pnpm typecheck`
 - `pnpm lint`
 - `pnpm test`
 - `pnpm test:system`
 - DB integration test
-- 1 autonomy scenario × 1 live run
 
 ## References
 
-- [Issue 107](./107-document-motivation-and-scheduled-task-model.md)
-- [Issue 108](./108-remove-desire-from-interaction-state.md)
-- [Issue 109](./109-add-tool-created-scheduled-tasks.md)
-- [Issue 110](./110-remove-intention-state.md)
 - [Agent Motivation Model](../docs/AGENT_MOTIVATION_MODEL.md)
+- [Requirements](../docs/REQUIREMENTS.md)
+- [Architecture](../docs/ARCHITECTURE.md)

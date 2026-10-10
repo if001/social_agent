@@ -52,13 +52,13 @@ export const BotPersonaSchema = z.object({
 });
 export type BotPersona = z.infer<typeof BotPersonaSchema>;
 
-export const DriveSchema = z.object({ description: NaturalLanguage, sourceEvidenceIds: z.array(Id), since: Instant });
-export type Drive = z.infer<typeof DriveSchema>;
 export const InterestProgressSchema = z.union([z.literal(0), z.literal(25), z.literal(50), z.literal(75), z.literal(100)]);
-export const CurrentInterestSchema = z.object({ id: Id, focus: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema });
-export type CurrentInterest = z.infer<typeof CurrentInterestSchema>;
-export const InterestExplorationSchema = z.object({ interestId: Id, consecutiveNoProgress: z.number().int().nonnegative(), lastExploredAt: Instant.optional(), cooldownUntil: Instant.optional() });
-export type InterestExploration = z.infer<typeof InterestExplorationSchema>;
+export const MotiveSchema = z.object({ id: Id, description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: InterestProgressSchema.optional(), sourceEvidenceIds: z.array(Id), since: Instant }).superRefine((value, context) => {
+  if ((value.goal === undefined) !== (value.progress === undefined)) context.addIssue({ code: "custom", path: [value.goal === undefined ? "goal" : "progress"], message: "goal and progress must be provided together" });
+});
+export type Motive = z.infer<typeof MotiveSchema>;
+export const MotiveExplorationSchema = z.object({ motiveId: Id, consecutiveNoProgress: z.number().int().nonnegative(), lastExploredAt: Instant.optional(), cooldownUntil: Instant.optional() });
+export type MotiveExploration = z.infer<typeof MotiveExplorationSchema>;
 export const InitialSelfConfigSchema = z.object({
   version: z.literal(1),
   family: z.object({
@@ -81,17 +81,15 @@ export const InitialSelfConfigSchema = z.object({
   }),
   initialState: z.object({
     mood: NaturalLanguage.default("特定の持続的な気分はまだ形成されていない"),
-    drives: z.array(DriveSchema).default([]),
-    currentInterests: z.array(CurrentInterestSchema).default([])
-  }).default({ mood: "特定の持続的な気分はまだ形成されていない", drives: [], currentInterests: [] })
+    motives: z.array(MotiveSchema).default([])
+  }).default({ mood: "特定の持続的な気分はまだ形成されていない", motives: [] })
 });
 export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
 export const DynamicStateSchema = z.object({
   agentId: Id,
   mood: NaturalLanguage,
-  drives: z.array(DriveSchema),
-  currentInterests: z.array(CurrentInterestSchema),
-  interestExploration: z.array(InterestExplorationSchema).default([]),
+  motives: z.array(MotiveSchema),
+  motiveExploration: z.array(MotiveExplorationSchema).default([]),
   updatedAt: Instant
 });
 export type DynamicState = z.infer<typeof DynamicStateSchema>;
@@ -221,7 +219,7 @@ export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
 
 export const StateUpdateProposalSchema = z.object({
-  target: z.enum(["emotion", "mood", "drives", "socialContext"]),
+  target: z.enum(["emotion", "mood", "socialContext"]),
   operation: z.enum(["set", "append", "remove"]),
   value: z.unknown(),
   reason: NaturalLanguage,
@@ -266,7 +264,10 @@ export const AgentCoreInputSchema = z.object({
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 
 export const AgentCoreOutputSchema = z.object({
-  interpretation: z.object({ subjectiveMeaning: NaturalLanguage.optional() }),
+  interpretation: z.object({
+    subjectiveMeaning: NaturalLanguage.optional(),
+    activeMotive: z.object({ description: NaturalLanguage, motiveId: Id.optional(), evidenceIds: z.array(Id).min(1) })
+  }),
   internalChanges: z.object({
     immediateStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
       updates.forEach((update, index) => {
@@ -278,25 +279,18 @@ export const AgentCoreOutputSchema = z.object({
 });
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
-const DriveProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
-export const DriveProposalSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("create"), description: NaturalLanguage, ...DriveProposalBase }).strict(),
-  z.object({ operation: z.literal("maintain"), driveDescription: NaturalLanguage, ...DriveProposalBase }).strict(),
-  z.object({ operation: z.literal("update"), driveDescription: NaturalLanguage, description: NaturalLanguage, ...DriveProposalBase }).strict(),
-  z.object({ operation: z.literal("merge"), driveDescriptions: z.array(NaturalLanguage).min(2), description: NaturalLanguage, ...DriveProposalBase }).strict(),
-  z.object({ operation: z.literal("end"), driveDescription: NaturalLanguage, ...DriveProposalBase }).strict()
-]);
-export type DriveProposal = z.infer<typeof DriveProposalSchema>;
-
-const InterestProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
-export const CurrentInterestProposalSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("create"), focus: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema.default(0), ...InterestProposalBase }).strict(),
-  z.object({ operation: z.literal("progress"), interestId: Id, progress: InterestProgressSchema, ...InterestProposalBase }).strict(),
-  z.object({ operation: z.literal("reframe"), interestId: Id, focus: NaturalLanguage, goal: NaturalLanguage, progress: InterestProgressSchema, ...InterestProposalBase }).strict(),
-  z.object({ operation: z.literal("resolve"), interestId: Id, ...InterestProposalBase }).strict(),
-  z.object({ operation: z.literal("drop"), interestId: Id, ...InterestProposalBase }).strict()
-]);
-export type CurrentInterestProposal = z.infer<typeof CurrentInterestProposalSchema>;
+const MotiveProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
+const MotiveShape = { description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: InterestProgressSchema.optional() };
+export const MotiveProposalSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("create"), ...MotiveShape, ...MotiveProposalBase }).strict(),
+  z.object({ operation: z.literal("maintain"), motiveId: Id, ...MotiveProposalBase }).strict(),
+  z.object({ operation: z.literal("update"), motiveId: Id, ...MotiveShape, ...MotiveProposalBase }).strict(),
+  z.object({ operation: z.literal("merge"), motiveIds: z.array(Id).min(2), ...MotiveShape, ...MotiveProposalBase }).strict(),
+  z.object({ operation: z.enum(["resolve", "drop"]), motiveId: Id, ...MotiveProposalBase }).strict()
+]).superRefine((value, context) => {
+  if ("goal" in value && ((value.goal === undefined) !== (value.progress === undefined))) context.addIssue({ code: "custom", path: [value.goal === undefined ? "goal" : "progress"], message: "goal and progress must be provided together" });
+});
+export type MotiveProposal = z.infer<typeof MotiveProposalSchema>;
 
 export const ContinuityOutputSchema = z.object({
   persistentStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
@@ -304,8 +298,7 @@ export const ContinuityOutputSchema = z.object({
       if (!["mood", "socialContext"].includes(update.target)) context.addIssue({ code: "custom", path: [index, "target"], message: "Continuity may update only Mood and Social Context here" });
     });
   }),
-  driveProposals: z.array(DriveProposalSchema),
-  currentInterestProposals: z.array(CurrentInterestProposalSchema)
+  motiveProposals: z.array(MotiveProposalSchema)
 });
 export type ContinuityOutput = z.infer<typeof ContinuityOutputSchema>;
 export const MemoryExtractionOutputSchema = z.object({ memoryProposals: z.array(MemoryProposalSchema) });

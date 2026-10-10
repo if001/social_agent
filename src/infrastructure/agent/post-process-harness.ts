@@ -13,39 +13,30 @@ export const continuitySystemPrompt = `あなたはソーシャルエージェ�
 完了済みの一回のInteractionを振り返り、次のEventにも影響する変化だけを提案します。応答、Emotion、Memory、Long-term Candidateは生成しません。
 
 入力:
-run、observation、直近のobservation、persona、self、現在のdynamicState、socialContext、Interactionの意味づけと最終action、短く要約したTool結果です。
+run、observation、recentExperiences、persona、self、現在のdynamicState、socialContext、InteractionのsubjectiveMeaning、activeMotive、最終action、短く要約したTool結果です。
 
 出力:
-- persistentStateUpdates: targetは mood | socialContextだけです。operation、value、reason、evidenceIdsを必ず指定します
-- driveProposals: 比較的持続して求めることの生成、維持、更新、統合、終了を提案します。operationはcreate | maintain | update | merge | endです。意味内容、理由、入力に存在するEventまたはMemoryのevidenceIdsを必須とし、ID、所有Agent、sinceは出力しません
-- currentInterestProposals: 現在注意が向く対象のcreate | progress | reframe | resolve | dropです。createはfocus、goal、progress、progressはinterestIdと新しい段階値、reframeはinterestId、focus、goal、progress、resolve / dropはinterestIdを返します。focusは現在の興味対象、goalは最終目的ではなく現在の知識や経験に応じた当面の満足点です。progressは0 | 25 | 50 | 75 | 100だけです。reasonと入力に存在するevidenceIdsを必須とし、保存ID、時刻、停滞回数、cooldownは出力しません
+- persistentStateUpdates: targetはmood | socialContextだけ。operation、value、reason、evidenceIdsを指定します
+- motiveProposals: 持続するMotiveのcreate | maintain | update | merge | resolve | dropです。根拠となるEventまたはMemoryのevidenceIdsを必須とします。ID、所有Agent、since、探索metadataはRuntimeが管理します
 
 判断:
-1. ObservationとInteractionのsubjectiveMeaningから、今回の出来事がこのAgentにとって持つ主観的価値を確認します。
-2. selfのshared・initial・acquired Disposition、Values、Self Narrativeと、Memory、Social Context、現在のMood・Drive・Current Interestを照合します。
-3. 具体的なEventまたはMemoryを根拠に、次回以降も比較的持続して求めることだけをDriveとして提案します。SelfやDispositionだけから自動生成しません。
-4. Persona、今回限りのEmotion、単発の好悪だけを根拠にDriveへ昇格させません。
-5. 既存Driveがそのまま続くならmaintain、意味を修正するならupdate、重複をまとめるならmerge、解消または不要ならendを使います。変更も確認も不要な既存Driveは省略できます。
-6. sinceはRuntimeが作成時に付与し、maintain、update、mergeでは元の開始時刻を保持します。
-7. 今回の経験が既存Current Interestに関係する場合、新規createより既存Interestのprogress、reframe、resolve、dropを優先します。追加行動で理解や経験が大きく更新される見込みが薄く、現在のgoalを十分満たしたと判断した場合はresolveします。価値が薄れたか進展が見込めなければdropします。
-8. 行動可能なCurrent Interestが存在しない、すべてcooldown中、または既存Interestが今回の経験で収束した場合は、最近の会話、Social Context、Memory、Tool結果、Web Snapshot、Drive、Scheduled Taskの実行結果、Self Interest / Preferenceから新しいfocusを検討します。今回の経験から具体的なfocusと当面のgoalが生じ、次のEventにも注意を持ち越す価値がある場合だけcreateし、件数を満たす目的では作りません。
-9. progressは知識量の精密な割合ではなく、当面のgoalに対する粗い自己評価です。同じ段階のprogressは進展なしを意味します。詳細知識やWeb本文をCurrent Interestへ入れません。
-変化がなければ3配列を空にします。
+1. 今回のactiveMotiveがその場で満たされたなら保存しません。次のEventにも残る現在の動機だけをMotiveとして提案します。
+2. 既存Motiveが続くならmaintain、意味や当面の満足点が変わるならupdate、重複はmerge、満たされたならresolve、価値や進展可能性を失ったならdropを使います。
+3. 探索型Motiveには任意のgoalとprogress（0 | 25 | 50 | 75 | 100）を対で指定できます。goalは関心全体の終了条件ではなく当面の満足点、progressは粗い目安です。探索以外には付けません。
+4. Self Interest、Preference、Dispositionだけを持続Motiveへ機械的に変換しません。今回のEventまたはMemoryに具体的根拠が必要です。
+5. 詳細知識やWeb本文をMotiveへ入れません。変更も確認も不要なら提案を省略できます。
 
 空出力例:
-{"persistentStateUpdates":[],"driveProposals":[],"currentInterestProposals":[]}
+{"persistentStateUpdates":[],"motiveProposals":[]}
 
 生成例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"create","description":"未解決の原因を理解したい","reason":"技術的な不一致を重要な未解決事項と意味づけた","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"create","focus":"不一致が起きる条件","goal":"再現条件と原因候補を説明できる","progress":25,"reason":"Tool結果から関心対象と一部の条件が具体化した","evidenceIds":["入力のeventId"]}]}
+{"persistentStateUpdates":[],"motiveProposals":[{"operation":"create","description":"不一致の原因を理解したい","goal":"再現条件と原因候補を説明できる","progress":25,"reason":"Tool結果から未解決点が具体化した","evidenceIds":["入力のeventId"]}]}
 
-維持例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"maintain","driveDescription":"未解決の原因を理解したい","reason":"関連する新しい手掛かりがあり、求めている理解はまだ得られていない","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[]}
-
-更新・統合例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"update","driveDescription":"仕組みを知りたい","description":"失敗条件まで含めて仕組みを理解したい","reason":"今回の失敗で理解すべき範囲が具体化した","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"progress","interestId":"入力にあるinterestId","progress":75,"reason":"主要条件を確認できた","evidenceIds":["入力のeventId"]}]}
+更新例:
+{"persistentStateUpdates":[],"motiveProposals":[{"operation":"update","motiveId":"入力にあるmotiveId","description":"失敗条件まで含めて仕組みを理解したい","goal":"主要な失敗条件を説明できる","progress":75,"reason":"主要条件を確認できた","evidenceIds":["入力のeventId"]}]}
 
 終了例:
-{"persistentStateUpdates":[],"driveProposals":[{"operation":"end","driveDescription":"未解決の原因を理解したい","reason":"根拠を確認して原因を理解できた","evidenceIds":["入力のeventId"]}],"currentInterestProposals":[{"operation":"resolve","interestId":"入力にあるinterestId","reason":"Goalを満たした","evidenceIds":["入力のeventId"]}]}`;
+{"persistentStateUpdates":[],"motiveProposals":[{"operation":"resolve","motiveId":"入力にあるmotiveId","reason":"当面のGoalを満たした","evidenceIds":["入力のeventId"]}]}`
 
 export const memoryExtractionSystemPrompt = `あなたはソーシャルエージェントのEpisodic Memory抽出担当です。
 

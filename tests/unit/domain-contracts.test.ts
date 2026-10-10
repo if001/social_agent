@@ -45,27 +45,27 @@ describe("domain contracts", () => {
 
   it("separates immediate Interaction state from persistent Post-process proposals", () => {
     const parsed = AgentCoreOutputSchema.parse({
-      interpretation: { subjectiveMeaning: "A meaningful event" },
+      interpretation: { subjectiveMeaning: "A meaningful event", activeMotive: { description: "Respond", evidenceIds: ["event-1"] } },
       internalChanges: { immediateStateUpdates: [{ target: "emotion", operation: "set", value: "interested", reason: "Useful exchange", evidenceIds: ["event-1"] }] },
       action: { type: "respond", content: "Understood" }
     });
     expect(parsed.internalChanges.immediateStateUpdates[0]?.target).toBe("emotion");
     expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }] } }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], driveProposals: [], currentInterestProposals: [] }).success).toBe(true);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Grounded", evidenceIds: ["event-1"], since: "2026-01-01T00:00:00Z" }], currentInterestProposals: [] }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Ungrounded", evidenceIds: [] }], currentInterestProposals: [] }).success).toBe(false);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], motiveProposals: [] }).success).toBe(true);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], motiveProposals: [{ operation: "create", description: "Understand", reason: "Grounded", evidenceIds: ["event-1"], since: "2026-01-01T00:00:00Z" }] }).success).toBe(false);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], motiveProposals: [{ operation: "create", description: "Understand", reason: "Ungrounded", evidenceIds: [] }] }).success).toBe(false);
     expect(MemoryExtractionOutputSchema.safeParse({ memoryProposals: [] }).success).toBe(true);
   });
 
-  it("represents Current Interest as a focus with a provisional goal", () => {
-    const base = { persistentStateUpdates: [], driveProposals: [] };
+  it("represents an exploratory Motive with an optional provisional goal", () => {
+    const base = { persistentStateUpdates: [] };
     expect(ContinuityOutputSchema.safeParse({
       ...base,
-      currentInterestProposals: [{ operation: "create", focus: "三角関数", goal: "sinとcosの関係を説明できる", progress: 25, reason: "今の理解に合う関心", evidenceIds: ["event-1"] }]
+      motiveProposals: [{ operation: "create", description: "三角関数を理解したい", goal: "sinとcosの関係を説明できる", progress: 25, reason: "今の理解に合う関心", evidenceIds: ["event-1"] }]
     }).success).toBe(true);
     expect(ContinuityOutputSchema.safeParse({
       ...base,
-      currentInterestProposals: [{ operation: "create", question: "三角関数とは何か", goal: "sinとcosの関係を説明できる", progress: 25, reason: "旧契約", evidenceIds: ["event-1"] }]
+      motiveProposals: [{ operation: "create", question: "三角関数とは何か", goal: "sinとcosの関係を説明できる", progress: 25, reason: "旧契約", evidenceIds: ["event-1"] }]
     }).success).toBe(false);
   });
 });

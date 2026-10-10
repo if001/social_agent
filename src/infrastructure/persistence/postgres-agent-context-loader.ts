@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, CurrentInterestSchema, DomainError, DriveSchema, FinalActionSchema, InterestExplorationSchema, ObservationSchema, RecentExperienceSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, DomainError, FinalActionSchema, MotiveExplorationSchema, MotiveSchema, ObservationSchema, RecentExperienceSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { explicitSubjectIds, selectSocialContexts, type SelectedContext } from "../../application/context-selection.js";
@@ -12,7 +12,7 @@ import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
 type AgentRow = QueryResultRow & {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
   acquired_disposition: string; values: string; interests: unknown; preferences: unknown; roles: unknown; raison_detre: string | null; self_narrative: string; self_continuity: string;
-  mood: string; drives: unknown; current_interests: unknown; interest_exploration: unknown; version: number; state_updated_at: Date;
+  mood: string; motives: unknown; motive_exploration: unknown; version: number; state_updated_at: Date;
   shared_disposition: string; base_instruction: string;
 };
 type SocialRow = QueryResultRow & { id: string; agent_id: string; subject_id: string; subject_type: SocialContext["subjectType"]; description: string; updated_at: Date };
@@ -34,9 +34,8 @@ export type PostgresAgentContextLoaderOptions = {
 
 function text(value: unknown): string | undefined { return typeof value === "string" && value.trim() !== "" ? value : undefined; }
 function texts(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "") : []; }
-function drives(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = DriveSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
-function currentInterests(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = CurrentInterestSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
-function interestExploration(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = InterestExplorationSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
+function motives(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = MotiveSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
+function motiveExploration(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = MotiveExplorationSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
 function recentExperience(row: RecentExperienceRow, toolsRegistry: ToolRegistry): RecentExperience | undefined {
   const observation = ObservationSchema.safeParse(row.observation); if (!observation.success) return undefined;
   const tools = Array.isArray(row.tools) ? row.tools : []; const steps: RecentExperience["steps"] = [];
@@ -75,7 +74,7 @@ export class PostgresAgentContextLoader {
   async load(event: DomainEvent): Promise<AgentCoreInput> {
     const observation = observationFromEvent(event);
     const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
-      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.drives,s.current_interests,s.interest_exploration,s.version,s.updated_at AS state_updated_at,
+      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.motives,s.motive_exploration,s.version,s.updated_at AS state_updated_at,
       f.shared_disposition,f.base_instruction
       FROM agents a JOIN agent_states s ON s.agent_id=a.id JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1`, [event.agentId]);
     const agent = agentResult.rows[0];
@@ -88,7 +87,7 @@ export class PostgresAgentContextLoader {
           SELECT id,agent_id,kind,observation,occurred_at FROM events WHERE agent_id=$1 AND kind<>'tool-result' ORDER BY occurred_at DESC,id DESC LIMIT 8
         ) SELECT e.id AS event_id,e.agent_id,e.kind AS event_kind,e.observation,e.occurred_at,r.id AS run_id,r.result,r.failure_reason,
           COALESCE(t.tools,'[]'::jsonb) AS tools,
-          COALESCE(EXISTS(SELECT 1 FROM state_changes sc WHERE sc.run_id=r.id AND sc.target='currentInterests' AND sc.before IS DISTINCT FROM sc.after),false) AS progress_changed
+          COALESCE(EXISTS(SELECT 1 FROM state_changes sc WHERE sc.run_id=r.id AND sc.target='motives' AND sc.before IS DISTINCT FROM sc.after),false) AS progress_changed
         FROM recent_events e
         LEFT JOIN LATERAL (SELECT id,result,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id AND finished_at IS NOT NULL ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
         LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('tool',x.tool,'input',x.input,'result',x.result,'error',x.error) ORDER BY x.started_at,x.id) AS tools FROM tool_executions x WHERE x.run_id=r.id) t ON true
@@ -96,7 +95,7 @@ export class PostgresAgentContextLoader {
     ]);
     const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row, this.options.tools); return value === undefined ? [] : [value]; });
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, subjectType: row.subject_type, description: row.description, updatedAt: row.updated_at.toISOString() }));
-    const dynamicState = { agentId: agent.id, mood: agent.mood, drives: drives(agent.drives), currentInterests: currentInterests(agent.current_interests), interestExploration: interestExploration(agent.interest_exploration), updatedAt: agent.state_updated_at.toISOString() };
+    const dynamicState = { agentId: agent.id, mood: agent.mood, motives: motives(agent.motives), motiveExploration: motiveExploration(agent.motive_exploration), updatedAt: agent.state_updated_at.toISOString() };
     const seedSocial = selectSocialContexts({ socialContext, observation });
     const memoryQuery = buildRelevantMemoryQuery({ observation, dynamicState, socialContext: seedSocial.map(({ value }) => value) });
     const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);

@@ -6,7 +6,7 @@
 
 ## 2. Adopted processing boundary
 
-The normal Agent Core interprets one normal Event and returns semantic proposals for short and medium-term state, Memory, Long-term Candidate, and one final external Action. Emotion may change for the current Event. Mood, Drive, Current Interest, and Working Social Context change only when their effect should persist beyond it. The normal Core never applies long-term state directly.
+The normal Agent Core interprets one normal Event and returns semantic proposals for short and medium-term state, Memory, Long-term Candidate, and one final external Action. Emotion may change for the current Event. Mood, Motive, and Working Social Context change only when their effect should persist beyond it. The normal Core never applies long-term state directly.
 
 Long-term Review has a separate input, output schema, prompt, and `long-term-review` Internal Event. It evaluates accumulated Candidate and evidence Memory using KEEP, UPDATE, MERGE, or DROP and is the only flow that may apply supported long-term changes.
 
@@ -36,7 +36,7 @@ Issue 068 reviewed this matrix for the reusable Deep Agent lifecycle. `ARCHITECT
 |---|---|---|---|
 | Subjective Meaning | proposes | may reinterpret evidence for review | validates output shape and traces run |
 | Emotion | proposes when affected by the Event and uses them in the same run's Action | does not update | validates and records the proposal for audit without carrying it into the next Event |
-| Mood, Drive, Current Interest, Working Social Context | proposes only when persistence is meaningful | reads relevant context | validates lifecycle and persists |
+| Mood, Motive, Working Social Context | proposes only when persistence is meaningful | reads relevant context | validates lifecycle and persists |
 | Episodic Memory | proposes important concrete experiences from the current Event | reads as review evidence | validates duplication/evidence, assigns ID/time/owner/source, and persists |
 | Semantic / Self-related Memory | creates evidence-backed Candidate; does not directly confirm inferred knowledge or self-recognition | creates, merges, corrects, or rejects after reviewing evidence | validates ownership/evidence and persists the decision |
 | Self Change Memory | does not create | proposes an audit record when long-term state changes | assigns metadata and atomically persists it with the state change |
@@ -63,11 +63,11 @@ The code-level evidence and reachability analysis are recorded in `docs/IMPLEMEN
 | Evaluation fixtures and live evaluation still use the old contract | 025, then resume 016 and 017 |
 | Primary design includes Role, Raison d'être, and long-term preference/interest, while the current Candidate schema only supports Self Narrative and Acquired Disposition | Resolve the exact initial implementation scope in 019; do not silently claim support |
 | Persisted Memory has no complete Embedding lifecycle and normal saves leave vectors empty | 036 |
-| Retrieval omits current state, Current Interest, and Social Context and loses relevance order in Context Builder | 037 |
+| Retrieval omits current state, Motive, and Social Context and loses relevance order in Context Builder | 037 |
 | Semantic / Self-related Memory confirmation requires Review schema and flow support | 040 |
 
 ## 7. Evaluation boundary
 
-Short live evaluation checks schema conformance, use of preloaded experience/current state, immediate Emotion semantics, optional persistent proposals, constraints, and final Action. Development begins with one Scenario and one run. It does not claim that Mood, Current Interest, Social Context, Self Narrative, or Acquired Disposition naturally formed over a few turns.
+Short live evaluation checks schema conformance, use of preloaded experience/current state, immediate Emotion semantics, optional persistent proposals, constraints, and final Action. Development begins with one Scenario and one run. It does not claim that Mood, Motive, Social Context, Self Narrative, or Acquired Disposition naturally formed over a few turns.
 
 Long-term formation is evaluated after real user interaction by combining user impressions, desired behavior, state snapshots, Candidate/Review evidence, and execution traces. No fixed number of days is mandatory. A dimension without enough evidence is recorded as `insufficient-observation` rather than forced into pass or fail.

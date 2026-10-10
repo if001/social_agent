@@ -42,7 +42,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await migrate(pool);
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
-    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,roles,self_narrative,self_continuity,mood,drives) VALUES ($1,'Learning','Care','[\"Helper\"]','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
+    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,roles,self_narrative,self_continuity,mood,motives) VALUES ($1,'Learning','Care','[\"Helper\"]','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await migrate(pool);
   });
   afterAll(async () => {
@@ -58,7 +58,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Focused" })).resolves.toBe(1);
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
-    expect((await repository.find<{ roles: string[]; drives: { description: string }[] }>("a"))).toMatchObject({ roles: ["Helper"], drives: [{ description: "Learn" }] });
+    expect((await repository.find<{ roles: string[]; motives: { description: string }[] }>("a"))).toMatchObject({ roles: ["Helper"], motives: [{ description: "Learn" }] });
   });
 
   it("initializes configured Self and preserves acquired experience on reapply", async () => {
@@ -66,21 +66,21 @@ describeDatabase("PostgreSQL persistence", () => {
       version: 1 as const,
       family: { id: "configured-family", name: "Configured", sharedDisposition: "共通傾向", baseInstruction: "根拠を区別する" },
       agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "初期個体差", values: "初期価値", interests: ["最初の関心"], preferences: [], roles: ["対話相手"], selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
-      initialState: { mood: "中立", drives: [], currentInterests: [] }
+      initialState: { mood: "中立", motives: [] }
     };
     const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000, memoryRecallIntervalMs: 4_000 };
     await initializeAgent(pool, config, initialTimings);
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='autonomy-review'", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review" }]);
     expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review", delay_ms: 2_000 }, { kind: "memory-recall", delay_ms: 4_000 }, { kind: "state-review", delay_ms: 3_000 }]);
-    await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', drives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ description: "継続中のDrive", sourceEvidenceIds: [], since: fixtureInstant }])]);
+    await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', motives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ description: "継続中のMotive", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
     await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } }, initialTimings);
-    const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; acquired_disposition: string; values: string; mood: string; drives: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.acquired_disposition,s.values,s.mood,s.drives FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
-    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", acquired_disposition: "経験で得た傾向", values: "経験で変化した価値", mood: "持続する気分", drives: [{ description: "継続中のDrive" }] });
+    const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; acquired_disposition: string; values: string; mood: string; motives: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.acquired_disposition,s.values,s.mood,s.motives FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", acquired_disposition: "経験で得た傾向", values: "経験で変化した価値", mood: "持続する気分", motives: [{ description: "継続中のMotive" }] });
     expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
     await initializeAgent(pool, { ...config, family: { ...config.family, sharedDisposition: "更新した共通傾向" }, agent: { ...config.agent, values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"] } }, initialTimings, { overwriteConfiguredSelf: true });
-    const overwritten = await pool.query<{ shared_disposition: string; acquired_disposition: string; values: string; interests: string[]; preferences: string[]; mood: string; drives: unknown; version: number }>("SELECT f.shared_disposition,s.acquired_disposition,s.values,s.interests,s.preferences,s.mood,s.drives,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
-    expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", acquired_disposition: "経験で得た傾向", values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"], mood: "持続する気分", drives: [{ description: "継続中のDrive" }], version: 1 });
+    const overwritten = await pool.query<{ shared_disposition: string; acquired_disposition: string; values: string; interests: string[]; preferences: string[]; mood: string; motives: unknown; version: number }>("SELECT f.shared_disposition,s.acquired_disposition,s.values,s.interests,s.preferences,s.mood,s.motives,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", acquired_disposition: "経験で得た傾向", values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"], mood: "持続する気分", motives: [{ description: "継続中のMotive" }], version: 1 });
     expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
   });
 
@@ -211,14 +211,14 @@ describeDatabase("PostgreSQL persistence", () => {
 
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "archive-memory-run", eventId: "archive-memory-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.availableTools = [{ name: "web_archive_read", description: "Archive", inputSchema: {} }];
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-continuity-job", "archive-memory-job", "archive-memory"]), () => new Date(fixtureInstant), undefined, 0, registry);
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-continuity-job", "archive-memory-job", "archive-memory"]), () => new Date(fixtureInstant), undefined, registry);
     const toolExecution = { callId: "tool-1", runId: "archive-memory-run", eventId: "archive-memory-event", name: "web_archive_read", input: { snapshotId: first[0]?.snapshotId }, ok: true as const, result: { snapshotId: first[0]?.snapshotId, offset: 0, text: "raw page must not enter post-process", truncated: true }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
-    const runResult = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
+    const runResult = { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
     await persistence.commit(messageFixture({ id: "archive-memory-message", destination: "a" }), { id: "archive-memory-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} }, input, runResult, { state: input.dynamicState, changes: [] }, []);
     const archiveJob = await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveJob === undefined) throw new Error("Post-process job was not created");
     expect(JSON.stringify(archiveJob.input)).not.toContain("raw page must not enter post-process");
     expect(JSON.stringify(archiveJob.input)).toContain("textCharacters");
-    if (archiveJob.type === "continuity") await persistence.completePostProcess(archiveJob, { persistentStateUpdates: [], driveProposals: [], currentInterestProposals: [] });
+    if (archiveJob.type === "continuity") await persistence.completePostProcess(archiveJob, { persistentStateUpdates: [], motiveProposals: [] });
     const archiveMemoryJob = archiveJob.type === "memory" ? archiveJob : await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveMemoryJob?.type !== "memory") throw new Error("Memory job was not created");
     await persistence.completePostProcess(archiveMemoryJob, { memoryProposals: [{ content: "Vector index options were investigated", relatedSubjectIds: [], importance: "Useful research", retrievalPriority: "normal", webSnapshotIds: [first[0]?.snapshotId ?? ""] }] });
     expect((await pool.query<{ snapshot_id: string }>("SELECT snapshot_id FROM memory_web_evidence WHERE memory_id='archive-memory'")).rows[0]?.snapshot_id).toBe(first[0]?.snapshotId);
@@ -313,15 +313,6 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(second.authorizeInbound({ ...event, id: "policy-event-3", correlationId: "rate-correlation-1" }, "policy-message-3", 1)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("removes autonomous schedules when their persistent drives disappear", async () => {
-    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('drive:a:obsolete','a','persistent-drive','obsolete',now()),('drive:a:keep','a','persistent-drive','keep',now())");
-    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
-    const unit = new PostgresEventTransaction(new PostgresUnitOfWork(pool), 5_000);
-    await unit.commit({ destination: "a", messageId: "drive-sync-message", event: { id: "drive-sync-event", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date(fixtureInstant) }, run: { id: "drive-sync-run", inputStateVersion: version, startedAt: new Date(fixtureInstant), result: {} }, stateValues: { drives: [{ description: "keep" }, { description: "new" }] }, changes: [], outbox: [] });
-    expect((await pool.query<{ id: string }>("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='persistent-drive' ORDER BY id")).rows.map(({ id }) => id)).toEqual(["drive:a:keep", "drive:a:new"]);
-    expect((await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='drive:a:new'")).rows[0]?.delay_ms).toBe(5_000);
-  });
-
   it("updates long-term state, candidate and self-change memory atomically", async () => {
     await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-ok','a','selfNarrative','More patient','pending','Evidence'),('candidate-fail','a','selfNarrative','Should rollback','pending','Evidence')");
     await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-ok','memory-a1'),('candidate-fail','memory-a1')");
@@ -398,11 +389,11 @@ describeDatabase("PostgreSQL persistence", () => {
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
     const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "continuity-job", "memory-job", "interest-new", "state-change-mood", "state-change-social", "state-change-drive", "state-change-interest", "memory-new", "candidate-job", "candidate-new"]), () => new Date(fixtureInstant), memoryEmbedding);
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "continuity-job", "memory-job", "motive-new", "state-change-mood", "state-change-social", "state-change-motive", "memory-new", "candidate-job", "candidate-new"]), () => new Date(fixtureInstant), memoryEmbedding);
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
-      output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond" as const, content: "Hello" } },
+      output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond" as const, content: "Hello" } },
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
     await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
@@ -416,7 +407,7 @@ describeDatabase("PostgreSQL persistence", () => {
     }
     const job = await persistence.claimPostProcess("a", "runtime-run"); if (job === undefined) throw new Error("Post-process job was not created");
     if (job.type !== "continuity") throw new Error("Continuity job was not created");
-    await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], driveProposals: [{ operation: "create", description: "Understand the exchange", reason: "The event remains meaningful", evidenceIds: ["runtime-event"] }], currentInterestProposals: [{ operation: "create", focus: "What made the exchange useful?", goal: "Explain the useful part", progress: 25, reason: "The interaction created a concrete question", evidenceIds: ["runtime-event"] }] });
+    await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], motiveProposals: [{ operation: "create", description: "Understand what made the exchange useful", goal: "Explain the useful part", progress: 25, reason: "The interaction remains meaningful", evidenceIds: ["runtime-event"] }] });
     const memoryJob = await persistence.claimPostProcess("a", "runtime-run"); if (memoryJob?.type !== "memory") throw new Error("Memory job was not created");
     await persistence.completePostProcess(memoryJob, { memoryProposals: [{ content: "A useful exchange", relatedSubjectIds: ["owner"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }, { content: "A useful exchange", relatedSubjectIds: ["owner"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }] });
     const candidateJob = await persistence.claimPostProcess("a", "runtime-run"); if (candidateJob?.type !== "candidate") throw new Error("Candidate job was not created");
@@ -431,8 +422,8 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
     expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-1");
     expect((await pool.query<{ description: string }>("SELECT description FROM social_contexts WHERE agent_id='a' AND subject_id='owner'")).rows[0]?.description).toBe("Trusted collaborator");
-    expect((await pool.query<{ drives: { description: string; since: string }[] }>("SELECT drives FROM agent_states WHERE agent_id='a'")).rows[0]?.drives).toContainEqual(expect.objectContaining({ description: "Understand the exchange", since: fixtureInstant }));
-    expect((await pool.query<{ current_interests: { id: string; progress: number }[]; interest_exploration: { interestId: string; consecutiveNoProgress: number }[] }>("SELECT current_interests,interest_exploration FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ current_interests: [{ id: "interest-new", progress: 25 }], interest_exploration: [{ interestId: "interest-new", consecutiveNoProgress: 0 }] });
+    expect((await pool.query<{ motives: { description: string; since: string }[] }>("SELECT motives FROM agent_states WHERE agent_id='a'")).rows[0]?.motives).toContainEqual(expect.objectContaining({ description: "Understand what made the exchange useful", since: fixtureInstant }));
+    expect((await pool.query<{ motive_exploration: { motiveId: string; consecutiveNoProgress: number }[] }>("SELECT motive_exploration FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ motive_exploration: [{ motiveId: "motive-new", consecutiveNoProgress: 0 }] });
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
   });
 
@@ -446,7 +437,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["state-review-continuity-job"]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "state-review-message", destination: "a" });
     const event = { id: "state-review-event", agentId: "a", kind: "internal" as const, occurredAt: fixtureInstant, payload: { targetKind: "state-review", schedulerGenerated: true } };
-    const result = { output: { interpretation: { subjectiveMeaning: "Persistent state review" }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Continuity only" } }, toolExecutions: [] };
+    const result = { output: { interpretation: { subjectiveMeaning: "Persistent state review", activeMotive: { description: "Review state", evidenceIds: [input.run.eventId] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Continuity only" } }, toolExecutions: [] };
     await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
     const jobs = await pool.query<{ job_type: string }>("SELECT job_type FROM post_process_jobs WHERE interaction_run_id='state-review-run' ORDER BY job_type");
     expect(jobs.rows).toEqual([{ job_type: "continuity" }]);
@@ -457,10 +448,10 @@ describeDatabase("PostgreSQL persistence", () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture(); input.run = { runId: "reported-run", eventId: "reported-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.observation = { eventId: "reported-event", summary: "Agent B reported a library time", facts: ["Reported by B"], observedAt: fixtureInstant, actor: { id: "b", type: "agent" }, source: { type: "agent", id: "b", direct: true } };
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-continuity-job", "reported-memory-job", "reported-memory"]), () => new Date("2026-01-03T00:00:00Z"));
-    const result = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [] };
+    const result = { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [] };
     await persistence.commit(messageFixture({ id: "reported-message", destination: "a" }), { id: "reported-event", agentId: "a", kind: "external", occurredAt: fixtureInstant, payload: { senderAgentId: "b" } }, input, result, { state: input.dynamicState, changes: [] }, []);
     const reportedJob = await persistence.claimPostProcess("a", "reported-run"); if (reportedJob === undefined) throw new Error("Post-process job was not created");
-    if (reportedJob.type === "continuity") await persistence.completePostProcess(reportedJob, { persistentStateUpdates: [], driveProposals: [], currentInterestProposals: [] });
+    if (reportedJob.type === "continuity") await persistence.completePostProcess(reportedJob, { persistentStateUpdates: [], motiveProposals: [] });
     const reportedMemoryJob = reportedJob.type === "memory" ? reportedJob : await persistence.claimPostProcess("a", "reported-run"); if (reportedMemoryJob?.type !== "memory") throw new Error("Memory job was not created");
     await persistence.completePostProcess(reportedMemoryJob, { memoryProposals: [{ content: "Agent B reported that the library opens at nine", relatedSubjectIds: ["b"], importance: "Reported information", retrievalPriority: "normal", webSnapshotIds: [] }] });
     expect((await pool.query<{ source_agent_id: string }>("SELECT source_agent_id FROM memories WHERE id='reported-memory'")).rows[0]?.source_agent_id).toBe("b");

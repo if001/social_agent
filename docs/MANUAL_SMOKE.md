@@ -6,7 +6,7 @@ Run `pnpm verify` first. Use a dedicated database, shared queue root, separate f
 
 1. Run `pnpm db:migrate` once with the administrative DB URL in `.env`. It applies the Drizzle Kit-generated migrations and records them in `__drizzle_migrations`.
 2. Run `node --env-file=.env.bot-a --import tsx src/cli.ts agent:init config/initial-self/ao.yaml` and `node --env-file=.env.bot-b --import tsx src/cli.ts agent:init config/initial-self/aka.yaml`.
-   Existing Agentsへ設定由来のSelfだけを再適用する場合は、末尾に`--overwrite-configured-self`を付ける。Acquired Disposition、Mood、Drive、Current Interest、Memory、Social Contextは保持される。
+   Existing Agentsへ設定由来のSelfだけを再適用する場合は、末尾に`--overwrite-configured-self`を付ける。Acquired Disposition、Mood、Motive、Memory、Social Contextは保持される。
 3. Give both process files the same DB, Queue, Chat, Embedding, and Web connection settings.
 4. Give each file a distinct `BOT_ID`, Discord token, Discord bot user ID, and `DISCORD_QUEUE_DESTINATION`. Configure owner, guild, and channel allowlists explicitly.
 5. Start `pnpm bot:start --env-file .env.bot-a` and `pnpm bot:start --env-file .env.bot-b` in separate processes.
@@ -27,9 +27,9 @@ Botと同じ通常接続用`POSTGRES_URL`を使い、別processでDebug UIを起
 pnpm debug:ui --env-file .env.bot-a
 ```
 
-ブラウザで`http://127.0.0.1:4310`を開く。Agentを選択し、Self、Mood、Drive、Current Interestのfocus / goal / progress / 停滞回数 / cooldown、Social Context、Scheduled Task、Autonomous Scheduleを確認する。Discordで一度メンションした後、Run履歴にEvent、Subjective Meaning、Action、Emotionが表示されることを確認する。Run行を選び、状態差分、Tool実行、Post-process statusとfailure reasonを確認する。
+ブラウザで`http://127.0.0.1:4310`を開く。Agentを選択し、Self、Mood、Motiveのfocus / goal / progress / 停滞回数 / cooldown、Social Context、Scheduled Task、Autonomous Scheduleを確認する。Discordで一度メンションした後、Run履歴にEvent、Subjective Meaning、Action、Emotionが表示されることを確認する。Run行を選び、状態差分、Tool実行、Post-process statusとfailure reasonを確認する。
 
-Emotionは選択したRunの即時状態であり、OverviewのMood、Drive、Current Interestは現在の持続状態である。表示を更新するときはheaderの「更新」ボタンを押す。Run詳細を確認している間に画面は自動更新されない。Debug UIは読み取り専用であり、Botを停止せずに起動・停止できる。
+Emotionは選択したRunの即時状態であり、OverviewのMood、Motiveは現在の持続状態である。表示を更新するときはheaderの「更新」ボタンを押す。Run詳細を確認している間に画面は自動更新されない。Debug UIは読み取り専用であり、Botを停止せずに起動・停止できる。
 
 ## Terminal
 

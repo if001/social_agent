@@ -31,7 +31,7 @@ Application / Domain層が必要とする契約をPortとして定義し、Infra
 
 ### A-04: LLMは提案し、Runtimeが確定する
 
-Interaction Deep AgentはSubjective Meaning、今回のEmotion、最終Actionを提案する。応答後は、Continuity UpdateがMood、Drive、Current Interest、Social Context、Episodic Memory Extractionが具体的経験、Candidate Detectorが保存済みMemoryを根拠とするLong-term Candidateをそれぞれ提案する。いずれの提案にも保存用ID、作成時刻、所有Agent ID、保存済みという事実を生成させない。RuntimeはZod Schema、権限、参照整合性、状態versionを検証し、IDと時刻を付与してDB transactionで確定する。
+Interaction Deep AgentはSubjective Meaning、今回のEmotion、最終Actionを提案する。応答後は、Continuity UpdateがMood、Motive、Social Context、Episodic Memory Extractionが具体的経験、Candidate Detectorが保存済みMemoryを根拠とするLong-term Candidateをそれぞれ提案する。いずれの提案にも保存用ID、作成時刻、所有Agent ID、保存済みという事実を生成させない。RuntimeはZod Schema、権限、参照整合性、状態versionを検証し、IDと時刻を付与してDB transactionで確定する。
 
 ### A-05: 配送はat-least-once、処理は冪等にする
 
@@ -221,29 +221,29 @@ UI以外のproducerは`RuntimeEventPublisher`を使用し、`external-event`、`
 - Episodic Memoryの保存後、必要な場合だけCandidate Detector jobを起動する
 - Internal EventとTime Eventを通常Agent CoreまたはLong-term Reviewへ振り分ける
 
-Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成するが、通常Interaction Deep Agentへは渡さない。RuntimeはEventとRunを監査用に記録し、決定的な`no-external-action`と空の即時更新をcommitしてContinuity jobだけを作る。Continuity Reviewは時間経過、直近Event、関連Memoryを踏まえてMood、Drive、Current Interest、Working Social Contextを維持・変更・終了する。`state-review`ではTool、外部応答、Memory Extraction、Candidate Detectorを起動しない。Runtimeは固定規則で状態値を減衰させず、時刻管理、経路制御、再検討機会の生成だけを担当する。EmotionはEvent内で完結するためState Reviewの永続対象にしない。
+Runtimeは各Agentに1件の`state-review` Scheduleを保持する。既定では1日ごとにInternal Eventを生成するが、通常Interaction Deep Agentへは渡さない。RuntimeはEventとRunを監査用に記録し、決定的な`no-external-action`と空の即時更新をcommitしてContinuity jobだけを作る。Continuity Reviewは時間経過、直近Event、関連Memoryを踏まえてMood、Motive、Working Social Contextを維持・変更・終了する。`state-review`ではTool、外部応答、Memory Extraction、Candidate Detectorを起動しない。Runtimeは固定規則で状態値を減衰させず、時刻管理、経路制御、再検討機会の生成だけを担当する。EmotionはEvent内で完結するためState Reviewの永続対象にしない。
 
-Agent初期化時のStable Interests / Preferences / Rolesはversioned Initial Self設定から読み込む。DriveとCurrent Interestは原則として空集合で開始し、MoodとAcquired Dispositionには中立な初期値を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Selfとして明示的に入力する。
+Agent初期化時のStable Interests / Preferences / Rolesはversioned Initial Self設定から読み込む。Motiveは原則として空集合で開始し、MoodとAcquired Dispositionには中立な初期値を設定する。行動傾向を与える場合は、全Agent共通の固定値へ埋め込まず、FamilyのShared Dispositionまたは個体ごとのInitial Selfとして明示的に入力する。
 
 Initial SelfのInterests / Preferencesには抽象的方向性と具体的な初期嗜好を併記できる。設定値は`configured-initial-self`をprovenanceとする初期個体差であり、Memoryや過去の経験として保存しない。経験から形成された長期Interest / PreferenceはMemoryを根拠にLong-term Reviewだけが更新する。Contextでは両者の由来をSelfのinitial設定とacquiredな長期状態の境界から判別できなければならない。
 
-各Agentは別に`memory-recall` Scheduleを1件持つ。既定では7日ごとにInternal Eventを生成し、通常のMemory Retrievalを現在状態とCurrent Interestから実行する。Recall Eventは再検討の機会だけを与え、Memory選択、状態変更、Tool利用、外部Actionは通常Coreの判断に委ねる。
+各Agentは別に`memory-recall` Scheduleを1件持つ。既定では7日ごとにInternal Eventを生成し、通常のMemory Retrievalを現在状態とMotiveから実行する。Recall Eventは再検討の機会だけを与え、Memory選択、状態変更、Tool利用、外部Actionは通常Coreの判断に委ねる。
 
-`persistent-drive` Scheduleは保存後のDrive集合から導出する。状態commitと同じtransactionで、存在するDriveのScheduleをupsertし、集合から消えたDriveのScheduleを削除する。Scheduleを独立したDriveの複製として残してはならない。
+MotiveごとのScheduleは作らない。Agentごとの`autonomy-review`が、その時点で活性化するMotiveを選ぶ唯一の定期的な行動機会となる。
 
-`autonomy-review` ScheduleはAgentごとに1件だけ初期化し、既定では1日ごとに再実行する。Current InterestごとのScheduleは作らない。Context BuilderはSelf、Stable Interests / Preferences、Drive、Current Interest、最近の探索履歴、関連Memory、Social Contextを取得する。Runtimeは機会とcooldownだけを管理し、具体的な行動を固定規則で決めない。
+`autonomy-review` ScheduleはAgentごとに1件だけ初期化し、既定では1日ごとに再実行する。MotiveごとのScheduleは作らない。Context BuilderはSelf、Stable Interests / Preferences、Motive、最近の探索履歴、関連Memory、Social Contextを取得する。Runtimeは機会とcooldownだけを管理し、具体的な行動を固定規則で決めない。
 
-DriveとCurrent InterestはActionを直接動機づける。両者を一時的Desireへ変換せず、通常CoreがEmotion、Mood、Preference、現在文脈、制約とともに比較する。行動可能なCurrent Interestがない場合も、Stable Interest、会話、Social Context、Memory、Tool結果、Web Snapshot、Driveから最大1件の小さな探索対象を選べる。具体的経験から注意を持ち越す価値が生じた場合だけContinuity UpdateがCurrent Interestを提案する。
+MotiveはActionを直接動機づける。一時的Desireへ変換せず、通常CoreがEmotion、Mood、Preference、現在文脈、制約とともに比較する。保存済みMotiveがない場合も、Stable Interest、会話、Social Context、Memory、Tool結果、Web Snapshotから今回限りのMotiveを形成する。具体的経験から注意を持ち越す価値が生じた場合だけContinuity UpdateがMotiveを提案する。
 
 ```mermaid
 flowchart LR
     S["Stable Interest / Preference"] --> O["Autonomy Review Event"]
     H["Recent Experience / Memory / Web Snapshot"] --> O
-    D["Drive / Current Interest"] --> O
+    D["Motive"] --> O
     O --> A["Tool / 質問 / 外部応答"]
     A --> E["結果と経験"]
     E --> P["Continuity Update"]
-    P --> C["Drive / Current Interestの更新・収束"]
+    P --> C["Motiveの更新・収束"]
 ```
 
 明示的な将来実行はScheduled Taskとして分離する。`schedule_task` Toolは予約を保存するだけである。Schedulerはdue Taskをleaseし、`kind=system`、`targetKind=scheduled-task`のEventを生成する。通常のAgent RuntimeがEventを処理し、Agent Core、Tool loop、Outboxを利用する。SchedulerからAgent Coreを直接呼ぶ専用経路は作らない。Taskの完了、retry、失敗はexecution Event / Runと関連づける。
@@ -258,7 +258,7 @@ flowchart LR
     O --> Q[外部へ応答を配送]
     C --> U[Continuity Update LLM<br/>Tool loopなし]
     C --> M[Episodic Memory Extraction LLM<br/>Tool loopなし]
-    U --> US[Mood・Drive・Interest・Social Contextをcommit]
+    U --> US[Mood・Motive・Social Contextをcommit]
     M --> MS[Episodic Memoryをcommit]
     MS --> G{Candidate起動条件}
     G -->|満たす| D[Candidate Detector]
@@ -268,7 +268,7 @@ flowchart LR
 
     SR[state-review Event] --> SC[監査用Event / Run commit<br/>no-external-action・Toolなし]
     SC --> SU[Continuity Review LLM<br/>Tool loopなし]
-    SU --> SS[Mood・Drive・Interest・Social Contextをcommit]
+    SU --> SS[Mood・Motive・Social Contextをcommit]
 ```
 
 ### 5.5 Context Builder
@@ -289,13 +289,13 @@ interface ContextBuilder {
 
 - IdentityとShared / Initial Disposition
 - Observationに関連するAcquired Disposition、Values、Role、Self Narrative
-- 現在有効なMood、複数Drive、Current Interests
+- 現在有効なMood、複数Motives
 - Observationのsubjectに関係するSocial Context
 - hybrid retrievalで取得したMemory
 - 登録済みTool定義
 - Runtimeの残りstep数、deadline、ファイル許可範囲等の制約
 
-`availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。Tool JSON SchemaはDeep AgentのTool登録経路でmodelへ渡すため、Agent Coreのuser入力JSONにはTool名と短い説明だけを含める。長期状態や全Memoryを無条件に投入しない。Event間の短期履歴はRecent Experience、長く参照する経験はMemoryとして構成する。現在Observation、履歴、Self、Dynamic State、Current Interestを各カテゴリの優先順位に従ってmodelのContext budget内へ収める。
+`availableTools`は実装済みToolの固定カタログを表し、Bot起動時にDeep Agentへ登録した一覧と同一である。EventごとにToolを再登録する指示ではない。Tool JSON SchemaはDeep AgentのTool登録経路でmodelへ渡すため、Agent Coreのuser入力JSONにはTool名と短い説明だけを含める。長期状態や全Memoryを無条件に投入しない。Event間の短期履歴はRecent Experience、長く参照する経験はMemoryとして構成する。現在Observation、履歴、Self、Dynamic State、Motiveを各カテゴリの優先順位に従ってmodelのContext budget内へ収める。
 
 #### 5.5.1 Event間のRecent Experience
 
@@ -324,32 +324,32 @@ type RecentExperience = {
 
 `recentExperiences`は保存済み情報を再要約・途中切断しない。ObservationのsizeはEvent生成・保存境界、Tool Resultのsizeは各Tool、ActionのsizeはAgent Core出力契約が保証する。Web本文はWeb ToolとArchive Toolの有界な結果だけを記録し、raw本文をEvent、Tool Result、Recent Experienceへ複製しない。Context budgetを超える場合は古いRecent ExperienceからEvent単位で除外する。1 Eventだけでbudgetを超える場合は履歴側で黙って切らず、生成元の契約違反として記録してそのEventをPromptから除外する。
 
-`recentObservations`とPrompt向け`recentAttempts`は廃止する。Tool反復防止に必要な過去入力は`recentExperiences.steps`からRuntime用に導出し、同じ内容を別配列としてPromptへ重複投入しない。Recent Experienceは直近に何が起き、何を試し、どう行動したかを示す短期buffer、Episodic Memoryは後から検索する価値がある経験の要約、Semantic Memoryは経験から得た知識、Social Contextは関係認識、Current Interestは現在活性化した探索的動機を担う。
+`recentObservations`とPrompt向け`recentAttempts`は廃止する。Tool反復防止に必要な過去入力は`recentExperiences.steps`からRuntime用に導出し、同じ内容を別配列としてPromptへ重複投入しない。Recent Experienceは直近に何が起き、何を試し、どう行動したかを示す短期buffer、Episodic Memoryは後から検索する価値がある経験の要約、Semantic Memoryは経験から得た知識、Social Contextは関係認識、Motiveは現在活性化した探索的動機を担う。
 
 同じEventを根拠とするRecent ExperienceとMemoryが一時的に共存することは許容する。ただし`evidenceEventIds`がRecent Experienceと重なる`episodic` Memoryのうち、`retrievalPriority`が`low`または`normal`のものは単純な再述としてContextへ重複投入しない。`high`／`critical`、semantic、self-related、self-changeは追加の意味または重要性を持つものとして併用できる。Recent Experienceの直近8 Eventから外れた後は通常のMemory候補へ戻す。除外はMemory Retrieval traceの`recent-experience-duplicate`とdebug logへ記録する。
 
-#### 5.5.2 Social ContextとCurrent Interestの関連選択
+#### 5.5.2 Social ContextとMotiveの関連選択
 
-Social ContextとCurrent Interestは、Agentが所有する全件を更新日時順で渡さない。Context LoaderはDBから有界な候補を取得し、Context Builderは明示的なID、Trigger、期限、Memory linkを使って決定的に順位づける。本文をLLMへ渡して関連度を判定する前処理は追加しない。
+Social ContextとMotiveは、Agentが所有する全件を更新日時順で渡さない。Context LoaderはDBから有界な候補を取得し、Context Builderは明示的なID、Trigger、期限、Memory linkを使って決定的に順位づける。本文をLLMへ渡して関連度を判定する前処理は追加しない。
 
 選択はMemory検索との循環を避けるため、次の2段階で行う。
 
-1. Observationと保存済み状態だけでseedを選ぶ。Social Contextは`observation.actor.id`およびEventが正規化済みIDとして明示するsubjectを優先する。Current InterestはEventが明示する対象、Drive、選択Memoryとの関連を優先する。
-2. seedを使ってMemoryを検索した後、選択Memoryの`relatedSubjectIds`と`relatedCurrentInterestIds`を使って最終候補を補う。同じMemory上で選択Current Interestと結びつくsubjectは、Current Interestに関連するSocial Contextとして扱う。
+1. Observationと保存済み状態だけでseedを選ぶ。Social Contextは`observation.actor.id`およびEventが正規化済みIDとして明示するsubjectを優先する。MotiveはEventが明示する対象、Motive、選択Memoryとの関連を優先する。
+2. seedを使ってMemoryを検索した後、選択Memoryの`relatedSubjectIds`と`relatedCurrentInterestIds`を使って最終候補を補う。同じMemory上で選択Motiveと結びつくsubjectは、Motiveに関連するSocial Contextとして扱う。
 
-自由文からsubject IDを推測しない。Current Interestの`focus`と`goal`から作ったkeyword一致は補助順位にだけ使う。日本語を含むkeyword分割はMemory Retrievalと同じ正規化を使う。
+自由文からsubject IDを推測しない。Motiveの`focus`と`goal`から作ったkeyword一致は補助順位にだけ使う。日本語を含むkeyword分割はMemory Retrievalと同じ正規化を使う。
 
-Social Contextの順位は、現在actorまたは明示subject、選択Memoryのsubject、選択Current Interestと同じMemoryに結びつくsubject、更新時刻fallbackの順とする。Current Interestの順位は、Eventの直接対象、選択Memoryとのlink、Driveとの関連、keyword一致、更新時刻fallbackの順とする。同じ階層では`updatedAt DESC, id ASC`で安定させる。上位理由を持つ候補は、下位理由も持つ候補より常に先になる。
+Social Contextの順位は、現在actorまたは明示subject、選択Memoryのsubject、選択Motiveと同じMemoryに結びつくsubject、更新時刻fallbackの順とする。Motiveの順位は、Eventの直接対象、選択Memoryとのlink、Motiveとの関連、keyword一致、更新時刻fallbackの順とする。同じ階層では`updatedAt DESC, id ASC`で安定させる。上位理由を持つ候補は、下位理由も持つ候補より常に先になる。
 
-Agent Coreへ渡す上限はSocial Context 6件、Current Interest 6件とする。Social Contextの`description`は1件600文字、Current Interestの`focus`と`goal`は各500文字までにprojectionする。直接対象、成立trigger、期限到来は必須候補とし、6件を超えた場合は必須候補内で安定順位を適用してoverflowを記録する。fallbackは関連候補が上限に満たない場合だけ使い、最大2件とする。候補がなければ空配列を正しい結果とし、件数を満たすためだけに無関係な状態を投入しない。
+Agent Coreへ渡す上限はSocial Context 6件、Motive 6件とする。Social Contextの`description`は1件600文字、Motiveの`focus`と`goal`は各500文字までにprojectionする。直接対象、成立trigger、期限到来は必須候補とし、6件を超えた場合は必須候補内で安定順位を適用してoverflowを記録する。fallbackは関連候補が上限に満たない場合だけ使い、最大2件とする。候補がなければ空配列を正しい結果とし、件数を満たすためだけに無関係な状態を投入しない。
 
-Context budgetの投入順は、Required Stateと現在Observation、直接対象・成立trigger・期限到来の状態、関連Memory、Memory linkまたはkeywordで関連する状態、fallbackの順とする。fallbackのSocial ContextやCurrent Interestが関連Memoryを押し出してはならない。
+Context budgetの投入順は、Required Stateと現在Observation、直接対象・成立trigger・期限到来の状態、関連Memory、Memory linkまたはkeywordで関連する状態、fallbackの順とする。fallbackのSocial ContextやMotiveが関連Memoryを押し出してはならない。
 
-Current Interestは古さだけで自動除外せず、Event、Memory、Drive、keywordの関連により選ぶ。候補数、採用IDと理由、除外件数、overflow、context budgetによる除外を本文なしで`context.selection`へ記録する。
+Motiveは古さだけで自動除外せず、Event、Memory、Motive、keywordの関連により選ぶ。候補数、採用IDと理由、除外件数、overflow、context budgetによる除外を本文なしで`context.selection`へ記録する。
 
 Deep Agent内部の各Model callは、run内の連番、開始・終了、経過時間、入力文字数、message数、出力種別、Tool call数、providerが返した終了理由を構造化logへ記録する。調査中は一時的に`agent_core.model_call_prompt`へ実際のsystem prompt、messages、Tool名をdebug logとして出力し、原因特定後に削除する。
 
-Expectation専用の保存領域は設けない。Agent Coreは入力済みのDrive、Current Interest、Social Context、関連Memory、直近Observationから、今回予期していたことと実際のObservationとの差をそのrunの意味解釈として導出する。次のEventにも影響する期待は、その意味に応じてCurrent Interest、Social ContextまたはMemoryへ提案する。
+Expectation専用の保存領域は設けない。Agent Coreは入力済みのMotive、Social Context、関連Memory、直近Observationから、今回予期していたことと実際のObservationとの差をそのrunの意味解釈として導出する。次のEventにも影響する期待は、その意味に応じてMotive、Social ContextまたはMemoryへ提案する。
 
 ### 5.6 Agent Harness
 
@@ -375,30 +375,30 @@ interface AgentHarness {
 
 応答後の3処理はDeep Agentではなく、Tool Registry、Tool middleware、再帰的なTool loopを持たない用途別の構造化LLM呼び出しである。Continuity UpdateとMemory ExtractionはInteraction commit時に固定したsnapshotから独立して実行できる。Candidate DetectorはMemory保存後にだけ実行し、保存済みMemory IDを入力と根拠に使う。追加のMemory検索、Web再調査、自律行動が必要なら、これらの処理内でToolを使わず、`memory-recall`または`autonomy-review`などの明示的なInternal EventからInteraction Deep Agentを起動する。
 
-各用途の入力はEvent、応答の意味内容、必要な現在状態、短いTool結果要約とWeb Snapshot IDへ限定する。Tool定義、runtime limits、retrieval trace、不要なraw Tool payloadは渡さない。Continuity UpdateはMood、Drive、Current Interest、Working Social Contextだけ、Memory ExtractionはEpisodic Memoryの意味内容だけ、Candidate Detectorは保存済みMemoryと既存の関連長期状態だけを返す。`kind=episodic`、所有Agent、Event evidence、発生・作成時刻、source provenance、保存IDはRuntimeが付与する。
+各用途の入力はEvent、応答の意味内容、必要な現在状態、短いTool結果要約とWeb Snapshot IDへ限定する。Tool定義、runtime limits、retrieval trace、不要なraw Tool payloadは渡さない。Continuity UpdateはMood、Motive、Working Social Contextだけ、Memory ExtractionはEpisodic Memoryの意味内容だけ、Candidate Detectorは保存済みMemoryと既存の関連長期状態だけを返す。`kind=episodic`、所有Agent、Event evidence、発生・作成時刻、source provenance、保存IDはRuntimeが付与する。
 
-Continuity UpdateのDriveは汎用State Updateではなく、`create | maintain | update | merge | end`の用途別提案として返す。各提案は理由と入力内のEventまたはMemory IDを持つ。Runtimeは所有と参照を検証し、create時に`since`を付与する。maintainとupdateでは既存Driveの`since`を保持し、mergeでは最も古い開始時刻と根拠を引き継ぐ。生成・変更・終了はState Changeにbefore、after、reason、evidenceを記録する。
-
-Current Interestも汎用配列更新から分離し、`create | progress | reframe | resolve | drop`の用途別提案として返す。正本は次の最小構造とする。
+Continuity UpdateのMotiveは汎用State Updateではなく、`create | maintain | update | merge | resolve | drop`の用途別提案として返す。各提案は理由と入力内のEventまたはMemory IDを持つ。Runtimeは所有と参照を検証し、create時にIDと`since`を付与する。maintainとupdateでは既存Motiveの`since`を保持し、mergeでは最も古い開始時刻と根拠を引き継ぐ。
 
 ```ts
-type CurrentInterest = {
+type Motive = {
   id: string
-  focus: string
-  goal: string
-  progress: 0 | 25 | 50 | 75 | 100
+  description: string
+  goal?: string
+  progress?: 0 | 25 | 50 | 75 | 100
+  sourceEvidenceIds: string[]
+  since: string
 }
 ```
 
-`focus`は現在注意や探索が向く対象、`goal`は現在の知識や経験に応じた当面の満足点、`progress`はGoalとの差がどこまで縮んだかの粗い自己評価である。Goalは対象への興味全体を終了する最終目的ではない。詳細知識やページ本文はMemory / Web Snapshotへ保存する。LLMは操作、意味内容、理由、入力内のevidence IDだけを提案する。RuntimeはIDと時刻を付与し、State Changeへbefore / after / reason / evidenceを残す。
+`description`は現在求めていることを表す。探索型では`goal`と`progress`を対で持ち、当面の満足点とその差がどこまで縮んだかの粗い自己評価を表す。探索以外のMotiveにgoalとprogressを強制しない。詳細知識やページ本文はMemory / Web Snapshotへ保存する。
 
-RuntimeはCurrent Interestごとの`consecutiveNoProgress`、`lastExploredAt`、`cooldownUntil`を探索制御metadataとして管理し、LLM出力Schemaへ含めない。progress増加またはreframeで停滞をresetし、進展しない探索で増加させる。Goal達成ではresolveし、関連Driveのendを同じ後処理から提案できる。上限到達中の同一Interest再探索は拒否するが、探索方法の変更、延期、dropの意味判断はCoreへ委ねる。
+Runtimeは探索型Motiveごとの`consecutiveNoProgress`、`lastExploredAt`、`cooldownUntil`を制御metadataとして管理し、LLM出力Schemaへ含めない。progress増加で停滞をresetし、進展しない探索で増加させる。Goal達成ではresolveし、価値や進展可能性を失った場合はdropする。
 
 Agent Coreは`recentExperiences`を用い、同じfocusへの同じ質問やTool入力で進展しなかった場合に、そのまま反復しない。同じGoalを継続するなら、焦点の具体化、Agent側の自己開示、別Tool、別検索語、観察または延期を選ぶ。追加探索の価値が低く当面のGoalを十分満たした場合は、外部へ説明する機会の不在を理由に維持せずresolveする。明示した時刻に行う必要がある場合だけScheduled Task Toolで登録する。RuntimeはRecent Experienceから導出したTool入力により、明らかに同一な短時間再実行とcooldown中の探索を機械的に拒否する。無応答や話題変更の意味は固定規則で決めない。
 
 ユーザー理解はStable Interestから関係上のKnowledge Gapを最大1件作る。質問を選ぶ場合は現在の話題とSocial Contextへ結びつけ、一方的な聞き取りを避けるため必要に応じてAgent自身の関心や質問理由も共有する。固定の質問順序は持たない。
 
-判断順序は`Observation + Current State + Memory + Social Context → Subjective Meaning / Value`を先に置き、その価値がSelf（Shared / Initial / Acquired Disposition、Values、Self Narrative）に照らして次回以降も持続するときだけDriveを提案する。短期Emotion、Personaを単独根拠にしない。
+判断順序は`Observation + Current State + Memory + Social Context → Subjective Meaning / Value`を先に置き、その価値がSelf（Shared / Initial / Acquired Disposition、Values、Self Narrative）に照らして次回以降も持続するときだけMotiveを提案する。短期Emotion、Personaを単独根拠にしない。
 
 Deep Agentsの組み込みMemory、filesystem、subagent機能は、明示的に採用したもの以外をドメイン状態の正本として使わない。特にSelf、Disposition、Memory、Scheduled Task、Long-term CandidateはPostgreSQL側を正本とする。
 
@@ -506,7 +506,7 @@ Runtimeは検証済みMemoryをまず永続化し、EmbeddingをDB transaction�
 
 #### Relevant Memory Queryと候補選択
 
-初期実装では追加のLLM呼び出しを行わず、Observation、関連するDynamic State、Current Interest、Working Social Contextの上限付きフィールドから、決定的な`MemoryQuery`を構築する。全状態を検索文へ連結せず、検索語、subject ID、kind、時刻範囲等を分離して表現する。
+初期実装では追加のLLM呼び出しを行わず、Observation、関連するDynamic State、Motive、Working Social Contextの上限付きフィールドから、決定的な`MemoryQuery`を構築する。全状態を検索文へ連結せず、検索語、subject ID、kind、時刻範囲等を分離して表現する。
 
 検索は次の段階で行う。
 
@@ -537,7 +537,7 @@ Interaction Deep Agent、Continuity Update、Memory Extraction、Candidate Detec
 - 用途別Output全体のZod parse
 - 変更可能なtargetとoperationのallowlist
 - Shared DispositionとIdentity等、通常Eventから変更できない領域の拒否
-- 参照するMemory、Current Interest、subjectが同じAgentに属すること
+- 参照するMemory、Motive、subjectが同じAgentに属すること
 - 長期状態を通常更新案から直接変更していないこと
 - `agent_state.version`が読み取り時と一致すること
 
@@ -549,7 +549,7 @@ botプロセス内で、そのAgentだけを対象に定期評価と予約実行
 
 責務:
 
-- 持続するDriveの再評価
+- 持続するMotiveの再評価
 - Agent単位のAutonomy / State / Memory Recall Event生成
 - 保留Candidateがある場合のLong-term Review起動
 - due Scheduled TaskのleaseとSystem Event生成
@@ -601,7 +601,7 @@ Runtime Policyは入口でTTL、hop、attempt、Agent単位rate、correlationの
 
 - Tool Result
 - Scheduled Task実行用System Event
-- persistent DriveやMemory recallに基づくInternal Event
+- MotiveやMemory recallに基づくInternal Event
 - Time Event
 - Long-term Review Trigger
 - State validation result
@@ -918,12 +918,12 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 | Discord | `DISCORD_BOT_TOKEN`、`DISCORD_BOT_USER_ID`、`DISCORD_OWNER_IDS`、`DISCORD_GUILD_IDS`、`DISCORD_CHANNEL_IDS` |
 | UI destination | `DISCORD_QUEUE_DESTINATION`、`DEFAULT_OUTPUT_DESTINATION` |
 | file tools | `FILE_READ_ROOTS`、`FILE_WRITE_ROOTS`、`WEB_ARCHIVE_ROOT` |
-| loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
+| loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
 | shared | `POSTGRES_URL`、`QUEUE_ROOT`、`WEB_ARCHIVE_ROOT`、Chat／Embedding／Web設定 |
 
 ID一覧はcomma区切りで受け取り、空要素と重複を正規化する。Discordを有効にする場合はtoken、bot user ID、owner、channelを必須とする。Discord Queue destinationは既定で`discord:<BOT_ID>`とし、2つのDiscord Adapterが同じoutbound destinationを競合consumeしないようにする。Agent Runtimeの入力destinationは`BOT_ID`であり、bot間通信も相手の`BOT_ID`を宛先とする。
 
-自律処理の時間設定はすべてmillisecond単位の環境変数とする。`SCHEDULER_INTERVAL_MS`はDB走査頻度であり、各処理の実行間隔ではない。`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`は目的別の再実行間隔、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`はDrive保存後の初回待機、`SCHEDULER_RETRY_DELAY_MS`は失敗後のbackoff、`SCHEDULER_LEASE_MS`は重複取得防止時間を表す。`agent:init`とbot processは同じ値を読み、初回期限と実行後の再設定を一致させる。
+自律処理の時間設定はすべてmillisecond単位の環境変数とする。`SCHEDULER_INTERVAL_MS`はDB走査頻度であり、各処理の実行間隔ではない。`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`は目的別の再実行間隔、`SCHEDULER_RETRY_DELAY_MS`は失敗後のbackoff、`SCHEDULER_LEASE_MS`は重複取得防止時間を表す。`agent:init`とbot processは同じ値を読み、初回期限と実行後の再設定を一致させる。
 
 `BOT_PERSONA_FILE`はbot別Persona YAMLへの相対または絶対pathである。未指定時は`config/personas/<BOT_ID>.yaml`が存在すれば使用する。Personaは起動時にZodで検証し、`AgentCoreInput.persona`として通常Coreへ渡す。DBのSelfへ書き込まず、表示名、一人称、言語、トーン、応答スタイル、避ける表現だけを応答文へ適用する。ユーザーの呼び方は設定せず、対話とSocial ContextからAgentが判断する。Persona単独では内部状態や長期Candidateを生成しない。
 
@@ -965,7 +965,7 @@ pnpm bot:start --env-file .env.bot-a
 pnpm bot:start --env-file .env.bot-b
 ```
 
-`agent:init <initial-self-yaml>`はversion 1の初期Self設定を検証し、Family、Agent、初期Agent Stateを初回だけ作成する。Family設定はID、名前、Shared Disposition、Base Instructionを、Agent設定はIdentity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを持つ。Moodは中立な初期値、DriveとCurrent Interestは原則空で開始する。通常の再適用は既存Selfを変更しない。`--overwrite-configured-self`を明示した場合だけ、設定由来のFamily、Identity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを更新してstate versionを進める。Acquired Disposition、Mood、Drive、Current Interest、Memory、Social Contextは上書きしない。
+`agent:init <initial-self-yaml>`はversion 1の初期Self設定を検証し、Family、Agent、初期Agent Stateを初回だけ作成する。Family設定はID、名前、Shared Disposition、Base Instructionを、Agent設定はIdentity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを持つ。Moodは中立な初期値、Motiveは原則空で開始する。通常の再適用は既存Selfを変更しない。`--overwrite-configured-self`を明示した場合だけ、設定由来のFamily、Identity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、Self Narrative、Self Continuityを更新してstate versionを進める。Acquired Disposition、Mood、Motive、Memory、Social Contextは上書きしない。
 
 `config/initial-self/*.yaml`は経験前のSelf、`config/personas/*.yaml`は発話表現を扱う独立した契約である。一人称やトーンをSelfへコピーせず、経験後のDB状態を初期設定へ同期しない。Tool一覧はDBへ保存せず、起動時の実装済みTool Registryから構築する。
 
@@ -1001,7 +1001,7 @@ HTTP health serverは今回実装しない。状態は構造化ログとTerminal
 
 開発用Debug UIはBot Hostと分離したローカルHTTP processとして起動し、PostgreSQLの既存テーブルを読み取る。Agentの現在状態は`agents`、`agent_families`、`agent_states`、`social_contexts`、`scheduled_tasks`から構成し、実行の因果は`events`、`agent_runs`、`state_changes`、`tool_executions`、`post_process_jobs`をRun IDで結合して表示する。Memory、Scheduled Task、Long-term Candidate、Autonomous ScheduleもAgent IDで分離する。
 
-Interaction Agent Coreが生成したEmotionは正本の持続状態ではない。Debug UIは`agent_runs.result.output.internalChanges.immediateStateUpdates`と`state_changes`を「その応答時の即時状態」として表示する。Mood、Drive、Current Interestは`agent_states`の現在値を表示し、過去の変更理由は`state_changes`から追跡する。
+Interaction Agent Coreが生成したEmotionは正本の持続状態ではない。Debug UIは`agent_runs.result.output.internalChanges.immediateStateUpdates`と`state_changes`を「その応答時の即時状態」として表示する。Mood、Motiveは`agent_states`の現在値を表示し、過去の変更理由は`state_changes`から追跡する。
 
 Debug UIは`127.0.0.1`へbindし、SQLの値をparameter化し、`SELECT`以外を公開しない。Event、Memory、Tool入出力には利用者情報が含まれ得るため、一覧件数を制限し、localhostでの調査用途に限定する。Model Callの詳細traceやPrompt全文を追加保存せず、現在DBに確定済みの情報だけを対象とする。
 
