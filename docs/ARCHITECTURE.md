@@ -442,7 +442,7 @@ File Toolは`FILE_READ_ROOTS`と`FILE_WRITE_ROOTS`を別々のcomma区切りroot
 
 `file_read`は`head | tail | range`と開始行、最大行数、最大文字数を受け取り、取得範囲、全行数、切断状態、次の開始行を返す。既定では先頭50行・2,000文字、要求可能な上限は100行・4,000文字とし、全文を無制限にTool Resultへ入れない。`file_list`は直下だけ、`file_find`は名前のliteral一致、`file_grep`は本文のliteral一致と有限の前後行を返し、`file_grep`も既定2,000文字、上限4,000文字とする。Agentはlist／find／grepで候補を絞ってから必要範囲だけをreadする。
 
-Tool登録はResultのContext公開Policyを持つ。`file_read`、`file_grep`、`web_archive_read`、`web_archive_grep`は`content-read`として宣言し、共通投影処理を使用する。呼出し直後のModel Callだけに有界な本文を渡し、それ以前の同一run Tool Message、次EventのRecent Experience、post-processには本文を再投入せず、pathまたはSnapshot ID、範囲、件数、本文文字数、切断状態などのmetadataへ置換する。監査用`tool_executions.result`は有界な実行結果を維持する。本文取得Tool全体で1 run 6,000文字の共通予算を使い、Web ArchiveとFile Toolを交互に呼んでも別枠にはしない。
+Tool登録はResultのContext公開Policyを持つ。`file_read`、`file_grep`、`web_archive_read`、`web_archive_grep`は`content-read`として宣言し、共通投影処理を使用する。呼出し直後のModel Callだけに有界な本文を渡し、それ以前の同一run Tool Message、次EventのRecent Experience、post-processには本文を再投入せず、pathまたはSnapshot ID、範囲、件数、本文文字数、切断状態などのmetadataへ置換する。監査用`tool_executions.result`は有界な実行結果を維持する。本文取得Tool全体で1 run 6,000文字の共通予算を使い、Web ArchiveとFile Toolを交互に呼んでも別枠にはしない。この予算とTool回数上限はrun開始時に作られ、同一run内の時間経過では回復しない。上限到達は機械判別できるTool失敗としてAgentへ返し、Agentは追加Toolを止めて取得済み情報から最終Actionを確定する。上限のリセットだけを目的にScheduled Taskを作らない。
 
 Web Tool Adapterは `docs/web_tool.md` のrequest / responseをZodで検証し、timeout、response size、service errorを共通Tool errorへ変換する。Agentが指定するpage URLはHTTP / HTTPSだけを許可する。Web取得先へのnetwork制約とredirect検証はWeb Toolサービス側の責務であり、本システムは信頼するservice endpoint自体を `SIMPLE_CLIENT_BASE_URL` で固定する。
 
