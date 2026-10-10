@@ -133,6 +133,20 @@ export function filterModelToolsAfterLimits<T>(tools: readonly T[], operationalT
   });
 }
 
+export function shouldFinalizeFromRemainingSteps(state: unknown): boolean {
+  return typeof state === "object" && state !== null && "remainingSteps" in state && typeof state.remainingSteps === "number" && state.remainingSteps <= 3;
+}
+
+export function normalizeStructuredOutputCalls(response: unknown, operationalToolNames: ReadonlySet<string>): number {
+  if (typeof response !== "object" || response === null || !("tool_calls" in response) || !Array.isArray(response.tool_calls)) return 0;
+  const calls = response.tool_calls as Array<{ readonly name?: unknown; readonly args?: unknown }>;
+  if (calls.length < 2 || calls.some((call) => typeof call.name !== "string" || operationalToolNames.has(call.name))) return 0;
+  const valid = calls.filter((call) => AgentCoreOutputSchema.safeParse(call.args).success);
+  if (valid.length === 0) return 0;
+  (response as { tool_calls: typeof calls }).tool_calls = [valid[0] as (typeof calls)[number]];
+  return calls.length - 1;
+}
+
 function contentTextCharacters(value: unknown): number {
   if (Array.isArray(value)) return value.reduce((total: number, item) => total + contentTextCharacters(item), 0);
   if (typeof value !== "object" || value === null) return 0;
@@ -247,7 +261,8 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
       const systemPrompt = serializeMessageContent(request.systemMessage.content);
       const messages = request.messages.map((message) => ({ role: message.type, content: message.content }));
       const serializedMessages = JSON.stringify(messages);
-      const effectiveTools = filterModelToolsAfterLimits(request.tools, operationalToolNames, contentReadToolNames, context.collector.count >= context.maxToolCalls, context.collector.contentReadLimitReached);
+      const finalizing = shouldFinalizeFromRemainingSteps(request.state);
+      const effectiveTools = filterModelToolsAfterLimits(request.tools, operationalToolNames, contentReadToolNames, finalizing || context.collector.count >= context.maxToolCalls, context.collector.contentReadLimitReached);
       const effectiveRequest = effectiveTools.length === request.tools.length ? request : { ...request, tools: effectiveTools };
       const toolNames = effectiveTools.map((candidate) => toolName(candidate) ?? "unknown");
       const startedAt = now();
@@ -260,6 +275,8 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
       logger.log("debug", "agent_core.model_call_prompt", { systemPrompt, messages: serializedMessages, toolNames: JSON.stringify(toolNames) });
       try {
         const response = await handler(effectiveRequest);
+        const removedStructuredOutputs = normalizeStructuredOutputCalls(response, operationalToolNames);
+        if (removedStructuredOutputs > 0) logger.log("warn", "agent_core.structured_output_deduplicated", { removedStructuredOutputs });
         const summary = summarizeModelResponse(response);
         logger.log("info", "agent_core.model_call_completed", { elapsedMs: now().getTime() - startedAt.getTime(), ...summary });
         if (summary.outputCharacters === 0 && summary.toolCallCount === 0) logger.log("warn", "agent_core.model_call_empty", { finishReason: summary.finishReason, ...(summary.inputTokens === undefined ? {} : { inputTokens: summary.inputTokens }), ...(summary.outputTokens === undefined ? {} : { outputTokens: summary.outputTokens }) });

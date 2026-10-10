@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, createDeepAgentTools, createDeepAgentToolRunContext, createOllamaDeepAgentInvoker, filterModelToolsAfterLimits, type DeepAgentInvoker, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, createDeepAgentTools, createDeepAgentToolRunContext, createOllamaDeepAgentInvoker, filterModelToolsAfterLimits, normalizeStructuredOutputCalls, shouldFinalizeFromRemainingSteps, type DeepAgentInvoker, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
@@ -20,6 +20,21 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     const contentRead = new Set(["file_read", "web_archive_read"]);
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, false, true).map(({ name }) => name)).toEqual(["web_list", "extract-1"]);
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
+  });
+
+  it("reserves graph steps for final output and keeps one valid structured output call", () => {
+    expect(shouldFinalizeFromRemainingSteps({ remainingSteps: 4 })).toBe(false);
+    expect(shouldFinalizeFromRemainingSteps({ remainingSteps: 3 })).toBe(true);
+    const first = { name: "extract-1", args: finalOutput };
+    const response = { tool_calls: [first, { name: "extract-1", args: { ...finalOutput, action: { type: "no-external-action", reason: "Recorded the result" } } }] };
+    expect(normalizeStructuredOutputCalls(response, new Set(["file_read"]))).toBe(1);
+    expect(response.tool_calls).toEqual([first]);
+  });
+
+  it("does not normalize a response that mixes operational and structured Tool calls", () => {
+    const response = { tool_calls: [{ name: "file_read", args: { path: "note.md" } }, { name: "extract-1", args: finalOutput }] };
+    expect(normalizeStructuredOutputCalls(response, new Set(["file_read"]))).toBe(0);
+    expect(response.tool_calls).toHaveLength(2);
   });
   it("returns an identical recent Tool input as a Tool failure without executing it again", async () => {
     let executions = 0;
