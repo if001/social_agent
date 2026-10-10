@@ -61,14 +61,14 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions[0]).toMatchObject({ ok: false, error: "service unavailable", runId: "run-1", eventId: "event-1" });
   });
 
-  it("returns a run-scoped Tool failure at the call limit before another side effect", async () => {
+  it("returns an actionable Tool failure at the call limit before another side effect", async () => {
     let sideEffects = 0;
     const registry = new ToolRegistry([{ name: "write", description: "Writes", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { sideEffects += 1; return Promise.resolve({ ok: true }); } }]);
     const runContext = context(new AbortController().signal, 1); const [write] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     await write?.invoke({}, { context: runContext });
-    await expect(write?.invoke({}, { context: runContext })).resolves.toContain("RUN_TOOL_CALL_LIMIT_EXCEEDED");
+    await expect(write?.invoke({}, { context: runContext })).resolves.toContain("TOOL_CALL_LIMIT_REACHED");
     expect(sideEffects).toBe(1);
-    expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Tool call limit exceeded (1 calls per run)" });
+    expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Tool call limit reached. No more Tools can be used for this task." });
   });
 
   it("bounds cumulative content-read text within one Deep Agent run", async () => {
@@ -81,9 +81,10 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     const runContext = context(new AbortController().signal, 8); const [read, fileRead] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     if (read === undefined || fileRead === undefined) throw new Error("content readers were not registered");
     const results = await Promise.all([read.invoke({ snapshotId: "one" }, { context: runContext }), fileRead.invoke({ path: "two" }, { context: runContext }), read.invoke({ snapshotId: "three" }, { context: runContext }), fileRead.invoke({ path: "four" }, { context: runContext })]);
-    expect(results.filter((result) => String(result).includes("Content-read text budget exceeded"))).toHaveLength(1);
-    expect(results.at(-1)).toContain('"errorCode":"RUN_CONTENT_READ_BUDGET_EXCEEDED"');
-    expect(results.at(-1)).toContain('"recoversWithinRun":false');
+    expect(results.filter((result) => String(result).includes("Content read limit reached"))).toHaveLength(1);
+    expect(results.at(-1)).toContain('"errorCode":"CONTENT_READ_LIMIT_REACHED"');
+    expect(results.at(-1)).not.toContain("run");
+    expect(results.at(-1)).not.toContain("6000");
     expect(reads).toBe(3); expect(runContext.collector.contentReadCharacters).toBe(6_000); expect(runContext.collector.contentReadReservedCharacters).toBe(6_000); expect(runContext.collector.executions.some(({ ok }) => !ok)).toBe(true);
   });
 
