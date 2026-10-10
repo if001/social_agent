@@ -22,7 +22,7 @@ export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" 
 export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "candidates"> & { readonly jobId: string; readonly jobType: "continuity" | "memory" | "candidate"; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: unknown; readonly candidateJob?: { readonly id: string; readonly payload: unknown } };
 
 export class PostgresEventTransaction {
-  constructor(private readonly unitOfWork: PostgresUnitOfWork, private readonly persistentDriveInitialDelayMs = 0) {}
+  constructor(private readonly unitOfWork: PostgresUnitOfWork) {}
   async commit(input: CommitEventInput): Promise<"committed" | "duplicate"> {
     return this.unitOfWork.transaction(async (client) => {
       const reserved = await client.query("INSERT INTO message_receipts(destination,message_id,status) VALUES ($1,$2,'processing') ON CONFLICT DO NOTHING RETURNING message_id", [input.destination, input.messageId]);
@@ -47,16 +47,6 @@ export class PostgresEventTransaction {
         await client.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,evidence_event_ids,review_after,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $6 ILIKE '%矛盾%' OR $6 ILIKE '%contradict%' THEN $8::timestamptz ELSE $8::timestamptz+interval '1 day' END,$8,$8)", [candidate.id, candidate.agentId, candidate.target, candidate.proposal, candidate.status, candidate.reason, JSON.stringify(candidate.evidenceEventIds), candidate.createdAt]);
         for (const memoryId of candidate.evidenceMemoryIds) await client.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ($1,$2)", [candidate.id, memoryId]);
         await client.query("UPDATE long_term_candidates SET review_after=LEAST(review_after,$3::timestamptz) WHERE agent_id=$1 AND target=$2 AND status='pending' AND ((SELECT count(*) FROM long_term_candidates WHERE agent_id=$1 AND target=$2 AND status='pending')>=3 OR EXISTS (SELECT 1 FROM candidate_evidence ce JOIN memories m ON m.id=ce.memory_id WHERE ce.candidate_id=$4 AND (m.retrieval_priority='critical' OR m.kind='self-related' AND m.importance ILIKE '%strong%')))", [candidate.agentId, candidate.target, candidate.createdAt, candidate.id]);
-      }
-      if (Array.isArray(input.stateValues.drives)) {
-        const drives = [...new Set((input.stateValues.drives as unknown[]).flatMap((value): string[] => {
-          if (typeof value !== "object" || value === null) return [];
-          const description = (value as Record<string, unknown>).description;
-          return typeof description === "string" && description.trim() !== "" ? [description.trim()] : [];
-        }))];
-        const scheduleIds = drives.map((drive) => `drive:${input.event.agentId}:${drive}`);
-        await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='persistent-drive' AND NOT (id=ANY($2::text[]))", [input.event.agentId, scheduleIds]);
-        for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.event.agentId, drive, this.persistentDriveInitialDelayMs]);
       }
       await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
       for (const envelope of input.outbox) await client.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,$2,$3)", [envelope.id, input.event.agentId, JSON.stringify(envelope)]);
@@ -100,12 +90,6 @@ export class PostgresEventTransaction {
       for (const candidate of input.candidates ?? []) {
         await client.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,evidence_event_ids,review_after,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz+interval '1 day',$8,$8)", [candidate.id, candidate.agentId, candidate.target, candidate.proposal, candidate.status, candidate.reason, JSON.stringify(candidate.evidenceEventIds), candidate.createdAt]);
         for (const memoryId of candidate.evidenceMemoryIds) await client.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ($1,$2)", [candidate.id, memoryId]);
-      }
-      if (Array.isArray(input.stateValues.drives)) {
-        const drives = [...new Set((input.stateValues.drives as unknown[]).flatMap((value): string[] => typeof value === "object" && value !== null && typeof (value as Record<string, unknown>).description === "string" ? [String((value as Record<string, unknown>).description).trim()] : []).filter(Boolean))];
-        const scheduleIds = drives.map((drive) => `drive:${input.agentId}:${drive}`);
-        await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='persistent-drive' AND NOT (id=ANY($2::text[]))", [input.agentId, scheduleIds]);
-        for (const [index, drive] of drives.entries()) await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'persistent-drive',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason", [scheduleIds[index], input.agentId, drive, this.persistentDriveInitialDelayMs]);
       }
       await client.query("UPDATE agent_runs SET result=jsonb_set(COALESCE(result,'{}'::jsonb),'{postProcess}',COALESCE(result->'postProcess','{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),true) WHERE id=$1", [input.runId, input.jobType, JSON.stringify(input.output)]);
       if (input.candidateJob !== undefined) await client.query("INSERT INTO post_process_jobs(id,agent_id,event_id,interaction_run_id,job_type,input_state_version,payload) SELECT $1,agent_id,event_id,interaction_run_id,'candidate',input_state_version,$2 FROM post_process_jobs WHERE id=$3 ON CONFLICT DO NOTHING", [input.candidateJob.id, JSON.stringify(input.candidateJob.payload), input.jobId]);

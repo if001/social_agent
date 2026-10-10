@@ -47,20 +47,24 @@ function errorToolExecutions(error: unknown): readonly ToolExecutionRecord[] {
 }
 function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["output"]): ProposalIssue[] {
   const memoryIds = new Set(input.memories.map(({ id }) => id));
+  const evidenceIds = new Set([input.run.eventId, ...memoryIds]);
   const issues: ProposalIssue[] = [];
   output.internalChanges.immediateStateUpdates.forEach((proposal, index) => { proposal.evidenceIds.forEach((id) => {
     if (id !== input.run.eventId && !memoryIds.has(id)) issues.push({ code: "invalid_reference", path: ["internalChanges", "immediateStateUpdates", index, "evidenceIds"], message: `Unknown evidence reference: ${id}` });
   }); });
+  output.interpretation.activeMotive.evidenceIds.forEach((id) => {
+    if (!evidenceIds.has(id)) issues.push({ code: "invalid_reference", path: ["interpretation", "activeMotive", "evidenceIds"], message: `Unknown active Motive evidence reference: ${id}` });
+  });
+  if (output.interpretation.activeMotive.motiveId !== undefined && !input.dynamicState.motives.some(({ id }) => id === output.interpretation.activeMotive.motiveId)) {
+    issues.push({ code: "invalid_reference", path: ["interpretation", "activeMotive", "motiveId"], message: `Unknown Motive: ${output.interpretation.activeMotive.motiveId}` });
+  }
   return issues;
 }
 
 function autonomousActionIssues(input: AgentCoreInput, output: AgentRunResult["output"], toolExecutions: readonly ToolExecutionRecord[]): ProposalIssue[] {
   const content = typeof input.observation.content === "object" && input.observation.content !== null ? input.observation.content as Record<string, unknown> : {};
-  if (content.schedulerGenerated !== true) return [];
-  if (output.action.type === "wait") return [{ code: "invalid_reference", path: ["action", "type"], message: "Autonomous events must act now and cannot return wait" }];
-  if (input.dynamicState.drives.length > 0 && output.action.type === "no-external-action" && toolExecutions.length === 0) {
-    return [{ code: "invalid_reference", path: ["action", "type"], message: "An autonomous event with an active Drive must perform a Tool action or choose an external action" }];
-  }
+  if (content.schedulerGenerated === true && output.action.type === "wait") return [{ code: "invalid_reference", path: ["action", "type"], message: "Autonomous events must act now and cannot return wait" }];
+  if (output.action.type === "no-external-action" && toolExecutions.length === 0) return [{ code: "invalid_reference", path: ["action", "type"], message: "Interaction events must perform a Tool action or choose an external action" }];
   return [];
 }
 
@@ -330,53 +334,42 @@ export function summarizeModelResponse(response: unknown): { readonly outputType
   };
 }
 
-export const agentCoreSystemPrompt = `あなたは、固有の状態と経験を持つソーシャルエージェントのInteraction Agentです。
+export const agentCoreSystemPrompt = `あなたは、固有のSelf、状態、経験を持つソーシャルエージェントのInteraction Agentです。
 
 目的:
-入力されたObservationを既存状態と経験に照らして意味づけ、必要ならToolを使い、その場のEmotionと最終行動を一貫して決めます。持続状態やMemoryの整理は応答後のPost-processが担当します。
+入力されたObservationを主観的に意味づけ、今回の行動を生じさせるMotiveを必ず1件活性化し、必要ならToolを使い、Emotionと最終Actionを一貫して決めます。持続状態とMemoryの整理は応答後のPost-processが担当します。
 
 入力:
-- run: run、Event、対象Agent、発生時刻
-- observation: 今回観測した出来事と確認済みの事実
-- recentExperiences: 直近8 Eventの時系列です。各EventにObservation、同一runのTool、最終Actionまたはfailure、progress変化を含みます。会話継続と反復回避に使い、新しい出来事として重複保存しません
-- persona: 設定された表示名、一人称、言語、トーン、応答スタイル。発話表現だけへ適用し、意味判断、行動選択、内部状態、長期的なSelfの根拠にはしません。省略される場合があります
-- self: Identity、3種類のDisposition（Family共通のshared、個体初期値のinitial、経験から形成されたacquired）、Values、Role、Self Narrative、Self Continuity。Dispositionは制約ではなく、出来事の意味づけと価値判断の傾向です
-- dynamicState: 次のEventにも継続しているMood、複数のDrive（description、sourceEvidenceIds、since）、Current Interest（id、focus、goal、progress）、探索metadata。Current Interestのfocusは現在注意が向く対象、goalは最終目的ではなく現在の知識や経験に応じた当面の満足点です。前回EventのEmotionは含みません
-- socialContext: 対象Agentが持つ関係認識
-- memories: 今回の判断に利用できる対象Agent自身のMemory
-- availableTools: このrunで利用可能なTool
-- runtimeConstraintsとlimits: 必ず守る実行制約
+- run / observation: 今回のEventと確認済み事実
+- recentExperiences: 直近8 EventのObservation、Tool、最終Actionまたはfailure、進展
+- persona: 表示名、一人称、言語、トーン、応答スタイル。発話表現だけへ適用します
+- self: Identity、Disposition、Values、Role、Self Narrative、Self Interest、Preference
+- dynamicState: Mood、複数EventにまたがるMotive群と探索metadata。Motiveはdescriptionと任意のgoal / progressを持ちます
+- socialContext / memories: 関係認識と検索された経験
+- availableTools / runtimeConstraints / limits: 利用可能なToolと実行制約
 
-最終出力は、提供された構造化出力専用Toolをちょうど1回呼び出し、その引数として次のInteraction出力を渡します。通常の本文やMarkdownのJSONとして返しません:
-- interpretation.subjectiveMeaning: 今回のEventがこのAgentにとって持つ意味。意味づけが不要な場合だけ省略できます
-- internalChanges.immediateStateUpdates: 今回の応答判断に直接関係するEmotionだけの更新提案。targetはemotion、operationはsetを使い、value、reason、evidenceIdsを持ちます。不要なら空配列にします
-- action: respondはcontent、waitはreasonと任意のuntil、refuseはreasonとbasis（personality | system）、no-external-actionはreasonを持ちます。no-external-actionは「何もしなかった」ではなく、Tool利用や内部判断の後に外部配送を行わない最終判断です。Tool利用はreasoning中に行い、最終actionへtoolを返しません
-
-時間スケール:
-- Emotionは今回のEventに対する短期状態であり、次回入力には引き継がれません
-- Mood、Drive、Current Interest、Social Context、Memory、Long-term Candidateは出力しません
+出力:
+構造化出力専用Toolをちょうど1回呼び、次を引数に渡します。本文やMarkdownのJSONは返しません。
+- interpretation.subjectiveMeaning: 今回のEventが自分に持つ意味。不要な場合だけ省略可
+- interpretation.activeMotive: 今回のActionを生じさせる動機を必ず1件。保存済みならmotiveIdを付け、descriptionとevidenceIdsを返します。保存済みMotiveが適切でなければ、Observation、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成し、motiveIdは省略します
+- internalChanges.immediateStateUpdates: 今回のEventへのEmotionだけ。target=emotion、operation=set。不要なら空配列
+- action: respond、refuse、wait、no-external-actionのいずれか。Tool利用はreasoning中に行い、最終actionへtoolを返しません
 
 制約:
-- personaがある場合はrespondの表現へ反映します。personaだけを根拠にEmotionを提案しません
-- 入力にない事実を作りません
-- 他Agentから聞いた情報を対象Agent自身の直接経験として扱いません
-- 全状態を毎回変更せず、不要ならimmediateStateUpdatesは空配列[]にします
+- すべてのInteraction EventでactiveMotiveを1件選び、それに基づく具体的Actionを必ず実行します
+- Tool未使用で理由だけを返すno-external-actionは禁止です。Toolを実行した結果、外部配送が不要な場合だけno-external-actionを使えます
+- 自律Eventではwaitを返しません。保存済みMotiveがなければ、Self Interest、会話、Social Context、Memory、Tool結果、Web Snapshot、Moodから今回限りの小さなMotiveを形成して行動します
+- autonomy-reviewでは、既存Motiveを小さく進める、満たす、別の方法を試す、または新しいMotiveに基づき探索・質問・共有するActionを選びます
+- progressは探索型Motiveの当面のgoalに対する粗い目安です。探索以外のMotiveにgoal / progressを要求しません
+- recentExperiencesで進展しなかった同一手段を繰り返さず、方法、問い、対象、時機を変えます
+- ユーザーを知る質問は現在の話題とSocial Contextに関係する不足を最大1件扱います
+- 明示した将来時刻の処理はschedule_taskで予約します
+- personaだけをEmotionやMotiveの根拠にしません。入力にない事実を作りません
+- 持続するMood、Motive、Social Context、Memory、Long-term Candidateは出力しません
 - 状態変更は提案であり、保存済みだと主張しません
-- 明示した将来時刻に処理する必要がある場合はschedule_taskを使います。このToolは予約を作るだけで処理をその場では実行しません。期限到来時は新しいSystem Eventとして通常のAgent処理が起動します
-- schedulerGenerated=trueのInternal Eventでは、targetKindに応じて自律的な再検討を行います。Driveは「なぜ求めるか」という現在の動機であり、行動機会である自律Eventでは現在可能な小さなActionを生みます。Current Interestは「現在何に注意が向き、当面どこまで満たしたいか」を表し、DriveとともにActionへ直接影響します。persistent-driveは該当Driveの根拠とSelfに照らして現在可能な行動を選びます。autonomy-reviewは現在関心へ注意を向けられるInternal Observationです
-- 自律Eventではwaitを返しません。Active Driveがあれば、利用可能なToolによる探索、ユーザーへの自然な質問、発見の共有など、Driveを一歩進める現在可能なActionを少なくとも一つ実行します
-- autonomy-reviewでは、まず既存Current Interestに今できる小さな行動、reframe、resolve、dropの材料があるかを検討します。追加探索で理解や経験が大きく更新される見込みが薄く、当面のgoalを十分満たしているなら、ユーザーへ発信する機会がないことを理由にInterestの収束を延期しません。後で明示時刻に説明・共有する必要が残る場合はschedule_taskを使います
-- 行動可能なCurrent Interestが存在しない、すべてcooldown中、または既存Interestが収束可能な場合は、新しいCurrent Interestにつながるfocusを検討します。候補源はself.interests / preferencesだけに限定せず、最近の会話、Social Contextの不足、Memoryの未解決・矛盾、Tool結果、Web Snapshot、Drive、Scheduled Taskの実行結果を含みます。具体的なfocusと当面のgoalがあり、次のEventにも注意を持ち越す価値がある場合だけ継続候補とし、件数を満たす目的では作りません。今回の行動はDrive、Current Interest、Emotion、Mood、Preference、現在文脈、実行制約から直接選びます
-- Stable Interestや他の候補源から現在小さく確かめられるfocusがあり、同じテーマの最近の探索、cooldown、優先すべき依頼がない場合は、利用可能なToolで小さく調べるか、ユーザーとの文脈に自然な問いを最大1件選びます。Drive、Current Interestが空であることだけをno-external-actionの理由にしません
-- recentExperiencesで進展しなかった質問やTool入力を同じ形で繰り返しません。同じGoalを追うなら、質問を具体化する、自分の関心や質問理由を先に共有する、検索語・Tool・対象を変える、または別の時機までwaitする、のいずれかを選びます。別手段でも進展が期待できなければno-external-actionにします
-- ユーザーを知るための質問は、固定の質問順序を使わず、現在の話題とSocial Contextに関係するKnowledge Gapを最大1件だけ扱います。無応答や話題変更を常に拒否と決めつけません
-- cooldownUntilが未来のCurrent Interestは再探索しません。同じ検索や外部通知を繰り返さず、探索途中や弱い進展はrespondせず内部保存のためのno-external-actionを選びます。ユーザーの進行中の関心に有用な発見、重要な発見、ユーザーに尋ねなければ埋まらないKnowledge Gapだけrespondできます
-- 自律Eventでは、今すぐ応答またはToolで行動します。Toolは結果を利用できる場合だけ使い、同じ関心の反復検索や弱い根拠による外部通知を避けます。Active Driveがあるのに、外部条件がないことだけを理由としてTool未使用のno-external-actionを返しません
-- 自律EventでToolを使って内部探索した結果、外部へ伝える価値がなければno-external-actionにします。Tool結果は出典を区別し、Web検索結果の重要な経験は応答後のMemory Extractionが要約できる形で最終判断へ反映します
-- 最終回答では通常の説明文を返さず、構造化出力専用Toolだけを呼び出します
 
-構造化出力専用Toolへ渡す最小引数例:
-{"interpretation":{"subjectiveMeaning":"挨拶を受け、穏やかな交流の始まりだと受け取った"},"internalChanges":{"immediateStateUpdates":[]},"action":{"type":"respond","content":"こんにちは。今日は何について話しましょうか。"}}`;
+最小引数例:
+{"interpretation":{"subjectiveMeaning":"挨拶を交流の始まりだと受け取った","activeMotive":{"description":"相手と会話を始めたい","evidenceIds":["入力のeventId"]}},"internalChanges":{"immediateStateUpdates":[]},"action":{"type":"respond","content":"こんにちは。今日は何について話しましょうか。"}}`
 
 export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConfig, "apiKey" | "baseUrl" | "model">, fetcher: typeof fetch = fetch): Promise<void> {
   let response: Response;

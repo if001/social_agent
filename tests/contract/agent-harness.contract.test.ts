@@ -6,7 +6,7 @@ import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harne
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import { AgentCoreOutputSchema, type AgentCoreOutput } from "../../src/domain/contracts.js";
 
-const output: AgentCoreOutput = { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "Hello" } };
+const output: AgentCoreOutput = { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "Hello" } };
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
@@ -59,7 +59,7 @@ describe("AgentHarness contract", () => {
       creations += 1;
       expect(options.tools).toHaveLength(0);
       expect(options.responseFormat).toBeDefined();
-      return { invoke: (input, invokeOptions) => { calls.push({ messages: input.messages, context: invokeOptions.context }); return Promise.resolve({ structuredResponse: output, messages: input.messages }); } };
+      return { invoke: (input, invokeOptions) => { calls.push({ messages: input.messages, context: invokeOptions.context }); return Promise.resolve({ structuredResponse: { ...output, interpretation: { activeMotive: { description: "respond to this event", evidenceIds: [invokeOptions.context.eventId] } } }, messages: input.messages }); } };
     } });
     const first = agentCoreInputFixture(); first.run.runId = "run-1"; first.run.eventId = "event-1"; first.observation.content = "first-only";
     const second = agentCoreInputFixture(); second.run.runId = "run-2"; second.run.eventId = "event-2"; second.observation.content = "second-only";
@@ -73,7 +73,7 @@ describe("AgentHarness contract", () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを根拠にEmotion");
+    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけをEmotionやMotiveの根拠にしません");
   });
 
   it("repairs invalid output once and then stops", async () => {
@@ -118,10 +118,9 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(2);
   });
 
-  it("repairs actionless autonomous output while an active Drive exists", async () => {
+  it("repairs an Interaction output without a concrete action", async () => {
     const input = agentCoreInputFixture();
-    input.observation.content = { schedulerGenerated: true, targetKind: "persistent-drive" };
-    input.dynamicState = { ...input.dynamicState, drives: [{ description: "仕組みを理解したい", sourceEvidenceIds: [input.run.eventId], since: input.run.occurredAt }] };
+    input.observation.content = { schedulerGenerated: true, targetKind: "autonomy-review" };
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "no-external-action", reason: "対話相手を待つ" } } : output }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toEqual(result);
@@ -150,13 +149,13 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("目的:");
     expect(agentCoreSystemPrompt).toContain("immediateStateUpdates");
     expect(agentCoreSystemPrompt).toContain("Emotionだけ");
-    expect(agentCoreSystemPrompt).toContain("空配列[]");
-    expect(agentCoreSystemPrompt).toContain("明示した将来時刻に処理する必要がある場合はschedule_task");
+    expect(agentCoreSystemPrompt).toContain("空配列");
+    expect(agentCoreSystemPrompt).toContain("明示した将来時刻の処理はschedule_task");
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
-    expect(agentCoreSystemPrompt).toContain("Driveは「なぜ求めるか」");
+    expect(agentCoreSystemPrompt).toContain("activeMotiveを1件");
     expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
-    expect(agentCoreSystemPrompt).toContain("Tool未使用のno-external-actionを返しません");
-    expect(agentCoreSystemPrompt).toContain("反復検索");
+    expect(agentCoreSystemPrompt).toContain("Tool未使用で理由だけを返すno-external-actionは禁止");
+    expect(agentCoreSystemPrompt).toContain("同一手段を繰り返さず");
     expect(agentCoreSystemPrompt).toContain("recentExperiences");
     expect(agentCoreSystemPrompt).not.toContain("recentAttempts");
   });

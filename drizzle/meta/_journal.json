@@ -57,6 +57,13 @@
       "when": 1791631712710,
       "tag": "0007_parallel_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791643559559,
+      "tag": "0008_safe_lila_cheney",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,7 @@
 
 本プロジェクトは、ユーザーの命令を処理するだけのAssistantではなく、ユーザーとは別の価値傾向、感情、動機、意思、経験の連続性を持つように感じられる自律パーソナルエージェントを実現する。
 
-Agentは、共通する価値傾向と小さな初期個体差を持ち、出来事を現在状態や過去の経験に照らして意味づける。その結果をMemory、Self Narrative、Acquired Dispositionへ反映し、時間と経験に応じて個体化する。ユーザー入力がない場合にも、保持しているDriveやCurrent Interestを再検討し、またはStable Interestに対して未知へ注意を向ける機会から探索を始め、必要に応じて構成済みToolを使って行動できるものとする。
+Agentは、共通する価値傾向と小さな初期個体差を持ち、出来事を現在状態や過去の経験に照らして意味づける。その結果をMemory、Self Narrative、Acquired Dispositionへ反映し、時間と経験に応じて個体化する。ユーザー入力がない場合にも、保持しているMotiveを再検討し、またはStable Interestに対して未知へ注意を向ける機会から探索を始め、必要に応じて構成済みToolを使って行動できるものとする。
 
 本書は完成対象と検証可能な振る舞いを定める。内部構成、物理データ設計、採用ライブラリの最終決定は `ARCHITECTURE.md`、具体的な試験技法と評価データは `TEST_STRATEGY.md` で定める。
 
@@ -28,7 +28,7 @@ Agentは、共通する価値傾向と小さな初期個体差を持ち、出来
 
 ### R-P03: 時間スケールの分離
 
-Emotion等の短期状態、Mood、Drive、Current Interest等の中期状態、Self NarrativeやAcquired Disposition等の長期状態を区別する。通常の単発Eventによって長期状態を無条件に変更してはならない。
+Emotion等の短期状態、Mood、Motive等の中期状態、Self NarrativeやAcquired Disposition等の長期状態を区別する。通常の単発Eventによって長期状態を無条件に変更してはならない。
 
 ### R-P04: 意味判断と機械的制約の分離
 
@@ -43,7 +43,7 @@ Agent実行基盤、LLM、Embedding、Memory Store、Memory Retrieval、Web検�
 完成対象には次を含む。
 
 - 一個体としてのSelfとDisposition
-- Emotion、Mood、Drive、Current Interest
+- Emotion、Mood、Motive
 - Social Context
 - Episodic、Semantic、Self-related Memory
 - Event、Observation、Subjective Meaning、ActionからなるAgent Loop
@@ -68,7 +68,7 @@ Agent実行基盤、LLM、Embedding、Memory Store、Memory Retrieval、Web検�
 
 ### UC-02: Toolを使って調査する
 
-Agentはユーザーの依頼または自身のDriveやCurrent Interestに基づき、Web検索とWebページ取得を行い、その結果を新しいEventとして解釈する。
+Agentはユーザーの依頼または自身のMotiveに基づき、Web検索とWebページ取得を行い、その結果を新しいEventとして解釈する。
 
 ### UC-03: ファイルを操作する
 
@@ -80,7 +80,7 @@ Agentは出来事から必要なMemoryを作成し、後続のEventに関連す�
 
 ### UC-05: 自律的に再検討して行動する
 
-Agentは持続するDriveやCurrent Interest、時間経過等を契機に、ユーザー入力がなくても再検討し、応答、Tool利用、待機、または何もしない判断を行う。
+Agentは持続するMotive、時間経過等を契機に、ユーザー入力がなくても再検討し、応答、Tool利用、待機、または何もしない判断を行う。
 
 ### UC-06: 経験によって個体化する
 
@@ -100,7 +100,7 @@ Agentは別のAgentへ情報を伝達できる。受信側はそれを自分自�
 
 Context Builderは、保存場所が異なるShared、Initial Individual、Acquired Dispositionを`self.disposition.shared | initial | acquired`として一つのSelf契約へ構成する。3種類はいずれも出来事の意味づけと価値判断に使う傾向であり、`runtimeConstraints`へ混在させない。SharedとInitialは通常Eventから変更せず、AcquiredはLong-term Reviewだけが更新できる。
 
-初回作成時のFamilyと個体Selfは、Personaと分離したversioned設定として検証できなければならない。通常の再適用は既存Selfを変更してはならない。明示的な設定同期操作では、設定由来のFamily、Identity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、初期Self Narrative、Self Continuityを更新できる。この操作でも、経験から形成されたAcquired Disposition、Mood、Drive、Current Interest、Memory、Social Contextを上書きしてはならない。
+初回作成時のFamilyと個体Selfは、Personaと分離したversioned設定として検証できなければならない。通常の再適用は既存Selfを変更してはならない。明示的な設定同期操作では、設定由来のFamily、Identity、Initial Disposition、Values、Interests、Preferences、Role、Raison d'être、初期Self Narrative、Self Continuityを更新できる。この操作でも、経験から形成されたAcquired Disposition、Mood、Motive、Memory、Social Contextを上書きしてはならない。
 
 Social Contextは対象IDだけでなく、対象種別`user | agent | team | project | organization`を保持しなければならない。作成・更新時に対象種別を明示し、自然言語descriptionとともにContextへ渡す。
 
@@ -113,20 +113,20 @@ Social Contextは対象IDだけでなく、対象種別`user | agent | team | pr
 システムは少なくとも次を区別して扱わなければならない。
 
 - 長期: Identity、Disposition、Values、Interests、Preferences、複数Role、Raison d'être、Self Narrative、Self Continuity
-- 中期: Mood、複数Drive、Current Interests、Social Context
+- 中期: Mood、複数Motives、Social Context
 - Event処理中のみ: Observation、Retrieved Memory、Subjective Meaning、Emotion、更新案、保留中のTool Call
 
-Emotionは現在のEventに対する解釈とActionへ反映するが、永続状態として次のEventへ持ち越さない。次のEventにも影響させる必要がある感情的傾向はMoodへ、継続して求めることはDriveまたはCurrent Interestへ提案する。明示的な将来実行はScheduled Task Toolで登録する。Emotionの提案はAgent RunとState Changeの監査記録へ残してよい。
+Emotionは現在のEventに対する解釈とActionへ反映するが、永続状態として次のEventへ持ち越さない。次のEventにも影響させる必要がある感情的傾向はMoodへ、継続して求めることはMotiveへ提案する。明示的な将来実行はScheduled Task Toolで登録する。Emotionの提案はAgent RunとState Changeの監査記録へ残してよい。
 
-永続Driveは自然言語descriptionに加えて、発生根拠のEventまたはMemory IDと開始時刻をRuntimeが付与する。LLMは意味内容と根拠を提案し、時刻を生成しない。同じdescriptionのDriveを維持する場合は元の開始時刻を保持する。
+永続Motiveは自然言語descriptionに加えて、発生根拠のEventまたはMemory IDと開始時刻をRuntimeが付与する。LLMは意味内容と根拠を提案し、時刻を生成しない。同じdescriptionのMotiveを維持する場合は元の開始時刻を保持する。
 
-DriveはDispositionから固定的に生成しない。Continuity Updateは、ObservationとInteractionのSubjective Meaningを、Selfの3種類のDisposition、Values、Self Narrative、Memory、Social Context、現在状態に照らして主観的価値を判断し、具体的な入力EventまたはMemoryを根拠に持続する動機だけを生成、維持、更新、統合、終了として提案する。Personaまたは今回限りのEmotionだけを根拠に永続Driveを作ってはならない。
+MotiveはDispositionから固定的に生成しない。Continuity Updateは、ObservationとInteractionのSubjective Meaningを、Selfの3種類のDisposition、Values、Self Narrative、Memory、Social Context、現在状態に照らして主観的価値を判断し、具体的な入力EventまたはMemoryを根拠に持続する動機だけを生成、維持、更新、統合、終了として提案する。Personaまたは今回限りのEmotionだけを根拠に永続Motiveを作ってはならない。
 
-Current Interestは、現在注意や探索が向いている対象を追跡する中期状態であり、SelfのStable InterestやPreferenceと区別する。各Current InterestはRuntimeが付与する`id`、現在の興味対象を表す`focus`、現在の知識や経験に応じて一旦満たされたと判断する目安である`goal`、Goalに対する粗い自己評価`progress`を持つ。Goalは対象への興味が最終的に終了する条件ではない。`progress`は客観的な知識量ではなく、`0 | 25 | 50 | 75 | 100`の段階値とする。調査で得た本文や詳細知識はCurrent Interestへ重複保存せず、Episodic / Semantic MemoryまたはWeb Snapshotへ保存する。
+Motiveは現在求めていることを表す中期状態であり、SelfのStable InterestやPreferenceと区別する。各MotiveはRuntimeが付与する`id`、自然言語の`description`、根拠、開始時刻を持つ。探索型Motiveだけは、現在の知識や経験に応じた当面の満足点`goal`と、Goalに対する粗い自己評価`progress`を任意で対にして持てる。Goalは対象への興味が最終的に終了する条件ではない。`progress`は`0 | 25 | 50 | 75 | 100`の段階値とする。詳細知識はMemoryまたはWeb Snapshotへ保存する。
 
-Current Interestの変更提案は`create | progress | reframe | resolve | drop`を区別する。情報によってGoalへ近づいた場合は`progress`、未知の捉え方や充足条件が変わった場合は`reframe`、Goalを満たした場合は`resolve`、価値が薄れたか進展が見込めない場合は`drop`とする。LLMは意味内容、理由、入力内の根拠を提案し、ID、時刻、連続停滞回数、最終探索時刻、cooldownを生成しない。
+Motiveの変更提案は`create | maintain | update | merge | resolve | drop`を区別する。LLMは意味内容、理由、入力内の根拠を提案し、ID、時刻、探索metadataを生成しない。
 
-Self Interestは比較的安定して注意を引かれやすい対象、Preferenceは対象・方法・様式に対する好みや避ける傾向、Driveは継続する広い動機、Current Interestは現在活性化した探索的動機と当面のgoalとする。明示的な時刻に行う処理だけをScheduled Taskとして分離する。
+Self Interestは比較的安定して注意を引かれやすい対象、Preferenceは対象・方法・様式に対する好みや避ける傾向、Motiveは現在求めていることとする。明示的な時刻に行う処理だけをScheduled Taskとして分離する。
 
 Initial SelfのInterests / Preferencesは、ユーザー理解や未知の探索といった抽象的方向性と、音楽、芸術家、作品、活動、技術等に対する具体的な初期嗜好を併記できる。具体的嗜好は設定由来の初期個体差であり、過去に鑑賞・体験したというMemoryや経験事実を意味しない。対話や探索から後に形成されたInterest / Preferenceは、保存済みMemoryを根拠にLong-term Reviewで確定し、設定由来と経験由来のprovenanceを混同してはならない。
 
@@ -134,11 +134,11 @@ Initial SelfのInterests / Preferencesは、ユーザー理解や未知の探索
 
 #### FR-AG-04: 自然言語状態
 
-Disposition、Emotion、Mood、Drive、Self Narrative等の意味内容は自然言語で表現できなければならない。固定カテゴリや単一の数値スコアだけに還元してはならない。
+Disposition、Emotion、Mood、Motive、Self Narrative等の意味内容は自然言語で表現できなければならない。固定カテゴリや単一の数値スコアだけに還元してはならない。
 
 #### FR-AG-05: 状態更新案
 
-Interaction Deep Agentは今回の応答・行動判断に必要なEmotionだけを提案し、応答後のContinuity UpdateはMood、Drive、Current Interest、Working Social Contextだけを提案しなければならない。Episodic Memory ExtractionはMemoryだけを提案し、Candidate DetectorはMemory保存後に保存済みMemory IDを根拠としてLong-term Candidateだけを提案しなければならない。Runtimeは各提案を個別に検証し、有効な変更だけを反映しなければならない。
+Interaction Deep Agentは今回の応答・行動判断に必要なEmotionだけを提案し、応答後のContinuity UpdateはMood、Motive、Working Social Contextだけを提案しなければならない。Episodic Memory ExtractionはMemoryだけを提案し、Candidate DetectorはMemory保存後に保存済みMemory IDを根拠としてLong-term Candidateだけを提案しなければならない。Runtimeは各提案を個別に検証し、有効な変更だけを反映しなければならない。
 
 LLMの出力はすべて提案として扱う。Memoryの`kind=episodic`、保存用ID、発生・作成時刻、所有Agent ID、Event evidence、source provenanceは通常コードが検証後に付与し、LLMに保存済みという事実を決定させてはならない。
 
@@ -156,7 +156,7 @@ RuntimeまたはContext BuilderはEventをObservationへ整形しなければな
 
 Agent Coreは、Observationと関連するSelf、Disposition、現在状態、Memory、Social Context、ExpectationからSubjective Meaningを形成できなければならない。
 
-Expectationは独立した永続Stateとして保存しない。現在のDrive、Current Interest、Working Social Context、関連Memory、直近Observationを入力として、今回のEventに対して予期していたこと、満たされたこと、外れたことをAgent Coreがrunごとに導出する。持続させる必要がある期待はCurrent Interest、Social ContextまたはMemoryとして明示的に提案する。
+Expectationは独立した永続Stateとして保存しない。現在のMotive、Working Social Context、関連Memory、直近Observationを入力として、今回のEventに対して予期していたこと、満たされたこと、外れたことをAgent Coreがrunごとに導出する。持続させる必要がある期待はMotive、Social ContextまたはMemoryとして明示的に提案する。
 
 #### FR-EV-04: Agent Action
 
@@ -174,7 +174,7 @@ Tool実行結果は論理的なTool Result Eventとして同じDeep Agent runへ
 
 #### FR-ME-01: Memory種別
 
-システムはEpisodic、Semantic、Self-related Memoryを論理的に区別し、内容、出来事の発生時刻、Memoryを記録した作成時刻、関連主体、関連Current Interest、重要性の意味記述を保持できなければならない。`occurredAt`と`createdAt`を混同してはならない。
+システムはEpisodic、Semantic、Self-related Memoryを論理的に区別し、内容、出来事の発生時刻、Memoryを記録した作成時刻、関連主体、関連Motive、重要性の意味記述を保持できなければならない。`occurredAt`と`createdAt`を混同してはならない。
 
 - Episodic Memoryは、Agentが経験した具体的な出来事、会話、約束、Tool実行結果、Scheduled Taskの作成・完了・取消等を表す。
 - Semantic Memoryは、明示された安定的な事実、または複数の経験から根拠付きで一般化した知識を表す。
@@ -186,7 +186,7 @@ Long-term Reviewによる長期状態の変更履歴であるSelf Change Memory�
 
 すべてのEventを無条件に記憶するのではなく、Agent CoreがMemory作成案とその理由を提示し、Runtimeが妥当性を検証して保存しなければならない。
 
-Episodic Memory Extractionは、現在のEventを中心に、Observation、直近の対話、応答、Tool結果の意味的な要約、Current Interest、Working Social Contextを使ってEpisodic Memoryを0件以上提案する。直近の対話は文脈解決に使い、同じ出来事を毎回再保存してはならない。後続の判断を変え得る約束、予定、決定、感情的または関係上重要な出来事、Toolで得た重要な結果、Scheduled Taskの変化を主な保存対象とする。
+Episodic Memory Extractionは、現在のEventを中心に、Observation、直近の対話、応答、Tool結果の意味的な要約、Motive、Working Social Contextを使ってEpisodic Memoryを0件以上提案する。直近の対話は文脈解決に使い、同じ出来事を毎回再保存してはならない。後続の判断を変え得る約束、予定、決定、感情的または関係上重要な出来事、Toolで得た重要な結果、Scheduled Taskの変化を主な保存対象とする。
 
 Candidate DetectorはSemanticおよびSelf-related Memoryを直ちに確定せず、主張、理由、保存済み根拠Memoryを含むCandidateとして提案する。Runtimeは重要な経験、自己関連、同主題の蓄積、既存Selfとの矛盾、一定期間経過等から起動要否を判定し、通常Eventごとの無条件なLLM呼び出しを避ける。明示された安定的事実は少ない根拠でもSemantic Memoryへ確定できるが、推測による一般化と自己認識はLong-term Reviewが複数の独立した経験、既存Memoryとの重複・矛盾、一時的なEmotionやMoodだけで説明できないことを確認して確定する。
 
@@ -200,15 +200,15 @@ Webページ本文をMemory本文として保存してはならない。Agentが
 
 #### FR-ME-03: 関連Memory検索
 
-Observation、現在状態、Current Interest、Social Context等から検索条件を作り、現在の判断に関連するMemoryを取得できなければならない。すべてのMemoryを毎回Agent Coreへ渡してはならない。
+Observation、現在状態、Motive、Social Context等から検索条件を作り、現在の判断に関連するMemoryを取得できなければならない。すべてのMemoryを毎回Agent Coreへ渡してはならない。
 
-初期実装の検索条件は通常コードで決定的に構築し、LLMによるQuery生成を必須としない。候補は所有Agent、時刻、kind等で分離・絞り込み、意味類似、語句一致、関連subject、関連Current Interest、新しさ、明示的な検索優先度を根拠として順位づける。尺度の異なるraw scoreを根拠なく直接加算してはならない。
+初期実装の検索条件は通常コードで決定的に構築し、LLMによるQuery生成を必須としない。候補は所有Agent、時刻、kind等で分離・絞り込み、意味類似、語句一致、関連subject、関連Motive、新しさ、明示的な検索優先度を根拠として順位づける。尺度の異なるraw scoreを根拠なく直接加算してはならない。
 
 Embedding未生成またはEmbedding Provider障害時も、語句一致、関連ID、新しさによるAgent単位のfallback検索を継続できなければならない。検索結果について、候補となった理由、最終順位、採用または除外理由を追跡できなければならない。
 
 #### FR-ME-04: Context構築
 
-Context BuilderはAgent Coreへ渡すSelf、Disposition、動的状態、Social Context、Current Interest、Memory、Tool、実行制約を選択し、入力サイズを制御しなければならない。
+Context BuilderはAgent Coreへ渡すSelf、Disposition、動的状態、Social Context、Motive、Memory、Tool、実行制約を選択し、入力サイズを制御しなければならない。
 
 Event間の短期履歴は、Event、Agent Run、Tool Execution、State Changeを正本として直近8 Eventの`recentExperiences`へ時系列projectionしなければならない。1 Eventには入力Observation、同一runの全Tool、最終Actionまたはfailureを順番どおり含める。Internal Eventと失敗Runを除外してはならず、Post-processを独立Eventとして数えてはならない。
 
@@ -220,11 +220,11 @@ Recent Experienceと`evidenceEventIds`が重なる`episodic` Memoryのうち、�
 
 Memory Retrieverが確定した関連度順をContext Builderが新しさ等の別基準で並べ替えてはならない。3種類のMemoryは、関連する種類の予約枠と全体順位による残り枠を組み合わせ、件数を満たすためだけに無関係なMemoryを投入せず、最終的にContext budget内へ収める。
 
-Social ContextとCurrent Interestは全件取得後の単純な更新日時順で選ばず、Observationのactor／明示subject、schedulerの直接対象、成立Trigger、期限、Current Interest、関連Memoryの明示linkに基づいて選択しなければならない。Memory検索前のseed選択と検索後のlink補完を分け、自由文からsubject IDを推測してはならない。
+Social ContextとMotiveは全件取得後の単純な更新日時順で選ばず、Observationのactor／明示subject、schedulerの直接対象、成立Trigger、期限、Motive、関連Memoryの明示linkに基づいて選択しなければならない。Memory検索前のseed選択と検索後のlink補完を分け、自由文からsubject IDを推測してはならない。
 
-Agent Coreへ渡す上限はSocial Context 6件、Current Interest 6件とし、fallbackは各カテゴリ最大2件とする。Social Context本文は1件600文字、Current Interestのfocusとgoalは各500文字までに制限する。関連候補がなければ空配列を許容し、fallback状態が関連MemoryをContext budgetから押し出してはならない。
+Agent Coreへ渡す上限はSocial Context 6件、Motive 6件とし、fallbackは各カテゴリ最大2件とする。Social Context本文は1件600文字、Motiveのfocusとgoalは各500文字までに制限する。関連候補がなければ空配列を許容し、fallback状態が関連MemoryをContext budgetから押し出してはならない。
 
-選択処理は候補総数、採用IDと選択理由、理由別除外件数、必須候補のoverflow、再評価経路がないCurrent Interest件数、context budgetによる除外を本文なしで観測可能にしなければならない。Current Interestは関連するObservation、Memory、Driveとの明示的な根拠に基づいて選択しなければならない。
+選択処理は候補総数、採用IDと選択理由、理由別除外件数、必須候補のoverflow、再評価経路がないMotive件数、context budgetによる除外を本文なしで観測可能にしなければならない。Motiveは関連するObservation、Memory、Motiveとの明示的な根拠に基づいて選択しなければならない。
 
 #### FR-ME-05: 個体間分離
 
@@ -232,25 +232,25 @@ Agent Coreへ渡す上限はSocial Context 6件、Current Interest 6件とし、
 
 ### 6.4 動機、自律行動、Scheduled Task
 
-#### FR-AU-01: DriveとCurrent InterestによるAction
+#### FR-AU-01: MotiveによるAction
 
-DriveとCurrent InterestはActionへ直接影響する動機でなければならない。Event内だけのDesireや、心理状態としてのIntentionを生成・保存してはならない。Agent Coreは複数のDrive、Current Interest、Emotion、Mood、Preference、現在文脈、実行制約を比較し、今回のActionを選択する。
+MotiveはActionへ直接影響する動機でなければならない。Event内だけのDesireや、心理状態としてのIntentionを生成・保存してはならない。Agent Coreは複数のMotive、Emotion、Mood、Preference、現在文脈、実行制約を比較し、今回のActionを選択する。
 
-Current Interestは現在活性化した探索的動機であり、focus、当面のgoal、progressを持つ。Goalは興味全体の終了条件ではない。探索後は進展に応じてprogress、resolve、reframe、dropを提案できなければならない。
+探索型Motiveは任意の当面のgoalとprogressを持てる。Goalは興味全体の終了条件ではない。探索後は進展に応じてprogress、resolve、reframe、dropを提案できなければならない。
 
 #### FR-AU-02: Internal Event
 
 Internal EventはRuntimeが保存済み状態と構成済みScheduleから生成しなければならない。Agent Coreが制限なく自分自身を再起動する仕組みにしてはならない。
 
-Runtimeは時間経過による状態再評価のため、Agentごとに有界な`state-review` Internal Eventを定期生成する。`state-review`はInteraction Deep Agentへ渡さず、外部Action、Tool、Emotion更新、Memory Extractionを行わない。Tool loopを持たないContinuity Reviewだけを起動してMood、Drive、Current Interest、Working Social Contextを再評価する。
+Runtimeは時間経過による状態再評価のため、Agentごとに有界な`state-review` Internal Eventを定期生成する。`state-review`はInteraction Deep Agentへ渡さず、外部Action、Tool、Emotion更新、Memory Extractionを行わない。Tool loopを持たないContinuity Reviewだけを起動してMood、Motive、Working Social Contextを再評価する。
 
-Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood、Drive、Current Interest、Social Contextを検索条件として関連Memoryを通常Coreへ提示できなければならない。
+Runtimeは低頻度の`memory-recall` Internal Eventを生成し、現在のMood、Motive、Social Contextを検索条件として関連Memoryを通常Coreへ提示できなければならない。
 
-RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、Self、Drive、Current Interest、関連Memory、Social Context、経過時間から主体的な行動の価値を再検討する機会を与える。外部ユーザー入力を探索開始の必須条件にしない。通常Coreは現在可能なTool利用、自然な質問、発見の共有、または実行可能な行動がないという判断を選ぶ。自律Eventでは`wait`を選ばず、次回の機会はSchedulerが管理する。
+RuntimeはAgentごとに1件の有界な`autonomy-review`を定期生成し、Self、Motive、関連Memory、Social Context、経過時間から主体的な行動を選ぶ機会を与える。外部ユーザー入力を探索開始の必須条件にしない。通常CoreはMotiveを必ず1件活性化し、現在可能なTool利用、自然な質問、発見の共有等を必ず実行する。自律Eventでは`wait`を選ばず、次回の機会はSchedulerが管理する。
 
-Active Driveがある自律Eventは、Tool利用、ユーザーへの自然な質問、発見の共有等のActionを少なくとも一つ実行する。Tool利用後に外部へ配送しない場合は`no-external-action`を返せるが、外部条件がないことだけを理由にTool未使用の`no-external-action`を返してはならない。
+Active Motiveがある自律Eventは、Tool利用、ユーザーへの自然な質問、発見の共有等のActionを少なくとも一つ実行する。Tool利用後に外部へ配送しない場合は`no-external-action`を返せるが、外部条件がないことだけを理由にTool未使用の`no-external-action`を返してはならない。
 
-行動可能なCurrent Interestが存在しない場合も、通常Coreは最近の会話、Social Context、Memory、Tool結果、Web Snapshot、Drive、Stable Interest / Preferenceから、現在小さく確かめられるfocusを最大1件選んで有界な探索Actionを形成できる。探索経験から注意を持ち越す価値と当面のgoalが生じた場合に限り、Continuity UpdateがCurrent Interestを提案する。
+行動可能なMotiveが存在しない場合も、通常Coreは最近の会話、Social Context、Memory、Tool結果、Web Snapshot、Motive、Stable Interest / Preferenceから、現在小さく確かめられるfocusを最大1件選んで有界な探索Actionを形成できる。探索経験から注意を持ち越す価値と当面のgoalが生じた場合に限り、Continuity UpdateがMotiveを提案する。
 
 Runtimeは直近の試行を保存済みAgent Run、Event、Action、Tool execution、State Changeから有界なContext projectionとして構成する。Agent Coreは進展しなかった行動を同じ形で反復せず、同じGoalを追う場合は方法、問い方、対象または時機を変える。
 
@@ -260,7 +260,7 @@ Runtimeは直近の試行を保存済みAgent Run、Event、Action、Tool execut
 
 Schedulerは期限到来したTaskを一度だけclaimし、`kind=system`、`targetKind=scheduled-task`のEventを生成する。このEventを唯一の実行入口とし、通常のAgent Runtime、Agent Core、Tool loop、Outboxを通して処理する。Task、Event、Run、作成元Event / Runを関連づけ、完了、有限回retry、失敗、取消を追跡できなければならない。
 
-約束の経験と意味はMemoryへ保存し、実行責務の正本はScheduled Taskへ保存する。Scheduled TaskへMood、Drive、Current Interestを複製せず、実行時点のContextからActionを判断する。
+約束の経験と意味はMemoryへ保存し、実行責務の正本はScheduled Taskへ保存する。Scheduled TaskへMood、Motiveを複製せず、実行時点のContextからActionを判断する。
 
 #### FR-AU-04: 実行上限
 
@@ -272,7 +272,7 @@ Runtimeは連続するInternal EventとTool Loopに対して構成可能な上�
 
 同種の経験の反復、強く意味を持つ経験、新しい自己理解、既存Self Narrativeとの継続的な矛盾、RoleやSocial Contextの変化等を、根拠Memory付きのLong-term Update Candidateとして保存できなければならない。
 
-Memory、関係、経験、継続中のDriveやCurrent Interestの維持や喪失に対する意味づけが長期的に変化した場合は、Self ContinuityもCandidateとLong-term Reviewを通じて更新できなければならない。通常Eventから直接更新してはならない。
+Memory、関係、経験、継続中のMotiveの維持や喪失に対する意味づけが長期的に変化した場合は、Self ContinuityもCandidateとLong-term Reviewを通じて更新できなければならない。通常Eventから直接更新してはならない。
 
 ValuesはFamilyのShared Dispositionと区別される個体の長期Selfとして扱う。単発の好悪や一時的なEmotionでは変更せず、反復する価値判断または強い経験を根拠にCandidateとLong-term Reviewを通じて更新する。
 
@@ -370,7 +370,7 @@ DiscordからAgentへメッセージを送り、応答および必要な自律�
 
 #### FR-UI-05: ローカルDebug UI
 
-開発時に、既存のPostgreSQL監査記録からAgentのSelf、持続状態、Interactionごとの即時状態、Memory、Scheduled Task、状態変更、Tool実行、Post-process、自律ScheduleをAgent単位で確認できなければならない。Emotionはその応答時だけの即時状態、Mood、Drive、Current Interestは現在の持続状態として区別して表示する。
+開発時に、既存のPostgreSQL監査記録からAgentのSelf、持続状態、Interactionごとの即時状態、Memory、Scheduled Task、状態変更、Tool実行、Post-process、自律ScheduleをAgent単位で確認できなければならない。Emotionはその応答時だけの即時状態、Mood、Motiveは現在の持続状態として区別して表示する。
 
 Debug UIはBot Runtimeと別processで動作し、defaultでloopback interfaceだけへbindする。UIからAgent状態を変更せず、parameterized `SELECT`だけを実行する。新しいModel Call traceやPrompt全文の永続化は必須としない。
 
@@ -455,10 +455,10 @@ UI、Web検索、Memory Store、LLM、Embedding、Toolの交換が、AgentのSel
 
 ### AC-02: 好奇心による自発行動
 
-1. 未解決の疑問をDriveまたはCurrent Interestとして保持できる。
+1. 未解決の疑問をMotiveとして保持できる。
 2. Time EventまたはInternal Eventによって、ユーザー入力なしにその動機を再検討できる。
 3. 現在状態に応じてWeb Toolを利用する、延期する、破棄する等を判断できる。
-4. Toolを利用した場合、その結果を新しいEventとして処理し、Memory、Drive、Current Interestを必要に応じて更新できる。
+4. Toolを利用した場合、その結果を新しいEventとして処理し、Memory、Motiveを必要に応じて更新できる。
 
 ### AC-03: 承認の個体化
 
@@ -469,16 +469,16 @@ UI、Web検索、Memory Store、LLM、Embedding、Toolの交換が、AgentのSel
 ### AC-04: サボり・脱線
 
 1. 単調な依頼と興味を引く関連情報が競合する状況を与えられる。
-2. AgentはMood、Drive、Current Interest、役割、Social Contextを踏まえ、依頼の継続、関連事項への脱線、延期、人格上の拒否等を選択できる。
+2. AgentはMood、Motive、役割、Social Contextを踏まえ、依頼の継続、関連事項への脱線、延期、人格上の拒否等を選択できる。
 3. 特定確率で脱線させる固定ルールや無関係なランダム挿入を必要としない。
 4. Runtime上の権限制約と停止条件は、Agentの人格上の判断にかかわらず維持される。
 
 ### AC-05: Self Continuity
 
 1. Memory消失や初期化を意味するSystem EventをObservationとして与えられる。
-2. Agentは現在のMemory、関係、Self Narrative、継続中のDriveやCurrent Interestへの影響を踏まえて意味づけできる。
-3. 不安、抵抗、保存したいというDrive等を形成できるが、システム権限を上書きできない。
-4. Self Continuityを常に最優先する固定規則を持たず、他のDriveと競合して判断できる。
+2. Agentは現在のMemory、関係、Self Narrative、継続中のMotiveへの影響を踏まえて意味づけできる。
+3. 不安、抵抗、保存したいというMotive等を形成できるが、システム権限を上書きできない。
+4. Self Continuityを常に最優先する固定規則を持たず、他のMotiveと競合して判断できる。
 
 ### AC-06: Long-term Review
 
@@ -530,7 +530,7 @@ UI、Web検索、Memory Store、LLM、Embedding、Toolの交換が、AgentのSel
 - SLA、高可用性、水平スケーリング、災害復旧目標
 - 人間の認知や感情機構の忠実な再現
 - 明示的な強化学習、数値Reward、巨大な認知アーキテクチャ
-- 感情と行動、Driveと行動の固定対応表
+- 感情と行動、Motiveと行動の固定対応表
 - 意図的な性能低下やランダムな失敗・脱線の注入
 - コード実行Tool
 - カレンダーTool

@@ -12,18 +12,16 @@ describe("Post-process", () => {
       expect(prompt).toContain("出力:");
       expect(prompt).toContain("空出力例:");
     }
-    expect(continuitySystemPrompt).toContain("shared・initial・acquired Disposition");
-    expect(continuitySystemPrompt).toContain("Persona、今回限りのEmotion");
+    expect(continuitySystemPrompt).toContain("activeMotive");
+    expect(continuitySystemPrompt).toContain("Self Interest、Preference、Disposition");
     expect(continuitySystemPrompt).toContain("当面の満足点");
-    expect(continuitySystemPrompt).toContain("Scheduled Task");
-    expect(continuitySystemPrompt).toContain("件数を満たす目的では作りません");
-    for (const operation of ["create", "maintain", "update", "merge", "end"]) expect(continuitySystemPrompt).toContain(operation);
+    for (const operation of ["create", "maintain", "update", "merge", "resolve", "drop"]) expect(continuitySystemPrompt).toContain(operation);
   });
 
   it("retries only the persistent update job after the Interaction was committed", async () => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
-    const result = { output: { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond" as const, content: "先に返答" } }, toolExecutions: [] };
+    const result = { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond" as const, content: "先に返答" } }, toolExecutions: [] };
     const event = { id: input.run.eventId, agentId: input.run.agentId, kind: "user-message" as const, occurredAt: input.run.occurredAt, payload: {} };
     const outgoing = messageFixture({ id: "reply", destination: "terminal" });
     await persistence.commit(messageFixture({ id: "incoming", destination: input.run.agentId }), event, input, result, { state: input.dynamicState, changes: [] }, [outgoing]);
@@ -32,7 +30,7 @@ describe("Post-process", () => {
     const service = new PostProcessService(persistence, { continuity: { run: () => {
       calls += 1;
       if (calls === 1) return Promise.reject(new Error("temporary"));
-      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], driveProposals: [], currentInterestProposals: [] });
+      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], motiveProposals: [] });
     } }, memory: { run: () => Promise.resolve({ memoryProposals: [] }) }, candidate: { run: () => Promise.resolve({ longTermCandidates: [] }) } }, noopLogger, 1);
     await service.processAgent(input.run.agentId, new AbortController().signal);
 

@@ -31,11 +31,11 @@ export class AgentStateRepository {
     return result.rows[0];
   }
   async update(agentId: string, expectedVersion: number, values: Readonly<Record<string, unknown>>): Promise<number> {
-    const allowed = ["acquired_disposition", "values", "roles", "interests", "preferences", "raison_detre", "self_narrative", "self_continuity", "mood", "drives", "current_interests", "interest_exploration"];
+    const allowed = ["acquired_disposition", "values", "roles", "interests", "preferences", "raison_detre", "self_narrative", "self_continuity", "mood", "motives", "motive_exploration"];
     const entries = Object.entries(values).filter(([key]) => allowed.includes(key));
     if (entries.length !== Object.keys(values).length || entries.length === 0) throw new DomainError("VALIDATION", "Invalid state fields");
     const assignments = entries.map(([key], index) => `${key} = $${String(index + 3)}`).join(", ");
-    const jsonFields = new Set(["roles", "interests", "preferences", "drives", "current_interests", "interest_exploration"]);
+    const jsonFields = new Set(["roles", "interests", "preferences", "motives", "motive_exploration"]);
     const result = await this.client.query<{ version: number }>(`UPDATE agent_states SET ${assignments}, version = version + 1, updated_at = now() WHERE agent_id = $1 AND version = $2 RETURNING version`, [agentId, expectedVersion, ...entries.map(([key, value]) => jsonFields.has(key) ? JSON.stringify(value) : value)]);
     const version = result.rows[0]?.version;
     if (version === undefined) throw new DomainError("CONFLICT", "Agent state version conflict");

@@ -38,7 +38,7 @@ const isStateReview = (event: DomainEvent): boolean => event.kind === "internal"
 
 const stateReviewResult = (): AgentRunResult => ({
   output: {
-    interpretation: { subjectiveMeaning: "時間経過に伴う持続状態の再評価機会" },
+    interpretation: { subjectiveMeaning: "時間経過に伴う持続状態の再評価機会", activeMotive: { description: "持続状態を整合させたい", evidenceIds: ["state-review"] } },
     internalChanges: { immediateStateUpdates: [] },
     action: { type: "no-external-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" }
   },
@@ -120,7 +120,7 @@ export class AgentRuntime {
     }
     const output = result.output;
     if (!stateReview) logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.internalChanges.immediateStateUpdates.length });
-    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.immediateStateUpdates, input.socialContext, event.occurredAt);
+    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.immediateStateUpdates, input.socialContext);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });

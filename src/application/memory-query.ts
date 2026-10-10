@@ -35,7 +35,7 @@ export function buildRelevantMemoryQuery(input: RelevantMemoryQueryInput): Relev
   const parts = [
     bounded(input.observation.summary),
     ...input.observation.facts.slice(0, 8).map((value) => bounded(value, 240)),
-    bounded(input.dynamicState.mood, 240), ...input.dynamicState.drives.map(({ description }) => bounded(description, 240)), ...input.dynamicState.currentInterests.map(({ focus, goal }) => `${bounded(focus, 240)} ${bounded(goal, 240)}`),
+    bounded(input.dynamicState.mood, 240), ...input.dynamicState.motives.map(({ description, goal }) => `${bounded(description, 240)} ${goal === undefined ? "" : bounded(goal, 240)}`),
     ...social.map(({ description }) => bounded(description, 240))
   ].filter((value) => value.length > 0);
   return {

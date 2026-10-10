@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CurrentInterestProposalSchema, DomainError, DriveProposalSchema, StateUpdateProposalSchema, type CurrentInterestProposal, type DriveProposal, type DynamicState, type InterestExploration, type SocialContext } from "../domain/contracts.js";
+import { DomainError, MotiveProposalSchema, StateUpdateProposalSchema, type DynamicState, type Motive, type MotiveExploration, type MotiveProposal, type SocialContext } from "../domain/contracts.js";
 
 export type StateChange = {
   readonly target: string;
@@ -13,83 +13,42 @@ export type StateChange = {
 
 export type StateUpdateResult = { readonly state: DynamicState; readonly changes: readonly StateChange[] };
 
-export function applyDriveProposals(state: DynamicState, rawProposals: readonly unknown[], occurredAt = state.updatedAt): StateUpdateResult {
-  let drives = [...state.drives];
+export function applyMotiveProposals(state: DynamicState, rawProposals: readonly unknown[], nextId: () => string, occurredAt = state.updatedAt): StateUpdateResult {
+  let motives = [...state.motives];
+  let motiveExploration = [...state.motiveExploration];
   const changes: StateChange[] = [];
-  const find = (description: string) => drives.find((drive) => drive.description === description);
+  const metadata = (motiveId: string): MotiveExploration => motiveExploration.find((item) => item.motiveId === motiveId) ?? { motiveId, consecutiveNoProgress: 0 };
+  const materialize = (proposal: Extract<MotiveProposal, { operation: "create" }>, id: string): Motive => ({ id, description: proposal.description, ...(proposal.goal === undefined ? {} : { goal: proposal.goal, progress: proposal.progress ?? 0 }), sourceEvidenceIds: [...new Set(proposal.evidenceIds)], since: occurredAt });
   for (const raw of rawProposals) {
-    const proposal: DriveProposal = DriveProposalSchema.parse(raw);
-    const before = [...drives];
+    const proposal = MotiveProposalSchema.parse(raw);
+    const before = [...motives];
     if (proposal.operation === "create") {
-      if (find(proposal.description) === undefined) drives.push({ description: proposal.description, sourceEvidenceIds: [...new Set(proposal.evidenceIds)], since: occurredAt });
-      changes.push({ target: "drives", operation: "append", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-      continue;
-    }
-    if (proposal.operation === "maintain") {
-      if (find(proposal.driveDescription) === undefined) throw new DomainError("VALIDATION", "Cannot maintain an unknown Drive");
-      changes.push({ target: "drives", operation: "set", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-      continue;
-    }
-    if (proposal.operation === "update") {
-      const existing = find(proposal.driveDescription);
-      if (existing === undefined) throw new DomainError("VALIDATION", "Cannot update an unknown Drive");
-      drives = drives.filter(({ description }) => description !== proposal.driveDescription);
-      const duplicate = find(proposal.description);
-      if (duplicate === undefined) drives.push({ description: proposal.description, since: existing.since, sourceEvidenceIds: [...new Set([...existing.sourceEvidenceIds, ...proposal.evidenceIds])] });
-      changes.push({ target: "drives", operation: "set", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-      continue;
+      const motive = materialize(proposal, nextId()); motives.push(motive); motiveExploration.push({ motiveId: motive.id, consecutiveNoProgress: 0 });
+      changes.push({ target: "motives", operation: "append", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue;
     }
     if (proposal.operation === "merge") {
-      const sources = proposal.driveDescriptions.map(find);
-      if (sources.some((drive) => drive === undefined)) throw new DomainError("VALIDATION", "Cannot merge an unknown Drive");
-      const known = sources.filter((drive): drive is DynamicState["drives"][number] => drive !== undefined);
-      drives = drives.filter(({ description }) => !proposal.driveDescriptions.includes(description));
-      const since = known.map(({ since: value }) => value).sort()[0] ?? occurredAt;
-      drives.push({ description: proposal.description, since, sourceEvidenceIds: [...new Set([...known.flatMap(({ sourceEvidenceIds }) => sourceEvidenceIds), ...proposal.evidenceIds])] });
-      changes.push({ target: "drives", operation: "set", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-      continue;
+      const sources = proposal.motiveIds.map((id) => motives.find((item) => item.id === id));
+      if (sources.some((item) => item === undefined)) throw new DomainError("VALIDATION", "Cannot merge an unknown Motive");
+      const known = sources.filter((item): item is Motive => item !== undefined); const id = nextId();
+      motives = motives.filter((item) => !proposal.motiveIds.includes(item.id));
+      motives.push({ id, description: proposal.description, ...(proposal.goal === undefined ? {} : { goal: proposal.goal, progress: proposal.progress ?? 0 }), sourceEvidenceIds: [...new Set([...known.flatMap(({ sourceEvidenceIds }) => sourceEvidenceIds), ...proposal.evidenceIds])], since: known.map(({ since }) => since).sort()[0] ?? occurredAt });
+      motiveExploration = [...motiveExploration.filter((item) => !proposal.motiveIds.includes(item.motiveId)), { motiveId: id, consecutiveNoProgress: 0 }];
+      changes.push({ target: "motives", operation: "set", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue;
     }
-    if (find(proposal.driveDescription) === undefined) throw new DomainError("VALIDATION", "Cannot end an unknown Drive");
-    drives = drives.filter(({ description }) => description !== proposal.driveDescription);
-    changes.push({ target: "drives", operation: "remove", before, after: drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
+    const index = motives.findIndex(({ id }) => id === proposal.motiveId); const existing = motives[index];
+    if (existing === undefined) throw new DomainError("VALIDATION", "Cannot update an unknown Motive");
+    if (proposal.operation === "resolve" || proposal.operation === "drop") { motives.splice(index, 1); motiveExploration = motiveExploration.filter(({ motiveId }) => motiveId !== proposal.motiveId); changes.push({ target: "motives", operation: "remove", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue; }
+    if (proposal.operation === "maintain") { changes.push({ target: "motives", operation: "set", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue; }
+    if (!("description" in proposal)) throw new DomainError("VALIDATION", "Unsupported Motive operation");
+    const update: Extract<MotiveProposal, { operation: "update" }> = proposal;
+    const previous = metadata(update.motiveId); const nextProgress = update.goal === undefined ? undefined : update.progress ?? 0;
+    const progressed = nextProgress !== undefined && (existing.progress === undefined || nextProgress > existing.progress);
+    motives[index] = { ...existing, description: update.description, ...(update.goal === undefined ? { goal: undefined, progress: undefined } : { goal: update.goal, progress: nextProgress }), sourceEvidenceIds: [...new Set([...existing.sourceEvidenceIds, ...update.evidenceIds])] };
+    const noProgress = progressed ? 0 : previous.consecutiveNoProgress + 1; const cooldownUntil = noProgress >= 2 ? new Date(new Date(occurredAt).getTime() + 21_600_000).toISOString() : undefined;
+    motiveExploration = [...motiveExploration.filter(({ motiveId }) => motiveId !== proposal.motiveId), { motiveId: proposal.motiveId, consecutiveNoProgress: noProgress, lastExploredAt: occurredAt, ...(cooldownUntil === undefined ? {} : { cooldownUntil }) }];
+    changes.push({ target: "motives", operation: "set", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
   }
-  return { state: { ...state, drives }, changes };
-}
-
-export function applyCurrentInterestProposals(state: DynamicState, rawProposals: readonly unknown[], nextId: () => string, occurredAt = state.updatedAt): StateUpdateResult {
-  const currentInterests = [...state.currentInterests];
-  let interestExploration = [...state.interestExploration];
-  const changes: StateChange[] = [];
-  const metadata = (interestId: string): InterestExploration => interestExploration.find((item) => item.interestId === interestId) ?? { interestId, consecutiveNoProgress: 0 };
-  for (const raw of rawProposals) {
-    const proposal: CurrentInterestProposal = CurrentInterestProposalSchema.parse(raw);
-    const before = [...currentInterests];
-    if (proposal.operation === "create") {
-      const id = nextId();
-      currentInterests.push({ id, focus: proposal.focus, goal: proposal.goal, progress: proposal.progress });
-      interestExploration.push({ interestId: id, consecutiveNoProgress: 0, lastExploredAt: occurredAt });
-      changes.push({ target: "currentInterests", operation: "append", before, after: currentInterests, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-      continue;
-    }
-    const index = currentInterests.findIndex(({ id }) => id === proposal.interestId);
-    if (index < 0) throw new DomainError("VALIDATION", "Cannot update an unknown Current Interest");
-    const existing = currentInterests[index];
-    if (existing === undefined) throw new DomainError("VALIDATION", "Cannot update an unknown Current Interest");
-    if (proposal.operation === "resolve" || proposal.operation === "drop") {
-      currentInterests.splice(index, 1); interestExploration = interestExploration.filter(({ interestId }) => interestId !== proposal.interestId);
-      changes.push({ target: "currentInterests", operation: "remove", before, after: currentInterests, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-      continue;
-    }
-    const previousMeta = metadata(proposal.interestId);
-    const progressed = proposal.operation === "reframe" || proposal.progress > existing.progress;
-    const next = proposal.operation === "reframe" ? { ...existing, focus: proposal.focus, goal: proposal.goal, progress: proposal.progress } : { ...existing, progress: proposal.progress };
-    currentInterests[index] = next;
-    const noProgress = progressed ? 0 : previousMeta.consecutiveNoProgress + 1;
-    const cooldownUntil = noProgress >= 2 ? new Date(new Date(occurredAt).getTime() + 21_600_000).toISOString() : undefined;
-    interestExploration = [...interestExploration.filter(({ interestId }) => interestId !== proposal.interestId), { interestId: proposal.interestId, consecutiveNoProgress: noProgress, lastExploredAt: occurredAt, ...(cooldownUntil === undefined ? {} : { cooldownUntil }) }];
-    changes.push({ target: "currentInterests", operation: "set", before, after: currentInterests, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-  }
-  return { state: { ...state, currentInterests, interestExploration }, changes };
+  return { state: { ...state, motives, motiveExploration }, changes };
 }
 
 const persistentScalarTargets = new Set(["mood"]);
@@ -99,7 +58,7 @@ const transientCollectionTargets = new Set<string>();
 const SocialContextValue = z.object({ subjectId: z.string().min(1), subjectType: z.enum(["user", "agent", "team", "project", "organization"]).optional(), description: z.string().min(1).optional() });
 
 export class StateUpdateService {
-  apply(agentId: string, state: DynamicState, proposals: readonly unknown[], socialContexts: readonly SocialContext[] = [], occurredAt = state.updatedAt): StateUpdateResult {
+  apply(agentId: string, state: DynamicState, proposals: readonly unknown[], socialContexts: readonly SocialContext[] = []): StateUpdateResult {
     if (state.agentId !== agentId) throw new DomainError("VALIDATION", "Cannot update another agent's state");
     const next: Record<string, unknown> = { ...state };
     const transient: Record<string, unknown> = {};
@@ -111,18 +70,6 @@ export class StateUpdateService {
         if (proposal.operation !== "remove" && (value.description === undefined || value.subjectType === undefined)) throw new DomainError("VALIDATION", "Social Context set/append requires subjectType and description");
         const before = socialContexts.find(({ subjectId }) => subjectId === value.subjectId);
         changes.push({ target: proposal.target, operation: proposal.operation, before, after: proposal.operation === "remove" ? { subjectId: value.subjectId } : value, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-        continue;
-      }
-      if (proposal.target === "drives") {
-        const before = [...state.drives];
-        const descriptions = (Array.isArray(proposal.value) ? proposal.value : [proposal.value]).filter((value): value is string => typeof value === "string" && value.trim() !== "").map((value) => value.trim());
-        if (descriptions.length === 0) throw new DomainError("VALIDATION", "Invalid operation for drives");
-        const existing = new Map((next.drives as DynamicState["drives"]).map((drive) => [drive.description, drive]));
-        const materialize = (description: string) => existing.get(description) ?? { description, sourceEvidenceIds: [...proposal.evidenceIds], since: occurredAt };
-        if (proposal.operation === "set") next.drives = [...new Set(descriptions)].map(materialize);
-        if (proposal.operation === "append") next.drives = [...existing.values(), ...descriptions.filter((description) => !existing.has(description)).map(materialize)];
-        if (proposal.operation === "remove") next.drives = [...existing.values()].filter(({ description }) => !descriptions.includes(description));
-        changes.push({ target: proposal.target, operation: proposal.operation, before, after: next.drives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
         continue;
       }
       const scalar = persistentScalarTargets.has(proposal.target) || transientScalarTargets.has(proposal.target);
