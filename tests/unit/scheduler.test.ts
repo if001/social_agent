@@ -55,4 +55,12 @@ describe("Scheduler", () => {
     expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "autonomy-review", schedulerGenerated: true } });
     expect(publishes).toBe(0); expect(completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
+  it("executes a Scheduled Task only through a System Event", async () => {
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: { kind: string; payload: Record<string, unknown> }[] = []; let publishes = 0; let completed = 0;
+    const task: ScheduledTarget = { id: "task-1", agentId: "agent-a", kind: "scheduled-task", reason: "約束", instruction: "調査結果を知らせる", destination: "terminal" };
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([task]), complete: () => { completed += 1; return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "結果" }); } }, queue: { publish: () => { publishes += 1; return Promise.resolve(); }, subscribe: () => Promise.resolve() }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", ...timings });
+    await scheduler.tick(new AbortController().signal);
+    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ kind: "system", payload: { targetId: "task-1", targetKind: "scheduled-task", reason: "約束", schedulerGenerated: true, instruction: "調査結果を知らせる", destination: "terminal" } });
+    expect(completed).toBe(1); expect(publishes).toBe(0);
+  });
 });

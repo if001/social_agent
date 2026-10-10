@@ -316,6 +316,16 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await first.claimDue(new Date("2026-01-03T00:00:00Z"), 10))).toEqual([]);
   });
 
+  it("claims a due Scheduled Task once and records its execution Event", async () => {
+    await pool.query("INSERT INTO scheduled_tasks(id,agent_id,execute_at,instruction,status,idempotency_key,source_event_id,source_run_id) VALUES ('task-due','a','2026-01-01','結果を知らせる','scheduled','task-key','source-event','source-run')");
+    const first = new PostgresScheduleRepository(pool); const second = new PostgresScheduleRepository(pool);
+    const claims = (await Promise.all([first.claimDue(new Date("2026-01-02T00:00:00Z"), 10), second.claimDue(new Date("2026-01-02T00:00:00Z"), 10)])).flat().filter(({ id }) => id === "task-due");
+    expect(claims).toEqual([{ id: "task-due", agentId: "a", kind: "scheduled-task", reason: "Scheduled Taskの期限到来", instruction: "結果を知らせる" }]);
+    const task = claims[0]; if (task === undefined) throw new Error("Scheduled Task was not claimed");
+    await first.complete(task, null, "execution-event");
+    expect((await pool.query("SELECT status,attempt,execution_event_id FROM scheduled_tasks WHERE id='task-due'")).rows[0]).toMatchObject({ status: "completed", attempt: 1, execution_event_id: "execution-event" });
+  });
+
   it("recovers active intentions that have neither a trigger nor a review time", async () => {
     await pool.query("INSERT INTO intentions(id,agent_id,description,reason,status) VALUES ('orphan-intention','a','Follow up later','Missing review path','active')");
     const repository = new PostgresScheduleRepository(pool);
