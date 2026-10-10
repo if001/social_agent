@@ -29,7 +29,8 @@ describe("Agent Debug UI", () => {
     await repository.listRuns("ao", 999);
     await repository.listMemories("ao", 0);
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
-    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(9);
+    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(10);
+    expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.values).toEqual(["ao", 100]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.sql).toContain("e.observation#>>'{content,targetKind}'");
     expect(calls.find(({ sql }) => sql.includes("FROM post_process_jobs"))?.values).toEqual(["ao"]);
@@ -40,7 +41,7 @@ describe("Agent Debug UI", () => {
   it("serves overview and returns 404 for an unknown Run", async () => {
     const repository = {
       listAgents: () => Promise.resolve([{ id: "ao", identity: "アオ", familyId: "social-agents", active: true, stateUpdatedAt: null }]),
-      getOverview: () => Promise.resolve({ agent: { id: "ao" }, state: {}, socialContexts: [], intentions: [], schedules: [], candidates: [], recentExperiences: [] }),
+      getOverview: () => Promise.resolve({ agent: { id: "ao" }, state: {}, socialContexts: [], intentions: [], scheduledTasks: [], schedules: [], candidates: [], recentExperiences: [] }),
       listRuns: () => Promise.resolve([]), getRun: () => Promise.resolve(undefined), listMemories: () => Promise.resolve([])
     } as unknown as DebugUiRepository;
     const server = createDebugUiServer(repository);

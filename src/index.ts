@@ -62,6 +62,7 @@ export { PostgresLongTermReviewRepository } from "./infrastructure/persistence/p
 export { LongTermReviewDeepAgentHarness, createOllamaLongTermReviewInvoker, longTermReviewSystemPrompt } from "./infrastructure/agent/long-term-review-harness.js";
 export type { ReviewAgentInvoker } from "./infrastructure/agent/long-term-review-harness.js";
 export { createAgentSendTool } from "./infrastructure/tools/agent-send-tool.js";
+export { createScheduledTaskTools } from "./infrastructure/tools/scheduled-task-tools.js";
 export type { AgentMessageProvenance, AgentSendOptions } from "./infrastructure/tools/agent-send-tool.js";
 export type { DeadLetter } from "./infrastructure/queue/addressed-file-queue.js";
 export { DiscordAdapter } from "./infrastructure/ui/discord-adapter.js";

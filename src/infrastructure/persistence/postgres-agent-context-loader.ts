@@ -56,7 +56,7 @@ function transport(event: DomainEvent): AgentCoreInput["run"]["transport"] {
 }
 
 export function observationFromEvent(event: DomainEvent): Observation {
-  const message = text(event.payload.text) ?? text(event.payload.reportedContent) ?? text(event.payload.reason);
+  const message = text(event.payload.text) ?? text(event.payload.reportedContent) ?? text(event.payload.instruction) ?? text(event.payload.reason);
   const sender = text(event.payload.senderAgentId);
   const summary = message ?? `${event.kind} event`;
   const suppliedFacts = Array.isArray(event.payload.facts) ? event.payload.facts.filter((value): value is string => typeof value === "string" && value.trim() !== "") : [];

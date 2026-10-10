@@ -118,6 +118,24 @@ export const EventSchema = z.object({
 });
 export type DomainEvent = z.infer<typeof EventSchema>;
 
+export const ScheduledTaskStatusSchema = z.enum(["scheduled", "running", "completed", "cancelled", "failed"]);
+export const ScheduledTaskSchema = z.object({
+  id: Id,
+  agentId: Id,
+  executeAt: Instant,
+  instruction: NaturalLanguage,
+  reason: NaturalLanguage.optional(),
+  destination: NaturalLanguage.optional(),
+  status: ScheduledTaskStatusSchema,
+  attempt: z.number().int().nonnegative(),
+  sourceEventId: Id,
+  sourceRunId: Id,
+  executionEventId: Id.optional(),
+  createdAt: Instant,
+  updatedAt: Instant
+});
+export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
+
 export const ObservationSchema = z.object({
   eventId: Id,
   summary: NaturalLanguage,

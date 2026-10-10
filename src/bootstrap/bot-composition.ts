@@ -24,6 +24,7 @@ import { noopLogger, type Logger } from "../observability/logger.js";
 import { createAgentSendTool } from "../infrastructure/tools/agent-send-tool.js";
 import { createFileTools } from "../infrastructure/tools/file-tools.js";
 import { createWebTools } from "../infrastructure/tools/web-tools.js";
+import { createScheduledTaskTools } from "../infrastructure/tools/scheduled-task-tools.js";
 
 export type BotCompositionOptions = {
   readonly pool: Pool;
@@ -46,6 +47,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const configuredTools = [
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
+    ...createScheduledTaskTools(pool, ids, () => clock.now()),
     createAgentSendTool({ queue, clock, maxHops: limits.maxHops, provenance: (context) => ({
       parentHop: context.transport?.hop ?? 0,
       expiresAt: context.transport?.expiresAt ?? new Date(clock.now().getTime() + 86_400_000).toISOString(),

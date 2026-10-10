@@ -59,7 +59,9 @@ export class AgentRuntime {
     return this.#serialize(async () => {
       const occurredAt = new Date(event.occurredAt);
       const message: MessageEnvelope = { id: `internal:${event.id}`, destination: event.agentId, source: "scheduler", sentAt: occurredAt.toISOString(), availableAt: occurredAt.toISOString(), expiresAt: new Date(occurredAt.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "internal-event", eventId: event.id } };
-      return this.#execute(message, event, signal, []);
+      const destination = event.payload.targetKind === "scheduled-task" && typeof event.payload.destination === "string" ? event.payload.destination : undefined;
+      const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => action.type === "respond" && destination !== undefined ? [{ id: this.options.ids.next(), destination, source: event.agentId, correlationId: event.correlationId ?? event.id, causationId: input.run.runId, sentAt: this.options.now().toISOString(), availableAt: this.options.now().toISOString(), expiresAt: message.expiresAt, attempt: 0, hop: 0, payload: { type: "agent-response", text: action.content, agentId: event.agentId, autonomous: true, action: { id: input.run.runId, type: action.type } } }] : [];
+      return this.#execute(message, event, signal, outgoing);
     });
   }
   #serialize<T>(work: () => Promise<T>): Promise<T> {
