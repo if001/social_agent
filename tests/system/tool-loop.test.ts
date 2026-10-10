@@ -14,13 +14,14 @@ const finalOutput: AgentCoreOutput = {
 const context = (signal: AbortSignal, maxToolCalls = 2, runId = "run-1", eventId = "event-1") => createDeepAgentToolRunContext({ agentId: "agent-a", runId, eventId, maxToolCalls, signal });
 
 describe("ST-03 Deep Agent internal Tool Loop", () => {
-  it("rejects an identical recent Tool input before executing it again", async () => {
+  it("returns an identical recent Tool input as a Tool failure without executing it again", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
     const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 2, signal: new AbortController().signal, recentToolInputs: ['{"tool":"lookup","input":{"query":"same"}}'] });
-    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).rejects.toThrow("Recent identical Tool input");
+    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).resolves.toContain("Recent identical Tool input");
     expect(executions).toBe(0);
+    expect(runContext.collector.executions).toMatchObject([{ ok: false, error: "Recent identical Tool input must not be repeated" }]);
   });
 
   it("can choose a Tool on autonomy review from Self, Motive, and Memory", async () => {

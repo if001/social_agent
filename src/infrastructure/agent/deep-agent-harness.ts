@@ -180,8 +180,10 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     const signature = JSON.stringify({ tool: name, input: rawInput });
     if (context.recentToolInputs.includes(signature)) {
       const finishedAt = now().toISOString();
-      context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: "Recent identical Tool input must not be repeated", startedAt, finishedAt });
-      throw new DomainError("CONFLICT", "Recent identical Tool input must not be repeated");
+      const error = "Recent identical Tool input must not be repeated";
+      context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
+      logger.log("warn", "tool.completed", { ok: false, errorCode: "REPEATED_INPUT", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+      return JSON.stringify({ ok: false, error });
     }
     try {
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };

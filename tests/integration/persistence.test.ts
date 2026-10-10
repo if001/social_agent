@@ -304,6 +304,15 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT status,attempt,execution_event_id FROM scheduled_tasks WHERE id='task-due'")).rows[0]).toMatchObject({ status: "completed", attempt: 1, execution_event_id: "execution-event" });
   });
 
+  it("never claims a legacy or unknown autonomous schedule kind", async () => {
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','persistent-drive','legacy','2026-01-01'),('review-due','a','autonomy-review','review','2026-01-01')");
+    const repository = new PostgresScheduleRepository(pool);
+    const claims = await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10);
+    expect(claims.map(({ id }) => id)).toContain("review-due");
+    expect(claims.map(({ id }) => id)).not.toContain("legacy-drive");
+    expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM autonomous_schedules WHERE id='legacy-drive'")).rows[0]?.lease_until).toBeNull();
+  });
+
   it("shares correlation-loop and rate limits across Runtime instances", async () => {
     const first = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const second = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));

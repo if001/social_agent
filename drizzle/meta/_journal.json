@@ -64,6 +64,13 @@
       "when": 1791643559559,
       "tag": "0008_safe_lila_cheney",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791651918343,
+      "tag": "0009_remove_legacy_persistent_drive_schedules",
+      "breakpoints": true
     }
   ]
 }
