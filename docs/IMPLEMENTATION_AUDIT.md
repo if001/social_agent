@@ -22,12 +22,12 @@ No executable entry point currently constructs an `AgentRuntime`, production Con
 | CLI startup | `src/cli.ts` exposes operational commands | Missing | No `bot:start`, startup argument parser, signal handling, or readiness output. Issues 030 and 032. |
 | DB migration and Agent initialization | `pnpm db:migrate` and `initializeAgent()` through `pnpm ops` | Implemented | Migration correctly remains separate from bot startup. |
 | Agent ownership lock | `withAgentLock()` holds a PostgreSQL session advisory lock for a callback | Component only | No stable Agent-to-lock-key mapping and no Bot Host call that holds the lock for process lifetime. Issue 032. |
-| Production Context Loader | `ContextBuilder` validates owner and applies budgets; `PostgresMemoryRetriever` retrieves memories | Missing composition | No DB loader builds `AgentCoreInput` from Agent, Family, state, social contexts, intentions, retrieval, Tool definitions, constraints, and run limits. Issue 031. |
+| Production Context Loader | `ContextBuilder` validates owner and applies budgets; `PostgresMemoryRetriever` retrieves memories | Missing composition | No DB loader builds `AgentCoreInput` from Agent, Family, state, social contexts, current interests, retrieval, Tool definitions, constraints, and run limits. Issue 031. |
 | Normal Agent Core | `DeepAgentHarness` and `createOllamaDeepAgentInvoker()` execute the Japanese normal prompt and internal Tool loop | Implemented component | Not constructed by a bot entry point. Issue 031. |
 | Tool Registry | Web, File, and `agent_send` factories plus `ToolRegistry` exist | Implemented component | No production registration or per-run provenance provider. Issue 031. |
 | Runtime persistence | `PostgresRuntimePersistence` commits proposals, state changes, Tool records, receipt, run, and outbox | Implemented component | Requires the missing production input loader and composition. Issue 031. |
 | Long-term Review | Review Harness, service, PostgreSQL repository, and router exist | Implemented component | Not constructed by a bot entry point. Issue 031. |
-| Scheduler | `Scheduler.tick()` and `PostgresScheduleRepository` support due Intention and Candidate leasing | Implemented component | No recurring loop, backoff, or lifecycle integration. Issue 032. |
+| Scheduler | `Scheduler.tick()` and `PostgresScheduleRepository` support due scheduled task and Candidate leasing | Implemented component | No recurring loop, backoff, or lifecycle integration. Issue 032. |
 | Outbox | `OutboxDispatcher.dispatch()` publishes pending DB outbox records | Implemented component | No recurring loop, retry cadence, or shutdown integration. Issue 032. |
 | File Queue recovery | `AddressedFileQueue` supports addressed consumers, retries, and lease recovery | Implemented component | Recovery is exercised in tests but not started by a Bot Host. Issue 032. |
 | Discord inbound/outbound | `DiscordAdapter` and `DiscordJsGateway` exist and have contract/system tests | Implemented component | Default outbound destination is the shared literal `discord`; production configuration must use `discord:<BOT_ID>` to avoid cross-consumption. Issues 030–032. |
@@ -43,7 +43,7 @@ No executable entry point currently constructs an `AgentRuntime`, production Con
 | Queue root on the same host | Agent input destination (`BOT_ID`) |
 | Ollama Chat and Embedding endpoints | Discord token, bot user ID, allowlists |
 | Web Tool endpoint | Discord outbound destination (`discord:<BOT_ID>`) |
-| build artifact and Family records | Agent state, Memory, Intentions, Candidates |
+| build artifact and Family records | Agent state, Memory, Scheduled Tasks, Candidates |
 
 The database queries and Context Builder generally filter by Agent ID. The missing production Context Loader must preserve that property across every query. The File Queue can safely share a root because destinations have separate directories and claims use atomic rename; both Discord processes must not subscribe to the same outbound destination.
 

@@ -25,7 +25,7 @@
 - Event、Observation、Subjective Meaning、Action の処理フロー
 - Memory Retrieval と Context Builder による入力選択
 - 短期状態更新と Long-term Review による長期状態更新の分離
-- Intention、Time Event、Internal Event による自律行動
+- Drive、Current Interest、Time Event、Internal Eventによる自律行動
 - LLMの提案と通常コードによる検証・権限制御の分離
 
 一方、特定のLLM、DB、ベクトルDB、Queue、Frameworkは未確定であり、初期実装では単一プロセスを基本にできる。複数bot間通信や高度なMemory検索は、最小実装の成立に必須ではない。
@@ -53,7 +53,7 @@
 
 - 初期実装で実現する利用シナリオと成功条件
 - 一個体性、経験による個体化、自律行動に関する機能要件
-- Memory、State、Intention、Long-term Review、Tool利用の必須要件
+- Memory、State、Scheduled Task、Long-term Review、Tool利用の必須要件
 - 個人利用を前提とした権限・秘密情報・実行コスト・データ保持の制約
 - 対象外とする機能（公開運用、高可用性、大規模な複数Agent連携など）
 - 既存設計の初期検証シナリオに対応する受け入れ基準
@@ -73,7 +73,7 @@
 - Stable / Dynamic / Runtime State、Memory、Long-term Update Candidateのデータ構造と保存境界
 - State Update Proposalの検証、競合、失敗時の扱い
 - Memory Retrieval、Context上限、Compactionの初期方針
-- Intention、Scheduler、Internal Event、Long-term Reviewの起動条件とループ防止
+- Scheduled Task、Scheduler、Internal Event、Long-term Reviewの起動条件とループ防止
 - LLMと通常コードの責務分担、モデル呼び出し境界
 - 外部Toolの権限確認、秘密情報の扱い、破壊的操作の制約
 - 初期実装で採用する保存方式・検索方式・実行構成と、その選定理由
@@ -90,7 +90,7 @@ Data Design、Sync / State Design、Security Design、Operations Designに相当
 含める内容:
 
 - Requirementsの受け入れ基準とテストレベルの対応
-- Runtime、State Validation、Intentionライフサイクル、権限制御の決定的テスト
+- Runtime、State Validation、Scheduled Taskライフサイクル、権限制御の決定的テスト
 - Agent Core入出力の契約テストと不正出力・欠損出力への耐性
 - Memory RetrievalとContext Builderの関連性・上限・分離のテスト
 - Tool Loop、Internal Event、Long-term Reviewの停止条件と再実行安全性

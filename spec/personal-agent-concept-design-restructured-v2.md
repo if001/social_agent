@@ -502,45 +502,32 @@ Moodは次の出来事の意味解釈にも影響する。
 
 ---
 
-## 10. Desire / Intention
+## 10. Motivation / Scheduled Task
 
-### Desire
+### Motivation
 
-Desireは現在「したい」と感じている具体的なこと。
+DriveとCurrent Interestは、Agentの行動を直接動機づける。
 
-例えば、
+- Driveは、複数Eventにまたがって現在継続して求める広い方向と理由である。
+- Current Interestは、現在注意が活性化している具体的な探索的動機であり、focus、当面のgoal、progressを持つ。
 
-```text
-この話をもう少し続けたい。
+「この技術を調べたい」「疲れたため休みたい」は別々の動機として扱う。独立したDesire状態や、「したくない」という負の動機を置かない。Agent Coreは、複数のDrive、Current Interest、Emotion、Mood、Preference、実行制約を現在文脈で比較してActionを選ぶ。
 
-この技術についてもっと調べたい。
+Current Interestのgoalは興味対象を完全に知り尽くす条件ではなく、現在の知識や経験に応じた当面の満足点である。進展、充足、停滞、新しい観点に応じてprogress、resolve、drop、reframeを判断する。
 
-自分の提案がどう使われたか知りたい。
+### Scheduled Task
 
-今はその単純作業をやりたくない。
-
-少し別のことをして気分転換したい。
-```
-
-など。
-
-DesireはDisposition、Drive、Emotion、Mood、Observationなどから生じる。
-
-### Intention
-
-IntentionはDesireから生じた、ある程度継続する行動方針である。
-
-例えば、
+明示的な将来時刻に行う処理は、心理状態ではなくScheduled Taskとして扱う。
 
 ```text
-時間ができたら、この論文の続きを確認する。
+明日の朝、この調査結果を知らせる。
 
-次にこの話題になったら、自分の考えを伝える。
-
-このプロジェクトで役に立てる方法をもう少し探す。
+週末にタスク一覧を作成する。
 ```
 
-など。
+TaskはToolによって作成、参照、取消できる。期限が来るとSchedulerがSystem Eventを生成し、そのEventを通常のAgent Runtimeが処理する。ToolやSchedulerが将来処理を直接実行しない。
+
+約束したという経験と意味はMemoryへ保存し、実行責務の正本はScheduled Taskへ保存する。Scheduled TaskはMood、Drive、Current Interestを複製せず、実行時点のSelfと状態を使って具体的なActionを判断する。
 
 ---
 
@@ -663,7 +650,7 @@ Self
 Disposition
 Motivation / Drive
 Emotion / Mood
-Desire / Intention
+Drive / Current Interest
 Relevant Memory
 Social Context
 Expectation
@@ -728,7 +715,7 @@ Meaning:
 Drive:
   理由を理解したい
 
-Desire:
+Current Interest:
   関連資料を確認したい
 ```
 
@@ -788,7 +775,7 @@ Relationships
 Self Narrative
 Acquired Disposition
 Preferences
-Ongoing Intentions
+Scheduled Tasks and remembered commitments
 Accumulated Experience
 ```
 
@@ -840,7 +827,7 @@ Current Motivation
 +
 Mood
 +
-Competing Desire
+Competing Motivation
 +
 Social Context
 +
@@ -899,7 +886,7 @@ Memoryや推論の限界によって、
 - Moodによる判断の偏り
 - Driveの競合
 - Memoryの不完全さ
-- Desireの衝突
+- 動機の競合
 - LLMの推論ミス
 - 誤解とその後の修正
 
@@ -924,7 +911,7 @@ Agent Core
         ├── Disposition
         ├── Motivation / Drive
         ├── Emotion / Mood
-        ├── Desire / Intention
+        ├── Drive / Current Interest
         ├── Social Context
         └── Relevant Memory
         │
@@ -956,7 +943,7 @@ Agent CoreはLLMを中心とする。
 - Subjective Meaningの形成
 - Motivationの更新
 - Emotion / Moodの更新
-- Desire / Intentionの生成・更新
+- Drive / Current Interestの生成・更新
 - Social Contextの更新
 - Self Narrativeの更新
 - Acquired Dispositionの更新
@@ -989,7 +976,7 @@ External API
 
 Toolは単なるユーザー命令実行装置ではない。
 
-Agent自身のDriveやDesireからTool利用が生じてもよい。
+Agent自身のDriveやCurrent InterestからTool利用が生じてもよい。
 
 例えば、
 
@@ -1000,7 +987,7 @@ Disposition:
 Drive:
   この仕組みを理解したい
 
-Desire:
+Current Interest:
   原論文を確認したい
 
 Action:
@@ -1033,13 +1020,13 @@ Drive:
 
         ↓
 
-Desire:
+Current Interest:
   もう少し調べたい
 
         ↓
 
-Intention:
-  時間があるとき確認する
+Action:
+  現在可能な小さな調査を行う
 
         ↓
 
@@ -1065,7 +1052,7 @@ Motivation
 +
 Emotion / Mood
 +
-Desire / Intention
+Drive / Current Interest
 +
 Social Context
 +
@@ -1242,7 +1229,7 @@ Observation
 - Agent Coreの入出力
 - 状態更新のタイミング
 - Memory Retrieval
-- Desire / Intentionのライフサイクル
+- Drive / Current Interestのライフサイクル
 - Time Event / External Eventの扱い
 - LLMと通常コードの責務分担
 - Tool Loop
