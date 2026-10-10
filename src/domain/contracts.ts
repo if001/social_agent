@@ -160,7 +160,6 @@ export const MemorySchema = z.object({
   occurredAt: Instant,
   createdAt: Instant,
   relatedSubjectIds: z.array(Id),
-  relatedIntentionIds: z.array(Id),
   importance: NaturalLanguage,
   retrievalPriority: z.enum(["low", "normal", "high", "critical"]).default("normal"),
   sourceAgentId: Id.optional(),
@@ -171,7 +170,7 @@ export type Memory = z.infer<typeof MemorySchema>;
 export const MemoryRetrievalTraceSchema = z.object({
   memoryId: Id,
   finalRank: z.number().int().positive(),
-  matchedBy: z.array(z.enum(["vector", "keyword", "subject", "intention", "recency"])),
+  matchedBy: z.array(z.enum(["vector", "keyword", "subject", "recency"])),
   kind: MemorySchema.shape.kind,
   selected: z.boolean(),
   exclusionReason: z.enum(["rank-limit", "category-diversity", "context-budget", "recent-experience-duplicate"]).optional()
@@ -194,42 +193,6 @@ export const RecentExperienceSchema = z.object({
   progressChanged: z.boolean()
 });
 export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
-
-export const IntentionStatusSchema = z.enum(["active", "completed", "dropped", "superseded"]);
-export const IntentionTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("time"), at: Instant }),
-  z.object({ kind: z.literal("event"), eventKinds: z.array(EventKindSchema).min(1), keywords: z.array(NaturalLanguage).default([]) }),
-  z.object({ kind: z.literal("idle"), idleForMs: z.number().int().positive() }),
-  z.object({ kind: z.literal("manual-review") })
-]);
-export type IntentionTrigger = z.infer<typeof IntentionTriggerSchema>;
-export const IntentionSchema = z.object({
-  id: Id,
-  agentId: Id,
-  description: NaturalLanguage,
-  status: IntentionStatusSchema,
-  reason: NaturalLanguage,
-  trigger: IntentionTriggerSchema.optional(),
-  createdAt: Instant,
-  updatedAt: Instant,
-  nextReviewAt: Instant.optional(),
-  supersededById: Id.optional()
-}).superRefine((value, context) => {
-  if (value.status === "superseded" && value.supersededById === undefined) {
-    context.addIssue({ code: "custom", message: "superseded intentions require supersededById", path: ["supersededById"] });
-  }
-});
-export type Intention = z.infer<typeof IntentionSchema>;
-
-const intentionTransitions: Readonly<Record<Intention["status"], readonly Intention["status"][]>> = {
-  active: ["completed", "dropped", "superseded"],
-  completed: [],
-  dropped: [],
-  superseded: []
-};
-export function canTransitionIntention(from: Intention["status"], to: Intention["status"]): boolean {
-  return intentionTransitions[from].includes(to);
-}
 
 export const ReviewDecisionSchema = z.enum(["KEEP", "UPDATE", "MERGE", "DROP"]);
 export const CandidateSchema = z.object({
@@ -267,27 +230,6 @@ export const StateUpdateProposalSchema = z.object({
 
 export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, occurredAt: true, createdAt: true, kind: true, sourceAgentId: true, evidenceEventIds: true }).extend({ webSnapshotIds: z.array(Id).default([]) });
 
-const CreateIntentionProposalSchema = z.object({
-  operation: z.literal("create"),
-  description: NaturalLanguage,
-  reason: NaturalLanguage,
-  trigger: IntentionTriggerSchema.optional(),
-  nextReviewAt: Instant.optional()
-});
-const UpdateIntentionProposalSchema = z.object({
-  operation: z.literal("update"),
-  intentionId: Id,
-  description: NaturalLanguage.optional(),
-  status: IntentionStatusSchema.optional(),
-  reason: NaturalLanguage,
-  nextReviewAt: Instant.nullable().optional(),
-  supersededByIntentionId: Id.optional()
-}).superRefine((value, context) => {
-  if (value.status === "superseded" && value.supersededByIntentionId === undefined) context.addIssue({ code: "custom", path: ["supersededByIntentionId"], message: "superseded updates require supersededByIntentionId" });
-  if (value.status !== "superseded" && value.supersededByIntentionId !== undefined) context.addIssue({ code: "custom", path: ["supersededByIntentionId"], message: "supersededByIntentionId is only valid for superseded updates" });
-});
-export const IntentionProposalSchema = z.discriminatedUnion("operation", [CreateIntentionProposalSchema, UpdateIntentionProposalSchema]);
-
 export const LongTermCandidateProposalSchema = z.object({
   target: CandidateSchema.shape.target,
   proposal: NaturalLanguage,
@@ -314,12 +256,11 @@ export const AgentCoreInputSchema = z.object({
   socialContext: z.array(SocialContextSchema),
   memories: z.array(MemorySchema),
   memoryRetrievalTrace: z.array(MemoryRetrievalTraceSchema).default([]),
-  intentions: z.array(IntentionSchema),
   availableTools: z.array(z.object({ name: Id, description: NaturalLanguage, inputSchema: z.record(z.string(), z.unknown()) })),
   runtimeConstraints: z.array(NaturalLanguage),
   limits: RunLimitsSchema
 }).superRefine((value, context) => {
-  const owners = [value.self.id, value.dynamicState.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId), ...value.intentions.map((item) => item.agentId)];
+  const owners = [value.self.id, value.dynamicState.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId)];
   if (owners.some((owner) => owner !== value.run.agentId)) context.addIssue({ code: "custom", message: "context contains data owned by another agent" });
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
@@ -364,8 +305,7 @@ export const ContinuityOutputSchema = z.object({
     });
   }),
   driveProposals: z.array(DriveProposalSchema),
-  currentInterestProposals: z.array(CurrentInterestProposalSchema),
-  intentionProposals: z.array(IntentionProposalSchema)
+  currentInterestProposals: z.array(CurrentInterestProposalSchema)
 });
 export type ContinuityOutput = z.infer<typeof ContinuityOutputSchema>;
 export const MemoryExtractionOutputSchema = z.object({ memoryProposals: z.array(MemoryProposalSchema) });
@@ -403,7 +343,6 @@ export const PostProcessSnapshotSchema = z.object({
   dynamicState: DynamicStateSchema,
   socialContext: z.array(SocialContextSchema),
   memories: z.array(MemorySchema),
-  intentions: z.array(IntentionSchema),
   interaction: z.object({ interpretation: AgentCoreOutputSchema.shape.interpretation, action: FinalActionSchema, toolResults: z.array(PostProcessToolResultSchema) })
 });
 export type PostProcessSnapshot = z.infer<typeof PostProcessSnapshotSchema>;

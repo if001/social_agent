@@ -8,7 +8,6 @@ export type AgentOverview = {
   readonly agent: Record<string, unknown>;
   readonly state: Record<string, unknown>;
   readonly socialContexts: readonly Record<string, unknown>[];
-  readonly intentions: readonly Record<string, unknown>[];
   readonly scheduledTasks: readonly Record<string, unknown>[];
   readonly schedules: readonly Record<string, unknown>[];
   readonly candidates: readonly Record<string, unknown>[];
@@ -50,12 +49,9 @@ export class DebugUiRepository {
       FROM agents a JOIN agent_families f ON f.id=a.family_id LEFT JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1`, [agentId]);
     const agent = agents[0];
     if (agent === undefined) return undefined;
-    const [states, socialContexts, intentions, scheduledTasks, schedules, candidates, recentExperienceSnapshots] = await Promise.all([
+    const [states, socialContexts, scheduledTasks, schedules, candidates, recentExperienceSnapshots] = await Promise.all([
       this.query<QueryResultRow>(`SELECT mood,drives,current_interests AS "currentInterests",interest_exploration AS "interestExploration",version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,subject_id AS "subjectId",subject_type AS "subjectType",description,updated_at AS "updatedAt" FROM social_contexts WHERE agent_id=$1 ORDER BY updated_at DESC,id LIMIT 100`, [agentId]),
-      this.query<QueryResultRow>(`SELECT id,description,reason,trigger,status,next_review_at AS "nextReviewAt",
-        CASE WHEN status<>'active' THEN 'inactive' WHEN next_review_at IS NOT NULL THEN 'scheduled' WHEN trigger IS NOT NULL THEN 'trigger' ELSE 'missing' END AS "reviewPath",
-        updated_at AS "updatedAt" FROM intentions WHERE agent_id=$1 ORDER BY (status='active') DESC,updated_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 ORDER BY execute_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,kind,reason,next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,target,proposed_value AS "proposedValue",status,reason,evidence_event_ids AS "evidenceEventIds",review_after AS "reviewAfter",updated_at AS "updatedAt" FROM long_term_candidates WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 100`, [agentId]),
@@ -65,7 +61,7 @@ export class DebugUiRepository {
     ]);
     const value: unknown = recentExperienceSnapshots[0]?.recentExperiences;
     const recentExperiences = Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : [];
-    return { agent, state: states[0] ?? {}, socialContexts, intentions, scheduledTasks, schedules, candidates, recentExperiences };
+    return { agent, state: states[0] ?? {}, socialContexts, scheduledTasks, schedules, candidates, recentExperiences };
   }
 
   async listRuns(agentId: string, limit = 30): Promise<readonly RunListItem[]> {

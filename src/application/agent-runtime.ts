@@ -23,7 +23,6 @@ export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput>;
   commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
-  activateTriggers(event: DomainEvent): Promise<void>;
   recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
@@ -100,7 +99,7 @@ export class AgentRuntime {
     eventLogger.log("info", "context.loading");
     const input = await this.options.persistence.loadInput(event);
     const logger = eventLogger.child({ runId: input.run.runId });
-    logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, socialContextCount: input.socialContext.length, intentionCount: input.intentions.length, availableToolCount: input.availableTools.length });
+    logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, socialContextCount: input.socialContext.length, availableToolCount: input.availableTools.length });
     let result: AgentRunResult;
     const stateReview = isStateReview(event);
     try {
@@ -125,7 +124,6 @@ export class AgentRuntime {
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
-    if (committed === "committed") await this.options.persistence.activateTriggers(event);
     if (committed === "committed" && this.options.postProcess !== undefined) await this.options.postProcess.processAgent(event.agentId, signal);
     return output.action;
   }

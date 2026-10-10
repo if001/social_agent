@@ -4,8 +4,8 @@ import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system
 import type { MessageEnvelope } from "../../src/domain/contracts.js";
 
 describe("Scheduler", () => {
-  const target: ScheduledTarget = { id: "intention-1", agentId: "agent-a", kind: "intention", reason: "Due" };
-  const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000, intentionReviewIntervalMs: 120_000, persistentDriveReviewIntervalMs: 3_600_000 };
+  const target: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Due" };
+  const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000, persistentDriveReviewIntervalMs: 3_600_000 };
   const setup = (action: { type: "no-external-action"; reason: string } | { type: "respond"; content: string } | { type: "wait"; reason: string; until?: string }, replyContext?: Readonly<Record<string, unknown>>) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const published: MessageEnvelope[] = []; let claimed = false; const completions: (Date | null)[] = [];
     const repository = { claimDue: () => { if (claimed) return Promise.resolve([]); claimed = true; return Promise.resolve([target]); }, complete: (_target: ScheduledTarget, next: Date | null) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() };
@@ -16,11 +16,11 @@ describe("Scheduler", () => {
   it("runs due targets once and does not queue internal events", async () => {
     const value = setup({ type: "no-external-action", reason: "Nothing needed" });
     await expect(value.scheduler.tick(new AbortController().signal)).resolves.toBe(1); await expect(value.scheduler.tick(new AbortController().signal)).resolves.toBe(0);
-    expect(value.published).toEqual([]); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:02:00.000Z");
+    expect(value.published).toEqual([]); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
   it("publishes only externally visible actions to the default destination", async () => {
     const value = setup({ type: "respond", content: "An autonomous update" }, { channelId: "discord-channel" }); await value.scheduler.tick(new AbortController().signal);
-    expect(value.published).toHaveLength(1); expect(value.published[0]).toMatchObject({ destination: "terminal", payload: { autonomous: true, replyContext: { channelId: "discord-channel" } } }); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:02:00.000Z");
+    expect(value.published).toHaveLength(1); expect(value.published[0]).toMatchObject({ destination: "terminal", payload: { autonomous: true, replyContext: { channelId: "discord-channel" } } }); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
   it("rejects wait from autonomous work and starts no work while stopping", async () => {
     const value = setup({ type: "wait", reason: "Later", until: "2026-01-02T00:00:00Z" }); await expect(value.scheduler.tick(new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" }); expect(value.completions).toEqual([]);
@@ -47,7 +47,7 @@ describe("Scheduler", () => {
     await scheduler.tick(new AbortController().signal);
     expect(completions[0]?.toISOString()).toBe("2026-01-01T01:00:00.000Z");
   });
-  it("runs bounded autonomy review without an Intention and suppresses delivery without a destination", async () => {
+  it("runs bounded autonomy review and suppresses delivery without a destination", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: unknown[] = []; const completions: (Date | null)[] = []; let publishes = 0;
     const review: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Review Self, Drive, Interest, and Memory" };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "Internal result" }); } }, queue: { publish: () => { publishes += 1; return Promise.resolve(); }, subscribe: () => Promise.resolve() }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, ...timings });

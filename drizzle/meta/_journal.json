@@ -50,6 +50,13 @@
       "when": 1791628305041,
       "tag": "0006_adorable_iceman",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791631712710,
+      "tag": "0007_parallel_kabuki",
+      "breakpoints": true
     }
   ]
 }

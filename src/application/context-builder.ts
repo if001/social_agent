@@ -1,8 +1,8 @@
-import type { AgentCoreInput, BotPersona, Intention, Memory, MemoryRetrievalTrace, Observation, RecentExperience, SocialContext } from "../domain/contracts.js";
+import type { AgentCoreInput, BotPersona, Memory, MemoryRetrievalTrace, Observation, RecentExperience, SocialContext } from "../domain/contracts.js";
 import { noopLogger, type Logger } from "../observability/logger.js";
 
 export type ContextBudget = { readonly maxTokens: number; readonly maxMemories: number; readonly maxSocialContexts: number };
-export type ContextSource = Omit<AgentCoreInput, "socialContext" | "memories" | "memoryRetrievalTrace"> & { readonly socialContext: readonly SocialContext[]; readonly memories: readonly Memory[]; readonly memoryRetrievalTrace: readonly MemoryRetrievalTrace[]; readonly requiredSocialContextIds?: ReadonlySet<string>; readonly requiredIntentionIds?: ReadonlySet<string> };
+export type ContextSource = Omit<AgentCoreInput, "socialContext" | "memories" | "memoryRetrievalTrace"> & { readonly socialContext: readonly SocialContext[]; readonly memories: readonly Memory[]; readonly memoryRetrievalTrace: readonly MemoryRetrievalTrace[]; readonly requiredSocialContextIds?: ReadonlySet<string> };
 const tokens = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 4);
 const text = (value: string, limit: number): string => value.slice(0, limit);
 const texts = (values: readonly string[], count = 16, limit = 500): string[] => values.slice(0, count).map((value) => text(value, limit));
@@ -16,8 +16,6 @@ function persona(value: BotPersona | undefined): BotPersona | undefined {
   if (value === undefined) return undefined;
   return { ...value, identity: { displayName: text(value.identity.displayName, 200), ...(value.identity.description === undefined ? {} : { description: text(value.identity.description, 500) }) }, communication: { language: text(value.communication.language, 100), firstPerson: text(value.communication.firstPerson, 100), tone: texts(value.communication.tone, 8, 240), responseStyle: texts(value.communication.responseStyle, 8, 240), avoid: texts(value.communication.avoid, 8, 240) } };
 }
-
-function intention(value: Intention): Intention { return { ...value, description: text(value.description, 500), reason: text(value.reason, 500) }; }
 
 export class ContextBuilder {
   constructor(private readonly logger: Logger = noopLogger) {}
@@ -33,20 +31,16 @@ export class ContextBuilder {
     const recentExperiences: RecentExperience[] = [...recentCandidates]; let recentCost = recentExperiences.reduce((sum, value) => sum + tokens(value), 0);
     while (recentExperiences.length > 0 && used + recentCost > budget.maxTokens) { const removed = recentExperiences.shift(); if (removed !== undefined) { recentCost -= tokens(removed); this.logger.log("warn", "context.recent_experience_excluded", { agentId: source.run.agentId, eventId: removed.eventId, reason: recentExperiences.length === 0 ? "single-event-budget" : "context-budget" }); } }
     used += recentCost;
-    const intentions: Intention[] = []; const selectedSocial: SocialContext[] = [];
-    const addIntention = (item: Intention): void => { const bounded = intention(item); const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { intentions.push(bounded); used += cost; } };
+    const selectedSocial: SocialContext[] = [];
     const addSocial = (item: SocialContext): void => { const bounded = { ...item, description: text(item.description, 600) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { selectedSocial.push(bounded); used += cost; } };
-    const ownedIntentions = source.intentions.filter((item) => item.agentId === source.run.agentId && item.status === "active").slice(0, 6);
     const ownedSocial = source.socialContext.filter((item) => item.agentId === source.run.agentId).slice(0, Math.min(6, budget.maxSocialContexts));
-    for (const item of ownedIntentions.filter(({ id }) => source.requiredIntentionIds?.has(id) === true)) addIntention(item);
     for (const item of ownedSocial.filter(({ id }) => source.requiredSocialContextIds?.has(id) === true)) addSocial(item);
     const recentEventIds = new Set(recentExperiences.map(({ eventId }) => eventId));
     const duplicateMemoryIds = new Set(source.memories.filter((item) => item.agentId === source.run.agentId && item.kind === "episodic" && (item.retrievalPriority === "low" || item.retrievalPriority === "normal") && item.evidenceEventIds.some((id) => recentEventIds.has(id))).map(({ id }) => id));
     if (duplicateMemoryIds.size > 0) this.logger.log("debug", "context.memory_duplicates_excluded", { agentId: source.run.agentId, count: duplicateMemoryIds.size, memoryIds: JSON.stringify([...duplicateMemoryIds]) });
     const selectedMemories: Memory[] = []; for (const item of source.memories.filter((item) => item.agentId === source.run.agentId && !duplicateMemoryIds.has(item.id)).slice(0, budget.maxMemories)) { const bounded = { ...item, content: text(item.content, 2_000), importance: text(item.importance, 500) }; const cost = tokens(bounded); if (used + cost <= budget.maxTokens) { selectedMemories.push(bounded); used += cost; } }
-    const selectedIntentionIds = new Set(intentions.map(({ id }) => id)); for (const item of ownedIntentions) if (!selectedIntentionIds.has(item.id)) addIntention(item);
     const selectedSocialIds = new Set(selectedSocial.map(({ id }) => id)); for (const item of ownedSocial) if (!selectedSocialIds.has(item.id)) addSocial(item);
     const selectedIds = new Set(selectedMemories.map(({ id }) => id)); const memoryRetrievalTrace = source.memoryRetrievalTrace.map((item) => duplicateMemoryIds.has(item.memoryId) ? { ...item, selected: false, exclusionReason: "recent-experience-duplicate" as const } : item.selected && !selectedIds.has(item.memoryId) ? { ...item, selected: false, exclusionReason: "context-budget" as const } : item);
-    return { run: source.run, observation: required.observation, recentExperiences, ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace, intentions, availableTools: [...source.availableTools], runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
+    return { run: source.run, observation: required.observation, recentExperiences, ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), self: boundedSelf, dynamicState: boundedState, socialContext: selectedSocial, memories: selectedMemories, memoryRetrievalTrace, availableTools: [...source.availableTools], runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
   }
 }

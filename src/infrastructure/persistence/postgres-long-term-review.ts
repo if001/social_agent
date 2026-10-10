@@ -21,7 +21,7 @@ export class PostgresLongTermReviewRepository implements LongTermReviewRepositor
       this.pool.query<EventRow>("SELECT DISTINCT e.id,e.observation FROM long_term_candidates c CROSS JOIN LATERAL jsonb_array_elements_text(c.evidence_event_ids) evidence_id JOIN events e ON e.id=evidence_id AND e.agent_id=c.agent_id WHERE c.id=ANY($1::text[]) AND c.agent_id=$2 ORDER BY e.id", [candidateIds, agentId])
     ]);
     return {
-      memories: memoryResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, occurredAt: row.occurred_at.toISOString(), createdAt: row.created_at.toISOString(), relatedSubjectIds: [], relatedIntentionIds: [], importance: row.importance, retrievalPriority: row.retrieval_priority, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids })),
+      memories: memoryResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, kind: row.kind, content: row.content, occurredAt: row.occurred_at.toISOString(), createdAt: row.created_at.toISOString(), relatedSubjectIds: [], importance: row.importance, retrievalPriority: row.retrieval_priority, ...(row.source_agent_id === null ? {} : { sourceAgentId: row.source_agent_id }), evidenceEventIds: row.evidence_event_ids })),
       events: eventResult.rows.map(({ observation }) => ObservationSchema.parse(observation))
     };
   }

@@ -19,7 +19,7 @@ describe("embedding and context", () => {
 
   it("enforces ownership, category caps, budget and stable tie breaks", () => {
     const input = agentCoreInputFixture();
-    const memory = (id: string, agentId = "agent-a"): Memory => ({ id, agentId, kind: "episodic", content: `Memory ${id}`, occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-02T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Useful", retrievalPriority: "normal", evidenceEventIds: [] });
+    const memory = (id: string, agentId = "agent-a"): Memory => ({ id, agentId, kind: "episodic", content: `Memory ${id}`, occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-02T00:00:00Z", relatedSubjectIds: [], importance: "Useful", retrievalPriority: "normal", evidenceEventIds: [] });
     const result = new ContextBuilder().build({ ...input, memories: [memory("b"), memory("a"), memory("foreign", "agent-b")], memoryRetrievalTrace: [{ memoryId: "b", finalRank: 1, matchedBy: ["keyword", "recency"], kind: "episodic", selected: true }, { memoryId: "a", finalRank: 2, matchedBy: ["recency"], kind: "episodic", selected: true }] }, { maxTokens: 2_000, maxMemories: 1, maxSocialContexts: 1 });
     expect(result.memories.map(({ id }) => id)).toEqual(["b"]);
     expect(result.memoryRetrievalTrace.find(({ memoryId }) => memoryId === "a")).toMatchObject({ selected: false, exclusionReason: "context-budget" });
@@ -38,32 +38,23 @@ describe("embedding and context", () => {
     expect(result.self.interests).toHaveLength(16);
   });
 
-  it("builds a bounded deterministic query from observation, state, intention and social context", () => {
+  it("builds a bounded deterministic query from observation, state and social context", () => {
     const input = agentCoreInputFixture();
-    input.intentions = [{ id: "goal", agentId: input.run.agentId, description: "研究発表を支援する", status: "active", reason: "約束した", createdAt: input.run.occurredAt, updatedAt: input.run.occurredAt }];
     input.socialContext = [{ id: "social", agentId: input.run.agentId, subjectId: "user", subjectType: "user", description: "発表準備を率直に相談する関係", updatedAt: input.run.occurredAt }];
     input.dynamicState = { ...input.dynamicState, mood: "発表を慎重に支援したい" };
     const query = buildRelevantMemoryQuery(input);
     expect(query.text).toContain("発表を慎重に支援したい");
-    expect(query.text).toContain("研究発表を支援する");
     expect(query.subjectIds).toEqual(["user"]);
-    expect(query.intentionIds).toEqual(["goal"]);
     expect(query.keywords.length).toBeGreaterThan(0);
     expect(buildRelevantMemoryQuery(input)).toEqual(query);
   });
 
-  it("reserves required context, then memories, and bounds selected state text", () => {
+  it("reserves required Social Context and bounds selected state text", () => {
     const input = agentCoreInputFixture();
-    input.intentions = Array.from({ length: 8 }, (_, index) => ({ id: `intention-${String(index)}`, agentId: input.run.agentId, description: "d".repeat(800), status: "active" as const, reason: "r".repeat(800), createdAt: input.run.occurredAt, updatedAt: input.run.occurredAt }));
     input.socialContext = Array.from({ length: 8 }, (_, index) => ({ id: `social-${String(index)}`, agentId: input.run.agentId, subjectId: `subject-${String(index)}`, subjectType: "user" as const, description: "s".repeat(800), updatedAt: input.run.occurredAt }));
-    input.memories = [{ id: "relevant-memory", agentId: input.run.agentId, kind: "episodic", content: "important", occurredAt: input.run.occurredAt, createdAt: input.run.occurredAt, relatedSubjectIds: [], relatedIntentionIds: [], importance: "useful", retrievalPriority: "normal", evidenceEventIds: [input.run.eventId] }];
-    const result = new ContextBuilder().build({ ...input, requiredIntentionIds: new Set(["intention-0"]), requiredSocialContextIds: new Set(["social-0"]) }, { maxTokens: 4_000, maxMemories: 2, maxSocialContexts: 24 });
-    expect(result.intentions.length).toBeLessThanOrEqual(6);
+    const result = new ContextBuilder().build({ ...input, requiredSocialContextIds: new Set(["social-0"]) }, { maxTokens: 4_000, maxMemories: 2, maxSocialContexts: 24 });
     expect(result.socialContext.length).toBeLessThanOrEqual(6);
-    expect(result.intentions[0]).toMatchObject({ id: "intention-0" });
     expect(result.socialContext[0]).toMatchObject({ id: "social-0" });
-    expect(result.memories.map(({ id }) => id)).toContain("relevant-memory");
-    expect(result.intentions.every(({ description, reason }) => description.length <= 500 && reason.length <= 500)).toBe(true);
     expect(result.socialContext.every(({ description }) => description.length <= 600)).toBe(true);
   });
 
@@ -79,7 +70,7 @@ describe("embedding and context", () => {
   it("deduplicates ordinary episodic Memory covered by Recent Experience", () => {
     const input = agentCoreInputFixture(); const eventId = "recent-event";
     input.recentExperiences = [{ eventId, runId: "recent-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "user-message", observation: { eventId, summary: "recent exchange", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "action", action: { type: "respond", content: "answer" } }], progressChanged: false }];
-    const makeMemory = (id: string, kind: Memory["kind"], priority: Memory["retrievalPriority"], evidenceEventIds: string[]): Memory => ({ id, agentId: input.run.agentId, kind, content: id, occurredAt: input.run.occurredAt, createdAt: input.run.occurredAt, relatedSubjectIds: [], relatedIntentionIds: [], importance: "useful", retrievalPriority: priority, evidenceEventIds });
+    const makeMemory = (id: string, kind: Memory["kind"], priority: Memory["retrievalPriority"], evidenceEventIds: string[]): Memory => ({ id, agentId: input.run.agentId, kind, content: id, occurredAt: input.run.occurredAt, createdAt: input.run.occurredAt, relatedSubjectIds: [], importance: "useful", retrievalPriority: priority, evidenceEventIds });
     input.memories = [makeMemory("duplicate", "episodic", "normal", [eventId]), makeMemory("important", "episodic", "high", [eventId]), makeMemory("semantic", "semantic", "normal", [eventId]), makeMemory("older", "episodic", "normal", ["older-event"])];
     input.memoryRetrievalTrace = input.memories.map((item, index) => ({ memoryId: item.id, finalRank: index + 1, matchedBy: ["recency" as const], kind: item.kind, selected: true }));
     const logs: { message: string; context?: Readonly<Record<string, unknown>> }[] = []; const logger = { child: () => logger, log: (_level: string, message: string, context?: Readonly<Record<string, unknown>>) => { logs.push({ message, ...(context === undefined ? {} : { context }) }); } } as ConstructorParameters<typeof ContextBuilder>[0];

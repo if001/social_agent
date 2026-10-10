@@ -4,7 +4,7 @@ import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersi
 import type { IdGenerator } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { applyCurrentInterestProposals, applyDriveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
-import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, canTransitionIntention, ContinuityInputSchema, ContinuityOutputSchema, DomainError, IntentionTriggerSchema, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type ContinuityOutput, type DomainEvent, type Intention, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, ContinuityInputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 import { PostgresUnitOfWork } from "./postgres.js";
@@ -14,7 +14,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0, private readonly intentionReviewIntervalMs = 86_400_000, private readonly tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, persistentDriveInitialDelayMs = 0, private readonly tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), persistentDriveInitialDelayMs); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -27,29 +27,9 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       if (claimed.rows[0]?.message_id !== messageId) throw new DomainError("VALIDATION", "Correlation loop detected");
       const rate = await client.query<{ event_count: number }>("INSERT INTO runtime_rate_windows(agent_id,window_start,event_count) VALUES ($1,date_trunc('minute',now()),1) ON CONFLICT (agent_id,window_start) DO UPDATE SET event_count=runtime_rate_windows.event_count+1 RETURNING event_count", [event.agentId]);
       if ((rate.rows[0]?.event_count ?? 0) > maxEventsPerMinute) throw new DomainError("VALIDATION", "Agent event rate limit exceeded");
-      if (event.kind === "user-message" || event.kind === "external") {
-        const idleIntentions = await client.query<{ id: string; trigger: unknown }>("SELECT id,trigger FROM intentions WHERE agent_id=$1 AND status='active' AND trigger IS NOT NULL FOR UPDATE", [event.agentId]);
-        for (const row of idleIntentions.rows) {
-          const parsed = IntentionTriggerSchema.safeParse(row.trigger);
-          if (parsed.success && parsed.data.kind === "idle") await client.query("UPDATE intentions SET next_review_at=$2,updated_at=now() WHERE id=$1", [row.id, new Date(new Date(event.occurredAt).getTime() + parsed.data.idleForMs)]);
-        }
-      }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
-  async activateTriggers(event: DomainEvent): Promise<void> {
-    if (event.payload.schedulerGenerated === true) return;
-    const result = await this.pool.query<{ id: string; trigger: unknown }>("SELECT id,trigger FROM intentions WHERE agent_id=$1 AND status='active' AND trigger IS NOT NULL", [event.agentId]);
-    const payload = JSON.stringify(event.payload).toLocaleLowerCase("ja");
-    for (const row of result.rows) {
-      const parsed = IntentionTriggerSchema.safeParse(row.trigger); if (!parsed.success) continue;
-      const trigger = parsed.data; let due: Date | undefined;
-      if (trigger.kind === "event" && trigger.eventKinds.includes(event.kind) && (trigger.keywords.length === 0 || trigger.keywords.some((keyword) => payload.includes(keyword.toLocaleLowerCase("ja"))))) due = new Date(event.occurredAt);
-      if (trigger.kind === "manual-review" && (event.kind === "system" || event.kind === "internal") && event.payload.manualReviewIntentionId === row.id) due = new Date(event.occurredAt);
-      if (due !== undefined) await this.pool.query("UPDATE intentions SET next_review_at=$2,updated_at=now() WHERE id=$1", [row.id, due]);
-    }
-  }
-
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     const stateReview = event.kind === "internal" && event.payload.targetKind === "state-review";
@@ -119,8 +99,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       const driveUpdates = applyDriveProposals(persistent.state, parsed.driveProposals, job.input.run.occurredAt);
       const interestUpdates = applyCurrentInterestProposals(driveUpdates.state, parsed.currentInterestProposals, () => this.ids.next(), job.input.run.occurredAt);
       const updates = { state: interestUpdates.state, changes: [...persistent.changes, ...driveUpdates.changes, ...interestUpdates.changes] };
-      const intentions = this.#materializeIntentions(job.input, parsed);
-      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests, interest_exploration: updates.state.interestExploration }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed, ...intentions });
+      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: updates.state.mood, drives: updates.state.drives, current_interests: updates.state.currentInterests, interest_exploration: updates.state.interestExploration }, changes: updates.changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed });
       return;
     }
     if (job.type === "memory") {
@@ -150,7 +129,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       const projected = execution.ok ? this.tools?.projectResult(execution.name, execution.result ?? null, "post-process") ?? execution.result ?? null : execution.error ?? "Tool failed";
       return { name: execution.name, ok: execution.ok, summary: JSON.stringify(projected).slice(0, 2_000), webSnapshotIds: [...new Set(snapshotIds)] };
     });
-    return { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentExperiences: input.recentExperiences, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, intentions: input.intentions, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults } };
+    return { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentExperiences: input.recentExperiences, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults } };
   }
 
   async #materializeMemories(input: PostProcessSnapshot, output: MemoryExtractionOutput): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[] }> {
@@ -166,30 +145,6 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const sourceAgentId = input.observation.actor?.type === "agent" ? input.observation.actor.id : undefined;
     for (const proposal of uniqueMemoryProposals) { const { webSnapshotIds, ...memoryProposal } = proposal; const memory: Memory = { id: this.ids.next(), agentId: input.run.agentId, kind: "episodic", occurredAt: input.run.occurredAt, createdAt: this.now().toISOString(), ...memoryProposal, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), evidenceEventIds: [input.run.eventId] }; memories.push(memory); if (webSnapshotIds.length > 0) memoryWebEvidence.push({ memoryId: memory.id, snapshotIds: webSnapshotIds }); }
     return { memories, memoryWebEvidence };
-  }
-
-  #materializeIntentions(input: PostProcessSnapshot, output: ContinuityOutput): { readonly intentionCreates: readonly Intention[]; readonly intentionUpdates: readonly Intention[] } {
-    const occurredAt = input.run.occurredAt;
-    const intentionsById = new Map(input.intentions.map((intention) => [intention.id, intention]));
-    const intentionCreates: Intention[] = []; const intentionUpdates: Intention[] = [];
-    for (const proposal of output.intentionProposals) {
-      if (proposal.operation === "create") {
-        const idleReviewAt = proposal.trigger?.kind === "idle" ? new Date(new Date(occurredAt).getTime() + proposal.trigger.idleForMs).toISOString() : undefined;
-        const timeReviewAt = proposal.trigger?.kind === "time" ? proposal.trigger.at : undefined;
-        const defaultReviewAt = proposal.trigger === undefined ? new Date(new Date(occurredAt).getTime() + this.intentionReviewIntervalMs).toISOString() : undefined;
-        const nextReviewAt = proposal.nextReviewAt ?? idleReviewAt ?? timeReviewAt ?? defaultReviewAt;
-        intentionCreates.push({ id: this.ids.next(), agentId: input.run.agentId, description: proposal.description, status: "active", reason: proposal.reason, createdAt: occurredAt, updatedAt: occurredAt, ...(proposal.trigger === undefined ? {} : { trigger: proposal.trigger }), ...(nextReviewAt === undefined ? {} : { nextReviewAt }) });
-      }
-      else {
-        const current = intentionsById.get(proposal.intentionId); if (current === undefined) throw new DomainError("VALIDATION", `Unknown intention: ${proposal.intentionId}`);
-        const status = proposal.status ?? current.status;
-        if (status !== current.status && !canTransitionIntention(current.status, status)) throw new DomainError("VALIDATION", `Invalid intention transition: ${current.status} -> ${status}`);
-        const proposedReviewAt = proposal.nextReviewAt === null ? undefined : proposal.nextReviewAt ?? current.nextReviewAt;
-        const nextReviewAt = status === "active" && current.trigger === undefined && proposedReviewAt === undefined ? new Date(new Date(occurredAt).getTime() + this.intentionReviewIntervalMs).toISOString() : proposedReviewAt;
-        intentionUpdates.push({ ...current, description: proposal.description ?? current.description, status, reason: proposal.reason, updatedAt: occurredAt, nextReviewAt, ...(proposal.supersededByIntentionId === undefined ? {} : { supersededById: proposal.supersededByIntentionId }) });
-      }
-    }
-    return { intentionCreates, intentionUpdates };
   }
 
   #validateTools(input: AgentCoreInput, executions: readonly ToolExecutionRecord[]): readonly ToolExecutionRecord[] {
