@@ -34,8 +34,8 @@
 | Domain Schema / state transition | 入出力の妥当性、許可された状態遷移 |
 | `MessageQueue` | 宛先配送、ack、retry、lease、dead-letter |
 | Repository / Unit of Work | 個体分離、transaction、version、outbox |
-| `InteractionHarness` | 応答・Emotion・Desire、Tool公開、trace、共通error |
-| `ContinuityHarness` | 固定経験からMood、Drive、Current Interest、Social Context、Intentionを構造化提案 |
+| `InteractionHarness` | 応答・Emotion、Tool公開、trace、共通error |
+| `ContinuityHarness` | 固定経験からMood、Drive、Current Interest、Social Contextを構造化提案 |
 | `MemoryExtractionHarness` | 固定経験からEpisodic Memoryだけを構造化提案 |
 | `CandidateDetector` | 保存済みMemoryから必要時だけLong-term Candidateを構造化提案 |
 | `MemoryRetriever` / `ContextBuilder` | 検索条件、選択内容、budget、個体分離 |
@@ -124,9 +124,9 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** Framework非依存の共通語彙と、交換可能な境界を確定する。
 
-**実装対象:** Agent Family / Agent、Stable / Dynamic / Runtime State、Event、Observation、Message Envelope、Memory、Intention、Candidate、Action、Agent Core Input / Output、RunLimits、共通errorの型とZod Schema。Queue、Repository、Harness、Embedding、Retriever、Tool、Clock、ID、UIのPort。
+**実装対象:** Agent Family / Agent、Stable / Dynamic / Runtime State、Event、Observation、Message Envelope、Memory、Scheduled Task、Candidate、Action、Agent Core Input / Output、RunLimits、共通errorの型とZod Schema。Queue、Repository、Harness、Embedding、Retriever、Tool、Clock、ID、UIのPort。
 
-**TDD / 検証:** 有効・無効な境界、Intention遷移、Review判断、hop / TTL / attempt上限をpublic schemaとtransition APIから検証する。自然言語状態を固定enumや数値人格へ縮退させない。
+**TDD / 検証:** 有効・無効な境界、Scheduled Task遷移、Review判断、hop / TTL / attempt上限をpublic schemaとtransition APIから検証する。自然言語状態を固定enumや数値人格へ縮退させない。
 
 **完了条件:** Domain / Application契約がInfrastructure型をimportせず、Requirementsの状態区分とActionを表現できる。後続adapter用contract suiteの共通fixtureが用意される。
 
@@ -172,7 +172,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** LLMの提案を機械的に検証し、許可された変更だけをtrace付きで確定する。
 
-**実装対象:** short-term target / operation allowlist、個体所有権検証、長期更新拒否、Intention更新、Memory / Candidate提案検証、state version、Event / run / state change / tool trace / receipt / outboxのtransaction orchestration。
+**実装対象:** short-term target / operation allowlist、個体所有権検証、長期更新拒否、Drive / Current Interest更新、Memory / Candidate提案検証、state version、Event / run / state change / tool trace / receipt / outboxのtransaction orchestration。
 
 **TDD / 検証:** State Update Service seamで許可更新、禁止されたIdentity / Shared / Acquired変更、別Agent参照、Schema不正、version競合、before / after / reason / evidenceを検証する。Unit of Work seamで途中失敗時の全rollbackを確認する。
 
@@ -199,7 +199,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 **実装対象:** 次の2段階に分ける。
 
 1. **Memory保存・Embedding（Issue 036）:** Episodic Memoryを通常runで保存し、Semantic / Self-related CandidateをReviewで確定する生成経路、`pending | ready | failed`のEmbedding状態、transaction外のEmbedding生成、model / dimension metadata、冪等backfill、provider障害時のfallback可能な保存を実装する。
-2. **Relevant Memory Query・Context（Issue 037）:** Observation、Dynamic State、Active Intention、Working Social Contextから決定的な`MemoryQuery`を構築し、agent / metadata filter、vector / 日本語keyword / subject / intention候補pool、正規化または順位統合、recency / retrieval priority、種類別予約枠、安定したtie-break、関連度順を維持するbudget切り詰めを実装する。
+2. **Relevant Memory Query・Context（Issue 037）:** Observation、Dynamic State、Current Interest、Working Social Contextから決定的な`MemoryQuery`を構築し、agent / metadata filter、vector / 日本語keyword / subject / Current Interest候補pool、正規化または順位統合、recency / retrieval priority、種類別予約枠、安定したtie-break、関連度順を維持するbudget切り詰めを実装する。
 
 **TDD / 検証:** 固定vectorと日本語を含む既知datasetでfilter、lexical / semantic双方、別Agent除外、Embedding未生成とprovider障害、model / dimension不一致、3種類の選択、top K、budget、順位維持、選択の安定性を検証する。Context Builderは返却されたpublic inputとRetrieverの順位が保たれることをassertする。
 
@@ -218,7 +218,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **目的:** User Messageから即時状態と応答を確定・配送し、経験整理を後続Post-processへ分離するend-to-end経路を完成させる。
 
-**実装対象:** MessageからEvent / Observationへの変換、agent単位直列処理、Interaction Harness、Continuity / Memory Extraction jobのatomic作成と独立claim / retry、Memory保存後の条件付きCandidate job、Context Builder、State Update、outbox dispatcher、通常応答の`replyTo`、Terminal Adapter、graceful drain。応答、Emotion、Desire、Tool trace、2つのjobはInteraction commitで確定する。ContinuityはMood、Drive、Current Interest、Working Social Context、Intention、Memory ExtractionはEpisodic Memory、Candidate Detectorは保存済みMemoryを根拠とするCandidateを別々に確定する。
+**実装対象:** MessageからEvent / Observationへの変換、agent単位直列処理、Interaction Harness、Continuity / Memory Extraction jobのatomic作成と独立claim / retry、Memory保存後の条件付きCandidate job、Context Builder、State Update、outbox dispatcher、通常応答の`replyTo`、Terminal Adapter、graceful drain。応答、Emotion、Tool trace、2つのjobはInteraction commitで確定する。ContinuityはMood、Drive、Current Interest、Working Social Context、Memory ExtractionはEpisodic Memory、Candidate Detectorは保存済みMemoryを根拠とするCandidateを別々に確定する。
 
 **TDD / 検証:** ST-01を最初のtracer bulletとし、Scripted HarnessでTerminal相当入力からDB更新、outbox、Terminal出力まで確認する。その後、重複入力、LLM失敗、DB失敗、publish失敗、process停止を1例ずつ追加する。
 
@@ -238,11 +238,11 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 
 **依存:** IP-05、IP-07、IP-09。
 
-### IP-11: Scheduler、Intention、自律行動
+### IP-11: Scheduler、Scheduled Task、自律行動
 
 **目的:** 保存済み状態から再検討機会を生成し、ユーザー入力なしの行動を上限付きで実現する。
 
-**実装対象:** Intention lifecycle、time / event / idle / manual-review trigger、`next_review_at`、due scan、Time / Internal Event、persistent Drive再評価、default output destination、期限付きleaseとbackoff、Schedulerの開始停止と多重起動防止。
+**実装対象:** Scheduled Task create / list / cancel Tool、due scan、System Event生成、Time / Internal Event、persistent Drive再評価、default output destination、期限付きleaseとbackoff、Schedulerの開始停止と多重起動防止。
 
 **TDD / 検証:** Fake Clockでdue / not-due、status遷移、同じ対象の連続起動防止、停止中の起動拒否、Queueを経由しない内部Event、no-external-actionの終端、自律Eventのwait拒否を検証する。ST-04で外部通知が必要なActionだけがQueueへ出ることを確認する。
 
@@ -355,7 +355,7 @@ IP-16の完了前に、採用した通常Core / Long-term Review / Deep Agent内
 | FR-AG、状態区分、複数個体 | IP-02、IP-04、IP-06、IP-12、IP-13 |
 | FR-EV、Agent Loop、Tool Loop | IP-02、IP-07、IP-09、IP-10 |
 | FR-ME、Memory、Context | IP-04、IP-08、IP-12 |
-| FR-AU、Intention、自律行動 | IP-09、IP-11、IP-13 |
+| FR-AU、Scheduled Task、自律行動 | IP-09、IP-11、IP-13 |
 | FR-LR、Long-term Review | IP-06、IP-12、IP-16 |
 | FR-TL、Tool境界 | IP-07、IP-10、IP-13 |
 | FR-UI、Terminal、Discord | IP-09、IP-14 |
@@ -377,7 +377,7 @@ Agent CoreのSelf契約では、DB上でFamily、Agent、Agent Stateに分かれ
 
 Continuity UpdateのDrive提案は汎用State Updateから分離し、Selfと主観的価値判断、具体的なEvent / Memory evidenceに基づく生成、維持、更新、統合、終了を表す。Runtimeが参照を検証し、開始時刻と所有者を管理する。
 
-自律性はIntention、persistent Driveに加え、Agent単位で有界な`autonomy-review`から通常Coreを起動する。Review Eventを探索機会というInternal Observationとして扱い、Drive、Current Interest、Intentionが空でもStable Interest / Preference、最近の探索履歴、関連MemoryからKnowledge Gapを最大1件選び、一時的Desireと初回探索を形成できる。Selfを永続Driveへ固定変換せず、具体的な探索経験から必要なCurrent Interest、Drive、Intentionだけを後処理で提案する。
+自律性はpersistent DriveとCurrent Interestに加え、Agent単位で有界な`autonomy-review`から通常Coreを起動する。Review Eventを探索機会というInternal Observationとして扱い、Drive、Current Interestが空でもStable Interest / Preference、最近の探索履歴、関連MemoryからKnowledge Gapを最大1件選び、初回探索Actionを形成できる。Selfを永続Driveへ固定変換せず、具体的な探索経験から必要なCurrent Interest、Driveだけを後処理で提案する。
 
 Current Interestは`id`、`focus`、`goal`、`progress: 0 | 25 | 50 | 75 | 100`を持ち、変更を`create | progress | reframe | resolve | drop`として提案する。RuntimeはID、時刻、連続停滞回数、最終探索時刻、cooldownと実行上限を管理する。進捗時は停滞をresetし、Goal達成時は関連状態を収束させ、停滞時は別手段、延期、cooldown、dropへ移れるようにする。詳細知識はMemory / Web Snapshotに置き、外部価値がある結果だけを通知する。
 
@@ -385,7 +385,7 @@ Initial Selfはユーザー理解等の抽象的方向性と、個体ごとの�
 
 適応的な探索と対話のため、Agent Run、Event、Action、Tool execution、State Changeから直近8 Eventの`recentExperiences`をContextへ時系列に構成する。Current Interestの契約は増やさない。Coreは進展しなかった同一手段を反復せず、方法、問い方、対象または時機を変更する。RuntimeはRecent Experienceから反復防止情報を導出し、所有権、Context上限、cooldown、明らかな同一Tool入力の短時間反復だけを機械的に制約する。
 
-Selfから自律Actionまでの回帰は、versioned初期Self、Stable Interestだけからの初回探索、根拠付きDrive、構造化Current Interestの進展・充足・reframe・停滞・drop、Intentionなしのreview、Tool trace、Web Archive、Episodic Memory、cooldown、内部保存と外部通知の分岐を決定的testで確認する。Live評価はまずEV-02を1回だけ実行し、長期的な人格品質はSoakへ分離する。
+Selfから自律Actionまでの回帰は、versioned初期Self、Stable Interestだけからの初回探索、根拠付きDrive、構造化Current Interestの進展・充足・reframe・停滞・drop、Current Interestなしのreview、Tool trace、Web Archive、Episodic Memory、cooldown、内部保存と外部通知の分岐を決定的testで確認する。Live評価はまずEV-02を1回だけ実行し、長期的な人格品質はSoakへ分離する。
 
 各Issueは、次を満たして完了とする。
 

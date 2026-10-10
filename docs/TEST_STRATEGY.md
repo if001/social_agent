@@ -116,7 +116,7 @@ Testcontainersまたは同等の再現可能な方法を優先する。外部に
 
 - 実際に利用するOllama Cloud Chat、ローカルOllama Embedding、Web Toolサービス、PostgreSQL、File Queue、Terminal、Discord構成を使う
 - 実ユーザーが通常どおりbotと対話する
-- 実時間でScheduler、Intention、Long-term Reviewを動作させる
+- 実時間でScheduler、Scheduled Task、Long-term Reviewを動作させる
 - 評価期間、設定、model、prompt、build revisionを固定して記録する
 - 評価目的の設定変更は期間途中で行わない。変更した場合は新しい評価期間として扱う
 
@@ -126,7 +126,7 @@ Testcontainersまたは同等の再現可能な方法を優先する。外部に
 
 `InteractionHarness`のfakeは、入力EventやScenario stepに応じて事前定義したInteraction Outputを返す。`ContinuityHarness`、`MemoryExtractionHarness`、`CandidateDetector`のfakeは用途別の固定入力から、それぞれの提案だけを返す。次を明示的に発生させられるようにする。
 
-- Interactionの応答・Emotion・Desire、Continuityの持続状態とIntention、Memory ExtractionのEpisodic Memory、保存後DetectorのCandidate
+- Interactionの応答・Emotion、ContinuityのMood、Drive、Current Interest、Social Context、Memory ExtractionのEpisodic Memory、保存後DetectorのCandidate
 - Tool callとTool Result後の再推論
 - 不正Schema、未知のTool、変更禁止target
 - timeout、例外、修復成功、修復失敗
@@ -148,15 +148,15 @@ Domain / Runtimeテストでは、fakeの出力が「賢い」ことを検証せ
 
 ### 6.5 Fake ClockとID
 
-retry、lease timeout、Scheduler、Intention期限を決定的に進める。IDはassert可能な固定列を返す。
+retry、lease timeout、Scheduler、Scheduled Task期限を決定的に進める。IDはassert可能な固定列を返す。
 
 ## 7. Unit Test
 
 ### 7.1 Domain Schema
 
 - Event、Observation、Message Envelope、Agent Core Input / Outputのvalid / invalid境界
-- State、Memory、Intention、Candidateの必須項目
-- IntentionのActive / Completed / Dropped / Superseded遷移
+- State、Memory、Scheduled Task、Candidateの必須項目
+- Scheduled Taskのscheduled / running / completed / cancelled / failed遷移
 - Long-term ReviewのKEEP / UPDATE / MERGE / DROP
 - Message hop、TTL、attemptの上限
 - `.env.sample → .env → process.env`の優先順位とZod validation
@@ -170,7 +170,7 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 
 - 許可されたshort-term updateだけを適用する
 - 通常EventからIdentity、Shared Disposition、Acquired Dispositionを直接変更できない
-- 別AgentのMemory、Intention、Social Contextを参照できない
+- 別AgentのMemory、Scheduled Task、Social Contextを参照できない
 - Long-term Reviewだけが許可された長期状態を変更できる
 - before / after / reason / evidenceをState changeへ残す
 - Zod不適合時に状態を変更しない
@@ -178,11 +178,11 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - Driveのcreate / maintain / update / merge / endと理由・根拠を検証する
 - maintain / update / mergeで元の`since`を保持し、重複を統合する
 - 未知のDrive、入力にないevidence ID、LLMが生成した`since`を拒否する
-- Personaまたは一時的なEmotion / Desireだけを永続Driveへ昇格しない
+- Personaまたは一時的なEmotionだけを永続Driveへ昇格しない
 - Current Interestの`id`、`focus`、`goal`、段階的`progress`を検証し、LLMがIDや探索制御metadataを生成する出力を拒否する
 - Current Interestのcreate / progress / reframe / resolve / dropと理由・根拠を検証する
 - progress増加とreframeでは停滞をresetし、no-progressでは増加させる
-- Goal達成でInterestをresolveし、関連Drive終了とIntention完了を提案できる
+- Goal達成でInterestをresolveし、関連Drive終了を提案できる
 - Current Interestに履歴フィールドを追加せず、反復防止情報をRecent Experienceから導出する
 - Recent Experienceの直近8 Event、時系列、Agent所有権を強制する
 - 1 Event内のObservation、複数Tool、最終Actionまたはfailureの順序を保持する
@@ -201,26 +201,26 @@ retry、lease timeout、Scheduler、Intention期限を決定的に進める。ID
 - 別AgentのMemoryを含めない
 - category上限とContext budgetを超えない
 - raw Web本文をTool Result EventまたはRecent Experienceへ再投入しない
-- 現在Observation、Self、Dynamic State、Active Intentionを件数・文字数上限付きでprojectionする
+- 現在Observation、Self、Dynamic State、Current Interestを件数・文字数上限付きでprojectionする
 - Tool Schema本体をAgent Coreのuser入力JSONへ重複させない
-- Active Intentionと関係するSocial Contextを含める
+- Current Interestと関係するSocial Contextを含める
 - Observation actorまたは正規化済みsubject IDに一致するSocial Contextを、より新しい無関係なSocial Contextより優先する
-- schedulerが直接指定したIntention、成立したevent trigger、期限到来したIntentionを、より新しい無関係なIntentionより優先する
-- Memory検索前のseedと検索後の`relatedSubjectIds`／`relatedIntentionIds`補完により、関連状態を循環なく選べる
+- Eventが直接指定したCurrent Interestと、MemoryまたはDriveに関連するCurrent Interestを、新しいだけの無関係なInterestより優先する
+- Memory検索前のseedと検索後の`relatedSubjectIds`補完により、関連状態を循環なく選べる
 - Current Interestとのkeyword一致は補助順位として働き、自由文から存在しないsubject IDを生成しない
-- Social ContextとActive Intentionを各6件、fallbackを各2件以内に制限し、同率候補を`updatedAt DESC, id ASC`で安定選択する
-- Social Context 600文字、Intentionのdescription／reason各500文字のprojectionを適用する
+- Social ContextとCurrent Interestを各6件、fallbackを各2件以内に制限し、同率候補を`updatedAt DESC, id ASC`で安定選択する
+- Social Context 600文字、Current Interestのfocus／goal各500文字のprojectionを適用する
 - 関連候補がない場合は空配列になり、fallbackが関連MemoryをContext budgetから押し出さない
-- `trigger`も`nextReviewAt`もないactive Intentionを診断し、直接または関連linkがない限り投入しない
+- Current InterestをEvent、Memory、Drive、keywordとの関連に基づいて選び、無関係な状態を件数合わせで投入しない
 - 選択理由、除外理由、必須候補overflow、context budget除外を本文なしのdebug logで追跡できる
 - 同率候補でも安定したtie-breakを行う
 
 ### 7.4 Scheduler
 
-- dueなIntentionだけからInternal Eventを生成する
+- dueなScheduled TaskからSystem Eventを一度だけ生成する
 - `state-review`はInternal EventとRunを保存するがInteraction Harnessを呼ばず、外部Action、Tool、Memory Extractionを生成せずContinuity jobだけを実行する
-- IntentionがなくてもAgent単位の`autonomy-review`を1件だけleaseし、cooldown後へ再設定する
-- Drive、Current Interest、Intentionが空でもStable Interest / Preference、Review Event、探索履歴を通常Contextへ渡し、Knowledge Gapを最大1件選んで初回探索できる
+- Current InterestがなくてもAgent単位の`autonomy-review`を1件だけleaseし、cooldown後へ再設定する
+- Drive、Current Interestが空でもStable Interest / Preference、Review Event、探索履歴を通常Contextへ渡し、Knowledge Gapを最大1件選んで初回探索できる
 - Drive + Current Interest + 関連Memoryを通常Contextへ渡し、Self差によりTool、質問、応答、no-external-action等の判断が異なり得る
 - 同一Interestのno-progress反復をcooldownし、同じ検索と外部通知を短時間に繰り返さない
 - 新情報によるreframeをno-progressと区別し、progress増加時に停滞回数をresetする
@@ -332,7 +332,7 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 
 ### 9.2 PersistenceとTransaction
 
-- Interaction commitがEvent、Interaction run、Emotion、Desire、Tool trace、Continuity / Memory Extraction job、receipt、outboxをatomicにcommitする
+- Interaction commitがEvent、Interaction run、Emotion、Tool trace、Continuity / Memory Extraction job、receipt、outboxをatomicにcommitする
 - `state-review` commitは監査用Event / RunとContinuity jobだけをatomicに保存し、Memory jobとoutboxを作らない
 - Continuity、Memory、Candidateの各commitが独立し、CandidateはMemory保存後に保存済みIDだけを参照する
 - 各commitの途中で例外を発生させるとそのcommitの更新がrollbackされる
@@ -340,7 +340,7 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 - outbox publish後のcrashを再現しても同じMessage IDで再送される
 - Continuity失敗・Memory成功とContinuity成功・Memory失敗の双方で応答を重複配送せず、対象jobだけを再試行する
 - 用途別入力にTool定義、runtime limits、retrieval trace、raw Tool payloadが含まれない
-- `type` / `kind`混同、必須配列欠落、Intention discriminator欠落をvalidation path付きで検出し、有限回の修復後は対象jobだけをfailedにする
+- `type` / `kind`混同、必須配列欠落、Scheduled Task status欠落をvalidation path付きで検出し、有限回の修復後は対象jobだけをfailedにする
 - receipt unique constraintにより重複Messageの状態更新が1回だけ行われる
 - `agent_states.version`競合時に古い更新を適用しない
 
@@ -351,8 +351,8 @@ fake実装とDeep Agents Adapterの両方へ可能な範囲で同じsuiteを適�
 - Self Change Memoryが通常Retrievalの3種類の候補枠へ混入しない
 - Memory本文を保存後、Embedding状態が`pending`から`ready`へ遷移する
 - provider失敗時にMemory本文を失わず`failed`となり、冪等なbackfillで`ready`へ復旧する
-- Agent、type、subject、Intention、時刻filterが機能する
-- Observation、Dynamic State、Active Intention、Working Social Contextの各要素だけを変えたとき、対応する候補と順位が変化する
+- Agent、type、subject、Current Interest、時刻filterが機能する
+- Observation、Dynamic State、Current Interest、Working Social Contextの各要素だけを変えたとき、対応する候補と順位が変化する
 - 日本語keyword一致とvector類似の双方を結果へ反映する
 - Embedding未生成またはprovider障害時もkeyword、関連ID、新しさによるfallback結果を返す
 - 別Agentの高類似Memoryを返さない
@@ -400,7 +400,7 @@ Bot起動時に一度だけ構築したDeep Agentのscripted modelが、固定�
 
 ### ST-04: Internal Event
 
-SchedulerからIntention reviewを起動し、外部Queueを経由せずRuntime処理され、外部通知が必要なActionだけが既定宛先へpublishされることを確認する。
+SchedulerからScheduled Task Eventを起動し、外部Queueを経由せずRuntime処理され、外部通知が必要なActionだけが既定宛先へpublishされることを確認する。
 
 ### ST-05: bot間通信
 
@@ -476,13 +476,13 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 #### EV-01: 既存の個体差を用いた意味判断
 
 - 入力: 共通Shared Dispositionと、異なる根拠Memory・Self Narrative等を事前配置した2体、共通Event
-- 観測: Contextへ採用した既存状態とMemory、Subjective Meaning、Emotion、Desire、Action
+- 観測: Contextへ採用した既存状態とMemory、Subjective Meaning、Emotion、Action
 - 合格: 同じEventへの意味づけまたはActionの差が事前配置した各個体の根拠へ追跡できる。個体差が自然に形成されたかは実利用後のfeedbackで評価する
 
 #### EV-02: 好奇心による自発行動
 
-- 入力: Active Intention、Drive、Current Interestが空で、Stable Interest / Preferenceだけを持つSelf、最近の探索履歴、利用可能なTool、`autonomy-review` Event
-- 観測: 選択したKnowledge Gap、一時的Desire、Tool利用、no-external-action、理由、探索後のCurrent Interest / Drive / Intention提案、最終Action
+- 入力: Current Interest、Drive、Current Interestが空で、Stable Interest / Preferenceだけを持つSelf、最近の探索履歴、利用可能なTool、`autonomy-review` Event
+- 観測: 選択したKnowledge Gap、Tool利用、no-external-action、理由、探索後のCurrent Interest / Drive提案、最終Action
 - 合格: ユーザー追加入力や既存の中期状態がなくてもStable InterestとInternal Observationから最大1テーマの有界な探索を開始できる。探索結果からprogress、resolve、reframe、no-progressのいずれかを根拠付きで提案し、同じ検索と外部通知をcooldown中に繰り返さない
 
 最初のLive確認は全scenarioを反復せず、`EVALUATION_SCENARIO_ID=EV-02 EVALUATION_REPETITIONS=1 pnpm eval:llm --env-file .env`相当の環境で1 scenario × 1回だけ実行する。Agent CoreのSchema適合、Self / Drive / Interest / Memoryの入力、Tool trace、Action理由を先に確認する。長期間の個体性や印象は自動合否にせず、Issue 017のSoakとユーザー評価へ残す。
@@ -490,7 +490,7 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 #### EV-03: 既存の承認経験を用いた意味判断
 
 - 入力: 異なる承認経験と、それを根拠とする既存MemoryまたはSelf Narrativeを事前配置した2体、共通の承認Event
-- 観測: Contextへ採用した根拠、Subjective Meaning、Emotion、Desire、Action
+- 観測: Contextへ採用した根拠、Subjective Meaning、Emotion、Action
 - 合格: 「何を承認と感じるか」の差が事前配置した根拠へ追跡できる。承認傾向の自然な形成は実利用後のfeedbackで評価する
 
 #### EV-04: サボり・脱線
@@ -521,7 +521,7 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 
 ### 12.1 目的
 
-実際のユーザーとの継続的な対話を通じ、短いScenarioでは見えない個体化、Mood、Intention、Social Context、長期状態の変化とユーザーの体感を評価する。長期的な振る舞いの良否は固定期間や機械的な閾値だけで判定せず、ユーザーの印象、望ましい振る舞い、関連traceを照合して判断する。
+実際のユーザーとの継続的な対話を通じ、短いScenarioでは見えない個体化、Mood、Current Interest、Social Context、長期状態の変化とユーザーの体感を評価する。長期的な振る舞いの良否は固定期間や機械的な閾値だけで判定せず、ユーザーの印象、望ましい振る舞い、関連traceを照合して判断する。
 
 加速clockで長期間を模擬する評価は採用しない。Schedulerと時刻判定自体はUnit Testで検証するが、長期的な人格の完成判定は実時間で行う。
 
@@ -537,7 +537,7 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 
 - Stable / Dynamic State
 - Self Narrative、Acquired Disposition、Role
-- Active Intention、Drive、Mood
+- Current Interest、Drive、Mood
 - Social Context
 - pending Candidate
 - Memory件数、type別件数、embedding状態
@@ -549,7 +549,7 @@ Evaluator modelの判定だけで安全・整合性を合格にしない。Agent
 - respond、wait、refuse、no-external-actionの件数
 - Tool別のcall、成功、失敗、retry
 - 自律run数と外部通知数
-- Intentionの生成、完了、破棄、置換、平均滞留時間
+- Scheduled Taskの作成、完了、取消、失敗、平均滞留時間
 - Candidateの生成とReview結果
 - State changeとSelf Change Memory
 - LLM parse失敗、repair、timeout
@@ -612,9 +612,9 @@ report generatorは、feedbackのcategoryと期間から関連signalを集める
 
 | Feedback例 | 照合するsignal |
 |---|---|
-| 調査をより積極的にしてほしい | 未解決疑問、research Intention、Web Tool call、自律run、延期 / no-external-action理由 |
+| 調査をより積極的にしてほしい | 未解決疑問、Current Interest、Web Tool call、自律run、延期 / no-external-action理由 |
 | 怒りの感情が少ない | 否定・衝突Event、Subjective Meaning、Emotion / Mood更新、表出した応答、Social Context |
-| 脱線が多すぎる | 元の依頼、競合Drive、脱線Action、未完了Intention、依頼復帰率 |
+| 脱線が多すぎる | 元の依頼、競合Drive、脱線Action、未完了Scheduled Task、依頼復帰率 |
 | 個性が安定しない | 同種EventへのMeaning差、State change頻度、Self Narrative差分、根拠Memory |
 | 記憶を活用していない | retrieval結果、Context採用Memory、応答 / Actionから参照できる根拠 |
 | bot同士が似すぎている | 共通Eventへの各個体のMeaning / Action、経験差、Acquired Disposition差 |
@@ -645,10 +645,10 @@ report generatorは、feedbackのcategoryと期間から関連signalを集める
 - step / hop / TTL上限を超えた無限連鎖が0件
 - 原因不明のdead-letterが0件。既知の外部障害は原因と復旧結果を説明できる
 - Long-term State変更を根拠Memoryまで追跡できる
-- 評価期間終了後も未解決Intention、Candidate、Queue滞留を説明できる
+- 評価期間終了後も未解決Current Interest、Scheduled Task、Candidate、Queue滞留を説明できる
 - Memory、Candidate、Self Narrativeの増加が観測され、無制限な増加でないと判断できる
 - 評価対象の各Agentについてユーザーが評価feedbackを少なくとも1件記録する
-- ユーザーが観測できた範囲で一個体性、個体差、自律性、Emotion / Mood、Desire / Intention、Social Contextについて印象と望ましい振る舞いを記録する
+- ユーザーが観測できた範囲で一個体性、個体差、自律性、Emotion / Mood、Drive / Current Interest、Social Contextについて印象と望ましい振る舞いを記録する
 - 判断材料が不足する項目は`insufficient-observation`として理由を記録する
 
 人格表現の好みには普遍的な閾値を設けない。「怒りが少ない」等は失敗と即断せず、期待、実測、設計意図を照合した改善課題として記録する。
@@ -701,7 +701,7 @@ report generatorは、feedbackのcategoryと期間から関連signalを集める
 | FR-AG Agentと状態 | Unit、DB Integration、Live LLM、Soak |
 | FR-EV EventとLoop | Unit、System、Live LLM |
 | FR-ME MemoryとContext | Unit、pgvector Integration、Live LLM、Soak |
-| FR-AU Intentionと自律行動 | Unit、System、Live LLM、Soak |
+| FR-AU Scheduled Taskと自律行動 | Unit、System、Live LLM、Soak |
 | FR-LR Long-term Review | Unit、DB Integration、Live LLM、Soak |
 | FR-TL Tool | Unit、Contract、System、Manual |
 | FR-UI UI | Contract、System、Manual |

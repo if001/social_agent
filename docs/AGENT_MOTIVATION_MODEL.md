@@ -1,149 +1,146 @@
-# AgentのSelf・動機・行動の関係
+# AgentのSelf・動機・行動・Scheduled Taskの関係
 
-この文書は、Agentが持つSelfと、Interest、Preference、Drive、Emotion、Desire、Current Interest、Intention、Actionの関係を示す。概念上の関係を説明する文書であり、各要素を固定規則で機械的に変換することは意図しない。
+この文書は、Agentが持つSelf、持続状態、Event内の反応、行動、明示的な予約実行の関係を示す。各要素を固定規則で機械的に変換するものではない。
 
 ## 全体像
 
 ```mermaid
 flowchart LR
     subgraph INPUT["現在の入力と経験"]
-        O["Observation<br/>外部・内部・時間Event"]
-        MEM["Memory<br/>経験・知識・自己関連記憶"]
-        SC["Social Context<br/>相手との関係認識"]
+        O["Observation<br/>外部・内部・時間・System Event"]
+        MEM["Memory"]
+        SC["Social Context"]
     end
-
     subgraph SELF["Self：比較的安定した自己"]
-        ID["Identity / Role<br/>自分は誰か・どんな役割か"]
-        DISP["Disposition<br/>何に価値を感じやすいか<br/>どう反応しやすいか"]
-        VAL["Values<br/>何を大切にするか"]
-        SI["Self Interests<br/>継続的に注意を引かれやすい対象"]
-        PREF["Preferences<br/>対象・方法・様式への好き嫌い"]
-        SN["Self Narrative / Continuity<br/>自分をどう理解し続けるか"]
+        ID["Identity / Role"]
+        DISP["Disposition / Values"]
+        SI["Self Interests<br/>注意を引かれやすい対象"]
+        PREF["Preferences<br/>対象・方法・様式の好み"]
+        SN["Self Narrative / Continuity"]
     end
-
-    subgraph STATE["持続状態：複数Eventにまたがる現在"]
-        MOOD["Mood<br/>持続する気分"]
-        DRIVE["Drive<br/>現在、継続して何を求めるか"]
-        CI["Current Interest<br/>現在注意が向く対象<br/>focus・当面のgoal・progress"]
-        INT["Intention<br/>後のEventまで維持する<br/>具体的な行動方針"]
+    subgraph STATE["複数Eventにまたがる現在"]
+        MOOD["Mood"]
+        DRIVE["Drive<br/>継続している広い動機"]
+        CI["Current Interest<br/>活性化した探索的動機<br/>focus・goal・progress"]
     end
-
     subgraph EVENT["今回のEvent内"]
-        SM["Subjective Meaning<br/>この出来事が自分にとって何を意味するか"]
-        EMO["Emotion<br/>今回の一時的な感情"]
-        DES["Desire<br/>今回したい／したくないこと"]
-        ACT["Action<br/>応答・Tool・待機・拒否・何もしない"]
+        SM["Subjective Meaning"]
+        EMO["Emotion"]
+        ACT["Action<br/>応答・Tool・拒否・外部行動なし"]
     end
-
     O --> SM
     MEM --> SM
     SC --> SM
     ID --> SM
     DISP --> SM
-    VAL --> SM
     SI --> SM
     PREF --> SM
     SN --> SM
     MOOD --> SM
     DRIVE --> SM
     CI --> SM
-    INT --> SM
-
     SM --> EMO
-    SM --> DES
-    MOOD --> EMO
-    DRIVE --> DES
-    CI --> DES
-    INT --> ACT
+    SM --> ACT
     EMO --> ACT
-    DES --> ACT
+    MOOD --> ACT
+    DRIVE --> ACT
+    CI --> ACT
     PREF --> ACT
-
-    SM -. "持続する価値が生じた場合" .-> DRIVE
-    SM -. "注意を持ち越す場合" .-> CI
-    DES -. "後でも行うと決めた場合" .-> INT
-    ACT --> EXP["新しい経験・結果"]
+    ACT --> EXP["結果・相手の反応・Tool結果"]
     EXP --> MEM
     EXP -. "短中期の再評価" .-> MOOD
-    EXP -. "進展・停滞・充足" .-> DRIVE
+    EXP -. "継続・充足" .-> DRIVE
     EXP -. "progress / reframe / resolve / drop" .-> CI
-    EXP -. "継続・完了・失敗・変更" .-> INT
-    MEM -. "複数経験をLong-term Review" .-> DISP
-    MEM -. "複数経験をLong-term Review" .-> SI
-    MEM -. "複数経験をLong-term Review" .-> PREF
-    MEM -. "複数経験をLong-term Review" .-> SN
+    MEM -. "Long-term Review" .-> DISP
+    MEM -. "Long-term Review" .-> SI
+    MEM -. "Long-term Review" .-> PREF
+    MEM -. "Long-term Review" .-> SN
 ```
 
-実線は今回の判断へ直接使う主な入力と結果を、点線は条件付きの状態更新を表す。たとえばSelf InterestからDriveを必ず生成する固定変換は置かない。ObservationやMemoryをSelfに照らして意味づけ、今回の経験を越えて価値が持続すると判断した場合にDriveを提案する。
+DriveとCurrent Interestはいずれも動機であり、Actionへ直接影響する。独立したDesire状態を間に置かない。「調べたい」と「休みたい」の競合も、正と負のDesireではなく複数の動機、Emotion、Mood、Preference、制約を現在文脈で比較してActionを選ぶ。
 
 ## 各要素の責務
 
 | 要素 | 所属・持続時間 | 表すもの | 主に影響する先 |
 |---|---|---|---|
-| Identity / Role | Self・長期 | 自分が誰で、どのような役割を持つか | Subjective Meaning、Action |
-| Disposition | Self・長期 | 何に価値を感じ、どう反応しやすいかという傾向 | Subjective Meaning、Drive形成、長期的な選択傾向 |
-| Values | Self・長期 | 大切にする原則や価値 | Subjective Meaning、Drive、競合するActionの判断 |
-| Self Interest | Self・長期 | 継続的に注意を引かれやすい分野や対象 | 新しいCurrent Interestの候補、Subjective Meaning、探索方向 |
-| Preference | Self・長期 | 対象、方法、様式への好みや避ける傾向 | Actionの方法、探索対象、応答スタイルの選択 |
-| Self Narrative / Continuity | Self・長期 | 過去から現在までの自分についての理解 | Subjective Meaning、自己整合的な判断 |
-| Mood | 持続状態・中期 | 複数Eventへ影響する気分 | Emotion、Subjective Meaning、Action傾向 |
-| Drive | 持続状態・中期 | 現在、継続して求めていることとその理由 | 自律EventでのAction、Desire、Current Interest、Intention |
-| Current Interest | 持続状態・中期 | 現在注意が向く対象と、当面の満足点・進捗 | 次に調べる対象、質問、Tool利用、探索の収束 |
-| Emotion | Event内・短期 | 今回のEventに対する一時的感情 | 今回の応答・行動 |
-| Desire | Event内・短期 | 今回したい、またはしたくないこと | 今回のAction、継続させるIntentionの候補 |
-| Intention | 持続状態・中期 | 後のEventまで維持する具体的な行動方針 | Schedulerによる再評価、将来のAction |
-| Memory | 検索可能な経験 | 出来事、得た知識、自己に関する経験 | 将来の意味づけ、状態更新、Long-term Review |
+| Identity / Role | Self・長期 | 自分が誰で、どの役割を持つか | Subjective Meaning、Action |
+| Disposition | Self・長期 | 何に価値を感じ、どう反応しやすいか | Subjective Meaning、Drive形成、選択傾向 |
+| Values | Self・長期 | 大切にする原則や価値 | Subjective Meaning、Drive、Actionの競合判断 |
+| Self Interest | Self・長期 | 継続的に注意を引かれやすい分野や対象 | 新しいDrive・Current Interestの候補 |
+| Preference | Self・長期 | 対象、方法、様式への好みや避ける傾向 | Actionの方法、探索対象、応答表現 |
+| Self Narrative / Continuity | Self・長期 | 過去から現在までの自己理解 | Subjective Meaning、自己整合的な判断 |
+| Mood | 持続状態・中期 | 複数Eventへ影響する気分 | Subjective Meaning、Emotion、Action傾向 |
+| Drive | 持続状態・中期 | 現在継続して求める広い方向と理由 | Action、Current Interestの形成・選択・収束 |
+| Current Interest | 持続状態・中期 | 現在活性化した探索的動機と当面の充足点・進捗 | 質問、Tool利用、共有、探索の収束 |
+| Emotion | Event内・短期 | 今回のEventへの一時的な感情反応 | 今回のAction |
+| Memory | 検索可能な経験 | 出来事、知識、自己に関する経験 | 意味づけ、状態更新、Long-term Review |
+| Scheduled Task | Runtime管理 | 明示的な時刻に実行する責務 | 期限到来時のSystem Event |
 
-## 時間スケールと更新担当
+Self Interestは広い注意傾向で、Preferenceは対象や方法への好き嫌いである。Driveは現在継続している広い動機であり、Current Interestはその時点で注意が活性化した具体的な探索的動機である。Current Interestのgoalは興味全体の終了条件ではなく、現在の知識や経験に応じた当面の満足点である。
+
+## Event処理と更新時間
 
 ```mermaid
 flowchart TB
-    E["Event"] --> IA["Interaction Agent<br/>意味づけ・Tool loop・即時Action"]
-    IA --> SHORT["Emotion / Desire<br/>今回のrunに記録"]
-    IA --> ACTION["応答・Tool・待機・拒否・no-external-action"]
-
+    E["Event"] --> IA["Interaction Deep Agent<br/>意味づけ・Tool loop・Action"]
+    IA --> SHORT["Emotion<br/>今回のRunに記録"]
+    IA --> ACTION["最終Action"]
     IA --> PP["応答後のPost-process"]
     PP --> CONT["Continuity Update"]
-    CONT --> MID["Mood / Drive / Current Interest<br/>Social Context / Intention"]
+    CONT --> MID["Mood / Drive / Current Interest<br/>Social Context"]
     PP --> MX["Memory Extraction"]
     MX --> MEMORY["Episodic Memory"]
     MEMORY --> CAND["Long-term Candidate"]
-
     CAND --> LTR["Long-term Review"]
-    LTR --> LONG["Acquired Disposition / Self Narrative<br/>Role / Raison d'être / Stable Interest / Preference"]
+    LTR --> LONG["Acquired Disposition / Self Narrative<br/>Role / Stable Interest / Preference"]
 ```
 
-- Interaction Agentは、今回のEventに必要なEmotion、Desire、Actionを一貫して判断する。
-- Post-processは、応答後に持続状態とMemoryを更新する。EmotionやDesireをそのまま永続化しない。
-- Long-term Reviewは、複数のMemoryやCandidateを根拠にSelfの長期要素を更新する。単発EventだけでSelf InterestやPreferenceを確定しない。
+- Interaction Deep Agentは今回のEmotionとActionを一貫して判断する。
+- DriveとCurrent InterestはActionの直接入力であり、Desireへ変換しない。
+- Post-processは応答後に持続状態とMemoryを更新する。Emotionは永続化しない。
+- Long-term Reviewは複数のMemoryやCandidateを根拠にSelfの長期要素を更新する。
 
-## Interest・Preference・Drive・Desire・Intentionの違い
+## 自律行動
 
 ```mermaid
 flowchart LR
-    SI["Self Interest<br/>技術や対話相手の理解に<br/>注意を引かれやすい"]
-    O["Observation / Memory<br/>Agentの記憶設計について話した"]
-    D["Drive<br/>Agentが経験から変化する仕組みを<br/>理解したい"]
-    CI["Current Interest<br/>focus: Episodic Memoryの統合<br/>goal: 保存から再利用まで説明できる<br/>progress: 50"]
-    DES["Desire<br/>今回は関連実装を調べたい"]
-    ACT["Action<br/>コード検索Toolを使う"]
-    INT["Intention<br/>次の対話で調査結果を整理して説明する"]
-    PREF["Preference<br/>一度に一つずつ確かめたい"]
-
-    SI --> D
-    O --> D
-    D --> CI
-    CI --> DES
-    O --> DES
-    DES --> ACT
-    PREF --> ACT
-    DES -. "後にも維持する場合" .-> INT
-    INT --> ACT
+    AR["autonomy-review Event"] --> CTX["Self / Drive / Current Interest<br/>Memory / Social Context / Recent Experience"]
+    CTX --> CORE["Interaction Deep Agent"]
+    CORE --> DECIDE{"現在可能な小さな行動"}
+    DECIDE --> TOOL["Tool利用"]
+    DECIDE --> ASK["自然な質問・発見の共有"]
+    DECIDE --> NONE["実行可能な行動がない"]
+    TOOL --> RESULT["経験・進展・停滞"]
+    ASK --> RESULT
+    RESULT --> POST["Post-process"]
+    POST --> UPDATE["Drive / Current Interestを<br/>維持・更新・収束"]
 ```
 
-この図の矢印は可能な影響であり、必須の生成順ではない。Self Interestは広い関心傾向、Current Interestは今注意している対象、Driveは現在それを求める理由、Desireは今回の衝動、Intentionは将来まで維持する行動方針である。
+Current Interestがなくても、Self Interest、会話、Social Context、Memory、Tool結果、Web Snapshot、Driveから現在小さく確かめられる対象を判断できる。継続して注意を持ち越す価値が生じた場合だけPost-processがCurrent Interestを作る。
 
-Current InterestとIntentionは別のライフサイクルを持つ。たとえば調査によりCurrent Interestの当面のgoalを満たした後、「次の対話で説明する」という行動だけが残る場合、Current Interestを`resolve`し、Intentionを維持する。反対に、あるIntentionが失敗または完了しても、別の方法で知りたいCurrent Interestは残り得る。
+## Scheduled Task
+
+Scheduled Taskは心理状態ではなく、明示した時刻に処理する運用上の責務である。約束した経験や意味はMemoryへ保存し、実行の正本はScheduled Taskへ保存する。
+
+```mermaid
+flowchart LR
+    E["通常Event"] --> CORE["Interaction Deep Agent"]
+    CORE --> CREATE["schedule_task Tool<br/>作成のみ"]
+    CREATE --> DB[("scheduled_tasks")]
+    CLOCK["時刻到来"] --> SCHED["Scheduler<br/>due Taskをclaim"]
+    DB --> SCHED
+    SCHED --> SE["System Event<br/>targetKind: scheduled-task"]
+    SE --> RUNTIME["通常のAgent Runtime"]
+    RUNTIME --> AGENT["Agent Core / Tool loop"]
+    AGENT --> OUT["Action / Outbox"]
+    RUNTIME --> STATUS["completed / retry / failed"]
+```
+
+- `schedule_task`、`scheduled_task_list`、`scheduled_task_cancel`は予約データの作成・参照・取消だけを行う。
+- Tool呼び出し時に予約対象の処理を実行しない。
+- 期限到来後の唯一の実行入口はEventである。SchedulerはAgent Coreを直接呼ばない。
+- EventはTask ID、instruction、destination、作成元Event / Runを持ち、通常のRuntime、Tool loop、Outboxを通る。
+- Scheduled TaskはMood、Drive、Current Interestを複製しない。実行時点のContextでActionを判断する。
 
 ## 循環による個体化
 
@@ -151,7 +148,7 @@ Current InterestとIntentionは別のライフサイクルを持つ。たとえ�
 flowchart LR
     S1["現在のSelf"] --> M["Subjective Meaning"]
     O["Observation"] --> M
-    M --> A["Emotion・Desire・Action"]
+    M --> A["Emotion・Action"]
     A --> R["結果・相手の反応・Tool結果"]
     R --> MEM["Memory"]
     MEM --> REVIEW["Long-term Review"]
@@ -160,10 +157,11 @@ flowchart LR
     NEXT --> M
 ```
 
-Agentの個体差は、初期設定だけで完結しない。行動の結果をMemoryとして保持し、繰り返し現れる傾向をLong-term ReviewでAcquired Disposition、Self Narrative、Stable Interest、Preferenceへ反映することで、同じFamilyから開始したAgentも異なる意味づけと行動を選ぶようになる。
+Agentの個体差は初期設定だけで完結しない。経験をMemoryとして保持し、繰り返し現れる傾向をLong-term ReviewでSelfへ反映することで、同じFamilyから始まったAgentも異なる意味づけと行動を選ぶ。
 
 ## 関連文書
 
 - [Requirements](./REQUIREMENTS.md)
 - [Architecture](./ARCHITECTURE.md)
 - [Concept Design](../spec/personal-agent-concept-design-restructured-v2.md)
+- [Implementation Design](../spec/personal-agent-implementation-design-v2.md)
