@@ -3,14 +3,14 @@ import { DomainError, type AgentAction, type DomainEvent } from "../domain/contr
 import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
-export type ScheduledTarget = { readonly id: string; readonly agentId: string; readonly kind: "intention" | "persistent-drive" | "state-review" | "memory-recall" | "autonomy-review" | "long-term-review" | "scheduled-task"; readonly reason: string; readonly candidateIds?: readonly string[]; readonly instruction?: string; readonly destination?: string };
+export type ScheduledTarget = { readonly id: string; readonly agentId: string; readonly kind: "persistent-drive" | "state-review" | "memory-recall" | "autonomy-review" | "long-term-review" | "scheduled-task"; readonly reason: string; readonly candidateIds?: readonly string[]; readonly instruction?: string; readonly destination?: string };
 export interface ScheduleRepository {
   claimDue(now: Date, limit: number): Promise<readonly ScheduledTarget[]>;
   complete(target: ScheduledTarget, nextReviewAt: Date | null, executionEventId?: string): Promise<void>;
   release(target: ScheduledTarget): Promise<void>;
 }
 export interface InternalEventRuntime { process(event: DomainEvent, signal: AbortSignal): Promise<AgentAction>; }
-export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly intentionReviewIntervalMs?: number; readonly persistentDriveReviewIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
+export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly persistentDriveReviewIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
 
 export class Scheduler {
   readonly #running = new Set<string>();
@@ -41,7 +41,7 @@ export class Scheduler {
             logger.log("info", "scheduler.response_published", { destination, hasReplyContext: replyContext !== undefined });
           }
         }
-        const interval = target.kind === "intention" ? this.options.intentionReviewIntervalMs ?? this.options.autonomyReviewIntervalMs : target.kind === "autonomy-review" ? this.options.autonomyReviewIntervalMs : target.kind === "state-review" ? this.options.stateReviewIntervalMs : target.kind === "memory-recall" ? this.options.memoryRecallIntervalMs : target.kind === "persistent-drive" ? this.options.persistentDriveReviewIntervalMs : undefined;
+        const interval = target.kind === "autonomy-review" ? this.options.autonomyReviewIntervalMs : target.kind === "state-review" ? this.options.stateReviewIntervalMs : target.kind === "memory-recall" ? this.options.memoryRecallIntervalMs : target.kind === "persistent-drive" ? this.options.persistentDriveReviewIntervalMs : undefined;
         const next = interval === undefined ? action.type === "no-external-action" ? null : new Date(occurredAt.getTime() + this.options.autonomyReviewIntervalMs) : new Date(occurredAt.getTime() + interval);
         await this.options.repository.complete(target, next, event.id);
         logger.log("info", "scheduler.target_completed", { actionType: action.type, nextReviewAt: next?.toISOString() });

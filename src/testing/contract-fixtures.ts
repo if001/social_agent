@@ -14,6 +14,6 @@ export const agentCoreInputFixture = (): AgentCoreInput => ({
   recentExperiences: [],
   self: { id: fixtureAgentId, familyId: "family-1", identity: "A thoughtful assistant", disposition: { shared: "Curious and thoughtful", initial: "Curious and calm", acquired: "Values careful follow-through" }, values: "Honesty", interests: [], preferences: [], roles: ["Conversation partner"], selfNarrative: "I learn through experience", selfContinuity: "My memories connect my experiences", version: 0 },
   dynamicState: { agentId: fixtureAgentId, mood: "Calm", drives: [{ description: "Understand", sourceEvidenceIds: ["event-1"], since: fixtureInstant }], currentInterests: [], interestExploration: [], updatedAt: fixtureInstant },
-  socialContext: [], memories: [], memoryRetrievalTrace: [], intentions: [], availableTools: [], runtimeConstraints: ["Respect system boundaries"],
+  socialContext: [], memories: [], memoryRetrievalTrace: [], availableTools: [], runtimeConstraints: ["Respect system boundaries"],
   limits: { deadlineMs: 30_000, maxSteps: 8, maxToolCalls: 4, maxHops: 4, maxAttempts: 3 }
 });

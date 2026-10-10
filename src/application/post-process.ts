@@ -23,7 +23,7 @@ export class PostProcessService {
       logger.log("info", "post_process.started", { attempt: job.attempt });
       const output = await this.#run(job, signal);
       await this.persistence.completePostProcess(job, output);
-      const proposalCount = "persistentStateUpdates" in output ? output.persistentStateUpdates.length + output.driveProposals.length + output.intentionProposals.length : "memoryProposals" in output ? output.memoryProposals.length : output.longTermCandidates.length;
+      const proposalCount = "persistentStateUpdates" in output ? output.persistentStateUpdates.length + output.driveProposals.length + output.currentInterestProposals.length : "memoryProposals" in output ? output.memoryProposals.length : output.longTermCandidates.length;
       logger.log("info", "post_process.completed", { proposalCount });
       return true;
     } catch (error) {

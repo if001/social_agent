@@ -41,14 +41,14 @@ describe("configuration and lifecycle", () => {
     await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");
     const config = await loadConfig({ cwd, environment: { BOT_ID: "process" } });
     expect(config.botId).toBe("process"); expect(config.chat.model).toBe("local-model"); expect(config.embedding.dimension).toBe(768);
-    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 30_000, autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000, intentionReviewIntervalMs: 86_400_000, persistentDriveInitialDelayMs: 0, persistentDriveReviewIntervalMs: 86_400_000, retryDelayMs: 300_000, leaseMs: 60_000 });
+    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 30_000, autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000, persistentDriveInitialDelayMs: 0, persistentDriveReviewIntervalMs: 86_400_000, retryDelayMs: 300_000, leaseMs: 60_000 });
     await scope.close();
   });
 
   it("loads every autonomous schedule timing from environment", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
-    const config = await loadConfig({ cwd, environment: { SCHEDULER_INTERVAL_MS: "1000", AUTONOMY_REVIEW_INTERVAL_MS: "2000", STATE_REVIEW_INTERVAL_MS: "3000", MEMORY_RECALL_INTERVAL_MS: "4000", INTENTION_REVIEW_INTERVAL_MS: "4500", PERSISTENT_DRIVE_INITIAL_DELAY_MS: "5000", PERSISTENT_DRIVE_REVIEW_INTERVAL_MS: "6000", SCHEDULER_RETRY_DELAY_MS: "7000", SCHEDULER_LEASE_MS: "8000", FILE_READ_ROOTS: "./read-a,./read-b", FILE_WRITE_ROOTS: "./write" } });
-    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 1000, autonomyReviewIntervalMs: 2000, stateReviewIntervalMs: 3000, memoryRecallIntervalMs: 4000, intentionReviewIntervalMs: 4500, persistentDriveInitialDelayMs: 5000, persistentDriveReviewIntervalMs: 6000, retryDelayMs: 7000, leaseMs: 8000 });
+    const config = await loadConfig({ cwd, environment: { SCHEDULER_INTERVAL_MS: "1000", AUTONOMY_REVIEW_INTERVAL_MS: "2000", STATE_REVIEW_INTERVAL_MS: "3000", MEMORY_RECALL_INTERVAL_MS: "4000", PERSISTENT_DRIVE_INITIAL_DELAY_MS: "5000", PERSISTENT_DRIVE_REVIEW_INTERVAL_MS: "6000", SCHEDULER_RETRY_DELAY_MS: "7000", SCHEDULER_LEASE_MS: "8000", FILE_READ_ROOTS: "./read-a,./read-b", FILE_WRITE_ROOTS: "./write" } });
+    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 1000, autonomyReviewIntervalMs: 2000, stateReviewIntervalMs: 3000, memoryRecallIntervalMs: 4000, persistentDriveInitialDelayMs: 5000, persistentDriveReviewIntervalMs: 6000, retryDelayMs: 7000, leaseMs: 8000 });
     expect(config.fileReadRoots).toEqual([`${cwd}/read-a`, `${cwd}/read-b`]); expect(config.fileWriteRoots).toEqual([`${cwd}/write`]);
     await expect(loadConfig({ cwd, environment: { PERSISTENT_DRIVE_INITIAL_DELAY_MS: "-1" } })).rejects.toThrow();
     await scope.close();

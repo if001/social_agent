@@ -918,12 +918,12 @@ Runtimeは失敗時に部分的な状態更新を残さない。Toolが外部副
 | Discord | `DISCORD_BOT_TOKEN`、`DISCORD_BOT_USER_ID`、`DISCORD_OWNER_IDS`、`DISCORD_GUILD_IDS`、`DISCORD_CHANNEL_IDS` |
 | UI destination | `DISCORD_QUEUE_DESTINATION`、`DEFAULT_OUTPUT_DESTINATION` |
 | file tools | `FILE_READ_ROOTS`、`FILE_WRITE_ROOTS`、`WEB_ARCHIVE_ROOT` |
-| loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`INTENTION_REVIEW_INTERVAL_MS`、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
+| loops | `SCHEDULER_INTERVAL_MS`、`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`、`SCHEDULER_RETRY_DELAY_MS`、`SCHEDULER_LEASE_MS`、`OUTBOX_INTERVAL_MS` |
 | shared | `POSTGRES_URL`、`QUEUE_ROOT`、`WEB_ARCHIVE_ROOT`、Chat／Embedding／Web設定 |
 
 ID一覧はcomma区切りで受け取り、空要素と重複を正規化する。Discordを有効にする場合はtoken、bot user ID、owner、channelを必須とする。Discord Queue destinationは既定で`discord:<BOT_ID>`とし、2つのDiscord Adapterが同じoutbound destinationを競合consumeしないようにする。Agent Runtimeの入力destinationは`BOT_ID`であり、bot間通信も相手の`BOT_ID`を宛先とする。
 
-自律処理の時間設定はすべてmillisecond単位の環境変数とする。`SCHEDULER_INTERVAL_MS`はDB走査頻度であり、各処理の実行間隔ではない。`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`INTENTION_REVIEW_INTERVAL_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`は目的別の再実行間隔、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`はDrive保存後の初回待機、`SCHEDULER_RETRY_DELAY_MS`は失敗後のbackoff、`SCHEDULER_LEASE_MS`は重複取得防止時間を表す。`agent:init`とbot processは同じ値を読み、初回期限と実行後の再設定を一致させる。
+自律処理の時間設定はすべてmillisecond単位の環境変数とする。`SCHEDULER_INTERVAL_MS`はDB走査頻度であり、各処理の実行間隔ではない。`AUTONOMY_REVIEW_INTERVAL_MS`、`STATE_REVIEW_INTERVAL_MS`、`MEMORY_RECALL_INTERVAL_MS`、`PERSISTENT_DRIVE_REVIEW_INTERVAL_MS`は目的別の再実行間隔、`PERSISTENT_DRIVE_INITIAL_DELAY_MS`はDrive保存後の初回待機、`SCHEDULER_RETRY_DELAY_MS`は失敗後のbackoff、`SCHEDULER_LEASE_MS`は重複取得防止時間を表す。`agent:init`とbot processは同じ値を読み、初回期限と実行後の再設定を一致させる。
 
 `BOT_PERSONA_FILE`はbot別Persona YAMLへの相対または絶対pathである。未指定時は`config/personas/<BOT_ID>.yaml`が存在すれば使用する。Personaは起動時にZodで検証し、`AgentCoreInput.persona`として通常Coreへ渡す。DBのSelfへ書き込まず、表示名、一人称、言語、トーン、応答スタイル、避ける表現だけを応答文へ適用する。ユーザーの呼び方は設定せず、対話とSocial ContextからAgentが判断する。Persona単独では内部状態や長期Candidateを生成しない。
 

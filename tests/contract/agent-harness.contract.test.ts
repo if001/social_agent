@@ -151,7 +151,7 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("immediateStateUpdates");
     expect(agentCoreSystemPrompt).toContain("Emotionだけ");
     expect(agentCoreSystemPrompt).toContain("空配列[]");
-    expect(agentCoreSystemPrompt).toContain("Expectationは独立保存せず");
+    expect(agentCoreSystemPrompt).toContain("明示した将来時刻に処理する必要がある場合はschedule_task");
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
     expect(agentCoreSystemPrompt).toContain("Driveは「なぜ求めるか」");
     expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");

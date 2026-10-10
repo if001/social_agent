@@ -1,4 +1,4 @@
-import type { Candidate, Intention, Memory, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
+import type { Candidate, Memory, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
 import type { StateChange } from "../../application/state-update-service.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
@@ -12,16 +12,14 @@ export type CommitEventInput = {
   readonly changes: readonly (StateChange & { readonly id: string })[];
   readonly memories?: readonly Memory[];
   readonly memoryWebEvidence?: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[];
-  readonly intentionCreates?: readonly Intention[];
-  readonly intentionUpdates?: readonly Intention[];
   readonly candidates?: readonly Candidate[];
   readonly toolExecutions?: readonly (ToolExecutionRecord & { readonly id: string })[];
   readonly postProcessJobs?: readonly { readonly id: string; readonly type: "continuity" | "memory"; readonly inputStateVersion: number; readonly payload: unknown }[];
   readonly outbox: readonly MessageEnvelope[];
 };
 
-export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates" | "postProcessJobs" | "outbox"> & { readonly failureReason: string };
-export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "intentionCreates" | "intentionUpdates" | "candidates"> & { readonly jobId: string; readonly jobType: "continuity" | "memory" | "candidate"; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: unknown; readonly candidateJob?: { readonly id: string; readonly payload: unknown } };
+export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "candidates" | "postProcessJobs" | "outbox"> & { readonly failureReason: string };
+export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "candidates"> & { readonly jobId: string; readonly jobType: "continuity" | "memory" | "candidate"; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: unknown; readonly candidateJob?: { readonly id: string; readonly payload: unknown } };
 
 export class PostgresEventTransaction {
   constructor(private readonly unitOfWork: PostgresUnitOfWork, private readonly persistentDriveInitialDelayMs = 0) {}
@@ -43,11 +41,8 @@ export class PostgresEventTransaction {
       for (const memory of input.memories ?? []) {
         await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.occurredAt, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
         for (const subjectId of memory.relatedSubjectIds) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [memory.id, subjectId]);
-        for (const intentionId of memory.relatedIntentionIds) await client.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ($1,$2)", [memory.id, intentionId]);
       }
       for (const evidence of input.memoryWebEvidence ?? []) for (const snapshotId of evidence.snapshotIds) await client.query("INSERT INTO memory_web_evidence(memory_id,snapshot_id) SELECT $1,s.id FROM web_snapshots s WHERE s.id=$2 ON CONFLICT DO NOTHING", [evidence.memoryId, snapshotId]);
-      for (const intention of input.intentionCreates ?? []) await client.query("INSERT INTO intentions(id,agent_id,description,reason,trigger,status,next_review_at,superseded_by_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [intention.id, intention.agentId, intention.description, intention.reason, intention.trigger === undefined ? null : JSON.stringify(intention.trigger), intention.status, intention.nextReviewAt ?? (intention.trigger?.kind === "time" ? intention.trigger.at : null), intention.supersededById ?? null, intention.createdAt, intention.updatedAt]);
-      for (const intention of input.intentionUpdates ?? []) await client.query("UPDATE intentions SET description=$3,reason=$4,status=$5,next_review_at=$6,superseded_by_id=$7,updated_at=$8 WHERE id=$1 AND agent_id=$2", [intention.id, intention.agentId, intention.description, intention.reason, intention.status, intention.nextReviewAt ?? null, intention.supersededById ?? null, intention.updatedAt]);
       for (const candidate of input.candidates ?? []) {
         await client.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,evidence_event_ids,review_after,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $6 ILIKE '%矛盾%' OR $6 ILIKE '%contradict%' THEN $8::timestamptz ELSE $8::timestamptz+interval '1 day' END,$8,$8)", [candidate.id, candidate.agentId, candidate.target, candidate.proposal, candidate.status, candidate.reason, JSON.stringify(candidate.evidenceEventIds), candidate.createdAt]);
         for (const memoryId of candidate.evidenceMemoryIds) await client.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ($1,$2)", [candidate.id, memoryId]);
@@ -100,11 +95,8 @@ export class PostgresEventTransaction {
       for (const memory of input.memories ?? []) {
         await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.occurredAt, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
         for (const subjectId of memory.relatedSubjectIds) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [memory.id, subjectId]);
-        for (const intentionId of memory.relatedIntentionIds) await client.query("INSERT INTO memory_intentions(memory_id,intention_id) VALUES ($1,$2)", [memory.id, intentionId]);
       }
       for (const evidence of input.memoryWebEvidence ?? []) for (const snapshotId of evidence.snapshotIds) await client.query("INSERT INTO memory_web_evidence(memory_id,snapshot_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [evidence.memoryId, snapshotId]);
-      for (const intention of input.intentionCreates ?? []) await client.query("INSERT INTO intentions(id,agent_id,description,reason,trigger,status,next_review_at,superseded_by_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [intention.id, intention.agentId, intention.description, intention.reason, intention.trigger === undefined ? null : JSON.stringify(intention.trigger), intention.status, intention.nextReviewAt ?? (intention.trigger?.kind === "time" ? intention.trigger.at : null), intention.supersededById ?? null, intention.createdAt, intention.updatedAt]);
-      for (const intention of input.intentionUpdates ?? []) await client.query("UPDATE intentions SET description=$3,reason=$4,status=$5,next_review_at=$6,superseded_by_id=$7,updated_at=$8 WHERE id=$1 AND agent_id=$2", [intention.id, intention.agentId, intention.description, intention.reason, intention.status, intention.nextReviewAt ?? null, intention.supersededById ?? null, intention.updatedAt]);
       for (const candidate of input.candidates ?? []) {
         await client.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,evidence_event_ids,review_after,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz+interval '1 day',$8,$8)", [candidate.id, candidate.agentId, candidate.target, candidate.proposal, candidate.status, candidate.reason, JSON.stringify(candidate.evidenceEventIds), candidate.createdAt]);
         for (const memoryId of candidate.evidenceMemoryIds) await client.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ($1,$2)", [candidate.id, memoryId]);

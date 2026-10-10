@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-10
-status: created
+status: done
 ---
 
 # 110: Intention状態を削除する

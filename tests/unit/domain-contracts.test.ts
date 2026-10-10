@@ -1,4 +1,4 @@
-import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, ContinuityOutputSchema, IntentionSchema, IntentionTriggerSchema, MemoryExtractionOutputSchema, MessageEnvelopeSchema, ReviewDecisionSchema, canTransitionIntention } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, ContinuityOutputSchema, MemoryExtractionOutputSchema, MessageEnvelopeSchema, ReviewDecisionSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -17,19 +17,6 @@ describe("domain contracts", () => {
     expect(CandidateSchema.safeParse({ id: "c", agentId: "a", target: "semanticMemory", proposal: "The user prefers concise plans", reason: "Explicit statement", evidenceMemoryIds: [], evidenceEventIds: ["event-1"], status: "pending", createdAt: "2026-01-01T00:00:00Z" }).success).toBe(true);
   });
 
-  it("enforces intention transitions", () => {
-    expect(canTransitionIntention("active", "completed")).toBe(true);
-    expect(canTransitionIntention("completed", "active")).toBe(false);
-    expect(IntentionSchema.safeParse({ id: "i", agentId: "a", description: "Learn", status: "superseded", reason: "Refined", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }).success).toBe(false);
-  });
-
-  it("accepts all four intention trigger forms", () => {
-    expect(IntentionTriggerSchema.parse({ kind: "time", at: "2026-01-02T00:00:00Z" })).toMatchObject({ kind: "time" });
-    expect(IntentionTriggerSchema.parse({ kind: "event", eventKinds: ["user-message"], keywords: ["計画"] })).toMatchObject({ kind: "event" });
-    expect(IntentionTriggerSchema.parse({ kind: "idle", idleForMs: 60_000 })).toMatchObject({ kind: "idle" });
-    expect(IntentionTriggerSchema.parse({ kind: "manual-review" })).toMatchObject({ kind: "manual-review" });
-  });
-
   it("maps every Event kind to an objective, provenance-aware Observation", () => {
     for (const kind of ["user-message", "tool-result", "time", "external", "internal", "system"] as const) {
       const observation = observationFromEvent({ id: `event-${kind}`, agentId: "a", kind, occurredAt: "2026-01-01T00:00:00Z", payload: { text: "reported fact", actorId: "actor", actorType: kind === "external" ? "agent" : "human", sourceType: kind === "external" ? "agent" : "terminal", provenance: { channel: "test" } }, causationId: "cause", correlationId: "correlation" });
@@ -43,7 +30,7 @@ describe("domain contracts", () => {
     expect(MessageEnvelopeSchema.safeParse(messageFixture({ attempt: 33 })).success).toBe(false);
     expect(MessageEnvelopeSchema.safeParse(messageFixture({ expiresAt: "2025-01-01T00:00:00Z" })).success).toBe(false);
     const input = agentCoreInputFixture();
-    expect(AgentCoreInputSchema.safeParse({ ...input, memories: [{ id: "m", agentId: "agent-b", kind: "episodic", content: "Other experience", occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-02T00:00:00Z", relatedSubjectIds: [], relatedIntentionIds: [], importance: "Relevant", evidenceEventIds: [] }] }).success).toBe(false);
+    expect(AgentCoreInputSchema.safeParse({ ...input, memories: [{ id: "m", agentId: "agent-b", kind: "episodic", content: "Other experience", occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-02T00:00:00Z", relatedSubjectIds: [], importance: "Relevant", evidenceEventIds: [] }] }).success).toBe(false);
   });
 
   it("requires Shared, Initial, and Acquired Disposition inside Self", () => {
@@ -64,20 +51,14 @@ describe("domain contracts", () => {
     });
     expect(parsed.internalChanges.immediateStateUpdates[0]?.target).toBe("emotion");
     expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }] } }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], driveProposals: [], currentInterestProposals: [], intentionProposals: [] }).success).toBe(true);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Grounded", evidenceIds: ["event-1"], since: "2026-01-01T00:00:00Z" }], currentInterestProposals: [], intentionProposals: [] }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Ungrounded", evidenceIds: [] }], currentInterestProposals: [], intentionProposals: [] }).success).toBe(false);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], driveProposals: [], currentInterestProposals: [] }).success).toBe(true);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Grounded", evidenceIds: ["event-1"], since: "2026-01-01T00:00:00Z" }], currentInterestProposals: [] }).success).toBe(false);
+    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], driveProposals: [{ operation: "create", description: "Understand", reason: "Ungrounded", evidenceIds: [] }], currentInterestProposals: [] }).success).toBe(false);
     expect(MemoryExtractionOutputSchema.safeParse({ memoryProposals: [] }).success).toBe(true);
   });
 
-  it("requires valid existing intention update references", () => {
-    const base = { persistentStateUpdates: [], driveProposals: [], currentInterestProposals: [] };
-    expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", reason: "Refined" }] }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ ...base, intentionProposals: [{ operation: "update", intentionId: "i", status: "superseded", supersededByIntentionId: "j", reason: "Refined" }] }).success).toBe(true);
-  });
-
   it("represents Current Interest as a focus with a provisional goal", () => {
-    const base = { persistentStateUpdates: [], driveProposals: [], intentionProposals: [] };
+    const base = { persistentStateUpdates: [], driveProposals: [] };
     expect(ContinuityOutputSchema.safeParse({
       ...base,
       currentInterestProposals: [{ operation: "create", focus: "三角関数", goal: "sinとcosの関係を説明できる", progress: 25, reason: "今の理解に合う関心", evidenceIds: ["event-1"] }]
