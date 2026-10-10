@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, createDeepAgentTools, createDeepAgentToolRunContext, createOllamaDeepAgentInvoker, type DeepAgentInvoker, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, createDeepAgentTools, createDeepAgentToolRunContext, createOllamaDeepAgentInvoker, filterModelToolsAfterLimits, type DeepAgentInvoker, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
@@ -14,6 +14,13 @@ const finalOutput: AgentCoreOutput = {
 const context = (signal: AbortSignal, maxToolCalls = 2, runId = "run-1", eventId = "event-1") => createDeepAgentToolRunContext({ agentId: "agent-a", runId, eventId, maxToolCalls, signal });
 
 describe("ST-03 Deep Agent internal Tool Loop", () => {
+  it("removes exhausted operational Tools while preserving the structured output Tool", () => {
+    const tools = [{ name: "file_read" }, { name: "web_archive_read" }, { name: "web_list" }, { name: "extract-1" }];
+    const operational = new Set(["file_read", "web_archive_read", "web_list"]);
+    const contentRead = new Set(["file_read", "web_archive_read"]);
+    expect(filterModelToolsAfterLimits(tools, operational, contentRead, false, true).map(({ name }) => name)).toEqual(["web_list", "extract-1"]);
+    expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
+  });
   it("returns an identical recent Tool input as a Tool failure without executing it again", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
