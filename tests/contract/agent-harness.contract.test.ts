@@ -156,8 +156,8 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
     expect(agentCoreSystemPrompt).toContain("Tool未使用で理由だけを返すno-external-actionは禁止");
     expect(agentCoreSystemPrompt).toContain("同一手段を繰り返さず");
-    expect(agentCoreSystemPrompt).toContain("時間経過では回復せず");
-    expect(agentCoreSystemPrompt).toContain("上限のリセットだけを目的にwaitやschedule_taskを使いません");
+    expect(agentCoreSystemPrompt).not.toContain("content-readの文字予算");
+    expect(agentCoreSystemPrompt).not.toContain("次のrun開始時");
     expect(agentCoreSystemPrompt).toContain("recentExperiences");
     expect(agentCoreSystemPrompt).not.toContain("recentAttempts");
   });

@@ -165,18 +165,18 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
     if (context.collector.count > context.maxToolCalls) {
       const finishedAt = now().toISOString();
-      const error = `Tool call limit exceeded (${String(context.maxToolCalls)} calls per run)`;
+      const error = "Tool call limit reached. No more Tools can be used for this task.";
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
       logger.log("warn", "tool.completed", { ok: false, errorCode: "TOOL_CALL_LIMIT", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
-      return JSON.stringify({ ok: false, errorCode: "RUN_TOOL_CALL_LIMIT_EXCEEDED", error, budgetScope: "current-run", recoversWithinRun: false, requiredNextStep: "Finish the current run with the information already obtained. Do not call another Tool." });
+      return JSON.stringify({ ok: false, errorCode: "TOOL_CALL_LIMIT_REACHED", error, requiredNextStep: "Use the information already obtained and return the final Action now." });
     }
     const policy = registry.resultPolicy(name);
     const requestedContentCharacters = policy?.kind === "content-read" ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : policy.defaultRequestCharacters) : 0;
     if (policy?.kind === "content-read" && context.collector.contentReadReservedCharacters + requestedContentCharacters > policy.runCharacterBudget) {
-      const finishedAt = now().toISOString(); const error = `Content-read text budget exceeded (${String(policy.runCharacterBudget)} characters per run)`;
+      const finishedAt = now().toISOString(); const error = "Content read limit reached. No more content can be read for this task.";
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
       logger.log("warn", "tool.completed", { ok: false, errorCode: "CONTEXT_BUDGET", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
-      return JSON.stringify({ ok: false, errorCode: "RUN_CONTENT_READ_BUDGET_EXCEEDED", error, budgetScope: "current-run", recoversWithinRun: false, resetsAt: "next-run", requiredNextStep: "Finish the current run with the information already obtained. Do not wait or schedule a task solely to reset this budget." });
+      return JSON.stringify({ ok: false, errorCode: "CONTENT_READ_LIMIT_REACHED", error, requiredNextStep: "Use the information already obtained and return the final Action now." });
     }
     context.collector.contentReadReservedCharacters += requestedContentCharacters;
     const signature = JSON.stringify({ tool: name, input: rawInput });
@@ -368,8 +368,6 @@ export const agentCoreSystemPrompt = `あなたは、固有のSelf、状態、�
 - recentExperiencesで進展しなかった同一手段を繰り返さず、方法、問い、対象、時機を変えます
 - ユーザーを知る質問は現在の話題とSocial Contextに関係する不足を最大1件扱います
 - 明示した将来時刻の処理はschedule_taskで予約します
-- content-readの文字予算とTool回数上限は現在のrun全体に対する固定上限です。時間経過では回復せず、次のrun開始時にだけリセットされます
-- RUN_CONTENT_READ_BUDGET_EXCEEDEDまたはRUN_TOOL_CALL_LIMIT_EXCEEDEDを受け取ったら、追加Toolを呼ばず、取得済み情報だけで今回の最終Actionを返します。上限のリセットだけを目的にwaitやschedule_taskを使いません
 - personaだけをEmotionやMotiveの根拠にしません。入力にない事実を作りません
 - 持続するMood、Motive、Social Context、Memory、Long-term Candidateは出力しません
 - 状態変更は提案であり、保存済みだと主張しません
