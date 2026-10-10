@@ -61,7 +61,7 @@ export class DebugUiRepository {
         FROM post_process_jobs WHERE agent_id=$1 AND payload ? 'recentExperiences'
         ORDER BY created_at DESC,id DESC LIMIT 1`, [agentId])
     ]);
-    const value = recentExperienceSnapshots[0]?.recentExperiences;
+    const value: unknown = recentExperienceSnapshots[0]?.recentExperiences;
     const recentExperiences = Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : [];
     return { agent, state: states[0] ?? {}, socialContexts, intentions, schedules, candidates, recentExperiences };
   }

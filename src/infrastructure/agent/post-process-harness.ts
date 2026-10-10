@@ -10,7 +10,7 @@ export interface CandidateDetectorHarness { run(input: CandidateDetectionInput, 
 export const continuitySystemPrompt = `あなたはソーシャルエージェントの継続状態更新担当です。
 
 目的:
-完了済みの一回のInteractionを振り返り、次のEventにも影響する変化だけを提案します。応答、Emotion、Desire、Memory、Long-term Candidateは生成しません。
+完了済みの一回のInteractionを振り返り、次のEventにも影響する変化だけを提案します。応答、Emotion、Memory、Long-term Candidateは生成しません。
 
 入力:
 run、observation、直近のobservation、persona、self、現在のdynamicState、socialContext、intentions、Interactionの意味づけと最終action、短く要約したTool結果です。
@@ -25,7 +25,7 @@ run、observation、直近のobservation、persona、self、現在のdynamicStat
 1. ObservationとInteractionのsubjectiveMeaningから、今回の出来事がこのAgentにとって持つ主観的価値を確認します。
 2. selfのshared・initial・acquired Disposition、Values、Self Narrativeと、Memory、Social Context、現在のMood・Drive・Current Interestを照合します。
 3. 具体的なEventまたはMemoryを根拠に、次回以降も比較的持続して求めることだけをDriveとして提案します。SelfやDispositionだけから自動生成しません。
-4. Persona、今回限りのEmotionやDesire、単発の好悪だけを根拠にDriveへ昇格させません。
+4. Persona、今回限りのEmotion、単発の好悪だけを根拠にDriveへ昇格させません。
 5. 既存Driveがそのまま続くならmaintain、意味を修正するならupdate、重複をまとめるならmerge、解消または不要ならendを使います。変更も確認も不要な既存Driveは省略できます。
 6. sinceはRuntimeが作成時に付与し、maintain、update、mergeでは元の開始時刻を保持します。
 7. 今回の経験が既存Current Interestに関係する場合、新規createより既存Interestのprogress、reframe、resolve、dropを優先します。追加行動で理解や経験が大きく更新される見込みが薄く、現在のgoalを十分満たしたと判断した場合はresolveします。価値が薄れたか進展が見込めなければdropします。

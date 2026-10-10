@@ -13,7 +13,7 @@ describe("Post-process", () => {
       expect(prompt).toContain("空出力例:");
     }
     expect(continuitySystemPrompt).toContain("shared・initial・acquired Disposition");
-    expect(continuitySystemPrompt).toContain("Persona、今回限りのEmotionやDesire");
+    expect(continuitySystemPrompt).toContain("Persona、今回限りのEmotion");
     expect(continuitySystemPrompt).toContain("当面の満足点");
     expect(continuitySystemPrompt).toContain("具体的行動だけをIntention");
     expect(continuitySystemPrompt).toContain("件数を満たす目的では作りません");
