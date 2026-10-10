@@ -11,11 +11,13 @@ describe("StateUpdateService", () => {
     expect(result.changes).toEqual([{ target: "mood", operation: "set", before: "Steady", after: "Encouraged", reason: "Positive response", evidenceIds: ["event-1"] }]);
     expect(state.mood).toBe("Steady");
   });
-  it("updates multiple drives and desires", () => {
-    const result = service.apply("a", state, [{ target: "drives", operation: "append", value: "Help", reason: "Need", evidenceIds: ["event-new"] }, { target: "desires", operation: "set", value: ["Listen", "Clarify"], reason: "Conversation", evidenceIds: [] }]);
+  it("updates multiple drives without creating an immediate Desire state", () => {
+    const result = service.apply("a", state, [{ target: "drives", operation: "append", value: "Help", reason: "Need", evidenceIds: ["event-new"] }]);
     expect(result.state.drives).toEqual([{ description: "Learn", sourceEvidenceIds: ["old-event"], since: "2026-01-01T00:00:00Z" }, { description: "Help", sourceEvidenceIds: ["event-new"], since: "2026-01-01T00:00:00Z" }]);
     expect(result.state).not.toHaveProperty("desires");
-    expect(result.changes.find(({ target }) => target === "desires")).toMatchObject({ before: [], after: ["Listen", "Clarify"] });
+  });
+  it("rejects the removed Desire target", () => {
+    expect(() => service.apply("a", state, [{ target: "desires", operation: "set", value: ["Listen"], reason: "legacy", evidenceIds: [] }])).toThrow();
   });
   it("creates and progresses Current Interest with runtime metadata", () => {
     const created = applyCurrentInterestProposals(state, [{ operation: "create", focus: "Memory設計の未解決点", goal: "選択肢を説明できる", progress: 25, reason: "問いが具体化した", evidenceIds: ["event-new"] }], () => "interest-1");

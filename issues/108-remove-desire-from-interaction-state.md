@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-10
-status: created
+status: done
 ---
 
 # 108: DesireをInteraction状態から削除する

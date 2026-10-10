@@ -240,7 +240,7 @@ export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
 
 export const StateUpdateProposalSchema = z.object({
-  target: z.enum(["emotion", "mood", "drives", "desires", "socialContext"]),
+  target: z.enum(["emotion", "mood", "drives", "socialContext"]),
   operation: z.enum(["set", "append", "remove"]),
   value: z.unknown(),
   reason: NaturalLanguage,
@@ -311,7 +311,7 @@ export const AgentCoreOutputSchema = z.object({
   internalChanges: z.object({
     immediateStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
       updates.forEach((update, index) => {
-        if (update.target !== "emotion" && update.target !== "desires") context.addIssue({ code: "custom", path: [index, "target"], message: "Interaction may update only Emotion and Desire" });
+        if (update.target !== "emotion") context.addIssue({ code: "custom", path: [index, "target"], message: "Interaction may update only Emotion" });
       });
     })
   }),

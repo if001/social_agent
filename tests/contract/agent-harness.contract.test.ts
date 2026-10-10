@@ -4,12 +4,18 @@ import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, compactPriorToolMessages, createOllamaDeepAgentInvoker, summarizeModelResponse, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
-import type { AgentCoreOutput } from "../../src/domain/contracts.js";
+import { AgentCoreOutputSchema, type AgentCoreOutput } from "../../src/domain/contracts.js";
 
 const output: AgentCoreOutput = { interpretation: {}, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "Hello" } };
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
+  it("rejects the removed Desire output target", () => {
+    expect(() => AgentCoreOutputSchema.parse({
+      ...output,
+      internalChanges: { immediateStateUpdates: [{ target: "desires", operation: "set", value: ["legacy"], reason: "legacy output", evidenceIds: [] }] }
+    })).toThrow();
+  });
   it("compacts prior Tool results while preserving the latest Tool batch", () => {
     const registry = new ToolRegistry([{ name: "web_archive_read", description: "read", schema: z.object({}), resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
     const prior = new ToolMessage({ name: "web_archive_read", tool_call_id: "old", content: JSON.stringify({ ok: true, value: { snapshotId: "s1", offset: 0, text: "x".repeat(2_000), truncated: true } }) });
@@ -67,7 +73,7 @@ describe("AgentHarness contract", () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを根拠にEmotionやDesire");
+    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを根拠にEmotion");
   });
 
   it("repairs invalid output once and then stops", async () => {
@@ -143,7 +149,7 @@ describe("AgentHarness contract", () => {
   it("describes the Interaction purpose and immediate output in Japanese", () => {
     expect(agentCoreSystemPrompt).toContain("目的:");
     expect(agentCoreSystemPrompt).toContain("immediateStateUpdates");
-    expect(agentCoreSystemPrompt).toContain("EmotionとDesire");
+    expect(agentCoreSystemPrompt).toContain("Emotionだけ");
     expect(agentCoreSystemPrompt).toContain("空配列[]");
     expect(agentCoreSystemPrompt).toContain("Expectationは独立保存せず");
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
