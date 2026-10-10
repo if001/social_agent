@@ -115,7 +115,22 @@ export class ToolExecutionCollector {
   modelCallCount = 0;
   contentReadCharacters = 0;
   contentReadReservedCharacters = 0;
+  contentReadLimitReached = false;
   readonly executions: ToolExecutionRecord[] = [];
+}
+
+function toolName(candidate: unknown): string | undefined {
+  return typeof candidate === "object" && candidate !== null && "name" in candidate && typeof candidate.name === "string" ? candidate.name : undefined;
+}
+
+export function filterModelToolsAfterLimits<T>(tools: readonly T[], operationalToolNames: ReadonlySet<string>, contentReadToolNames: ReadonlySet<string>, toolLimitReached: boolean, contentReadLimitReached: boolean): T[] {
+  if (!toolLimitReached && !contentReadLimitReached) return [...tools];
+  return tools.filter((candidate) => {
+    const name = toolName(candidate);
+    if (name === undefined) return true;
+    if (toolLimitReached && operationalToolNames.has(name)) return false;
+    return !(contentReadLimitReached && contentReadToolNames.has(name));
+  });
 }
 
 function contentTextCharacters(value: unknown): number {
@@ -173,6 +188,7 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     const policy = registry.resultPolicy(name);
     const requestedContentCharacters = policy?.kind === "content-read" ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : policy.defaultRequestCharacters) : 0;
     if (policy?.kind === "content-read" && context.collector.contentReadReservedCharacters + requestedContentCharacters > policy.runCharacterBudget) {
+      context.collector.contentReadLimitReached = true;
       const finishedAt = now().toISOString(); const error = "Content read limit reached. No more content can be read for this task.";
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
       logger.log("warn", "tool.completed", { ok: false, errorCode: "CONTEXT_BUDGET", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
@@ -214,6 +230,8 @@ export function createDeepAgentTools(registry: ToolRegistry, now: () => Date = (
 function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogger: Logger, now: () => Date) {
   const registeredToolNames = new Set(registry?.registered().map(({ name }) => name) ?? []);
   const builtInToolNames = new Set(["read_file"]);
+  const operationalToolNames = new Set([...registeredToolNames, ...builtInToolNames]);
+  const contentReadToolNames = new Set(registry?.registered().filter(({ name }) => registry.resultPolicy(name)?.kind === "content-read").map(({ name }) => name) ?? []);
   return createMiddleware({
     name: "AgentCoreRuntimeMiddleware",
     contextSchema: DeepAgentToolRunContextSchema,
@@ -229,7 +247,9 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
       const systemPrompt = serializeMessageContent(request.systemMessage.content);
       const messages = request.messages.map((message) => ({ role: message.type, content: message.content }));
       const serializedMessages = JSON.stringify(messages);
-      const toolNames = request.tools.map((candidate) => "name" in candidate && typeof candidate.name === "string" ? candidate.name : "unknown");
+      const effectiveTools = filterModelToolsAfterLimits(request.tools, operationalToolNames, contentReadToolNames, context.collector.count >= context.maxToolCalls, context.collector.contentReadLimitReached);
+      const effectiveRequest = effectiveTools.length === request.tools.length ? request : { ...request, tools: effectiveTools };
+      const toolNames = effectiveTools.map((candidate) => toolName(candidate) ?? "unknown");
       const startedAt = now();
       logger.log("info", "agent_core.model_call_started", {
         inputCharacters: systemPrompt.length + serializedMessages.length,
@@ -239,7 +259,7 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
       });
       logger.log("debug", "agent_core.model_call_prompt", { systemPrompt, messages: serializedMessages, toolNames: JSON.stringify(toolNames) });
       try {
-        const response = await handler(request);
+        const response = await handler(effectiveRequest);
         const summary = summarizeModelResponse(response);
         logger.log("info", "agent_core.model_call_completed", { elapsedMs: now().getTime() - startedAt.getTime(), ...summary });
         if (summary.outputCharacters === 0 && summary.toolCallCount === 0) logger.log("warn", "agent_core.model_call_empty", { finishReason: summary.finishReason, ...(summary.inputTokens === undefined ? {} : { inputTokens: summary.inputTokens }), ...(summary.outputTokens === undefined ? {} : { outputTokens: summary.outputTokens }) });
