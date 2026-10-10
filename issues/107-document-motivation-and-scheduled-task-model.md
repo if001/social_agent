@@ -23,6 +23,8 @@ status: created
 - 「したくない」を負のDesireとして保存せず、競合する動機、Emotion、Mood、Preference、ConstraintによるAction選択として説明する
 - Intentionを心理・動機モデルから削除する
 - 将来の明示的な実行を`Scheduled Task`としてRuntime / Tool / Schedulerの責務に分離する
+- Scheduled Task Toolの責務をTaskの作成・一覧・取消に限定し、期限到来後の処理はEventとして実行する方針を定義する
+- Schedulerがdue Taskをclaimして`scheduled-task` Eventを生成し、通常のAgent Runtimeへ渡すフローを定義する
 - 約束の経験はMemory、実行責務はScheduled Taskへ保存する方針を定義する
 - `docs/AGENT_MOTIVATION_MODEL.md`、Requirements、Architecture、Implementation Plan、Test Strategyを更新する
 - 後続実装Issueの契約、移行順序、削除対象を確定する
@@ -40,6 +42,9 @@ status: created
 - Driveは現在継続している広い動機、Current Interestは現在の対象と当面の充足点を表す。
 - Emotionは今回Eventへの反応、Moodは複数Eventへ続く感情傾向であり、動機そのものとしない。
 - Scheduled Taskは心理状態を複製せず、Toolによって明示的に作成する。
+- Scheduled Taskの実行入口はEventだけとする。Toolは将来処理を直接実行・再開せず、SchedulerもAgent Coreを直接呼び出さない。
+- `scheduled-task` Eventは通常のEvent処理を通り、Agent Coreが必要なTool利用と最終Actionを判断し、外部応答はOutboxから配送する。
+- EventにはTask ID、instruction、destination、source Event / Runを含め、Task・Event・Runを追跡できるようにする。
 - 自律行動とScheduled Task実行を別のMermaidフローで図示する。
 
 ## Acceptance criteria
@@ -49,6 +54,7 @@ status: created
 - 各状態について、生成・更新元と影響先を確認できる
 - Current InterestとDriveの重複範囲と違いが説明されている
 - Scheduled Task、Memory、Scheduler、Toolの責務境界が明確である
+- Toolによる予約操作とEventによる実行が明確に分離され、実行時の状態遷移と配送経路が説明されている
 - 後続Issueが文書だけを根拠に実装できる
 
 ## Tests
