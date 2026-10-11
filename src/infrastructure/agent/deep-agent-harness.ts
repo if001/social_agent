@@ -35,8 +35,13 @@ type ReusableDeepAgentFactoryOptions = {
 export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions) => ReusableDeepAgent;
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
+const EventAssessmentSchema = z.object({ subjectiveMeaning: z.string().min(1), emotion: z.object({ value: z.string().min(1), reason: z.string().min(1), evidenceIds: z.array(z.string().min(1)) }) });
+export type EventAssessment = z.infer<typeof EventAssessmentSchema>;
 export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
-export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>; }
+export interface DeepAgentInvoker {
+  assess?(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<{ readonly assessment: EventAssessment; readonly modelCalls: number }>;
+  invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>;
+}
 
 export type DeepAgentHarnessOptions = {
   readonly invoker: DeepAgentInvoker;
@@ -116,14 +121,20 @@ export class DeepAgentHarness implements AgentHarness {
     for (const name of this.options.registeredToolNames) if (!inputToolNames.has(name)) throw new DomainError("VALIDATION", `Registered tool is missing from Agent Core input: ${name}`);
     const timeout = AbortSignal.timeout(input.limits.deadlineMs);
     const combined = AbortSignal.any([signal, timeout]);
-    let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = []; let consumedModelCalls = 0;
+    let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = []; let consumedModelCalls = 0; let currentEventAssessment: EventAssessment | undefined;
     const maxAttempts = this.#maxRepairs + 1;
     const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
+    if (this.options.invoker.assess !== undefined) {
+      const assessmentContent = JSON.stringify({ promptVersion: "event-assessment-v1-ja", input: { observation: input.observation, self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories } });
+      const assessed = await this.options.invoker.assess({ messages: [{ role: "user", content: assessmentContent }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: 0 });
+      consumedModelCalls += assessed.modelCalls;
+      currentEventAssessment = assessed.assessment;
+    }
     for (let attempt = 0; attempt < maxAttempts && consumedModelCalls < input.limits.maxSteps; attempt += 1) {
       try {
         const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
-        const promptInput = { ...input, memoryRetrievalTrace: undefined, availableTools: input.availableTools.map(({ name, description }) => ({ name, description })) };
+        const promptInput = { ...input, memoryRetrievalTrace: undefined, availableTools: input.availableTools.map(({ name, description }) => ({ name, description })), currentEventAssessment };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
           : JSON.stringify({ instruction: "無効な出力をInteraction出力Schemaへ適合するよう修正してください。入力Contextを推測せず、許可されたevidence IDだけを使ってください。", allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: z.toJSONSchema(AgentCoreOutputSchema), validationIssues, invalidOutput: raw });
@@ -178,7 +189,16 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     const operationalTools = config.toolRegistry?.definitions().map(({ name, description, inputSchema }) => ({ type: "function" as const, function: { name, description, parameters: inputSchema } })) ?? [];
     const firstModel = model.bindTools([...operationalTools, finalTool]);
     const finalModel = model.bindTools([finalTool]);
+    const assessmentModel = model.withStructuredOutput(EventAssessmentSchema, { name: "assess_current_event" });
     return {
+      async assess(input, options) {
+        if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for Event assessment");
+        const messages = [new SystemMessage("現在Eventの主観的Meaningと、そのEventに対するEmotionを先に確定します。最終ActionやTool選択は行いません。"), ...input.messages];
+        const components = { messages: estimateTokens(messages), tools: 0, outputSchema: estimateTokens(z.toJSONSchema(EventAssessmentSchema)) };
+        if (Object.values(components).reduce((sum, value) => sum + value, 0) > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Event assessment input exceeds estimated ${String(MAX_MODEL_INPUT_TOKENS)} token budget: ${JSON.stringify(components)}`);
+        try { return { assessment: EventAssessmentSchema.parse(await assessmentModel.invoke(messages, { signal: options.signal })), modelCalls: 1 }; }
+        catch (error) { throw new DomainError("EXTERNAL", "Event assessment invocation failed", { cause: { providerError: error, modelCalls: 1 } }); }
+      },
       async invoke(input, options) {
         const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: Math.min(25, options.maxToolCalls), signal: options.signal, ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }), ...(options.transport === undefined ? {} : { transport: options.transport }) });
         const messages: (SystemMessage | ToolMessage | (typeof input.messages)[number] | Awaited<ReturnType<typeof firstModel.invoke>>)[] = [new SystemMessage(agentCoreSystemPrompt), ...input.messages];

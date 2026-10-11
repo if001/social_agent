@@ -75,6 +75,17 @@ describe("AgentHarness contract", () => {
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: output, modelCalls: 2 }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal)).rejects.toMatchObject({ code: "EXTERNAL", cause: { modelCalls: 2 } });
   });
+  it("passes a finalized current Event assessment into the Action decision and counts both calls", async () => {
+    let decisionInput = "";
+    const invoker: DeepAgentInvoker = {
+      assess: () => Promise.resolve({ assessment: { subjectiveMeaning: "批判を改善の手掛かりと受け止めた", emotion: { value: "悔しいが前向き", reason: "信頼する相手からの指摘", evidenceIds: ["event-1"] } }, modelCalls: 1 }),
+      invoke: (input) => { decisionInput = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output, modelCalls: 1 }); }
+    };
+    const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal);
+    expect(decisionInput).toContain("currentEventAssessment");
+    expect(decisionInput).toContain("悔しいが前向き");
+    expect(result.budget?.consumed.modelCalls).toBe(2);
+  });
 
   it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
     let creations = 0; const calls: { messages: unknown; context: { runId: string; eventId: string } }[] = [];
