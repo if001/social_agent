@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import type { InitialSelfConfig } from "../domain/contracts.js";
 import type { SchedulerTimings } from "../config/config.js";
 
-const historyTables = ["post_process_jobs", "state_changes", "tool_executions", "agent_runs", "events", "candidate_evidence", "long_term_candidates", "memory_web_evidence", "memory_subjects", "memories", "web_snapshots", "web_resources", "social_contexts", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
+const historyTables = ["state_changes", "tool_executions", "agent_runs", "events", "memory_web_evidence", "memory_subjects", "memories", "web_snapshots", "web_resources", "social_contexts", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
 
 // Move runtime-owned data out of the active roots; never recursively delete a configured path.
 export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConfig[], roots: readonly string[], timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }): Promise<{ agents: string[]; archivedDirectories: string[] }> {

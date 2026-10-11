@@ -1,4 +1,3 @@
-import { DomainError, RecentExperienceSchema } from "../domain/contracts.js";
 import type { QueryResultRow } from "pg";
 
 export type SqlQuery = <T extends QueryResultRow>(sql: string, values?: readonly unknown[]) => Promise<readonly T[]>;
@@ -50,21 +49,13 @@ export class DebugUiRepository {
       FROM agents a JOIN agent_families f ON f.id=a.family_id LEFT JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1`, [agentId]);
     const agent = agents[0];
     if (agent === undefined) return undefined;
-    const [states, socialContexts, scheduledTasks, schedules, candidates, recentExperienceSnapshots] = await Promise.all([
+    const [states, socialContexts, scheduledTasks, schedules] = await Promise.all([
       this.query<QueryResultRow>(`SELECT mood,motives,motive_exploration AS "motiveExploration",version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,subject_id AS "subjectId",subject_type AS "subjectType",description,updated_at AS "updatedAt" FROM social_contexts WHERE agent_id=$1 ORDER BY updated_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 ORDER BY execute_at DESC,id LIMIT 100`, [agentId]),
-      this.query<QueryResultRow>(`SELECT id,kind,reason,next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
-      this.query<QueryResultRow>(`SELECT id,target,proposed_value AS "proposedValue",status,reason,evidence_event_ids AS "evidenceEventIds",review_after AS "reviewAfter",updated_at AS "updatedAt" FROM long_term_candidates WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 100`, [agentId]),
-      this.query<QueryResultRow>(`SELECT payload->'recentExperiences' AS "recentExperiences"
-        FROM post_process_jobs WHERE agent_id=$1 AND payload ? 'recentExperiences'
-        ORDER BY created_at DESC,id DESC LIMIT 1`, [agentId])
+      this.query<QueryResultRow>(`SELECT id,kind,reason,next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId])
     ]);
-    const value: unknown = recentExperienceSnapshots[0]?.recentExperiences;
-    const parsed = RecentExperienceSchema.array().safeParse(recentExperienceSnapshots.length === 0 ? [] : value);
-    if (!parsed.success) throw new DomainError("VALIDATION", "Persisted Recent Experiences snapshot is invalid", { cause: parsed.error });
-    const recentExperiences = parsed.data;
-    return { agent, state: states[0] ?? {}, socialContexts, scheduledTasks, schedules, candidates, recentExperiences };
+    return { agent, state: states[0] ?? {}, socialContexts, scheduledTasks, schedules, candidates: [], recentExperiences: [] };
   }
 
   async listRuns(agentId: string, limit = 30): Promise<readonly RunListItem[]> {
@@ -82,12 +73,11 @@ export class DebugUiRepository {
       FROM agent_runs r JOIN events e ON e.id=r.event_id WHERE r.agent_id=$1 AND r.id=$2`, [agentId, runId]);
     const run = runs[0];
     if (run === undefined) return undefined;
-    const [stateChanges, toolExecutions, postProcessJobs] = await Promise.all([
+    const [stateChanges, toolExecutions] = await Promise.all([
       this.query<QueryResultRow>(`SELECT id,target,operation,before,after,reason,evidence_ids AS "evidenceIds",created_at AS "createdAt" FROM state_changes WHERE run_id=$1 ORDER BY created_at,id`, [runId]),
-      this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,started_at AS "startedAt",finished_at AS "finishedAt",result_event_id AS "resultEventId" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId]),
-      this.query<QueryResultRow>(`SELECT id,job_type AS "jobType",status,attempt,available_at AS "availableAt",lease_until AS "leaseUntil",failure_reason AS "failureReason",completed_at AS "completedAt",updated_at AS "updatedAt" FROM post_process_jobs WHERE interaction_run_id=$1 ORDER BY created_at,id`, [runId])
+      this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,started_at AS "startedAt",finished_at AS "finishedAt",result_event_id AS "resultEventId" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId])
     ]);
-    return { run, stateChanges, toolExecutions, postProcessJobs };
+    return { run, stateChanges, toolExecutions, postProcessJobs: [] };
   }
 
   async listMemories(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {

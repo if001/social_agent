@@ -1,4 +1,4 @@
-import type { RuntimePersistence, PendingOutput, PendingPostProcess, PostProcessOutput } from "../application/agent-runtime.js";
+import type { RuntimePersistence, PendingOutput } from "../application/agent-runtime.js";
 import type { StateUpdateResult } from "../application/state-update-service.js";
 import type { AgentCoreInput, AgentRunResult, DomainEvent, MessageEnvelope, ToolExecutionRecord } from "../domain/contracts.js";
 
@@ -8,9 +8,6 @@ export class InMemoryRuntimePersistence implements RuntimePersistence {
   readonly updates: StateUpdateResult[] = [];
   readonly failures: { readonly event: DomainEvent; readonly error: unknown; readonly toolExecutions: readonly ToolExecutionRecord[] }[] = [];
   readonly correlations = new Map<string, string>();
-  readonly postProcessOutputs: { readonly type: PendingPostProcess["type"]; readonly output: PostProcessOutput }[] = [];
-  readonly postProcessFailures: unknown[] = [];
-  readonly #postProcessJobs: PendingPostProcess[] = [];
   readonly #outbox = new Map<string, { envelope: MessageEnvelope; sent: boolean }>();
   constructor(private readonly inputFactory: (event: DomainEvent) => AgentCoreInput | Promise<AgentCoreInput>) {}
   hasReceipt(destination: string, messageId: string): Promise<boolean> { return Promise.resolve(this.receipts.has(`${destination}:${messageId}`)); }
@@ -27,7 +24,4 @@ export class InMemoryRuntimePersistence implements RuntimePersistence {
   recordFailure(_message: MessageEnvelope, event: DomainEvent, _input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void> { this.failures.push({ event, error, toolExecutions: [...toolExecutions] }); return Promise.resolve(); }
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]> { return Promise.resolve([...this.#outbox.values()].filter(({ sent }) => !sent).slice(0, limit).map(({ envelope }) => ({ envelope }))); }
   markOutboxSent(id: string): Promise<void> { const item = this.#outbox.get(id); if (item !== undefined) item.sent = true; return Promise.resolve(); }
-  claimPostProcess(agentId?: string, runId?: string, type?: PendingPostProcess["type"]): Promise<PendingPostProcess | undefined> { const index = this.#postProcessJobs.findIndex((job) => (agentId === undefined || job.agentId === agentId) && (runId === undefined || job.input.run.runId === runId) && (type === undefined || job.type === type)); if (index < 0) return Promise.resolve(undefined); const [job] = this.#postProcessJobs.splice(index, 1); return Promise.resolve(job === undefined ? undefined : { ...job, attempt: job.attempt + 1 }); }
-  completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void> { this.postProcessOutputs.push({ type: job.type, output }); return Promise.resolve(); }
-  failPostProcess(job: PendingPostProcess, error: unknown): Promise<void> { this.postProcessFailures.push(error); if (job.attempt < 2) this.#postProcessJobs.push(job); return Promise.resolve(); }
 }

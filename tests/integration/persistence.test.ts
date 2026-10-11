@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { parse } from "dotenv";
 import { Pool } from "pg";
 import { z } from "zod";
@@ -12,8 +11,6 @@ import { PostgresEventTransaction } from "../../src/infrastructure/persistence/e
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
 import { PostgresMemoryRetriever } from "../../src/infrastructure/persistence/postgres-memory-retriever.js";
 import { PostgresScheduleRepository } from "../../src/infrastructure/persistence/postgres-schedule-repository.js";
-import { PostgresLongTermReviewRepository } from "../../src/infrastructure/persistence/postgres-long-term-review.js";
-import { LongTermReviewService } from "../../src/application/long-term-review.js";
 import { PostgresRuntimePersistence } from "../../src/infrastructure/persistence/postgres-runtime-persistence.js";
 import { PostgresReflectionRepository } from "../../src/infrastructure/persistence/postgres-reflection.js";
 import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
@@ -320,70 +317,6 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(second.authorizeInbound({ ...event, id: "policy-event-3", correlationId: "rate-correlation-1" }, "policy-message-3", 1)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("updates long-term state, candidate and self-change memory atomically", async () => {
-    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-ok','a','selfNarrative','More patient','pending','Evidence'),('candidate-fail','a','selfNarrative','Should rollback','pending','Evidence')");
-    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-ok','memory-a1'),('candidate-fail','memory-a1')");
-    const selfChangeContent = "Changed selfNarrative from: Growing\nTo: I learn with patience";
-    const selfChangeVector = Array.from({ length: 768 }, (_, index) => index === 2 ? 1 : 0);
-    const selfChangeEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ [selfChangeContent]: selfChangeVector }), "review-fake");
-    const repository = new PostgresLongTermReviewRepository(pool, () => "review-memory", selfChangeEmbedding);
-    const service = new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-ok", decision: "UPDATE", reason: "Repeated experience" }], stateUpdate: { value: "I learn with patience", reason: "Repeated experience", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) });
-    await service.review("candidate-ok", new AbortController().signal);
-    expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
-    expect((await pool.query("SELECT 1 FROM memories WHERE id='review-memory' AND kind='self-change'")).rowCount).toBe(1);
-    expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='review-memory'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "review-fake" });
-    const failing = new LongTermReviewService(new PostgresLongTermReviewRepository(pool, () => "review-memory"), { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-fail", decision: "UPDATE", reason: "Test rollback" }], stateUpdate: { value: "Should rollback", reason: "Test rollback", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) });
-    await expect(failing.review("candidate-fail", new AbortController().signal)).rejects.toBeTruthy();
-    expect((await pool.query<{ status: string }>("SELECT status FROM long_term_candidates WHERE id='candidate-fail'")).rows[0]?.status).toBe("pending");
-    expect((await pool.query<{ self_narrative: string }>("SELECT self_narrative FROM agent_states WHERE agent_id='a'")).rows[0]?.self_narrative).toBe("I learn with patience");
-  });
-
-  it("loads Event-only evidence for long-term review and preserves it on the change record", async () => {
-    const observation = { eventId: "review-event-evidence", summary: "The user's explicit feedback", facts: ["The proposal was adopted"], observedAt: fixtureInstant };
-    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('review-event-evidence','a','user-message',$1,'test','completed',$2)", [observation, fixtureInstant]);
-    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,evidence_event_ids) VALUES ('candidate-event-only','a','selfNarrative','I make useful proposals','pending','Explicit result',$1)", [JSON.stringify(["review-event-evidence"])]);
-    const repository = new PostgresLongTermReviewRepository(pool, () => "event-review-memory");
-    const service = new LongTermReviewService(repository, { review: (input) => {
-      expect(input.evidenceEvents).toEqual([observation]);
-      return Promise.resolve({ decisions: [{ candidateId: "candidate-event-only", decision: "UPDATE", reason: "Explicit result" }], stateUpdate: { value: "I make useful proposals", reason: "Explicit result", evidenceMemoryIds: [], evidenceEventIds: ["review-event-evidence"] } });
-    } });
-    await service.review("candidate-event-only", new AbortController().signal);
-    expect((await pool.query<{ evidence_event_ids: string[] }>("SELECT evidence_event_ids FROM memories WHERE id='event-review-memory'")).rows[0]?.evidence_event_ids).toEqual(["review-event-evidence"]);
-  });
-
-  it("reviews list-valued state and grounded memory targets without immediate re-claim", async () => {
-    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,review_after) VALUES ('candidate-role','a','role','Research partner','pending','Repeated collaboration','2026-01-01'),('candidate-semantic','a','semanticMemory','The user prefers concise plans','pending','Explicit repeated preference','2026-01-01')");
-    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-role','memory-a1'),('candidate-semantic','memory-a1')");
-    const ids = ["role-change-memory", "semantic-grounded-memory"];
-    const repository = new PostgresLongTermReviewRepository(pool, () => ids.shift() ?? "unexpected");
-    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-role", decision: "UPDATE", reason: "Stable role" }], stateUpdate: { value: ["Helper", "Research partner"], reason: "Stable role", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-role", new AbortController().signal);
-    expect((await pool.query<{ roles: string[] }>("SELECT roles FROM agent_states WHERE agent_id='a'")).rows[0]?.roles).toEqual(["Helper", "Research partner"]);
-    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-semantic", decision: "UPDATE", reason: "Grounded fact" }], stateUpdate: { value: "The user prefers concise plans", reason: "Grounded fact", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-semantic", new AbortController().signal);
-    expect((await pool.query<{ evidence_memory_ids: string[] }>("SELECT evidence_memory_ids FROM memories WHERE id='semantic-grounded-memory' AND kind='semantic'")).rows[0]?.evidence_memory_ids).toEqual(["memory-a1"]);
-
-    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason,review_after) VALUES ('candidate-keep','a','longTermInterest','Distributed systems','pending','Needs more evidence','2026-01-01')");
-    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-keep','memory-a1')");
-    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-keep", decision: "KEEP", reason: "Wait for repetition" }] }) }).review("candidate-keep", new AbortController().signal);
-    const kept = (await pool.query<{ status: string; review_after: Date }>("SELECT status,review_after FROM long_term_candidates WHERE id='candidate-keep'")).rows[0];
-    expect(kept?.status).toBe("pending"); expect(kept?.review_after).toBeInstanceOf(Date);
-  });
-
-  it("updates Self Continuity only through grounded long-term review", async () => {
-    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-continuity','a','selfContinuity','My memory and unfinished commitments connect my experiences','pending','Repeated continuity concerns')");
-    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-continuity','memory-a1')");
-    const repository = new PostgresLongTermReviewRepository(pool, () => "continuity-change-memory");
-    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-continuity", decision: "UPDATE", reason: "Repeated evidence" }], stateUpdate: { value: "My memory and unfinished commitments connect my experiences", reason: "Repeated evidence", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-continuity", new AbortController().signal);
-    expect((await pool.query<{ self_continuity: string }>("SELECT self_continuity FROM agent_states WHERE agent_id='a'")).rows[0]?.self_continuity).toBe("My memory and unfinished commitments connect my experiences");
-  });
-
-  it("updates Values only through grounded long-term review", async () => {
-    await pool.query("INSERT INTO long_term_candidates(id,agent_id,target,proposed_value,status,reason) VALUES ('candidate-values','a','values','Careful verification before confident claims','pending','Repeated corrections')");
-    await pool.query("INSERT INTO candidate_evidence(candidate_id,memory_id) VALUES ('candidate-values','memory-a1')");
-    const repository = new PostgresLongTermReviewRepository(pool, () => "values-change-memory");
-    await new LongTermReviewService(repository, { review: () => Promise.resolve({ decisions: [{ candidateId: "candidate-values", decision: "UPDATE", reason: "Repeated evidence" }], stateUpdate: { value: "Careful verification before confident claims", reason: "Repeated evidence", evidenceMemoryIds: ["memory-a1"], evidenceEventIds: [] } }) }).review("candidate-values", new AbortController().signal);
-    expect((await pool.query<{ values: string }>("SELECT values FROM agent_states WHERE agent_id='a'")).rows[0]?.values).toBe("Careful verification before confident claims");
-  });
-
   it("materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('proposal-evidence','a','self-related','Repeated follow-through','Relevant',now(),'[]')");
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
@@ -404,29 +337,11 @@ describeDatabase("PostgreSQL persistence", () => {
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
     await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
-    expect((await pool.query("SELECT 1 FROM post_process_jobs WHERE interaction_run_id='runtime-run'")).rowCount).toBe(0);
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
     expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-1");
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
-  });
-
-  it("does not create per-interaction cognitive post-process jobs", async () => {
-    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
-    const input = agentCoreInputFixture();
-    input.run = { runId: "state-review-run", eventId: "state-review-event", agentId: "a", occurredAt: fixtureInstant };
-    input.observation = { ...input.observation, eventId: "state-review-event", summary: "Review time, state, and relevant memory", content: { targetKind: "autonomy-review", triggers: ["time-elapsed", "memory-recall"], schedulerGenerated: true } };
-    input.self = { ...input.self, id: "a", version };
-    input.dynamicState = { ...input.dynamicState, agentId: "a" };
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["state-review-integration-job"]), () => new Date(fixtureInstant));
-    const message = messageFixture({ id: "state-review-message", destination: "a" });
-    const event = { id: "state-review-event", agentId: "a", kind: "internal" as const, occurredAt: fixtureInstant, payload: { targetKind: "autonomy-review", triggers: ["time-elapsed", "memory-recall"], schedulerGenerated: true } };
-    const result = { output: { interpretation: { subjectiveMeaning: "Persistent state review", activeMotive: { description: "Review state", evidenceIds: [input.run.eventId] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Continuity only" } }, toolExecutions: [] };
-    await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
-    const jobs = await pool.query<{ job_type: string }>("SELECT job_type FROM post_process_jobs WHERE interaction_run_id='state-review-run' ORDER BY job_type");
-    expect(jobs.rows).toEqual([]);
-    expect((await pool.query<{ result: { output: { action: { type: string } } } }>("SELECT result FROM agent_runs WHERE id='state-review-run'")).rows[0]?.result.output.action.type).toBe("no-external-action");
   });
 
   it("commits Reflection state and Memory atomically and deduplicates retries", async () => {

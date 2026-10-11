@@ -21,7 +21,6 @@ describe("Agent Debug UI", () => {
       calls.push({ sql, values });
       if (sql.includes("FROM agents a JOIN")) return Promise.resolve([{ id: "ao" }] as T[]);
       if (sql.includes("FROM agent_states WHERE")) return Promise.resolve([{ mood: "calm" }] as T[]);
-      if (sql.includes("FROM post_process_jobs")) return Promise.resolve([{ recentExperiences: [{ eventId: "event-1", agentId: "ao", occurredAt: "2026-01-01T00:00:00Z", eventKind: "internal", observation: { eventId: "event-1", summary: "Review", facts: [], observedAt: "2026-01-01T00:00:00Z" }, steps: [], progressChanged: false }] }] as T[]);
       return Promise.resolve([]);
     };
     const repository = new DebugUiRepository(query);
@@ -29,18 +28,12 @@ describe("Agent Debug UI", () => {
     await repository.listRuns("ao", 999);
     await repository.listMemories("ao", 0);
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
-    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(9);
+    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(7);
     expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.values).toEqual(["ao", 100]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.sql).toContain("e.observation#>>'{content,targetKind}'");
-    expect(calls.find(({ sql }) => sql.includes("FROM post_process_jobs"))?.values).toEqual(["ao"]);
-    expect(overview?.recentExperiences).toEqual([{ eventId: "event-1", agentId: "ao", occurredAt: "2026-01-01T00:00:00Z", eventKind: "internal", observation: { eventId: "event-1", summary: "Review", facts: [], observedAt: "2026-01-01T00:00:00Z" }, steps: [], progressChanged: false }]);
+    expect(overview?.recentExperiences).toEqual([]);
     expect(calls.find(({ sql }) => sql.includes("FROM memories"))?.values).toEqual(["ao", 1]);
-  });
-
-  it("reports a malformed snapshot instead of showing an empty history", async () => {
-    const query: SqlQuery = <T>(sql: string) => Promise.resolve((sql.includes("FROM agents a JOIN") ? [{ id: "ao" }] : sql.includes("FROM post_process_jobs") ? [{ recentExperiences: {} }] : []) as T[]);
-    await expect(new DebugUiRepository(query).getOverview("ao")).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("serves overview and returns 404 for an unknown Run", async () => {

@@ -35,8 +35,6 @@ describe("ST-01 Terminal round trip", () => {
     expect(action).toEqual({ type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" });
     expect(harnessCalls).toBe(1);
     expect(persistence.events).toHaveLength(1);
-    await expect(persistence.claimPostProcess("agent-a", "run-1", "experience-integration")).resolves.toBeUndefined();
-    await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toBeUndefined();
   });
 
   it("does not mark an autonomous Event successful without a destination", async () => {

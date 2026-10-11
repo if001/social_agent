@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
 import { StateUpdateService, type StateUpdateResult } from "./state-update-service.js";
-import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type CandidateDetectionInput, type CandidateDetectionOutput, type ContinuityInput, type ContinuityOutput, type DomainEvent, type ExperienceIntegrationOutput, type MemoryExtractionInput, type MemoryExtractionOutput, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
+import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
@@ -14,12 +14,6 @@ const IncomingPayload = z.discriminatedUnion("type", [
 ]);
 
 export type PendingOutput = { readonly envelope: MessageEnvelope };
-export type PendingPostProcess =
-  | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "experience-integration"; readonly input: ContinuityInput; readonly attempt: number }
-  | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "continuity"; readonly input: ContinuityInput; readonly attempt: number }
-  | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "memory"; readonly input: MemoryExtractionInput; readonly attempt: number }
-  | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "candidate"; readonly input: CandidateDetectionInput; readonly attempt: number };
-export type PostProcessOutput = ExperienceIntegrationOutput | ContinuityOutput | MemoryExtractionOutput | CandidateDetectionOutput;
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput>;
@@ -28,9 +22,6 @@ export interface RuntimePersistence {
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
-  claimPostProcess(agentId?: string, runId?: string, type?: PendingPostProcess["type"]): Promise<PendingPostProcess | undefined>;
-  completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void>;
-  failPostProcess(job: PendingPostProcess, error: unknown): Promise<void>;
 }
 
 export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
