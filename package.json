@@ -21,7 +21,8 @@
     "ops": "tsx src/cli.ts",
     "bot:start": "tsx src/bot.ts",
     "debug:ui": "tsx src/debug-ui.ts",
-    "eval:llm": "tsx src/evaluation/run-live.ts"
+    "eval:llm": "tsx src/evaluation/run-live.ts",
+    "runtime:reset": "node --env-file=.env --import tsx src/reset-runtime.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
