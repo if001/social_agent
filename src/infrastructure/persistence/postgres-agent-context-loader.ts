@@ -34,16 +34,25 @@ export type PostgresAgentContextLoaderOptions = {
 
 function text(value: unknown): string | undefined { return typeof value === "string" && value.trim() !== "" ? value : undefined; }
 function texts(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "") : []; }
-function motives(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = MotiveSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
-function motiveExploration(value: unknown) { return Array.isArray(value) ? value.flatMap((item) => { const parsed = MotiveExplorationSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : []; }
-function recentExperience(row: RecentExperienceRow, toolsRegistry: ToolRegistry): RecentExperience | undefined {
-  const observation = ObservationSchema.safeParse(row.observation); if (!observation.success) return undefined;
+function motives(value: unknown) {
+  const parsed = MotiveSchema.array().safeParse(value);
+  if (!parsed.success) throw new DomainError("VALIDATION", "Persisted motives are invalid", { cause: parsed.error });
+  return parsed.data;
+}
+function motiveExploration(value: unknown) {
+  const parsed = MotiveExplorationSchema.array().safeParse(value);
+  if (!parsed.success) throw new DomainError("VALIDATION", "Persisted motive exploration is invalid", { cause: parsed.error });
+  return parsed.data;
+}
+function recentExperience(row: RecentExperienceRow, toolsRegistry: ToolRegistry, logger: Logger): RecentExperience | undefined {
+  const observation = ObservationSchema.safeParse(row.observation); if (!observation.success) { logger.log("warn", "context.invalid_recent_experience", { eventId: row.event_id, runId: row.run_id, reason: "invalid-observation" }); return undefined; }
   const tools = Array.isArray(row.tools) ? row.tools : []; const steps: RecentExperience["steps"] = [];
   for (const raw of tools) if (typeof raw === "object" && raw !== null) { const value = raw as Record<string, unknown>; if (typeof value.tool === "string") steps.push({ type: "tool", name: value.tool, input: value.input, result: value.error === null || value.error === undefined ? toolsRegistry.projectResult(value.tool, value.result, "recent-experience") : { error: value.error }, ok: value.error === null || value.error === undefined }); }
   const result = typeof row.result === "object" && row.result !== null ? row.result as Record<string, unknown> : {}; const output = typeof result.output === "object" && result.output !== null ? result.output as Record<string, unknown> : {}; const action = FinalActionSchema.safeParse(output.action);
   if (action.success) steps.push({ type: "action", action: action.data }); else if (row.failure_reason !== null) steps.push({ type: "failure", reason: row.failure_reason });
   const parsed = RecentExperienceSchema.safeParse({ eventId: row.event_id, ...(row.run_id === null ? {} : { runId: row.run_id }), agentId: row.agent_id, occurredAt: row.occurred_at.toISOString(), eventKind: row.event_kind, observation: observation.data, steps, progressChanged: row.progress_changed });
-  return parsed.success ? parsed.data : undefined;
+  if (!parsed.success) { logger.log("warn", "context.invalid_recent_experience", { eventId: row.event_id, runId: row.run_id, reason: "invalid-experience" }); return undefined; }
+  return parsed.data;
 }
 function transport(event: DomainEvent): AgentCoreInput["run"]["transport"] {
   const value = event.payload.transport;
@@ -93,7 +102,7 @@ export class PostgresAgentContextLoader {
         LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('tool',x.tool,'input',x.input,'result',x.result,'error',x.error) ORDER BY x.started_at,x.id) AS tools FROM tool_executions x WHERE x.run_id=r.id) t ON true
         ORDER BY e.occurred_at,e.id`, [event.agentId]),
     ]);
-    const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row, this.options.tools); return value === undefined ? [] : [value]; });
+    const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row, this.options.tools, this.options.logger ?? noopLogger); return value === undefined ? [] : [value]; });
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, subjectType: row.subject_type, description: row.description, updatedAt: row.updated_at.toISOString() }));
     const dynamicState = { agentId: agent.id, mood: agent.mood, motives: motives(agent.motives), motiveExploration: motiveExploration(agent.motive_exploration), updatedAt: agent.state_updated_at.toISOString() };
     const seedSocial = selectSocialContexts({ socialContext, observation });
