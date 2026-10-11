@@ -1,0 +1,1 @@
+ALTER TABLE "agent_states" ADD COLUMN "emotion" jsonb;

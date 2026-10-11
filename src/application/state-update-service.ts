@@ -58,7 +58,7 @@ const transientCollectionTargets = new Set<string>();
 const SocialContextValue = z.object({ subjectId: z.string().min(1), subjectType: z.enum(["user", "agent", "team", "project", "organization"]).optional(), description: z.string().min(1).optional() });
 
 export class StateUpdateService {
-  apply(agentId: string, state: DynamicState, proposals: readonly unknown[], socialContexts: readonly SocialContext[] = []): StateUpdateResult {
+  apply(agentId: string, state: DynamicState, proposals: readonly unknown[], socialContexts: readonly SocialContext[] = [], occurredAt = state.updatedAt, eventId = "unknown-event"): StateUpdateResult {
     if (state.agentId !== agentId) throw new DomainError("VALIDATION", "Cannot update another agent's state");
     const next: Record<string, unknown> = { ...state };
     const transient: Record<string, unknown> = {};
@@ -77,12 +77,12 @@ export class StateUpdateService {
       if (!scalar && !collection) {
         throw new DomainError("VALIDATION", `Target ${proposal.target} requires its owning service`);
       }
-      const persistent = persistentScalarTargets.has(proposal.target) || persistentCollectionTargets.has(proposal.target);
+      const persistent = persistentScalarTargets.has(proposal.target) || persistentCollectionTargets.has(proposal.target) || proposal.target === "emotion";
       const targetState = persistent ? next : transient;
       const before = targetState[proposal.target];
       if (scalar) {
         if (proposal.operation !== "set" || typeof proposal.value !== "string" || proposal.value.trim() === "") throw new DomainError("VALIDATION", `Invalid operation for ${proposal.target}`);
-        targetState[proposal.target] = proposal.value.trim();
+        targetState[proposal.target] = proposal.target === "emotion" ? { description: proposal.value.trim(), occurredAt, evidenceEventId: proposal.evidenceIds[0] ?? eventId } : proposal.value.trim();
       } else {
         const current = Array.isArray(before) ? before.filter((value): value is string => typeof value === "string") : [];
         const values = (Array.isArray(proposal.value) ? proposal.value : [proposal.value]).filter((value): value is string => typeof value === "string" && value.trim() !== "").map((value) => value.trim());

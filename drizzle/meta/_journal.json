@@ -71,6 +71,13 @@
       "when": 1791651918343,
       "tag": "0009_remove_legacy_persistent_drive_schedules",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791707363340,
+      "tag": "0010_busy_talon",
+      "breakpoints": true
     }
   ]
 }
