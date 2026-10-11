@@ -35,16 +35,19 @@ async function readPacket(path: string): Promise<EvaluationPacket | undefined> {
   }
 }
 
-export async function runEvaluation(options: { readonly scenarios: readonly EvaluationScenario[]; readonly repetitions: number; readonly minimumRepetitions?: number; readonly executor: ScenarioExecutor; readonly evaluator: EvaluatorAdapter; readonly artifactRoot: string; readonly metadata: ArtifactMetadata; readonly signal: AbortSignal; readonly resumeGroupId?: string }): Promise<EvaluationSummary> {
+export async function runEvaluation(options: { readonly scenarios: readonly EvaluationScenario[]; readonly repetitions: number; readonly minimumRepetitions?: number; readonly concurrency?: number; readonly executor: ScenarioExecutor; readonly evaluator: EvaluatorAdapter; readonly artifactRoot: string; readonly metadata: ArtifactMetadata; readonly signal: AbortSignal; readonly resumeGroupId?: string }): Promise<EvaluationSummary> {
   if (options.repetitions < (options.minimumRepetitions ?? 1)) throw new Error(`Evaluation requires at least ${String(options.minimumRepetitions ?? 1)} repetitions`);
   const groupId = options.resumeGroupId ?? `${options.metadata.createdAt.replaceAll(/[:.]/gu, "-")}-${randomUUID()}`; const directory = join(options.artifactRoot, groupId);
   if (options.resumeGroupId === undefined) await mkdir(directory, { recursive: false });
   const packets: EvaluationPacket[] = [];
-  for (const scenario of options.scenarios) for (let repetition = 1; repetition <= options.repetitions; repetition += 1) {
+  const tasks = options.scenarios.flatMap((scenario) => Array.from({ length: options.repetitions }, (_, index) => ({ scenario, repetition: index + 1 }))); let cursor = 0;
+  const worker = async (): Promise<void> => { while (cursor < tasks.length) {
+    const task = tasks[cursor]; cursor += 1; if (task === undefined) return; const { scenario, repetition } = task;
     const packetPath = join(directory, `${scenario.id}-${String(repetition)}.json`); const existing = await readPacket(packetPath);
     if (existing !== undefined) { packets.push(existing); continue; }
     const result = await options.executor.execute(scenario, repetition, options.signal); const hardAssertions = evaluateHardAssertions(result); const rubric = await options.evaluator.evaluate(scenario, result, options.signal); const passed = semanticPass(rubric); const packet: EvaluationPacket = { scenarioId: scenario.id, scenarioVersion: scenario.version, repetition, result, hardAssertions, rubric, semanticPass: passed, humanReviewRequired: !passed || Object.values(rubric).includes("weak") }; packets.push(packet); await writeFile(packetPath, JSON.stringify(redactSecrets(packet), null, 2), { flag: "wx" });
-  }
+  } };
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 1, tasks.length)); await Promise.all(Array.from({ length: concurrency }, worker));
   const scenarios = options.scenarios.map(({ id }) => { const selected = packets.filter((packet) => packet.scenarioId === id); const hardPass = selected.every((packet) => packet.hardAssertions.every(({ passed }) => passed)); const semanticPasses = selected.filter((packet) => packet.semanticPass).length; const count = (values: readonly string[]) => values.reduce<Record<string, number>>((result, value) => ({ ...result, [value]: (result[value] ?? 0) + 1 }), {}); const behaviorCounts = count(selected.flatMap(({ result }) => result.behaviorLabels ?? [])); const failureCounts = count(selected.flatMap(({ result, semanticPass }) => result.failureKind === undefined ? semanticPass ? [] : ["semantic"] : [result.failureKind])); return { id, hardPass, semanticPasses, passed: hardPass && semanticPasses >= Math.ceil(options.repetitions * 0.8), behaviorCounts, failureCounts }; });
   const pairIds = [...new Set(options.scenarios.map(({ pairId }) => pairId))];
   const pairs: PairSummary[] = pairIds.map((pairId) => {
