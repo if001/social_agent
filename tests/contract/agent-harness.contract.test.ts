@@ -96,8 +96,7 @@ describe("AgentHarness contract", () => {
   });
 
   it("rejects persistent state proposals in the Interaction output", async () => {
-    const invalid = structuredClone(output);
-    invalid.internalChanges.immediateStateUpdates.push({ target: "mood", operation: "set", value: "calm", reason: "test", evidenceIds: [] });
+    const invalid = { ...output, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "test", evidenceIds: [] }] } };
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
@@ -148,11 +147,10 @@ describe("AgentHarness contract", () => {
     await expect(checkOllamaChatCapability({ baseUrl: "https://ollama.example", apiKey: "secret", model: "missing" }, fetcher)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("describes the Interaction purpose and immediate output in Japanese", () => {
+  it("describes Interaction decisions without duplicating the output schema", () => {
     expect(agentCoreSystemPrompt).toContain("目的:");
-    expect(agentCoreSystemPrompt).toContain("immediateStateUpdates");
-    expect(agentCoreSystemPrompt).toContain("Emotionだけ");
-    expect(agentCoreSystemPrompt).toContain("空配列");
+    expect(agentCoreSystemPrompt).not.toContain("構造化出力専用Tool");
+    expect(agentCoreSystemPrompt).not.toContain("最小引数例");
     expect(agentCoreSystemPrompt).toContain("明示した将来時刻の処理はschedule_task");
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
     expect(agentCoreSystemPrompt).toContain("activeMotiveを1件");
