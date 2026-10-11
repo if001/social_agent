@@ -14,7 +14,7 @@
 
 ## P1: 振る舞いの不一致につながる重複を整理する
 
-- [ ] **R03: Tool結果の用途別変換を一元化する（重複確認済み）。** `application/tool-registry.ts::projectToolResult` と `infrastructure/agent/deep-agent-harness.ts::compactToolContent` が別々に切り詰め・Web固有変換を持つ。さらに `postgres-runtime-persistence.ts` は後処理用に2,000文字、`event-transaction.ts` はObservation summaryを4,000文字で切る。実装設計 §9・§16・§18・§26 に沿い、即時参照、履歴、Recent Experiences、後処理、監査それぞれの契約を共通Policyに集約する。Tool固有の短縮はTool側で定義し、Harness内のTool名分岐を削除する。完了条件: raw本文が後続プロンプトへ再流入せず、監査記録と出典は保持され、各経路で同じPolicyを検証できる。
+- [x] **R03: Tool結果の用途別変換を一元化する（重複確認済み）。** `application/tool-registry.ts::projectToolResult` と `infrastructure/agent/deep-agent-harness.ts::compactToolContent` が別々に切り詰め・Web固有変換を持つ。さらに `postgres-runtime-persistence.ts` は後処理用に2,000文字、`event-transaction.ts` はObservation summaryを4,000文字で切る。実装設計 §9・§16・§18・§26 に沿い、即時参照、履歴、Recent Experiences、後処理、監査それぞれの契約を共通Policyに集約する。Tool固有の短縮はTool側で定義し、Harness内のTool名分岐を削除する。完了条件: raw本文が後続プロンプトへ再流入せず、監査記録と出典は保持され、各経路で同じPolicyを検証できる。
 
 - [ ] **R04: Web Toolの入力Schema二重定義を削除する（確認済み）。** `infrastructure/tools/web-tools.ts` の `web_archive_search/read/grep` は登録時Schemaとexecute内のSchemaを重複定義する。実装設計 §26・§29 の境界検証として `ToolRegistry.execute` のparse後に型付き入力を受け取り、単一定義を使う。完了条件: default・境界値・不正入力の振る舞いが一致し、同じ入力を再parseするための複製Schemaがない。
 
@@ -58,3 +58,4 @@
 
 - R01: [Issue 118](../issues/118-align-motivation-spec.md)。採用済み方針をspecへ反映し、残存Schema名をMotiveへ統一。
 - R02: [Issue 119](../issues/119-align-core-flow.md)。論理Tool Result Eventと物理再投入を区別し、Interaction / 後処理 / Reviewを整理。配送差分はR06へ引き継ぐ。
+- R03: [Issue 120](../issues/120-unify-tool-result-projection.md)。用途別Tool結果Policyを共有。DB integrationを含め検証済み。
