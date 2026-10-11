@@ -40,6 +40,13 @@ describe("Scheduler", () => {
     await scheduler.tick(new AbortController().signal);
     expect(completions).toEqual([null]);
   });
+  it("runs Reflection as maintenance without invoking the action Runtime", async () => {
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); let runtimeCalls = 0; const reflections: string[] = []; const completions: (Date | null)[] = [];
+    const reflection: ScheduledTarget = { id: "reflection:agent-a", agentId: "agent-a", kind: "reflection", reason: "経験を統合する" };
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([reflection]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => { runtimeCalls += 1; return Promise.resolve({ type: "respond", content: "unexpected" }); } }, reflection: { process: (id) => { reflections.push(id); return Promise.resolve(undefined); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["reflection-event"]), lifecycle, defaultDestination: () => "terminal", ...timings });
+    await expect(scheduler.tick(new AbortController().signal)).resolves.toBe(1);
+    expect(runtimeCalls).toBe(0); expect(reflections).toEqual(["reflection-event"]); expect(completions[0]?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
+  });
   it("executes a Scheduled Task only through a System Event", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: { kind: string; payload: Record<string, unknown> }[] = []; let completed = 0;
     const task: ScheduledTarget = { id: "task-1", agentId: "agent-a", kind: "scheduled-task", reason: "約束", instruction: "調査結果を知らせる", destination: "terminal" };

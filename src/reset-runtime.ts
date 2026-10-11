@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   const configs = await Promise.all((await readdir(directory)).filter(name => /\.ya?ml$/.test(name)).map(name => loadInitialSelfFile(resolve(directory, name))));
   const roots = [process.env.QUEUE_ROOT ?? "./var/queue", process.env.WEB_ARCHIVE_ROOT ?? "./var/web-archive"];
   const pool = new Pool({ connectionString: process.env.POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://"), connectionTimeoutMillis: 5000 });
-  try { console.log(JSON.stringify(await resetRuntime(pool, configs, roots, parseSchedulerTimings(process.env).autonomyReviewIntervalMs), null, 2)); }
+  try { console.log(JSON.stringify(await resetRuntime(pool, configs, roots, parseSchedulerTimings(process.env)), null, 2)); }
   finally { await pool.end(); }
 }
 void main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : "Reset failed"); process.exitCode = 1; });

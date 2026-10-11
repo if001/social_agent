@@ -25,6 +25,7 @@ export async function initializeAgent(pool: Pool, config: InitialSelfConfig, tim
     }
     await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind=ANY($2::text[])", [agent.id, ["state-review", "memory-recall", "autonomy-review"]]);
     await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`idle:${agent.id}`, agent.id, "一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する", timings.autonomyReviewIntervalMs]);
+    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'reflection',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`reflection:${agent.id}`, agent.id, "蓄積したEvent logをMemoryと長期状態へ統合する", timings.stateReviewIntervalMs]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }

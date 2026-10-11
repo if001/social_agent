@@ -2,17 +2,20 @@ import type { Pool } from "pg";
 
 import { AgentEventRouter } from "../application/agent-event-router.js";
 import { AgentRuntime, OutboxDispatcher } from "../application/agent-runtime.js";
+import { Reflection } from "../application/reflection.js";
 import type { Clock, IdGenerator, MessageQueue } from "../application/ports.js";
 import { ToolRegistry } from "../application/tool-registry.js";
 import type { AppConfig } from "../config/config.js";
 import type { RunLimits } from "../domain/contracts.js";
 import { DeepAgentHarness, createOllamaDeepAgentInvoker } from "../infrastructure/agent/deep-agent-harness.js";
+import { OllamaReflectionModel } from "../infrastructure/agent/reflection-harness.js";
 import { createOllamaWebPageSummarizer } from "../infrastructure/agent/web-summary-harness.js";
 import { OllamaEmbeddingProvider } from "../infrastructure/embedding/ollama-embedding.js";
 import { PostgresAgentContextLoader } from "../infrastructure/persistence/postgres-agent-context-loader.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../infrastructure/persistence/postgres-memory-embedding.js";
 import { PostgresWebArchive } from "../infrastructure/persistence/postgres-web-archive.js";
 import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgres-runtime-persistence.js";
+import { PostgresReflectionRepository } from "../infrastructure/persistence/postgres-reflection.js";
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
 import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
 import { noopLogger, type Logger } from "../observability/logger.js";
@@ -64,7 +67,8 @@ export function createBotComposition(options: BotCompositionOptions) {
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name))
   });
   const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
+  const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now()), new OllamaReflectionModel(config.chat));
   const router = new AgentEventRouter(runtime);
   const outbox = new OutboxDispatcher(persistence, queue, logger);
-  return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, router, outbox };
+  return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, reflection, router, outbox };
 }

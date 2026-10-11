@@ -72,7 +72,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000, memoryRecallIntervalMs: 4_000 };
     await initializeAgent(pool, config, initialTimings);
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='idle'", [config.agent.id])).rows).toEqual([{ kind: "idle" }]);
-    expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "idle", delay_ms: 2_000 }]);
+    expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "idle", delay_ms: 2_000 }, { kind: "reflection", delay_ms: 3_000 }]);
     await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', motives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ id: "motive-existing", description: "継続中のMotive", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
     await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } }, initialTimings);

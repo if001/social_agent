@@ -35,7 +35,7 @@ it("resets isolated data, preserves bot config, and refuses a running bot", asyn
     archived = result.archivedDirectories;
     expect((await pool.query("SELECT version,mood FROM agent_states")).rows[0]).toEqual({ version: 0, mood: config.initialState.mood });
     expect((await pool.query<{ config: unknown }>("SELECT config FROM agents")).rows[0]?.config).toEqual({ persona: "keep" });
-    expect((await pool.query<{ count: string }>("SELECT count(*) FROM autonomous_schedules")).rows[0]?.count).toBe("1");
+    expect((await pool.query<{ count: string }>("SELECT count(*) FROM autonomous_schedules")).rows[0]?.count).toBe("2");
     await expect(access(root)).rejects.toThrow();
   } finally {
     await lock.query("SELECT pg_advisory_unlock_all()"); lock.release();

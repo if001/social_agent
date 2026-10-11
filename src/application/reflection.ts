@@ -40,9 +40,9 @@ export interface ReflectionRepository {
 export class Reflection {
   constructor(private readonly repository: ReflectionRepository, private readonly model: ReflectionModel) {}
 
-  async process(reflectionId: string, agentId: string, signal: AbortSignal): Promise<ReflectionOutput> {
+  async process(reflectionId: string, agentId: string, signal: AbortSignal): Promise<ReflectionOutput | undefined> {
     const loaded = await this.repository.load(reflectionId, agentId);
-    if (loaded === undefined) throw new DomainError("NOT_FOUND", "Reflection input was not found");
+    if (loaded === undefined) return undefined;
     const input = ReflectionInputSchema.parse(loaded);
     try {
       const output = ReflectionOutputSchema.parse(await this.model.reflect(input, signal));

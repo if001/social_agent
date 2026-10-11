@@ -22,6 +22,7 @@ export { PostgresEventTransaction } from "./infrastructure/persistence/event-tra
 export type { CommitEventInput, FailedEventInput } from "./infrastructure/persistence/event-transaction.js";
 export { PostgresRuntimePersistence } from "./infrastructure/persistence/postgres-runtime-persistence.js";
 export { PostgresReflectionRepository } from "./infrastructure/persistence/postgres-reflection.js";
+export { OllamaReflectionModel, reflectionSystemPrompt } from "./infrastructure/agent/reflection-harness.js";
 export { ScriptedAgentHarness } from "./application/scripted-agent-harness.js";
 export type { ScriptedStep } from "./application/scripted-agent-harness.js";
 export { DeepAgentHarness, checkOllamaChatCapability, createOllamaDeepAgentInvoker } from "./infrastructure/agent/deep-agent-harness.js";

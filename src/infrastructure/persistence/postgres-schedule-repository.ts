@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import type { ScheduleRepository, ScheduledTarget } from "../../application/scheduler.js";
 
-type DueAutonomousRow = QueryResultRow & { id: string; agent_id: string; kind: "idle" | "concern-due" | "external-change"; reason: string };
+type DueAutonomousRow = QueryResultRow & { id: string; agent_id: string; kind: "idle" | "concern-due" | "external-change" | "reflection"; reason: string };
 type DueTaskRow = QueryResultRow & { id: string; agent_id: string; instruction: string; reason: string | null; destination: string | null };
 
 export class PostgresScheduleRepository implements ScheduleRepository {
@@ -13,7 +13,7 @@ export class PostgresScheduleRepository implements ScheduleRepository {
       await client.query("BEGIN");
       const tasks = await client.query<DueTaskRow>(`WITH due AS (SELECT id FROM scheduled_tasks WHERE status='scheduled' AND execute_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) AND ($4::text IS NULL OR agent_id=$4) ORDER BY execute_at,id FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE scheduled_tasks t SET status='running',lease_until=$3,attempt=t.attempt+1,updated_at=now() FROM due WHERE t.id=due.id RETURNING t.id,t.agent_id,t.instruction,t.reason,t.destination`, [now, limit, leasedUntil, this.agentId ?? null]);
       const remainingAfterTasks = Math.max(0, limit - tasks.rows.length);
-      const autonomous = remainingAfterTasks === 0 ? { rows: [] as DueAutonomousRow[] } : await client.query<DueAutonomousRow>(`WITH due AS (SELECT id FROM autonomous_schedules WHERE kind=ANY($5::text[]) AND next_due_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) AND ($4::text IS NULL OR agent_id=$4) ORDER BY next_due_at,id FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE autonomous_schedules s SET lease_until=$3,updated_at=now() FROM due WHERE s.id=due.id RETURNING s.id,s.agent_id,s.kind,s.reason`, [now, remainingAfterTasks, leasedUntil, this.agentId ?? null, ["idle", "concern-due", "external-change"]]);
+      const autonomous = remainingAfterTasks === 0 ? { rows: [] as DueAutonomousRow[] } : await client.query<DueAutonomousRow>(`WITH due AS (SELECT id FROM autonomous_schedules WHERE kind=ANY($5::text[]) AND next_due_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) AND ($4::text IS NULL OR agent_id=$4) ORDER BY next_due_at,id FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE autonomous_schedules s SET lease_until=$3,updated_at=now() FROM due WHERE s.id=due.id RETURNING s.id,s.agent_id,s.kind,s.reason`, [now, remainingAfterTasks, leasedUntil, this.agentId ?? null, ["idle", "concern-due", "external-change", "reflection"]]);
       await client.query("COMMIT");
       return [
         ...tasks.rows.map((row): ScheduledTarget => ({ id: row.id, agentId: row.agent_id, kind: "scheduled-task", reason: row.reason ?? "Scheduled Taskの期限到来", instruction: row.instruction, ...(row.destination === null ? {} : { destination: row.destination }) })),
