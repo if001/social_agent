@@ -775,7 +775,7 @@ type RelevantSelf = {
 DBではFamily、Agent、Agent Stateに分けて保存するが、Context Loaderが上記Selfへ統合する。Dispositionは実行制約ではないため`runtimeConstraints`へ入れない。`runtimeConstraints`はBase Instruction、Safety、実行上限など、runが従う制約だけを保持する。
 
 type AgentCoreOutput = {
-  interpretation: { subjectiveMeaning?: string }
+  interpretation: { subjectiveMeaning?: string; activeMotive: ActiveMotive }
   internalChanges: {
     immediateStateUpdates: StateUpdateProposal[] // Emotionのみを今回のRunへ記録
   }
@@ -787,7 +787,7 @@ type AgentCoreOutput = {
 
 持続状態、Memory、Long-term Candidateは応答後の用途別Post-processが提案する。Scheduled TaskはLLM出力案として保存せず、Interaction Deep Agentが明示的に`schedule_task` Toolを呼び出して登録する。保存用ID、作成時刻、所有Agent IDはRuntimeが付与する。
 
-`recentExperiences`は現在Eventより前の同一Agentの直近8 Eventを古い順に保持する。各EventはObservation、同一runの全Tool、最終Actionまたはfailureを含み、会話継続、行動結果、反復回避に使う。通常Coreは現在Eventを中心にEpisodic Memoryを提案し、直近履歴の単純な言い換えを重複MemoryとしてContextへ投入しない。
+`recentExperiences`は現在Eventより前の同一Agentの直近8 Eventを古い順に保持する。各EventはObservation、同一runの全Tool、最終Actionまたはfailureを含み、会話継続、行動結果、反復回避に使う。Memory Extractionは現在Eventを中心にEpisodic Memoryを提案し、直近履歴の単純な言い換えを重複MemoryとしてContextへ投入しない。
 
 通常出力はDeep Agentの`responseFormat`から`structuredResponse`として受け取る。Ollamaではprovider-native strategyではなくSchema付きの`toolStrategy`を使い、形式不適合を同じAgent loop内で修復させる。HarnessはDomain固有の参照整合性を含めて再検証する。Schemaまたは参照整合性に適合しない場合は、検証issueを与えて構造修復を1回だけ試みる。再度失敗した場合は状態を変更せずrunを失敗させる。再試行回数は設定可能だが、無制限にしない。Markdown fenceを含む自由形式本文の`JSON.parse`を通常経路にしない。
 
@@ -1075,3 +1075,10 @@ Interactionの探索はModel Call数で制御する。通常設定では最初�
 Model Callの上限は探索回数+2回。既存maxStepsが小さい場合の探索回数はmax(1,min(3,floor(maxSteps/4)))。Graph自体のrecursionLimitは最低64としてMiddlewareの内部ノード用の余裕を確保し、Model Call数、Tool回数、既存deadlineを実際の実行制約とする。request.state.remainingStepsへの依存は置かない。Provider停止・deadline・繰り返すSchema不適合まで成功を保証するものではない。
 
 構造化出力の検証失敗をagent_core.structured_output_invalid、最終化をmodel_call_started.finalizingへ記録する。Model応答のTool名も記録する。外側の例外に加えcause/providerErrorの原因チェーンをredactionして標準出力とagent_runs.failure_reasonへ保存する。過去の実行に対して失われた原因は復元できない。
+
+
+### 正規フローと一次情報（Issue 119 / R02）
+
+実装設計 §3・§19〜§21・§26を正本とする。InteractionのTool loopはDeep Agent内で完結し、Runtimeが最終Actionのtoolを実行する旧経路は持たない。Continuity / Memory / Candidateは非Agentの構造化呼び出しであり、Long-term Reviewは独立した責務として維持する。
+
+Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はInteractionの最終出力確定後を意味し、外部サービスの受信完了待ちは含まない。現状のScheduler直接配送との差はR06で解消する。wait型の残存は現行コードの事実であり、必須Action方針の代替にはならない。削除時には配送・評価を含む参照を確認する。
