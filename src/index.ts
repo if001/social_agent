@@ -50,6 +50,8 @@ export { createOllamaPostProcessHarnesses, continuitySystemPrompt, memoryExtract
 export type { OllamaPostProcessConfig } from "./infrastructure/agent/post-process-harness.js";
 export type { ContinuityHarness, MemoryExtractionHarness, CandidateDetectorHarness } from "./application/post-process-ports.js";
 export { AgentEventRouter } from "./application/agent-event-router.js";
+export { Reflection, ReflectionInputSchema, ReflectionOutputSchema } from "./application/reflection.js";
+export type { ReflectionInput, ReflectionModel, ReflectionOutput, ReflectionRepository } from "./application/reflection.js";
 export { RuntimeEventPublisher } from "./application/runtime-event-publisher.js";
 export { TerminalAdapter } from "./infrastructure/ui/terminal-adapter.js";
 export type { TerminalMessage } from "./infrastructure/ui/terminal-adapter.js";
