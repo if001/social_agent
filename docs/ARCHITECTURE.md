@@ -1107,3 +1107,7 @@ claim済みjobと再claimしたjobは同じ実行loopを使う。即時後処理
 ### LLM接続と障害境界（Issue 125 / R08）
 
 各Harnessはollama-providerのChat Model生成とproviderFailureを共有する。signalのTimeoutErrorはTIMEOUT、それ以外の中断はABORTED、外部障害はEXTERNALとし、causeは既存errorLogContextで追跡する。プロンプト・Schema・構造修復は用途別に保持する。Long-term Reviewを通常Interactionへ統合しない。
+
+### Long-term Review EventのID契約（Issue 126 / R09）
+
+Review Eventは空でないcandidateIds配列を必須とする。targetIdからCandidate IDを補完せず、不正な配列を部分採用しない。Schedulerのcomplete/releaseも同じ配列を使用する。
