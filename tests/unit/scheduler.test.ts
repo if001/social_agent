@@ -6,7 +6,7 @@ import type { DomainEvent } from "../../src/domain/contracts.js";
 describe("Scheduler", () => {
   const target: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Due" };
   const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 };
-  const setup = (action: { type: "no-external-action"; reason: string } | { type: "respond"; content: string } | { type: "wait"; reason: string; until?: string }, replyContext?: Readonly<Record<string, unknown>>) => {
+  const setup = (action: { type: "no-external-action"; reason: string } | { type: "respond"; content: string }, replyContext?: Readonly<Record<string, unknown>>) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = []; let claimed = false; const completions: (Date | null)[] = [];
     const repository = { claimDue: () => { if (claimed) return Promise.resolve([]); claimed = true; return Promise.resolve([target]); }, complete: (_target: ScheduledTarget, next: Date | null) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() };
     const scheduler = new Scheduler({ repository, runtime: { process: (event) => { events.push(event); return Promise.resolve(action); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event", "output"]), lifecycle, defaultDestination: () => "terminal", ...(replyContext === undefined ? {} : { defaultReplyContext: () => replyContext }), ...timings });
@@ -22,8 +22,7 @@ describe("Scheduler", () => {
     const value = setup({ type: "respond", content: "An autonomous update" }, { channelId: "discord-channel" }); await value.scheduler.tick(new AbortController().signal);
     expect(value.events).toHaveLength(1); expect(value.events[0]).toMatchObject({ payload: { destination: "terminal", replyContext: { channelId: "discord-channel" } } }); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
-  it("rejects wait from autonomous work and starts no work while stopping", async () => {
-    const value = setup({ type: "wait", reason: "Later", until: "2026-01-02T00:00:00Z" }); await expect(value.scheduler.tick(new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" }); expect(value.completions).toEqual([]);
+  it("starts no work while stopping", async () => {
     const stopped = setup({ type: "no-external-action", reason: "No" }); stopped.lifecycle.transition("stopping"); await expect(stopped.scheduler.tick(new AbortController().signal)).resolves.toBe(0);
   });
   it("reschedules state review even when no state change is needed", async () => {

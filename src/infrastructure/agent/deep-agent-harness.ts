@@ -65,9 +65,7 @@ function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["
   return issues;
 }
 
-function autonomousActionIssues(input: AgentCoreInput, output: AgentRunResult["output"], toolExecutions: readonly ToolExecutionRecord[]): ProposalIssue[] {
-  const content = typeof input.observation.content === "object" && input.observation.content !== null ? input.observation.content as Record<string, unknown> : {};
-  if (content.schedulerGenerated === true && output.action.type === "wait") return [{ code: "invalid_reference", path: ["action", "type"], message: "Autonomous events must act now and cannot return wait" }];
+function actionExecutionIssues(output: AgentRunResult["output"], toolExecutions: readonly ToolExecutionRecord[]): ProposalIssue[] {
   if (output.action.type === "no-external-action" && toolExecutions.length === 0) return [{ code: "invalid_reference", path: ["action", "type"], message: "Interaction events must perform a Tool action or choose an external action" }];
   return [];
 }
@@ -97,7 +95,7 @@ export class DeepAgentHarness implements AgentHarness {
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
-          const referenceIssues = [...proposalReferenceIssues(input, parsed.data), ...autonomousActionIssues(input, parsed.data, observedToolExecutions)];
+          const referenceIssues = [...proposalReferenceIssues(input, parsed.data), ...actionExecutionIssues(parsed.data, observedToolExecutions)];
           if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1 }); return { output: parsed.data, toolExecutions: observedToolExecutions }; }
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));

@@ -210,7 +210,6 @@ export type Candidate = z.infer<typeof CandidateSchema>;
 
 export const FinalActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond"), content: NaturalLanguage }),
-  z.object({ type: z.literal("wait"), until: Instant.optional(), reason: NaturalLanguage }),
   z.object({ type: z.literal("refuse"), reason: NaturalLanguage, basis: z.enum(["personality", "system"]) }),
   z.object({ type: z.literal("no-external-action"), reason: NaturalLanguage })
 ]);

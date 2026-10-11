@@ -783,7 +783,7 @@ type AgentCoreOutput = {
 }
 ```
 
-`FinalAction`はrespond、wait、refuse、no-external-actionを表現する。Tool callはDeep Agents内部loopの中間操作であり、最終Actionには含めない。Harnessは`AgentCoreOutput`と、通常コードが観測した`ToolExecutionRecord[]`を`AgentRunResult`としてRuntimeへ返す。
+`FinalAction`はrespond、refuse、no-external-actionを表現する。Tool callはDeep Agents内部loopの中間操作であり、最終Actionには含めない。Harnessは`AgentCoreOutput`と、通常コードが観測した`ToolExecutionRecord[]`を`AgentRunResult`としてRuntimeへ返す。
 
 持続状態、Memory、Long-term Candidateは応答後の用途別Post-processが提案する。Scheduled TaskはLLM出力案として保存せず、Interaction Deep Agentが明示的に`schedule_task` Toolを呼び出して登録する。保存用ID、作成時刻、所有Agent IDはRuntimeが付与する。
 
@@ -1081,7 +1081,7 @@ Model Callの上限は探索回数+2回。既存maxStepsが小さい場合の探
 
 実装設計 §3・§19〜§21・§26を正本とする。InteractionのTool loopはDeep Agent内で完結し、Runtimeが最終Actionのtoolを実行する旧経路は持たない。Continuity / Memory / Candidateは非Agentの構造化呼び出しであり、Long-term Reviewは独立した責務として維持する。
 
-Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はInteractionの最終出力確定後を意味し、外部サービスの受信完了待ちは含まない。自律応答もSchedulerから直接配送せずRuntimeのOutboxへ保存する（Issue 123）。wait型の残存は現行コードの事実であり、必須Action方針の代替にはならない。削除時には配送・評価を含む参照を確認する。
+Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はInteractionの最終出力確定後を意味し、外部サービスの受信完了待ちは含まない。自律応答もSchedulerから直接配送せずRuntimeのOutboxへ保存する（Issue 123）。旧wait型はIssue 132で削除した。
 
 
 ### Tool結果の用途別投影（Issue 120 / R03）
