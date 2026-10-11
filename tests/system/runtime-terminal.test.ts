@@ -13,7 +13,7 @@ import { createStdoutLogger } from "../../src/observability/logger.js";
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
 describe("ST-01 Terminal round trip", () => {
-  it("routes state-review directly to Continuity without calling the Interaction Harness", async () => {
+  it("routes time and memory review through the normal autonomous decision", async () => {
     const clock = new FixedClock(new Date("2026-01-02T03:04:05Z"));
     const persistence = new InMemoryRuntimePersistence((event) => {
       const input = agentCoreInputFixture();
@@ -26,17 +26,17 @@ describe("ST-01 Terminal round trip", () => {
       destination: "agent-a",
       defaultOutputDestination: "terminal",
       queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
-      harness: { run: () => { harnessCalls += 1; return Promise.reject(new Error("Interaction Harness must not run")); } },
+      harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { interpretation: { activeMotive: { description: "状態を再評価する", evidenceIds: ["state-review-event"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action", reason: "今は外部行動が不要" } }, toolExecutions: [] }); } },
       persistence,
       ids: new SequenceIdGenerator([]),
       now: () => clock.now()
     });
     const action = await runtime.process({ id: "state-review-event", agentId: "agent-a", kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "state-review", schedulerGenerated: true, reason: "Review persistent state" } }, new AbortController().signal);
-    expect(action).toEqual({ type: "no-external-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" });
-    expect(harnessCalls).toBe(0);
+    expect(action).toEqual({ type: "no-external-action", reason: "今は外部行動が不要" });
+    expect(harnessCalls).toBe(1);
     expect(persistence.events).toHaveLength(1);
     await expect(persistence.claimPostProcess("agent-a", "run-1", "continuity")).resolves.toMatchObject({ type: "continuity" });
-    await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toBeUndefined();
+    await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toMatchObject({ type: "memory" });
   });
 
   it("continues a conversation, commits once, dispatches outbox, and drains", async () => {

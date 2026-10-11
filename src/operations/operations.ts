@@ -20,8 +20,7 @@ export async function initializeAgent(pool: Pool, config: InitialSelfConfig, tim
       await client.query("UPDATE agents SET family_id=$2,identity=$3,initial_disposition=$4,updated_at=now() WHERE id=$1", [agent.id, family.id, agent.identity, agent.initialDisposition]);
       await client.query("UPDATE agent_states SET values=$2,interests=$3,preferences=$4,roles=$5,raison_detre=$6,self_narrative=$7,self_continuity=$8,version=version+1,updated_at=now() WHERE agent_id=$1", [agent.id, agent.values, JSON.stringify(agent.interests), JSON.stringify(agent.preferences), JSON.stringify(agent.roles), agent.raisonDetre ?? null, agent.selfNarrative, agent.selfContinuity]);
     }
-    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'state-review',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`state-review:${agent.id}`, agent.id, "時間経過によるMoodとMotiveの再評価", timings.stateReviewIntervalMs]);
-    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'memory-recall',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`memory-recall:${agent.id}`, agent.id, "現在の状態と継続中の関心に関連するMemoryの再検討", timings.memoryRecallIntervalMs]);
+    await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind=ANY($2::text[])", [agent.id, ["state-review", "memory-recall"]]);
     await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'autonomy-review',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`autonomy-review:${agent.id}`, agent.id, "Self、Motive、関連Memoryから主体的な行動の価値を再検討する", timings.autonomyReviewIntervalMs]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
