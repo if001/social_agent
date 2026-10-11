@@ -28,14 +28,14 @@ describe("ST-01 Terminal round trip", () => {
       queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
       harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { interpretation: { activeMotive: { description: "状態を再評価する", evidenceIds: ["state-review-event"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" } }, toolExecutions: [] }); } },
       persistence,
-      ids: new SequenceIdGenerator([]),
+      ids: new SequenceIdGenerator(["autonomous-notification"]),
       now: () => clock.now()
     });
     const action = await runtime.process({ id: "state-review-event", agentId: "agent-a", kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "state-review", schedulerGenerated: true, reason: "Review persistent state", destination: "terminal" } }, new AbortController().signal);
     expect(action).toEqual({ type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" });
     expect(harnessCalls).toBe(1);
     expect(persistence.events).toHaveLength(1);
-    await expect(persistence.claimPostProcess("agent-a", "run-1", "experience-integration")).resolves.toMatchObject({ type: "experience-integration" });
+    await expect(persistence.claimPostProcess("agent-a", "run-1", "experience-integration")).resolves.toBeUndefined();
     await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toBeUndefined();
   });
 

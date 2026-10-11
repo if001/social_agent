@@ -3,7 +3,7 @@ import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
-import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
+import type { ToolRegistry } from "../../application/tool-registry.js";
 import { applyMotiveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
 import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, ContinuityInputSchema, ContinuityOutputSchema, DomainError, ExperienceIntegrationOutputSchema, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
@@ -15,7 +15,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, private readonly tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingLifecycle, tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -33,7 +33,6 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
-    const snapshot = this.#snapshot(input, result);
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
@@ -41,7 +40,6 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       stateValues: { mood: update.state.mood, emotion: update.state.emotion ?? null, motives: update.state.motives, motive_exploration: update.state.motiveExploration },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       toolExecutions: validatedTools,
-      postProcessJobs: [{ id: this.ids.next(), type: "experience-integration", inputStateVersion: input.self.version + 1, payload: snapshot }],
       outbox: outgoing
     });
     return committed;
@@ -124,16 +122,6 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
 
   async failPostProcess(job: PendingPostProcess, error: unknown): Promise<void> {
     await this.pool.query("UPDATE post_process_jobs SET status='failed',failure_reason=$2,lease_until=NULL,available_at=now()+interval '1 second',updated_at=now() WHERE id=$1", [job.id, error instanceof Error ? error.message : "Post-process failed"]);
-  }
-
-  #snapshot(input: AgentCoreInput, result: AgentRunResult): PostProcessSnapshot {
-    const toolResults = result.toolExecutions.map((execution) => {
-      const snapshotIds: string[] = []; const collect = (value: unknown): void => { if (Array.isArray(value)) value.forEach(collect); else if (typeof value === "object" && value !== null) for (const [key, item] of Object.entries(value)) { if (/snapshotId/i.test(key) && typeof item === "string") snapshotIds.push(item); collect(item); } };
-      collect(execution.result);
-      const projected = execution.ok ? this.tools === undefined ? projectToolResult(undefined, execution.result ?? null, "post-process") : this.tools.projectResult(execution.name, execution.result ?? null, "post-process") : execution.error ?? "Tool failed";
-      return { name: execution.name, ok: execution.ok, summary: JSON.stringify(projected), webSnapshotIds: [...new Set(snapshotIds)] };
-    });
-    return { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentExperiences: input.recentExperiences, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults } };
   }
 
   async #materializeMemories(input: PostProcessSnapshot, output: MemoryExtractionOutput): Promise<{ readonly memories: readonly Memory[]; readonly memoryWebEvidence: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[] }> {

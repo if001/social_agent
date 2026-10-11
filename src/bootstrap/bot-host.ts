@@ -23,7 +23,6 @@ type Discord = { startInbound(signal: AbortSignal): Promise<void>; startOutbound
 export type BotHostOptions = {
   readonly pool: Pool; readonly agentId: string; readonly lifecycle: ProcessLifecycle;
   readonly runtime: Runtime; readonly scheduler: Tick; readonly outbox: Outbox; readonly discord: Discord;
-  readonly postProcess?: Tick;
   readonly schedulerIntervalMs: number; readonly outboxIntervalMs: number; readonly capabilityCheck: () => Promise<void>;
   readonly closePool?: boolean; readonly retryDelayMs?: number;
   readonly logger?: Logger;
@@ -62,8 +61,6 @@ export class BotHost {
         this.#periodic("scheduler", () => this.options.scheduler.tick(signal), this.options.schedulerIntervalMs, signal),
         this.#periodic("outbox", () => this.options.outbox.dispatch(), this.options.outboxIntervalMs, signal)
       );
-      const postProcess = this.options.postProcess;
-      if (postProcess !== undefined) this.#tasks.push(this.#periodic("post-process", () => postProcess.tick(signal), this.options.outboxIntervalMs, signal));
     } catch (error) { logger.log("error", "bot.start_failed", errorLogContext(error)); await this.#cleanupAfterFailedStart(); throw error; }
   }
 
@@ -133,7 +130,7 @@ export async function createProductionBotHost(config: AppConfig): Promise<BotHos
   const timings = config.schedulerTimings;
   const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, timings.leaseMs, config.botId, timings.retryDelayMs), runtime: composition.router, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, defaultReplyContext: () => config.defaultOutputDestination === config.discord?.queueDestination && config.discord.channelIds[0] !== undefined ? { channelId: config.discord.channelIds[0] } : undefined, autonomyReviewIntervalMs: timings.autonomyReviewIntervalMs, stateReviewIntervalMs: timings.stateReviewIntervalMs, memoryRecallIntervalMs: timings.memoryRecallIntervalMs });
   const discord = new DiscordAdapter({ gateway: new DiscordJsGateway(config.discord.token), queue: composition.queue, clock: composition.clock, ids: composition.ids, agentId: config.botId, botUserId: config.discord.botUserId, ownerIds: new Set(config.discord.ownerIds), guildIds: new Set(config.discord.guildIds), channelIds: new Set(config.discord.channelIds), queueDestination: config.discord.queueDestination, logger });
-  return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, postProcess: composition.postProcess, discord, logger, schedulerIntervalMs: timings.scanIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
+  return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, discord, logger, schedulerIntervalMs: timings.scanIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
     await checkOllamaChatCapability(config.chat); await checkOllamaEmbeddingCapability(config.embedding);
   } });
 }

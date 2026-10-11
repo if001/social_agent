@@ -113,12 +113,12 @@ export class PostgresEventTransaction {
 
   async #syncMotiveSchedules(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], agentId: string, rawMotives: unknown): Promise<void> {
     if (!Array.isArray(rawMotives)) return;
-    await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='motive-review'", [agentId]);
+    await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='concern-due'", [agentId]);
     for (const value of rawMotives) {
       if (typeof value !== "object" || value === null) continue;
       const motive = value as { id?: unknown; nextConsiderAt?: unknown; considerationReason?: unknown };
       if (typeof motive.id !== "string" || typeof motive.nextConsiderAt !== "string" || typeof motive.considerationReason !== "string") continue;
-      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'motive-review',$3,$4)", [`motive:${motive.id}`, agentId, motive.considerationReason, motive.nextConsiderAt]);
+      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,$4)", [`concern:${motive.id}`, agentId, motive.considerationReason, motive.nextConsiderAt]);
     }
   }
 }

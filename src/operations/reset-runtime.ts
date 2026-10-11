@@ -42,7 +42,7 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
       const config = configs.find(config => config.agent.id === id);
       if (!config) throw new Error(`Missing initial Self: ${id}`);
       const { agent, initialState } = config;
-      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'autonomy-review','Self、Motive、関連Memoryから主体的な行動を再検討する',now()+$3*interval '1 millisecond')", [`autonomy-review:${id}`, id, autonomyIntervalMs]);
+      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle','一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する',now()+$3*interval '1 millisecond')", [`idle:${id}`, id, autonomyIntervalMs]);
       await client.query("UPDATE agent_states SET acquired_disposition='経験から形成された傾向はまだない',values=$2,interests=$3,preferences=$4,roles=$5,raison_detre=$6,self_narrative=$7,self_continuity=$8,mood=$9,motives=$10,emotion=NULL,motive_exploration='[]',version=0,updated_at=now() WHERE agent_id=$1", [id, agent.values, JSON.stringify(agent.interests), JSON.stringify(agent.preferences), JSON.stringify(agent.roles), agent.raisonDetre ?? null, agent.selfNarrative, agent.selfContinuity, initialState.mood, JSON.stringify(initialState.motives)]);
     }
     const suffix = `.before-reset-${randomUUID()}`;

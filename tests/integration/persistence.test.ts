@@ -70,8 +70,8 @@ describeDatabase("PostgreSQL persistence", () => {
     };
     const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000, memoryRecallIntervalMs: 4_000 };
     await initializeAgent(pool, config, initialTimings);
-    expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='autonomy-review'", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review" }]);
-    expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review", delay_ms: 2_000 }]);
+    expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='idle'", [config.agent.id])).rows).toEqual([{ kind: "idle" }]);
+    expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "idle", delay_ms: 2_000 }]);
     await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', motives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ id: "motive-existing", description: "継続中のMotive", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
     await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } }, initialTimings);
@@ -209,18 +209,6 @@ describeDatabase("PostgreSQL persistence", () => {
     await registry.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "list-run", eventId: "list-event", toolCallId: "tool-1", idempotencyKey: "list-run:tool-1" }, new AbortController().signal);
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM web_snapshots")).rows[0]?.count).toBe(beforeList);
 
-    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
-    const input = agentCoreInputFixture(); input.run = { runId: "archive-memory-run", eventId: "archive-memory-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.availableTools = [{ name: "web_archive_read", description: "Archive", inputSchema: {} }];
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["archive-tool-record", "archive-integration-job", "archive-memory"]), () => new Date(fixtureInstant), undefined, registry);
-    const toolExecution = { callId: "tool-1", runId: "archive-memory-run", eventId: "archive-memory-event", name: "web_archive_read", input: { snapshotId: first[0]?.snapshotId }, ok: true as const, result: { snapshotId: first[0]?.snapshotId, offset: 0, text: "raw page must not enter post-process", truncated: true }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
-    const runResult = { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [toolExecution] };
-    await persistence.commit(messageFixture({ id: "archive-memory-message", destination: "a" }), { id: "archive-memory-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} }, input, runResult, { state: input.dynamicState, changes: [] }, []);
-    const archiveJob = await persistence.claimPostProcess("a", "archive-memory-run"); if (archiveJob === undefined) throw new Error("Post-process job was not created");
-    expect(JSON.stringify(archiveJob.input)).not.toContain("raw page must not enter post-process");
-    expect(JSON.stringify(archiveJob.input)).toContain("textCharacters");
-    if (archiveJob.type !== "experience-integration") throw new Error("Experience integration job was not created");
-    await persistence.completePostProcess(archiveJob, { persistentStateUpdates: [], motiveProposals: [], memoryProposals: [{ content: "Vector index options were investigated", relatedSubjectIds: [], importance: "Useful research", retrievalPriority: "normal", webSnapshotIds: [first[0]?.snapshotId ?? ""] }] });
-    expect((await pool.query<{ snapshot_id: string }>("SELECT snapshot_id FROM memory_web_evidence WHERE memory_id='archive-memory'")).rows[0]?.snapshot_id).toBe(first[0]?.snapshotId);
     await rm(root, { recursive: true, force: true });
   });
 
@@ -310,10 +298,10 @@ describeDatabase("PostgreSQL persistence", () => {
   });
 
   it("never claims a legacy or unknown autonomous schedule kind", async () => {
-    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','persistent-drive','legacy','2026-01-01'),('review-due','a','autonomy-review','review','2026-01-01')");
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','autonomy-review','legacy','2026-01-01'),('idle-due','a','idle','idle','2026-01-01')");
     const repository = new PostgresScheduleRepository(pool);
     const claims = await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10);
-    expect(claims.map(({ id }) => id)).toContain("review-due");
+    expect(claims.map(({ id }) => id)).toContain("idle-due");
     expect(claims.map(({ id }) => id)).not.toContain("legacy-drive");
     expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM autonomous_schedules WHERE id='legacy-drive'")).rows[0]?.lease_until).toBeNull();
   });
@@ -411,34 +399,15 @@ describeDatabase("PostgreSQL persistence", () => {
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
     await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
-    const jobPayloads = (await pool.query<{ payload: Record<string, unknown> }>("SELECT payload FROM post_process_jobs WHERE interaction_run_id='runtime-run'")).rows.map(({ payload }) => payload);
-    expect(jobPayloads).toHaveLength(1);
-    for (const payload of jobPayloads) {
-      expect(payload).not.toHaveProperty("availableTools");
-      expect(payload).not.toHaveProperty("runtimeConstraints");
-      expect(payload).not.toHaveProperty("limits");
-      expect(payload).not.toHaveProperty("memoryRetrievalTrace");
-    }
-    const job = await persistence.claimPostProcess("a", "runtime-run"); if (job === undefined) throw new Error("Post-process job was not created");
-    if (job.type !== "experience-integration") throw new Error("Experience integration job was not created");
-    await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], motiveProposals: [{ operation: "create", description: "Understand what made the exchange useful", goal: "Explain the useful part", progress: 25, nextConsiderAt: "2026-01-02T06:00:00Z", considerationReason: "未解決点を再検討する", reason: "The interaction remains meaningful", evidenceIds: ["runtime-event"] }], memoryProposals: [{ content: "A useful exchange", relatedSubjectIds: ["owner"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }, { content: "A useful exchange", relatedSubjectIds: ["owner"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }] });
-    await expect(persistence.claimPostProcess("a", "runtime-run")).resolves.toBeUndefined();
-    expect((await pool.query<{ agent_id: string }>("SELECT agent_id FROM memories WHERE id='memory-new'")).rows[0]?.agent_id).toBe("a");
-    expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='memory-new'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
-    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM memories WHERE evidence_event_ids ? 'runtime-event' AND content='A useful exchange'")).rows[0]?.count).toBe("1");
-    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM long_term_candidates WHERE proposed_value='I follow through'")).rows[0]?.count).toBe("0");
+    expect((await pool.query("SELECT 1 FROM post_process_jobs WHERE interaction_run_id='runtime-run'")).rowCount).toBe(0);
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
     expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-1");
-    expect((await pool.query<{ description: string }>("SELECT description FROM social_contexts WHERE agent_id='a' AND subject_id='owner'")).rows[0]?.description).toBe("Trusted collaborator");
-    expect((await pool.query<{ motives: { description: string; since: string }[] }>("SELECT motives FROM agent_states WHERE agent_id='a'")).rows[0]?.motives).toContainEqual(expect.objectContaining({ description: "Understand what made the exchange useful", since: fixtureInstant }));
-    expect((await pool.query<{ motive_exploration: { motiveId: string; consecutiveNoProgress: number }[] }>("SELECT motive_exploration FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ motive_exploration: [{ motiveId: "motive-new", consecutiveNoProgress: 0 }] });
-    expect((await pool.query<{ kind: string; reason: string; next_due_at: Date }>("SELECT kind,reason,next_due_at FROM autonomous_schedules WHERE id='motive:motive-new'")).rows[0]).toMatchObject({ kind: "motive-review", reason: "未解決点を再検討する", next_due_at: new Date("2026-01-02T06:00:00Z") });
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
   });
 
-  it("creates one experience integration job for an autonomy review", async () => {
+  it("does not create per-interaction cognitive post-process jobs", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();
     input.run = { runId: "state-review-run", eventId: "state-review-event", agentId: "a", occurredAt: fixtureInstant };
@@ -451,21 +420,8 @@ describeDatabase("PostgreSQL persistence", () => {
     const result = { output: { interpretation: { subjectiveMeaning: "Persistent state review", activeMotive: { description: "Review state", evidenceIds: [input.run.eventId] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Continuity only" } }, toolExecutions: [] };
     await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
     const jobs = await pool.query<{ job_type: string }>("SELECT job_type FROM post_process_jobs WHERE interaction_run_id='state-review-run' ORDER BY job_type");
-    expect(jobs.rows).toEqual([{ job_type: "experience-integration" }]);
+    expect(jobs.rows).toEqual([]);
     expect((await pool.query<{ result: { output: { action: { type: string } } } }>("SELECT result FROM agent_runs WHERE id='state-review-run'")).rows[0]?.result.output.action.type).toBe("no-external-action");
-  });
-
-  it("derives reported Memory provenance from the validated Observation actor", async () => {
-    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
-    const input = agentCoreInputFixture(); input.run = { runId: "reported-run", eventId: "reported-event", agentId: "a", occurredAt: fixtureInstant }; input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" }; input.observation = { eventId: "reported-event", summary: "Agent B reported a library time", facts: ["Reported by B"], observedAt: fixtureInstant, actor: { id: "b", type: "agent" }, source: { type: "agent", id: "b", direct: true } };
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["reported-integration-job", "reported-memory"]), () => new Date("2026-01-03T00:00:00Z"));
-    const result = { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Recorded" } }, toolExecutions: [] };
-    await persistence.commit(messageFixture({ id: "reported-message", destination: "a" }), { id: "reported-event", agentId: "a", kind: "external", occurredAt: fixtureInstant, payload: { senderAgentId: "b" } }, input, result, { state: input.dynamicState, changes: [] }, []);
-    const reportedJob = await persistence.claimPostProcess("a", "reported-run"); if (reportedJob === undefined) throw new Error("Post-process job was not created");
-    if (reportedJob.type !== "experience-integration") throw new Error("Experience integration job was not created");
-    await persistence.completePostProcess(reportedJob, { persistentStateUpdates: [], motiveProposals: [], memoryProposals: [{ content: "Agent B reported that the library opens at nine", relatedSubjectIds: ["b"], importance: "Reported information", retrievalPriority: "normal", webSnapshotIds: [] }] });
-    expect((await pool.query<{ source_agent_id: string }>("SELECT source_agent_id FROM memories WHERE id='reported-memory'")).rows[0]?.source_agent_id).toBe("b");
-    expect((await pool.query<{ occurred_at: Date; created_at: Date }>("SELECT occurred_at,created_at FROM memories WHERE id='reported-memory'")).rows[0]).toMatchObject({ occurred_at: new Date(fixtureInstant), created_at: new Date("2026-01-03T00:00:00Z") });
   });
 
   it("records Tool side effects when final Agent output fails without marking the message complete", async () => {

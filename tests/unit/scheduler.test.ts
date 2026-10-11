@@ -4,7 +4,7 @@ import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system
 import type { DomainEvent } from "../../src/domain/contracts.js";
 
 describe("Scheduler", () => {
-  const target: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Due" };
+  const target: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "Due" };
   const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 };
   const setup = (action: { type: "no-external-action"; reason: string } | { type: "respond"; content: string }, replyContext?: Readonly<Record<string, unknown>>) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = []; let claimed = false; const completions: (Date | null)[] = [];
@@ -25,31 +25,17 @@ describe("Scheduler", () => {
   it("starts no work while stopping", async () => {
     const stopped = setup({ type: "no-external-action", reason: "No" }); stopped.lifecycle.transition("stopping"); await expect(stopped.scheduler.tick(new AbortController().signal)).resolves.toBe(0);
   });
-  it("reschedules state review even when no state change is needed", async () => {
-    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const completions: (Date | null)[] = [];
-    const review: ScheduledTarget = { id: "state-review:agent-a", agentId: "agent-a", kind: "state-review", reason: "Review state" };
-    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => Promise.resolve({ type: "no-external-action", reason: "Keep current state" }) }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", ...timings });
-    await scheduler.tick(new AbortController().signal);
-    expect(completions[0]?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
-  });
-  it("reschedules memory recall at its lower frequency", async () => {
-    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const completions: (Date | null)[] = [];
-    const recall: ScheduledTarget = { id: "memory-recall:agent-a", agentId: "agent-a", kind: "memory-recall", reason: "Recall" };
-    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([recall]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => Promise.resolve({ type: "no-external-action", reason: "Nothing relevant" }) }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", ...timings });
-    await scheduler.tick(new AbortController().signal);
-    expect(completions[0]?.toISOString()).toBe("2026-01-08T00:00:00.000Z");
-  });
-  it("runs bounded autonomy review and suppresses delivery without a destination", async () => {
+  it("runs a bounded idle Event", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: unknown[] = []; const completions: (Date | null)[] = [];
-    const review: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Review Self, Motive, and Memory" };
+    const review: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "No activity during the configured interval" };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "Internal result" }); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, ...timings });
     await scheduler.tick(new AbortController().signal);
-    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "autonomy-review", schedulerGenerated: true } });
+    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "idle", schedulerGenerated: true } });
     expect(completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
-  it("consumes a due Motive review without installing a fixed periodic schedule", async () => {
+  it("consumes a due Concern without installing a fixed periodic schedule", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const completions: (Date | null)[] = [];
-    const motive: ScheduledTarget = { id: "motive:motive-1", agentId: "agent-a", kind: "motive-review", reason: "未解決点を再検討する" };
+    const motive: ScheduledTarget = { id: "concern:concern-1", agentId: "agent-a", kind: "concern-due", reason: "未解決点を再検討する" };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([motive]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => Promise.resolve({ type: "no-external-action", reason: "今は行動しない" }) }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, ...timings });
     await scheduler.tick(new AbortController().signal);
     expect(completions).toEqual([null]);

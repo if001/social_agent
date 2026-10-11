@@ -21,8 +21,6 @@ export class InMemoryRuntimePersistence implements RuntimePersistence {
     const key = `${message.destination}:${message.id}`;
     if (this.receipts.has(key)) return Promise.resolve("duplicate");
     this.receipts.add(key); this.events.push(event); this.updates.push(update);
-    const snapshot = { run: { runId: input.run.runId, eventId: input.run.eventId, agentId: input.run.agentId, occurredAt: input.run.occurredAt }, observation: input.observation, recentExperiences: input.recentExperiences, ...(input.persona === undefined ? {} : { persona: input.persona }), self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories, interaction: { interpretation: result.output.interpretation, action: result.output.action, toolResults: [] } };
-    this.#postProcessJobs.push({ id: `experience-integration:${input.run.runId}`, type: "experience-integration", agentId: event.agentId, inputStateVersion: input.self.version + 1, input: snapshot, attempt: 0 });
     for (const envelope of outgoing) this.#outbox.set(envelope.id, { envelope, sent: false });
     return Promise.resolve("committed");
   }

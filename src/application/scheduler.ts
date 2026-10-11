@@ -5,8 +5,7 @@ import { errorLogContext, noopLogger, type Logger } from "../observability/logge
 
 type ScheduleTargetBase = { readonly id: string; readonly agentId: string; readonly reason: string; readonly instruction?: string; readonly destination?: string };
 export type ScheduledTarget = ScheduleTargetBase & (
-  | { readonly kind: "long-term-review"; readonly candidateIds: readonly string[] }
-  | { readonly kind: "state-review" | "memory-recall" | "autonomy-review" | "motive-review" | "scheduled-task"; readonly candidateIds?: never }
+  | { readonly kind: "idle" | "concern-due" | "external-change" | "scheduled-task" }
 );
 export interface ScheduleRepository {
   claimDue(now: Date, limit: number): Promise<readonly ScheduledTarget[]>;
@@ -35,9 +34,9 @@ export class Scheduler {
         const occurredAt = this.options.clock.now();
         const destination = target.destination ?? (target.kind === "scheduled-task" ? undefined : this.options.defaultDestination(target.agentId));
         const replyContext = destination === this.options.defaultDestination(target.agentId) ? this.options.defaultReplyContext?.(target.agentId) : undefined;
-        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.candidateIds === undefined ? {} : { candidateIds: target.candidateIds }), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
+        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
         const action = await this.options.runtime.process(event, signal);
-        const interval = target.kind === "autonomy-review" ? this.options.autonomyReviewIntervalMs : target.kind === "state-review" ? this.options.stateReviewIntervalMs : target.kind === "memory-recall" ? this.options.memoryRecallIntervalMs : target.kind === "motive-review" ? null : undefined;
+        const interval = target.kind === "idle" ? this.options.autonomyReviewIntervalMs : target.kind === "concern-due" || target.kind === "external-change" ? null : undefined;
         const next = interval === null ? null : interval === undefined ? action.type === "no-external-action" ? null : new Date(occurredAt.getTime() + this.options.autonomyReviewIntervalMs) : new Date(occurredAt.getTime() + interval);
         await this.options.repository.complete(target, next, event.id);
         logger.log("info", "scheduler.target_completed", { actionType: action.type, nextReviewAt: next?.toISOString() });
