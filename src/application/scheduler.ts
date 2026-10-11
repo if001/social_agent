@@ -1,4 +1,4 @@
-import type { Clock, IdGenerator, MessageQueue } from "./ports.js";
+import type { Clock, IdGenerator } from "./ports.js";
 import { DomainError, type AgentAction, type DomainEvent } from "../domain/contracts.js";
 import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
@@ -10,7 +10,7 @@ export interface ScheduleRepository {
   release(target: ScheduledTarget): Promise<void>;
 }
 export interface InternalEventRuntime { process(event: DomainEvent, signal: AbortSignal): Promise<AgentAction>; }
-export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
+export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
 
 export class Scheduler {
   readonly #running = new Set<string>();
@@ -29,18 +29,11 @@ export class Scheduler {
       try {
         logger.log("info", "scheduler.target_started");
         const occurredAt = this.options.clock.now();
-        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.candidateIds === undefined ? {} : { candidateIds: target.candidateIds }), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(target.destination === undefined ? {} : { destination: target.destination }) } };
+        const destination = target.destination ?? (target.kind === "scheduled-task" ? undefined : this.options.defaultDestination(target.agentId));
+        const replyContext = destination === this.options.defaultDestination(target.agentId) ? this.options.defaultReplyContext?.(target.agentId) : undefined;
+        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.candidateIds === undefined ? {} : { candidateIds: target.candidateIds }), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
         const action = await this.options.runtime.process(event, signal);
         if (action.type === "wait") throw new DomainError("VALIDATION", "Autonomous events cannot wait; the Scheduler owns the next execution time");
-        if (action.type === "respond" && target.kind !== "scheduled-task") {
-          const now = this.options.clock.now();
-          const destination = this.options.defaultDestination(target.agentId);
-          if (destination !== undefined && destination.trim() !== "") {
-            const replyContext = this.options.defaultReplyContext?.(target.agentId);
-            await this.options.queue.publish({ id: this.options.ids.next(), destination, source: target.agentId, sentAt: now.toISOString(), availableAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "agent-response", text: action.content, agentId: target.agentId, autonomous: true, ...(replyContext === undefined ? {} : { replyContext }) } });
-            logger.log("info", "scheduler.response_published", { destination, hasReplyContext: replyContext !== undefined });
-          }
-        }
         const interval = target.kind === "autonomy-review" ? this.options.autonomyReviewIntervalMs : target.kind === "state-review" ? this.options.stateReviewIntervalMs : target.kind === "memory-recall" ? this.options.memoryRecallIntervalMs : undefined;
         const next = interval === undefined ? action.type === "no-external-action" ? null : new Date(occurredAt.getTime() + this.options.autonomyReviewIntervalMs) : new Date(occurredAt.getTime() + interval);
         await this.options.repository.complete(target, next, event.id);

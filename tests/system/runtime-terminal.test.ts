@@ -89,3 +89,20 @@ describe("ST-01 Terminal round trip", () => {
     controller.abort(); await running; await runtime.drain(); await scope.close();
   });
 });
+
+describe("autonomous response outbox", () => {
+  it("retains an autonomous response across delivery failure with its routing context", async () => {
+    const input = agentCoreInputFixture();
+    const persistence = new InMemoryRuntimePersistence(() => input);
+    const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, persistence, ids: new SequenceIdGenerator(["autonomous-output"]), now: () => new Date("2026-01-01T00:00:00Z"), harness: new ScriptedAgentHarness([{ interpretation: { activeMotive: { description: "share", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "発見を共有する" } }]) });
+    await runtime.process({ id: "autonomous-event", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind: "autonomy-review", destination: "discord", replyContext: { channelId: "channel" } } }, new AbortController().signal);
+    const pending = await persistence.pendingOutbox(10);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.envelope).toMatchObject({ id: "autonomous-output", destination: "discord", correlationId: "autonomous-event", causationId: input.run.runId, payload: { autonomous: true, replyContext: { channelId: "channel" } } });
+    await expect(new OutboxDispatcher(persistence, { ...queue, publish: () => Promise.reject(new Error("offline")) }).dispatch()).rejects.toThrow("offline");
+    expect(await persistence.pendingOutbox(10)).toHaveLength(1);
+    expect(await new OutboxDispatcher(persistence, queue).dispatch()).toBe(1);
+    expect(await new OutboxDispatcher(persistence, queue).dispatch()).toBe(0);
+  });
+});

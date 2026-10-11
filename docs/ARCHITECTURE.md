@@ -1081,7 +1081,7 @@ Model Callの上限は探索回数+2回。既存maxStepsが小さい場合の探
 
 実装設計 §3・§19〜§21・§26を正本とする。InteractionのTool loopはDeep Agent内で完結し、Runtimeが最終Actionのtoolを実行する旧経路は持たない。Continuity / Memory / Candidateは非Agentの構造化呼び出しであり、Long-term Reviewは独立した責務として維持する。
 
-Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はInteractionの最終出力確定後を意味し、外部サービスの受信完了待ちは含まない。現状のScheduler直接配送との差はR06で解消する。wait型の残存は現行コードの事実であり、必須Action方針の代替にはならない。削除時には配送・評価を含む参照を確認する。
+Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はInteractionの最終出力確定後を意味し、外部サービスの受信完了待ちは含まない。自律応答もSchedulerから直接配送せずRuntimeのOutboxへ保存する（Issue 123）。wait型の残存は現行コードの事実であり、必須Action方針の代替にはならない。削除時には配送・評価を含む参照を確認する。
 
 
 ### Tool結果の用途別投影（Issue 120 / R03）
@@ -1095,3 +1095,7 @@ Tool入力Schemaは登録箇所で一度定義し、ToolRegistry.executeがparse
 ### 読み取り処理の共有範囲（Issue 122 / R05）
 
 FileとWeb Archiveはtext-extractionの純粋関数を共有する。文字数と件数は別々に制限し、検索文字列はNFKCと大文字小文字を正規化する。path権限・Snapshot解決・公開出力形式は各Adapterに残す。長大な一行はlineTruncatedで欠落を示し、Archiveのoffset読み取りでは残りを取得できる。
+
+### 応答配送の統一（Issue 123 / R06）
+
+SchedulerはEventの宛先・replyContextを解決し、Runtimeが通常応答と共通のEnvelope生成処理からOutboxへ登録する。外部publishはOutboxDispatcherだけが担当する。publish失敗では未送信行を保持し、同じIDで再試行する。外部サービスの受信と送信済み記録を跨ぐexactly-onceは保証せず、下流の重複排除を前提とする。
