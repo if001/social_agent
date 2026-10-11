@@ -105,4 +105,19 @@ describe("autonomous response outbox", () => {
     expect(await new OutboxDispatcher(persistence, queue).dispatch()).toBe(1);
     expect(await new OutboxDispatcher(persistence, queue).dispatch()).toBe(0);
   });
+
+  it.each([
+    ["autonomy-review", "internal"],
+    ["scheduled-task", "system"]
+  ] as const)("delivers a refusal for %s without exposing its internal reason", async (targetKind, kind) => {
+    const input = agentCoreInputFixture();
+    const persistence = new InMemoryRuntimePersistence(() => input);
+    const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
+    const refusal = { interpretation: { activeMotive: { description: "decline", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "refuse" as const, content: "今回は引き受けられません。", reason: "価値観に反する", basis: "personality" as const } };
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, persistence, ids: new SequenceIdGenerator([`${targetKind}-output`]), now: () => new Date("2026-01-01T00:00:00Z"), harness: new ScriptedAgentHarness([refusal]) });
+    await runtime.process({ id: `${targetKind}-event`, agentId: "agent-a", kind, occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind, destination: "terminal" } }, new AbortController().signal);
+    const [pending] = await persistence.pendingOutbox(10);
+    expect(pending?.envelope.payload).toMatchObject({ text: "今回は引き受けられません。", action: { type: "refuse" } });
+    expect(JSON.stringify(pending?.envelope.payload)).not.toContain("価値観に反する");
+  });
 });

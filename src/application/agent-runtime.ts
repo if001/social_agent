@@ -35,6 +35,7 @@ export interface RuntimePersistence {
 export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly postProcess?: { processAgent(agentId: string, signal: AbortSignal): Promise<void> }; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
 
 const isStateReview = (event: DomainEvent): boolean => event.kind === "internal" && event.payload.targetKind === "state-review";
+const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" ? action.content : undefined;
 
 const stateReviewResult = (): AgentRunResult => ({
   output: {
@@ -59,11 +60,14 @@ export class AgentRuntime {
       const occurredAt = new Date(event.occurredAt);
       const message: MessageEnvelope = { id: `internal:${event.id}`, destination: event.agentId, source: "scheduler", sentAt: occurredAt.toISOString(), availableAt: occurredAt.toISOString(), expiresAt: new Date(occurredAt.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "internal-event", eventId: event.id } };
       const destination = typeof event.payload.destination === "string" && event.payload.destination.trim() !== "" ? event.payload.destination : undefined;
-      const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => action.type === "respond" && destination !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
-        type: "agent-response", text: action.content, agentId: event.agentId, autonomous: true,
+      const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
+        const text = externalSpeech(action);
+        return text !== undefined && destination !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
+        type: "agent-response", text, agentId: event.agentId, autonomous: true,
         ...(typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? { replyContext: event.payload.replyContext } : {}),
         action: { id: input.run.runId, type: action.type }
       })] : [];
+      };
       return this.#execute(message, event, signal, outgoing);
     });
   }
@@ -99,10 +103,13 @@ export class AgentRuntime {
     await this.options.persistence.authorizeInbound(event, message.id, this.options.maxEventsPerMinute ?? 60);
     const outgoingDestination = payload.type === "agent-message" ? message.replyTo : message.replyTo ?? this.options.defaultOutputDestination;
     const agentReply = payload.type === "agent-message" && outgoingDestination === message.source;
-    const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => action.type === "respond" && outgoingDestination !== undefined ? [this.#responseEnvelope(message, event, input, outgoingDestination, message.hop + (agentReply ? 1 : 0), inheritedCorrelation,
-      agentReply ? { type: "agent-message", senderAgentId: event.agentId, content: action.content, provenance: { causationId: event.id, correlationId: inheritedCorrelation, runId: input.run.runId } }
-        : { type: "agent-response", text: action.content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(payload.type === "user-message" && payload.replyContext !== undefined ? { replyContext: payload.replyContext } : {}) }
-    )] : [];
+    const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
+      const content = externalSpeech(action);
+      return content !== undefined && outgoingDestination !== undefined ? [this.#responseEnvelope(message, event, input, outgoingDestination, message.hop + (agentReply ? 1 : 0), inheritedCorrelation,
+        agentReply ? { type: "agent-message", senderAgentId: event.agentId, content, provenance: { causationId: event.id, correlationId: inheritedCorrelation, runId: input.run.runId } }
+          : { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(payload.type === "user-message" && payload.replyContext !== undefined ? { replyContext: payload.replyContext } : {}) }
+      )] : [];
+    };
     await this.#execute(message, event, signal, outgoing);
   }
   async #execute(message: MessageEnvelope, event: DomainEvent, signal: AbortSignal, outgoingFor: readonly MessageEnvelope[] | ((action: AgentAction, input: AgentCoreInput) => readonly MessageEnvelope[])): Promise<AgentAction> {
