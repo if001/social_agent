@@ -53,8 +53,9 @@ export const BotPersonaSchema = z.object({
 export type BotPersona = z.infer<typeof BotPersonaSchema>;
 
 export const MotiveProgressSchema = z.union([z.literal(0), z.literal(25), z.literal(50), z.literal(75), z.literal(100)]);
-export const MotiveSchema = z.object({ id: Id, description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional(), sourceEvidenceIds: z.array(Id), since: Instant }).superRefine((value, context) => {
+export const MotiveSchema = z.object({ id: Id, description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional(), sourceEvidenceIds: z.array(Id), since: Instant, nextConsiderAt: Instant.optional(), considerationReason: NaturalLanguage.optional() }).superRefine((value, context) => {
   if ((value.goal === undefined) !== (value.progress === undefined)) context.addIssue({ code: "custom", path: [value.goal === undefined ? "goal" : "progress"], message: "goal and progress must be provided together" });
+  if ((value.nextConsiderAt === undefined) !== (value.considerationReason === undefined)) context.addIssue({ code: "custom", path: [value.nextConsiderAt === undefined ? "nextConsiderAt" : "considerationReason"], message: "nextConsiderAt and considerationReason must be provided together" });
 });
 export type Motive = z.infer<typeof MotiveSchema>;
 export const MotiveExplorationSchema = z.object({ motiveId: Id, consecutiveNoProgress: z.number().int().nonnegative(), lastExploredAt: Instant.optional(), cooldownUntil: Instant.optional() });
@@ -291,7 +292,7 @@ export const AgentCoreOutputSchema = z.object({
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
 const MotiveProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
-const MotiveShape = { description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional() };
+const MotiveShape = { description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional(), nextConsiderAt: Instant.optional(), considerationReason: NaturalLanguage.optional() };
 export const MotiveProposalSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("create"), ...MotiveShape, ...MotiveProposalBase }).strict(),
   z.object({ operation: z.literal("maintain"), motiveId: Id, ...MotiveProposalBase }).strict(),
@@ -300,6 +301,7 @@ export const MotiveProposalSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.enum(["resolve", "drop"]), motiveId: Id, ...MotiveProposalBase }).strict()
 ]).superRefine((value, context) => {
   if ("goal" in value && ((value.goal === undefined) !== (value.progress === undefined))) context.addIssue({ code: "custom", path: [value.goal === undefined ? "goal" : "progress"], message: "goal and progress must be provided together" });
+  if ("nextConsiderAt" in value && ((value.nextConsiderAt === undefined) !== (value.considerationReason === undefined))) context.addIssue({ code: "custom", path: [value.nextConsiderAt === undefined ? "nextConsiderAt" : "considerationReason"], message: "nextConsiderAt and considerationReason must be provided together" });
 });
 export type MotiveProposal = z.infer<typeof MotiveProposalSchema>;
 

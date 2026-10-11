@@ -32,6 +32,7 @@ export class PostgresEventTransaction {
       await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,started_at) VALUES ($1,$2,$3,$4,$5)", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.startedAt]);
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
+      await this.#syncMotiveSchedules(client, input.event.agentId, input.stateValues.motives);
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.run.id, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
       for (const change of input.changes.filter(({ target }) => target === "socialContext")) {
         const value = change.after as { readonly subjectId?: string; readonly subjectType?: string; readonly description?: string } | undefined;
@@ -75,6 +76,7 @@ export class PostgresEventTransaction {
       if (input.jobType === "continuity") {
         const repository = new AgentStateRepository(client);
         await repository.update(input.agentId, input.expectedStateVersion, input.stateValues);
+        await this.#syncMotiveSchedules(client, input.agentId, input.stateValues.motives);
       }
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.runId, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
       for (const change of input.changes.filter(({ target }) => target === "socialContext")) {
@@ -106,6 +108,17 @@ export class PostgresEventTransaction {
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,'tool-result',$3,$4,$5,$6,'completed',$7) ON CONFLICT (id) DO NOTHING", [resultEventId, input.event.agentId, observation, execution.name, input.event.id, input.event.correlationId ?? null, execution.finishedAt]);
       await client.query("INSERT INTO tool_executions(id,run_id,event_id,result_event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (run_id,tool_call_id) DO NOTHING", [execution.id, execution.runId, execution.eventId, resultEventId, execution.callId, execution.name, execution.input, execution.result ?? null, execution.error ?? null, execution.startedAt, execution.finishedAt]);
       if (execution.name === "web_page" && execution.ok) await client.query("UPDATE web_snapshots SET tool_result_event_id=$3,updated_at=now() WHERE agent_id=$1 AND source_run_id=$2 AND source_tool_call_id=$4", [input.event.agentId, execution.runId, resultEventId, execution.callId]);
+    }
+  }
+
+  async #syncMotiveSchedules(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], agentId: string, rawMotives: unknown): Promise<void> {
+    if (!Array.isArray(rawMotives)) return;
+    await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='motive-review'", [agentId]);
+    for (const value of rawMotives) {
+      if (typeof value !== "object" || value === null) continue;
+      const motive = value as { id?: unknown; nextConsiderAt?: unknown; considerationReason?: unknown };
+      if (typeof motive.id !== "string" || typeof motive.nextConsiderAt !== "string" || typeof motive.considerationReason !== "string") continue;
+      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'motive-review',$3,$4)", [`motive:${motive.id}`, agentId, motive.considerationReason, motive.nextConsiderAt]);
     }
   }
 }
