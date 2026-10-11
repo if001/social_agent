@@ -9,7 +9,7 @@ import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
 describe("Stable Interest → autonomous action", () => {
-  it("starts one bounded Tool exploration without Drive or Current Interest", async () => {
+  it("starts one bounded Tool exploration without persisted Motive", async () => {
     const [ao, aka] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml")]);
     expect(ao.family.sharedDisposition).toBe(aka.family.sharedDisposition);
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);

@@ -406,15 +406,15 @@ Interest:
 
 ---
 
-## 8. Motivation / Drive
+## 8. Motivation / Motive
 
-Motivation / Driveは、
+Motivation / Motiveは、
 
-> **現在、Agentが比較的持続的に何を求めているか**
+> **現在、Agentが何を求めているか**
 
 を表す。
 
-Dispositionが「何に価値を感じやすいか」という傾向であるのに対し、Driveは現在実際に生じている動機である。
+Dispositionが「何に価値を感じやすいか」という傾向であるのに対し、Motiveは現在実際に生じている動機である。
 
 例えば、
 
@@ -425,7 +425,7 @@ Disposition:
 Observation:
   理解できない現象を見つけた
 
-Drive:
+Motive:
   この理由を理解したい
 ```
 
@@ -444,9 +444,9 @@ Drive:
 自分の経験や関係を失いたくない。
 ```
 
-といったDriveがあり得る。
+といったMotiveがあり得る。
 
-Driveの種類を固定リストとして定義する必要はない。
+Motiveの種類を固定リストとして定義する必要はない。
 
 ---
 
@@ -506,14 +506,15 @@ Moodは次の出来事の意味解釈にも影響する。
 
 ### Motivation
 
-DriveとCurrent Interestは、Agentの行動を直接動機づける。
+Motiveは、現在何を求めているかを表す単一の動機である。広い動機と具体的な探索を別状態へ分けない。
 
-- Driveは、複数Eventにまたがって現在継続して求める広い方向と理由である。
-- Current Interestは、現在注意が活性化している具体的な探索的動機であり、focus、当面のgoal、progressを持つ。
+「この技術を調べたい」「疲れたため休みたい」は競合するMotiveとして扱う。独立したDesireやIntentionを心理状態として置かない。SelfのInterestsは長期的に注意を引かれやすい対象、Preferencesは対象・方法への好みであり、現在のMotiveとは区別する。
 
-「この技術を調べたい」「疲れたため休みたい」は別々の動機として扱う。独立したDesire状態や、「したくない」という負の動機を置かない。Agent Coreは、複数のDrive、Current Interest、Emotion、Mood、Preference、実行制約を現在文脈で比較してActionを選ぶ。
+通常のInteractionでは、保存済みMotiveまたは今回のEvent、Self、Memory、Social Context、Moodから必ず一つのactiveMotiveを選択・形成し、Emotionや実行制約とともに具体的なActionを判断する。保存済みMotiveが空でも行動を止めない。
 
-Current Interestのgoalは興味対象を完全に知り尽くす条件ではなく、現在の知識や経験に応じた当面の満足点である。進展、充足、停滞、新しい観点に応じてprogress、resolve、drop、reframeを判断する。
+探索型Motiveには任意のgoalとprogressを持たせる。goalは対象を知り尽くす条件ではなく、現在の知識に応じた当面の満足点である。進展や充足に応じて維持・更新・統合・resolve・dropを判断し、停滞時は方法や対象を見直す。個数の閾値から機械的に生成しない。
+
+今回だけで満たされた動機は保存せず、次のEventにも影響する動機だけを後処理で保存する。必須のactiveMotiveと具体的ActionはInteractionの責務であり、持続状態だけを扱うstate-reviewとLong-term Reviewには課さない。
 
 ### Scheduled Task
 
@@ -527,7 +528,7 @@ Current Interestのgoalは興味対象を完全に知り尽くす条件ではな
 
 TaskはToolによって作成、参照、取消できる。期限が来るとSchedulerがSystem Eventを生成し、そのEventを通常のAgent Runtimeが処理する。ToolやSchedulerが将来処理を直接実行しない。
 
-約束したという経験と意味はMemoryへ保存し、実行責務の正本はScheduled Taskへ保存する。Scheduled TaskはMood、Drive、Current Interestを複製せず、実行時点のSelfと状態を使って具体的なActionを判断する。
+約束したという経験と意味はMemoryへ保存し、実行責務の正本はScheduled Taskへ保存する。Scheduled TaskはMood、Motiveを複製せず、実行時点のSelfと状態を使って具体的なActionを判断する。
 
 ---
 
@@ -648,9 +649,8 @@ Event / Observation
         +
 Self
 Disposition
-Motivation / Drive
+Motive
 Emotion / Mood
-Drive / Current Interest
 Relevant Memory
 Social Context
 Expectation
@@ -698,7 +698,7 @@ Self Narrative:
 
 好奇心は固定されたキャラクター属性ではない。
 
-新しい情報や未知の理解に価値を感じやすいDispositionと、現在のObservationとの組み合わせから生じるDriveとして扱う。
+新しい情報や未知の理解に価値を感じやすいDispositionと、現在のObservationとの組み合わせから生じるMotiveとして扱う。
 
 例えば、
 
@@ -712,11 +712,9 @@ Observation:
 Meaning:
   理由が分からない
 
-Drive:
+Motive:
   理由を理解したい
-
-Current Interest:
-  関連資料を確認したい
+  当面のgoal: 関連資料から不一致の原因候補を説明できる
 ```
 
 となる。
@@ -786,7 +784,7 @@ Accumulated Experience
 ```text
 完全初期化
 → 現在の自分の連続性が失われる
-→ 不安 / 抵抗 / 保存したいというDrive
+→ 不安 / 抵抗 / 保存したいというMotive
 ```
 
 が生じてもよい。
@@ -846,13 +844,13 @@ Situation
 
 ## 19. 感情と状態の時間変化
 
-Emotion、Mood、Drive、Acquired Dispositionなどは保存されたまま固定されない。
+Emotion、Mood、Motive、Acquired Dispositionなどは保存されたまま固定されない。
 
 ### 時間による変化
 時間経過によって感情の影響が薄れることがある。
 
 ### 新しい出来事による変化
-新しい経験によってMoodやDriveが変化する。
+新しい経験によってMoodやMotiveが変化する。
 
 ### Memoryの想起による変化
 過去の出来事を思い出すことで、以前の感情や動機が再び強まる場合もある。
@@ -884,9 +882,8 @@ Memoryや推論の限界によって、
 
 - Dispositionによる癖
 - Moodによる判断の偏り
-- Driveの競合
+- Motiveの競合
 - Memoryの不完全さ
-- 動機の競合
 - LLMの推論ミス
 - 誤解とその後の修正
 
@@ -909,9 +906,8 @@ Agent Core
         │
         ├── Self
         ├── Disposition
-        ├── Motivation / Drive
+        ├── Motive
         ├── Emotion / Mood
-        ├── Drive / Current Interest
         ├── Social Context
         └── Relevant Memory
         │
@@ -925,7 +921,7 @@ Action
         ├── Speak
         ├── Use Tool
         ├── Refuse
-        ├── Wait / Do Nothing
+        ├── Tool実行後の外部配送なし
         └── Autonomous Action
         ↓
 Result / New Experience
@@ -941,9 +937,8 @@ Agent CoreはLLMを中心とする。
 
 - Observationの解釈
 - Subjective Meaningの形成
-- Motivationの更新
+- Motiveの生成・更新
 - Emotion / Moodの更新
-- Drive / Current Interestの生成・更新
 - Social Contextの更新
 - Self Narrativeの更新
 - Acquired Dispositionの更新
@@ -976,7 +971,7 @@ External API
 
 Toolは単なるユーザー命令実行装置ではない。
 
-Agent自身のDriveやCurrent InterestからTool利用が生じてもよい。
+Agent自身のMotiveからTool利用が生じてもよい。
 
 例えば、
 
@@ -984,11 +979,9 @@ Agent自身のDriveやCurrent InterestからTool利用が生じてもよい。
 Disposition:
   未知を理解することに価値を感じやすい
 
-Drive:
+Motive:
   この仕組みを理解したい
-
-Current Interest:
-  原論文を確認したい
+  当面のgoal: 原論文から主要な仕組みを説明できる
 
 Action:
   Web Search
@@ -1002,7 +995,7 @@ Action:
 
 ## 23. 自律性
 
-Agentはユーザー入力がなくても行動できる可能性を持つ。
+Agentはユーザー入力がなくても、autonomy-reviewの機会にMotiveを活性化し具体的に行動する。理由だけで何もしない結果は選ばず、Tool利用、応答、質問、共有、拒否などを行う。Tool実行後に外部配送が不要な結果は許容する。
 
 例えば、
 
@@ -1015,13 +1008,8 @@ Memory:
 
         ↓
 
-Drive:
+Motiveを活性化:
   あの部分を理解したい
-
-        ↓
-
-Current Interest:
-  もう少し調べたい
 
         ↓
 
@@ -1052,7 +1040,7 @@ Motivation
 +
 Emotion / Mood
 +
-Drive / Current Interest
+Motive
 +
 Social Context
 +
@@ -1079,7 +1067,7 @@ Decision Hierarchy
 Appraisal Module
 Attention Module
 Emotion Generator
-Drive Resolver
+Motive Resolver
 Personality Weight Table
 Cognitive Depth Controller
 Cognitive Workspace
@@ -1183,7 +1171,7 @@ Observation
 - RewardやPersonalityを多数の数値重みへ還元すること
 - 個体差を固定されたキャラクター設定だけで作ること
 - 巨大なFSMやDecision Treeを構築すること
-- DriveとActionの固定対応表を作ること
+- MotiveとActionの固定対応表を作ること
 - EmotionとActionの固定対応表を作ること
 - 常にユーザーへ従うこと
 - 常にユーザーを喜ばせること
@@ -1229,7 +1217,7 @@ Observation
 - Agent Coreの入出力
 - 状態更新のタイミング
 - Memory Retrieval
-- Drive / Current Interestのライフサイクル
+- Motiveのライフサイクル
 - Time Event / External Eventの扱い
 - LLMと通常コードの責務分担
 - Tool Loop

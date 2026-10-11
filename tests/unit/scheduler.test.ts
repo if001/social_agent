@@ -42,7 +42,7 @@ describe("Scheduler", () => {
   });
   it("runs bounded autonomy review and suppresses delivery without a destination", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: unknown[] = []; const completions: (Date | null)[] = []; let publishes = 0;
-    const review: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Review Self, Drive, Interest, and Memory" };
+    const review: ScheduledTarget = { id: "autonomy-review:agent-a", agentId: "agent-a", kind: "autonomy-review", reason: "Review Self, Motive, and Memory" };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "Internal result" }); } }, queue: { publish: () => { publishes += 1; return Promise.resolve(); }, subscribe: () => Promise.resolve() }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, ...timings });
     await scheduler.tick(new AbortController().signal);
     expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "autonomy-review", schedulerGenerated: true } });

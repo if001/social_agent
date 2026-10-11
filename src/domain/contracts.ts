@@ -52,8 +52,8 @@ export const BotPersonaSchema = z.object({
 });
 export type BotPersona = z.infer<typeof BotPersonaSchema>;
 
-export const InterestProgressSchema = z.union([z.literal(0), z.literal(25), z.literal(50), z.literal(75), z.literal(100)]);
-export const MotiveSchema = z.object({ id: Id, description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: InterestProgressSchema.optional(), sourceEvidenceIds: z.array(Id), since: Instant }).superRefine((value, context) => {
+export const MotiveProgressSchema = z.union([z.literal(0), z.literal(25), z.literal(50), z.literal(75), z.literal(100)]);
+export const MotiveSchema = z.object({ id: Id, description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional(), sourceEvidenceIds: z.array(Id), since: Instant }).superRefine((value, context) => {
   if ((value.goal === undefined) !== (value.progress === undefined)) context.addIssue({ code: "custom", path: [value.goal === undefined ? "goal" : "progress"], message: "goal and progress must be provided together" });
 });
 export type Motive = z.infer<typeof MotiveSchema>;
@@ -280,7 +280,7 @@ export const AgentCoreOutputSchema = z.object({
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
 const MotiveProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
-const MotiveShape = { description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: InterestProgressSchema.optional() };
+const MotiveShape = { description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional() };
 export const MotiveProposalSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("create"), ...MotiveShape, ...MotiveProposalBase }).strict(),
   z.object({ operation: z.literal("maintain"), motiveId: Id, ...MotiveProposalBase }).strict(),

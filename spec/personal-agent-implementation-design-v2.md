@@ -13,7 +13,7 @@
 - Event / Observation / Subjective Meaning の境界
 - Agent Core の入出力
 - MemoryとRetrieval
-- Drive / Current Interest のライフサイクルとScheduled Task
+- Motive のライフサイクルとScheduled Task
 - Internal Event と自律行動
 - State Update と Long-term Review
 - 複数botにおける共通状態と個体状態
@@ -26,7 +26,7 @@
 
 > Agentの個性や行動を固定的なPersonality設定や数値Rewardで直接決めない。
 
-> Agentが何に価値を感じ、出来事をどう意味づけたかから、Emotion、Drive、Current Interest、Actionが生じる。
+> Agentが何に価値を感じ、出来事をどう意味づけたかから、Emotion、Motive、Actionが生じる。
 
 > 長期的な個体差は、経験、Memory、Self Narrative、Acquired Dispositionの変化として表現する。
 
@@ -62,7 +62,7 @@
 ┌──────────────────────────────┐
 │         Agent State          │
 │ Self / Disposition / Mood    │
-│ Drive / Current Interest / Social   │
+│ Motive / Social   │
 │ Memory                       │
 └──────────────────────────────┘
 ```
@@ -79,7 +79,7 @@ Agent Coreへ渡すContextを構築する薄い層。
 - relevant Disposition
 - Dynamic State
 - Social Context
-- Current Interest
+- Motive
 - Relevant Memory
 - Available Tools
 
@@ -118,7 +118,7 @@ Agent Core
   ├─ Subjective Meaning
   ├─ State Update Proposal
   ├─ Memory Proposal
-  ├─ Current Interest Update
+  ├─ Motive Update
   └─ Action Decision
   ↓
 Runtime Validation
@@ -158,7 +158,7 @@ User Input
 Subjective Meaning / Emotion
 
 中期:
-Mood / Drive / Current Interest / Social Context
+Mood / Motive / Social Context
 
 長期:
 Self Narrative / Acquired Disposition / Role / Self Continuity
@@ -224,12 +224,11 @@ type DynamicState = {
   emotion?: string
   mood?: string
 
-  drives: Drive[]
-  currentInterests: CurrentInterest[]
+  motives: Motive[]
 }
 ```
 
-Mood、Drive、Current InterestなどはEventをまたぐ場合には永続化する。
+Mood、MotiveなどはEventをまたぐ場合には永続化する。
 
 Persistent / Transientの境界は固定データ型ではなく、
 
@@ -579,61 +578,44 @@ anger -> refuse
 
 ---
 
-## 12. Motivation / Drive
+## 12. Motive
 
-Driveは、現在比較的持続している「何を求めているか」を表す。
+Motiveは現在求めていることを表す。広い動機と具体的な探索を別状態へ分けない。
 
 ```ts
-type Drive = {
+type Motive = {
   id: string
   description: string
-  source?: string
-  since?: string
+  goal?: string
+  progress?: 0 | 25 | 50 | 75 | 100
+  sourceEvidenceIds: string[]
+  since: string
 }
 ```
 
-例:
+探索型だけがgoalとprogressを対で持つ。goalは当面の満足点であり、分野全体を知り尽くす条件ではない。探索以外には強制しない。IDと時刻はRuntimeが付与する。
 
-```text
-- この未知の挙動の理由を理解したい
-- 最近あまり役に立てていないので、何か貢献したい
-- 自分の提案がどうなったか知りたい
-- 自分の記憶や関係を失いたくない
-```
+Self Interest、Preference、Dispositionは形成と選択に影響するが、固定対応表でMotiveへ変換しない。Event、Memory、Social Context、現在状態を踏まえて意味を判断する。複数Motiveがあってよく、個数の閾値から機械的に補充しない。
 
-DriveはDispositionから直接固定的に生成しない。
-
-```text
-Disposition
-+
-Observation
-+
-Current State
-+
-Memory
-→ Drive
-```
-
-複数Driveが同時に存在してよい。
-
-優先順位を数値で固定せず、Agent Coreが現在文脈から解釈する。
+次のEventにも残るMotiveのみ後処理でcreate / maintain / update / merge / resolve / dropする。充足すればresolve、進展可能性や価値を失えばdrop、問い直す場合はdescriptionやgoalを更新する。探索の進展・停滞を記録して判断材料にし、性格にかかわらず一律の時間だけで消す規則にはしない。
 
 ---
 
-## 13. Motivation
+## 13. 活性化した動機とAction
 
-DriveとCurrent InterestをActionの直接入力とする。Event内だけのDesire状態は生成・保存しない。
+通常InteractionではactiveMotiveを必須で一つ出力する。
 
 ```ts
-type MotivationContext = {
-  drives: Drive[]
-  currentInterests: CurrentInterest[]
-  mood?: Mood
-  emotion?: Emotion
+type ActiveMotive = {
+  description: string
+  motiveId?: string
+  evidenceIds: string[]
 }
 ```
 
-Agent CoreはMotivation Context、Subjective Meaning、Self、Memory、Social Context、実行制約をまとめて解釈し、今回のActionを決める。「したくない」は独立状態として管理せず、競合する動機、感情、Preferenceまたは制約の結果として表れる。
+保存済みMotiveを選ぶか、今回のEvent、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成する。今回の意味づけ、Emotion、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。保存済みMotiveが空であることは停止理由にならない。
+
+理由だけのno-external-actionは認めない。Tool実行後に外部配送が不要な場合には最終結果として利用できる。activeMotiveはEvent内の判断であり、そのまま永続状態へ追加しない。state-reviewとLong-term Reviewは状態再評価であり、この必須Action契約の対象外とする。
 
 ---
 
@@ -779,7 +761,7 @@ Observation
 +
 Current State
 +
-Current Interest
+Motive
 +
 Social Context
 → Relevant Memory Query
@@ -820,8 +802,7 @@ type AgentCoreInput = {
   dynamicState: {
     emotion?: string
     mood?: string
-    drives?: Drive[]
-    currentInterests?: CurrentInterest[]
+    motives: Motive[]
   }
 
   socialContext?: SocialContext[]
@@ -846,7 +827,7 @@ type AgentCoreOutput = {
 
   stateUpdates?: StateUpdateProposal[]
   memoryUpdates?: MemoryProposal[]
-  currentInterestUpdates?: CurrentInterestUpdate[]
+  motiveProposals?: MotiveProposal[]
   longTermCandidates?: LongTermUpdateCandidate[]
 
   action: AgentAction
@@ -864,7 +845,7 @@ type AgentAction =
   | { type: "no-external-action"; reason?: string }
 ```
 
-Emotion、Mood、Driveなどの全Stateを毎回再生成するのではなく、変更が必要なものだけProposalとして返す。
+Emotion、Mood、Motiveなどの全Stateを毎回再生成するのではなく、変更が必要なものだけProposalとして返す。
 
 ---
 
@@ -889,8 +870,7 @@ type StateUpdateProposal = {
   target:
     | "emotion"
     | "mood"
-    | "drive"
-    | "desire"
+    | "motive"
     | "social-context"
 
   operation:
@@ -928,9 +908,7 @@ Long-term Stateは通常のState Update Proposalとは分ける。
 ```text
 Emotion
 Mood
-Drive
-Drive
-Current Interest
+Motive
 Scheduled Task
 Working Social Context
 ```
@@ -1183,7 +1161,7 @@ type InternalEvent = BaseEvent & {
 
   reason:
     | "scheduled-task"
-    | "persistent-drive"
+    | "autonomy-review"
     | "memory-recall"
     | "self-continuity"
     | "long-term-review"
@@ -1198,7 +1176,7 @@ type InternalEvent = BaseEvent & {
 
 ```text
 Agent Core
-→ Drive / Current Interest / Candidateを保存
+→ Motive / Candidateを保存
 
 Runtime
 → Trigger監視
@@ -1226,7 +1204,7 @@ Agent Core / Review Core
 TimeEvent
 ExternalEvent
 InternalEvent
-Current Interest Trigger
+Autonomy Review Event
 ```
 
 例:
@@ -1242,12 +1220,12 @@ Internal Event:
   scheduled-task
 
 Agent Core:
-  今調べる / 後にする / 諦める
+  現在のMotiveと制約から具体的なActionを選ぶ
 ```
 
 自律性を固定Automationそのものとは定義しない。
 
-Runtimeは「再検討する機会」を与え、実際に行動するかはAgent Coreが判断する。
+RuntimeはAgentごとにautonomy-reviewの機会を与える。Agent CoreはactiveMotiveから具体的なActionを判断する。Motive単位のScheduleは作らず、同じ動機を複数Scheduleで重複起動しない。state-reviewは持続状態の再評価に限定する。
 
 ---
 
@@ -1273,14 +1251,14 @@ Observation
 Agent Core
 ```
 
-Tool Resultも新しいEventであり、EmotionやDriveへ影響してよい。
+Tool Resultも新しいEventであり、EmotionやMotiveへ影響してよい。
 
 ```text
 調査したが答えが見つからない
 → さらに気になる
 
 予想外の興味深い結果を発見
-→ 喜び / 新しいDrive
+→ 喜び / 新しいMotive
 ```
 
 Toolはユーザー命令実行装置ではなく、Agent自身が世界へ働きかけるCapabilityとして扱う。
@@ -1305,7 +1283,7 @@ Individual Agent
 ├── Self Narrative
 ├── Social Context
 ├── Emotion / Mood
-├── Drive / Current Interest
+├── Motive
 └── Memory
 ```
 
@@ -1364,8 +1342,7 @@ BがAから聞いた
 - Eventの意味解釈
 - Subjective Meaning
 - Emotion / Mood更新提案
-- Drive生成
-- Drive / Current Interest生成
+- Motive生成
 - Social Context更新提案
 - Memory内容の意味的生成
 - Self Narrative Candidate
@@ -1448,7 +1425,7 @@ Initial Individual Disposition
 Acquired Disposition
 Self Narrative
 Social Context
-Current Interest
+Motive
 Memory
 Long-term Update Candidate
 ```
@@ -1458,8 +1435,7 @@ Long-term Update Candidate
 ```text
 Emotion
 Mood
-Drive
-Current Interest
+Motive
 ```
 
 ### Runtime
@@ -1500,7 +1476,7 @@ Long-term Reviewは別モードまたは専用Promptとして実装する。
 
 ### シナリオ2: 好奇心による自発行動
 
-未解決の疑問をDriveまたはCurrent Interestとして残す。
+未解決の疑問をMotiveとして残す。
 
 Idle / Time Event後、Internal Eventから自発的な再検討が起きるか確認する。
 
@@ -1514,7 +1490,7 @@ Long-term Review後に、「何を承認されたと感じるか」が異なる�
 
 単調な作業と興味深い関連情報を同時に与える。
 
-固定ルールなしで、Mood / Drive / Current Interestの競合から脱線が生じるか確認する。
+固定ルールなしで、Mood / Motiveの競合から脱線が生じるか確認する。
 
 ### シナリオ5: Self Continuity
 
