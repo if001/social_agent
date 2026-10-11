@@ -2,7 +2,7 @@ import type { ContinuityHarness, MemoryExtractionHarness, CandidateDetectorHarne
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { z, type ZodType } from "zod";
 
-import { CandidateDetectionOutputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionOutputSchema } from "../../domain/contracts.js";
+import { CandidateDetectionOutputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionOutputSchema, type ContinuityInput } from "../../domain/contracts.js";
 
 export const continuitySystemPrompt = `あなたはソーシャルエージェントの継続状態更新担当です。
 
@@ -55,6 +55,8 @@ memoryProposalsの各要素はcontent、relatedSubjectIds、importance、retriev
 保存例:
 {"memoryProposals":[{"content":"ユーザーの依頼で対象を調べ、主要な条件を確認した","relatedSubjectIds":["入力にあるsubjectId"],"importance":"次の回答で調査結果を再利用できる","retrievalPriority":"normal","webSnapshotIds":["入力にあるsnapshotId"]}]}`;
 
+export const experienceIntegrationSystemPrompt = `${continuitySystemPrompt}\n\n同じInteractionからEpisodic Memoryも同時に抽出します。別のmodel callへ分割せず、上記のpersistentStateUpdatesとmotiveProposalsに加えてmemoryProposalsを返してください。\n\n${memoryExtractionSystemPrompt}`;
+
 export const candidateDetectorSystemPrompt = `あなたは長期変化のCandidate検出担当です。
 
 目的:
@@ -98,9 +100,22 @@ function structuredHarness<O>(config: OllamaPostProcessConfig, schema: ZodType<O
 }
 
 export function createOllamaPostProcessHarnesses(config: OllamaPostProcessConfig): { continuity: ContinuityHarness; memory: MemoryExtractionHarness; candidate: CandidateDetectorHarness } {
+  const combinedSchema = ContinuityOutputSchema.extend({ memoryProposals: MemoryExtractionOutputSchema.shape.memoryProposals });
+  const combined = structuredHarness(config, combinedSchema, "experience_integration", experienceIntegrationSystemPrompt);
+  const cache = new Map<string, Promise<z.infer<typeof combinedSchema>>>();
+  const run = (input: ContinuityInput, signal: AbortSignal): Promise<z.infer<typeof combinedSchema>> => {
+    const key = input.run.runId;
+    let pending = cache.get(key);
+    if (pending === undefined) {
+      pending = combined.run(input, signal);
+      cache.set(key, pending);
+      if (cache.size > 100) cache.delete(cache.keys().next().value ?? key);
+    }
+    return pending;
+  };
   return {
-    continuity: structuredHarness(config, ContinuityOutputSchema, "continuity_update", continuitySystemPrompt),
-    memory: structuredHarness(config, MemoryExtractionOutputSchema, "episodic_memory_extraction", memoryExtractionSystemPrompt),
+    continuity: { run: async (input, signal) => { const output = await run(input, signal); return { persistentStateUpdates: output.persistentStateUpdates, motiveProposals: output.motiveProposals }; } },
+    memory: { run: async (input, signal) => { const output = await run(input, signal); cache.delete(input.run.runId); return { memoryProposals: output.memoryProposals }; } },
     candidate: structuredHarness(config, CandidateDetectionOutputSchema, "candidate_detection", candidateDetectorSystemPrompt)
   };
 }
