@@ -21,6 +21,7 @@ export type { StateChange, StateUpdateResult } from "./application/state-update-
 export { PostgresEventTransaction } from "./infrastructure/persistence/event-transaction.js";
 export type { CommitEventInput, FailedEventInput } from "./infrastructure/persistence/event-transaction.js";
 export { PostgresRuntimePersistence } from "./infrastructure/persistence/postgres-runtime-persistence.js";
+export { PostgresReflectionRepository } from "./infrastructure/persistence/postgres-reflection.js";
 export { ScriptedAgentHarness } from "./application/scripted-agent-harness.js";
 export type { ScriptedStep } from "./application/scripted-agent-harness.js";
 export { DeepAgentHarness, checkOllamaChatCapability, createOllamaDeepAgentInvoker } from "./infrastructure/agent/deep-agent-harness.js";
