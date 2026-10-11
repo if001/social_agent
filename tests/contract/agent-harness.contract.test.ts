@@ -138,6 +138,16 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(2);
   });
 
+  it("rejects no-external-action after only failed Tools but accepts it after a success", async () => {
+    const noAction = { ...output, action: { type: "no-external-action" as const, reason: "Toolで処理済み" } };
+    let calls = 0;
+    const failed: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? noAction : output, toolExecutions: [{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: {}, ok: false, error: "unavailable", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] }) };
+    await expect(new DeepAgentHarness({ invoker: failed, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject({ output });
+    expect(calls).toBe(2);
+    const successful: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: noAction, toolExecutions: [{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: {}, ok: true, result: {}, startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] }) };
+    await expect(new DeepAgentHarness({ invoker: successful, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject({ output: noAction });
+  });
+
   it("normalizes provider errors, abort and timeout", async () => {
     const failure: DeepAgentInvoker = { invoke: () => Promise.reject(new Error("provider secret-key failed")) };
     await expect(new DeepAgentHarness({ invoker: failure, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "EXTERNAL", message: "Agent provider failed" });

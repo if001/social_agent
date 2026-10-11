@@ -78,7 +78,7 @@ function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["
 }
 
 function actionExecutionIssues(output: AgentRunResult["output"], toolExecutions: readonly ToolExecutionRecord[]): ProposalIssue[] {
-  if (output.action.type === "no-external-action" && toolExecutions.length === 0) return [{ code: "invalid_reference", path: ["action", "type"], message: "Interaction events must perform a Tool action or choose an external action" }];
+  if (output.action.type === "no-external-action" && !toolExecutions.some(({ ok }) => ok)) return [{ code: "invalid_reference", path: ["action", "type"], message: toolExecutions.length === 0 ? "Interaction events must perform a Tool action or choose an external action" : "Failed Tool executions do not justify no-external-action; explain, ask, or choose another action" }];
   return [];
 }
 
