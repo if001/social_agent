@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, DomainError, DynamicStateSchema, FinalActionSchema, MotiveExplorationSchema, MotiveSchema, ObservationSchema, RecentExperienceSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, AgentStateSchema, DomainError, DynamicStateSchema, FinalActionSchema, MotiveExplorationSchema, MotiveSchema, ObservationSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { explicitSubjectIds, selectSocialContexts, type SelectedContext } from "../../application/context-selection.js";
@@ -11,6 +11,7 @@ import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
 
 type AgentRow = QueryResultRow & {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
+  disposition: string; self_story: string; commitments: unknown; concerns: unknown; relationships: unknown;
   acquired_disposition: string; values: string; interests: unknown; preferences: unknown; roles: unknown; raison_detre: string | null; self_narrative: string; self_continuity: string;
   mood: string; emotion: unknown; motives: unknown; motive_exploration: unknown; version: number; state_updated_at: Date;
   shared_disposition: string; base_instruction: string;
@@ -83,7 +84,7 @@ export class PostgresAgentContextLoader {
   async load(event: DomainEvent): Promise<AgentCoreInput> {
     const observation = observationFromEvent(event);
     const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
-      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.emotion,s.motives,s.motive_exploration,s.version,s.updated_at AS state_updated_at,
+      s.disposition,s.self_story,s.commitments,s.concerns,s.relationships,s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.emotion,s.motives,s.motive_exploration,s.version,s.updated_at AS state_updated_at,
       f.shared_disposition,f.base_instruction
       FROM agents a JOIN agent_states s ON s.agent_id=a.id JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1`, [event.agentId]);
     const agent = agentResult.rows[0];
@@ -123,6 +124,8 @@ export class PostgresAgentContextLoader {
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
       observation, recentExperiences,
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
+      currentSelf: { agentId: agent.id, version: agent.version, ...SelfSchema.parse({ identity: agent.identity, disposition: agent.disposition, selfStory: agent.self_story, commitments: agent.commitments }) },
+      state: { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: agent.concerns, relationships: agent.relationships }) },
       self: { id: agent.id, familyId: agent.family_id, identity: agent.identity, disposition: { shared: agent.shared_disposition, initial: agent.initial_disposition, acquired: agent.acquired_disposition }, values: agent.values, interests: texts(agent.interests), preferences: texts(agent.preferences), roles: texts(agent.roles), ...(agent.raison_detre === null ? {} : { raisonDetre: agent.raison_detre }), selfNarrative: agent.self_narrative, selfContinuity: agent.self_continuity, version: agent.version },
       dynamicState,
       socialContext: selectedSocial.map(({ value }) => value), memories: enrichedMemories, memoryRetrievalTrace: retrieval.trace, availableTools: [...availableTools],

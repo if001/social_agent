@@ -30,6 +30,10 @@ export const AgentStateSchema = z.object({
   relationships: z.array(RelationshipSchema)
 });
 export type AgentState = z.infer<typeof AgentStateSchema>;
+export const CurrentSelfSchema = SelfSchema.extend({ agentId: Id, version: z.number().int().nonnegative() });
+export type CurrentSelf = z.infer<typeof CurrentSelfSchema>;
+export const CurrentAgentStateSchema = AgentStateSchema.extend({ agentId: Id, updatedAt: Instant });
+export type CurrentAgentState = z.infer<typeof CurrentAgentStateSchema>;
 
 export const EpisodicMemorySchema = z.object({
   id: Id,
@@ -321,6 +325,8 @@ export const AgentCoreInputSchema = z.object({
   observation: ObservationSchema,
   recentExperiences: z.array(RecentExperienceSchema).max(8).default([]),
   persona: BotPersonaSchema.optional(),
+  currentSelf: CurrentSelfSchema,
+  state: CurrentAgentStateSchema,
   self: AgentSchema,
   dynamicState: DynamicStateSchema,
   socialContext: z.array(SocialContextSchema),
@@ -330,7 +336,7 @@ export const AgentCoreInputSchema = z.object({
   runtimeConstraints: z.array(NaturalLanguage),
   limits: RunLimitsSchema
 }).superRefine((value, context) => {
-  const owners = [value.self.id, value.dynamicState.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId)];
+  const owners = [value.currentSelf.agentId, value.state.agentId, value.self.id, value.dynamicState.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId)];
   if (owners.some((owner) => owner !== value.run.agentId)) context.addIssue({ code: "custom", message: "context contains data owned by another agent" });
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;

@@ -238,6 +238,8 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.run).toMatchObject({ runId: "context-run", agentId: "a", transport: { hop: 2, replyTo: "discord:a" } });
     expect(input.self.id).toBe("a");
     expect(input.self.disposition).toEqual({ shared: "Curious", initial: "Calm", acquired: "Learning" });
+    expect(input.currentSelf).toMatchObject({ agentId: "a", disposition: "Careful learner", selfStory: "Growing continuously", commitments: ["Care"] });
+    expect(input.state).toMatchObject({ agentId: "a", mood: input.dynamicState.mood, concerns: [], relationships: [] });
     expect(input.persona).toMatchObject({ identity: { displayName: "Agent A" }, communication: { firstPerson: "僕" } });
     expect(input.socialContext.map(({ id }) => id)).toContain("social-a");
     expect(input.socialContext.map(({ id }) => id)).not.toContain("social-b");
