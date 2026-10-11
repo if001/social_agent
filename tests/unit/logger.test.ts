@@ -14,6 +14,16 @@ describe("stdout logger", () => {
     expect(errorLogContext(error)).toEqual({ errorType: "error", errorCode: "42P01", errorMessage: "relation autonomous_schedules does not exist; password=[REDACTED] at postgres://[REDACTED]@db/app", databaseSeverity: "ERROR", databaseTable: "autonomous_schedules", databaseRoutine: "parserOpenTable" });
   });
 
+  it("preserves nested provider errors and redacts their credentials", () => {
+    const root = new Error("schema rejected token=secret");
+    root.name = "StructuredOutputParsingError";
+    const outer = new Error("Agent provider failed", { cause: { providerError: new Error("Deep Agent invocation failed", { cause: { providerError: root } }) } });
+    const context = errorLogContext(outer);
+    expect(context.errorCauses).toContain("StructuredOutputParsingError");
+    expect(context.errorCauses).not.toContain("token=secret");
+    expect(context.errorCauses).toContain("[REDACTED]");
+  });
+
   it("does not expose bearer tokens or multiline stack content", () => {
     const context = errorLogContext(new Error("Authorization: Bearer very-secret-token\nrequest failed"));
     expect(context.errorMessage).toBe("Authorization: [REDACTED] [REDACTED] request failed");

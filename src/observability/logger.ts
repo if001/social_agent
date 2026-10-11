@@ -22,10 +22,27 @@ const sanitizeErrorMessage = (message: string): string => message
   .replaceAll(/[\r\n\t]+/gu, " ")
   .slice(0, 1_000);
 
+function nestedErrorContext(error: Error): LogContext {
+  const seen = new Set<unknown>([error]);
+  let current: unknown = error.cause;
+  const chain: { type: string; message: string }[] = [];
+  for (let i = 0; i < 8 && current !== undefined && !seen.has(current); i += 1) {
+    seen.add(current);
+    if (current instanceof Error) {
+      chain.push({ type: current.name, message: sanitizeErrorMessage(current.message) });
+      current = current.cause;
+    } else if (typeof current === "object" && current !== null && "providerError" in current) {
+      current = current.providerError;
+    } else break;
+  }
+  return chain.length === 0 ? {} : { errorCauses: JSON.stringify(chain) };
+}
+
 export function errorLogContext(error: unknown): LogContext {
   if (!(error instanceof Error)) return { errorType: typeof error, errorCode: "UNKNOWN", errorMessage: "Unknown non-Error value" };
   const record = error as Error & { readonly code?: unknown; readonly severity?: unknown; readonly schema?: unknown; readonly table?: unknown; readonly column?: unknown; readonly constraint?: unknown; readonly routine?: unknown };
   return {
+    ...nestedErrorContext(error),
     errorType: error.name,
     errorCode: typeof record.code === "string" ? record.code : "UNKNOWN",
     errorMessage: sanitizeErrorMessage(error.message),
