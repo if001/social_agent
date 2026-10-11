@@ -1,4 +1,4 @@
-import { ChatOllama } from "@langchain/ollama";
+import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { z, type ZodType } from "zod";
 
 import { CandidateDetectionOutputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionOutputSchema, type CandidateDetectionInput, type CandidateDetectionOutput, type ContinuityInput, type ContinuityOutput, type MemoryExtractionInput, type MemoryExtractionOutput } from "../../domain/contracts.js";
@@ -78,20 +78,20 @@ longTermCandidatesの各要素はtarget、proposal、reason、evidenceMemoryIds�
 候補例:
 {"longTermCandidates":[{"target":"selfNarrative","proposal":"確認を重ねてから判断する傾向がある","reason":"同じ傾向を示す保存済み経験がある","evidenceMemoryIds":["入力にあるmemoryId"],"evidenceEventIds":[]}]}`;
 
-export type OllamaPostProcessConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string };
+export type OllamaPostProcessConfig = OllamaChatConfig;
 
 function structuredHarness<O>(config: OllamaPostProcessConfig, schema: ZodType<O>, name: string, prompt: string): { run(input: unknown, signal: AbortSignal): Promise<O> } {
-  const model = new ChatOllama({ model: config.model, baseUrl: config.baseUrl, headers: { Authorization: `Bearer ${config.apiKey}` }, checkOrPullModel: false });
+  const model = createOllamaChatModel(config);
   const structured = model.withStructuredOutput(schema, { name });
   return { async run(input, signal) {
     const messages: { role: "system" | "user"; content: string }[] = [{ role: "system", content: prompt }, { role: "user", content: JSON.stringify({ promptVersion: `${name}-v2-ja`, input }) }];
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try { return schema.parse(await structured.invoke(messages, { signal })); }
       catch (error) {
-        if (signal.aborted) throw new DomainError("ABORTED", `${name} was interrupted`, { cause: error });
+        if (signal.aborted) throw providerFailure(name, error, signal);
         const detail = error instanceof z.ZodError ? error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") : error instanceof Error ? error.message : "unknown schema error";
         const schemaFailure = error instanceof z.ZodError || /schema|structured|parse|validation|required|invalid/i.test(detail);
-        if (!schemaFailure) throw new DomainError("EXTERNAL", `${name} provider failed`, { cause: error });
+        if (!schemaFailure) throw providerFailure(name, error, signal);
         if (attempt === 1) throw new DomainError("VALIDATION", `${name} output failed schema validation: ${detail}`, { cause: error });
         messages.push({ role: "user", content: `直前の出力はSchemaに適合しませんでした。Toolや外部処理を行わず、最初の入力を再評価して完全な構造化出力だけを返してください。検証内容: ${detail.slice(0, 2_000)}` });
       }

@@ -24,7 +24,7 @@
 
 - [x] **R07: 後処理の実行・再試行を共通化する（重複確認済み）。** `application/post-process.ts` の `#executeType` と `processAgent` のcontinuity / memory分岐がattempt判定とdelayを重複実装する。`tick` は別の失敗伝播を持つ。実装設計 §21・§22・§23・§29 に沿い、claim済みjobを含む実行単位とretry方針を統一する。完了条件: ContinuityとMemoryの独立性、保存済みMemory後のCandidate生成、上限回数、再起動後の再開、abortを維持する。
 
-- [ ] **R08: LLM接続設定とエラー処理の共通部分を抽出する（重複確認済み）。** `deep-agent-harness.ts`、`post-process-harness.ts`、`long-term-review-harness.ts`、`web-summary-harness.ts` がChatOllamaの接続・認証・モデル設定を繰り返す。実装設計 §23・§29 に沿って生成設定、cause保持、abort分類、ログの共通部分を抽出する。プロンプト・Schema・修復回数・Tool有無は各用途に残す。Long-term ReviewのDeep Agent使用も必要性を別途確認し、仕様根拠なく通常Coreへ統合しない。完了条件: 各経路の構造化出力、修復上限、外部障害、timeoutを同じ診断基盤で追跡できる。
+- [x] **R08: LLM接続設定とエラー処理の共通部分を抽出する（重複確認済み）。** `deep-agent-harness.ts`、`post-process-harness.ts`、`long-term-review-harness.ts`、`web-summary-harness.ts` がChatOllamaの接続・認証・モデル設定を繰り返す。実装設計 §23・§29 に沿って生成設定、cause保持、abort分類、ログの共通部分を抽出する。プロンプト・Schema・修復回数・Tool有無は各用途に残す。Long-term ReviewのDeep Agent使用も必要性を別途確認し、仕様根拠なく通常Coreへ統合しない。完了条件: 各経路の構造化出力、修復上限、外部障害、timeoutを同じ診断基盤で追跡できる。
 
 ## P2: 互換候補・依存方向・保守性を整理する
 
@@ -63,3 +63,4 @@
 - R05: [Issue 122](../issues/122-share-text-extraction.md)。文字列抽出を共有し、権限と公開出力は分離を維持。
 - R06: [Issue 123](../issues/123-unify-response-outbox.md)。自律応答をOutboxへ統一し、配送障害後の再試行を検証。
 - R07: [Issue 124](../issues/124-unify-post-process-retries.md)。claim済みjobを含むretry loopを共有。
+- R08: [Issue 125](../issues/125-share-llm-provider-boundary.md)。接続設定とprovider障害の分類・cause保持を共有。
