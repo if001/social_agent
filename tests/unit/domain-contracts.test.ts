@@ -19,8 +19,9 @@ describe("domain contracts", () => {
   it("represents every action and review decision", () => {
     for (const action of [
       { type: "respond", content: "Hello" },
-      { type: "refuse", reason: "Unsafe", basis: "system" }, { type: "no-external-action", reason: "Nothing due" }
+      { type: "refuse", content: "I can't help with that.", reason: "Unsafe", basis: "system" }, { type: "no-external-action", reason: "Nothing due" }
     ]) expect(AgentActionSchema.safeParse(action).success).toBe(true);
+    expect(AgentActionSchema.safeParse({ type: "refuse", reason: "private reason", basis: "personality" }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "tool", call: { id: "c", name: "web", input: {} } }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "wait", reason: "Later" }).success).toBe(false);
     for (const decision of ["KEEP", "UPDATE", "MERGE", "DROP"]) expect(ReviewDecisionSchema.parse(decision)).toBe(decision);

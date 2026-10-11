@@ -210,7 +210,12 @@ export type Candidate = z.infer<typeof CandidateSchema>;
 
 export const FinalActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond"), content: NaturalLanguage.describe("相手へ配送する最終応答の本文。personaの発話表現を適用する") }),
-  z.object({ type: z.literal("refuse"), reason: NaturalLanguage.describe("依頼を断る理由"), basis: z.enum(["personality", "system"]).describe("拒否の根拠。personalityは自身の価値観、systemは実行制約") }),
+  z.object({
+    type: z.literal("refuse"),
+    content: NaturalLanguage.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),
+    reason: NaturalLanguage.describe("依頼を断る内部の判断根拠。外部へそのまま配送しない"),
+    basis: z.enum(["personality", "system"]).describe("拒否の根拠。personalityは自身の価値観、systemは実行制約")
+  }),
   z.object({ type: z.literal("no-external-action"), reason: NaturalLanguage.describe("Toolで具体的行動を実行した結果、外部への応答配送が不要な理由。未実行の保留には使わない") })
 ]).describe("今回の動機に基づく最終行動。Tool実行自体はAgent内部で完了させる");
 export type FinalAction = z.infer<typeof FinalActionSchema>;
