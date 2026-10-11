@@ -88,6 +88,7 @@ export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
 export const DynamicStateSchema = z.object({
   agentId: Id,
   mood: NaturalLanguage,
+  emotion: z.object({ description: NaturalLanguage, occurredAt: Instant, evidenceEventId: Id }).optional(),
   motives: z.array(MotiveSchema),
   motiveExploration: z.array(MotiveExplorationSchema).default([]),
   updatedAt: Instant

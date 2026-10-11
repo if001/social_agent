@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, DomainError, FinalActionSchema, MotiveExplorationSchema, MotiveSchema, ObservationSchema, RecentExperienceSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RunLimits, type SocialContext } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, DomainError, DynamicStateSchema, FinalActionSchema, MotiveExplorationSchema, MotiveSchema, ObservationSchema, RecentExperienceSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RunLimits, type SocialContext } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { explicitSubjectIds, selectSocialContexts, type SelectedContext } from "../../application/context-selection.js";
@@ -12,7 +12,7 @@ import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
 type AgentRow = QueryResultRow & {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
   acquired_disposition: string; values: string; interests: unknown; preferences: unknown; roles: unknown; raison_detre: string | null; self_narrative: string; self_continuity: string;
-  mood: string; motives: unknown; motive_exploration: unknown; version: number; state_updated_at: Date;
+  mood: string; emotion: unknown; motives: unknown; motive_exploration: unknown; version: number; state_updated_at: Date;
   shared_disposition: string; base_instruction: string;
 };
 type SocialRow = QueryResultRow & { id: string; agent_id: string; subject_id: string; subject_type: SocialContext["subjectType"]; description: string; updated_at: Date };
@@ -83,7 +83,7 @@ export class PostgresAgentContextLoader {
   async load(event: DomainEvent): Promise<AgentCoreInput> {
     const observation = observationFromEvent(event);
     const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
-      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.motives,s.motive_exploration,s.version,s.updated_at AS state_updated_at,
+      s.acquired_disposition,s.values,s.interests,s.preferences,s.roles,s.raison_detre,s.self_narrative,s.self_continuity,s.mood,s.emotion,s.motives,s.motive_exploration,s.version,s.updated_at AS state_updated_at,
       f.shared_disposition,f.base_instruction
       FROM agents a JOIN agent_states s ON s.agent_id=a.id JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1`, [event.agentId]);
     const agent = agentResult.rows[0];
@@ -104,7 +104,8 @@ export class PostgresAgentContextLoader {
     ]);
     const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row, this.options.tools, this.options.logger ?? noopLogger); return value === undefined ? [] : [value]; });
     const socialContext: SocialContext[] = socialResult.rows.map((row) => ({ id: row.id, agentId: row.agent_id, subjectId: row.subject_id, subjectType: row.subject_type, description: row.description, updatedAt: row.updated_at.toISOString() }));
-    const dynamicState = { agentId: agent.id, mood: agent.mood, motives: motives(agent.motives), motiveExploration: motiveExploration(agent.motive_exploration), updatedAt: agent.state_updated_at.toISOString() };
+    const parsedEmotion = DynamicStateSchema.shape.emotion.safeParse(agent.emotion);
+    const dynamicState = { agentId: agent.id, mood: agent.mood, ...(parsedEmotion.success && parsedEmotion.data !== undefined ? { emotion: parsedEmotion.data } : {}), motives: motives(agent.motives), motiveExploration: motiveExploration(agent.motive_exploration), updatedAt: agent.state_updated_at.toISOString() };
     const seedSocial = selectSocialContexts({ socialContext, observation });
     const memoryQuery = buildRelevantMemoryQuery({ observation, dynamicState, socialContext: seedSocial.map(({ value }) => value) });
     const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);
