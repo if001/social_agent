@@ -33,7 +33,6 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
-    const stateReview = event.kind === "internal" && event.payload.targetKind === "state-review";
     const snapshot = this.#snapshot(input, result);
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
@@ -42,9 +41,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       stateValues: { mood: update.state.mood, emotion: update.state.emotion ?? null, motives: update.state.motives, motive_exploration: update.state.motiveExploration },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       toolExecutions: validatedTools,
-      postProcessJobs: stateReview
-        ? [{ id: this.ids.next(), type: "continuity", inputStateVersion: input.self.version + 1, payload: snapshot }]
-        : [
+      postProcessJobs: [
             { id: this.ids.next(), type: "continuity", inputStateVersion: input.self.version + 1, payload: snapshot },
             { id: this.ids.next(), type: "memory", inputStateVersion: input.self.version + 1, payload: snapshot }
           ],

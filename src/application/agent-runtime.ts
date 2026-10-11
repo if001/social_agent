@@ -34,17 +34,7 @@ export interface RuntimePersistence {
 
 export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
 
-const isStateReview = (event: DomainEvent): boolean => event.kind === "internal" && event.payload.targetKind === "state-review";
 const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" ? action.content : undefined;
-
-const stateReviewResult = (): AgentRunResult => ({
-  output: {
-    interpretation: { subjectiveMeaning: "時間経過に伴う持続状態の再評価機会", activeMotive: { description: "持続状態を整合させたい", evidenceIds: ["state-review"] } },
-    internalChanges: { immediateStateUpdates: [] },
-    action: { type: "no-external-action", reason: "外部行動を行わずContinuity Reviewで持続状態を再評価する" }
-  },
-  toolExecutions: []
-});
 
 export class AgentRuntime {
   readonly #updates = new StateUpdateService();
@@ -119,16 +109,9 @@ export class AgentRuntime {
     const logger = eventLogger.child({ runId: input.run.runId });
     logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, socialContextCount: input.socialContext.length, availableToolCount: input.availableTools.length });
     let result: AgentRunResult;
-    const stateReview = isStateReview(event);
     try {
-      if (stateReview) {
-        logger.log("info", "state_review.started");
-        result = stateReviewResult();
-        logger.log("info", "state_review.completed", { actionType: result.output.action.type });
-      } else {
-        logger.log("info", "agent_core.started");
-        result = await this.options.harness.run(input, signal);
-      }
+      logger.log("info", "agent_core.started");
+      result = await this.options.harness.run(input, signal);
     }
     catch (error) {
       const toolExecutions = error instanceof DomainError && typeof error.cause === "object" && error.cause !== null && "toolExecutions" in error.cause && Array.isArray(error.cause.toolExecutions) ? error.cause.toolExecutions as ToolExecutionRecord[] : [];
@@ -137,7 +120,7 @@ export class AgentRuntime {
       throw error;
     }
     const output = result.output;
-    if (!stateReview) logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.internalChanges.immediateStateUpdates.length });
+    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.internalChanges.immediateStateUpdates.length });
     const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.immediateStateUpdates, input.socialContext, event.occurredAt, event.id);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
