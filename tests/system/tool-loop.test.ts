@@ -30,7 +30,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
       expect(options.middleware).toHaveLength(1);
       return { invoke: (_input, config) => { expect(config.context.maxToolCalls).toBe(1); return Promise.resolve({ structuredResponse: finalOutput }); } };
     } });
-    await expect(invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 8, agentId: "agent-a", runId: "compatibility", eventId: "event-1", maxToolCalls: 8 })).resolves.toMatchObject({ structuredResponse: finalOutput });
+    await expect(invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 8, maxModelCalls: 8, agentId: "agent-a", runId: "compatibility", eventId: "event-1", maxToolCalls: 8 })).resolves.toMatchObject({ structuredResponse: finalOutput });
     expect(effects).toBe(0);
   });
 
@@ -131,7 +131,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
         return { structuredResponse: finalOutput, messages: input.messages };
       } };
     } });
-    const base = { signal: new AbortController().signal, recursionLimit: 4, agentId: "agent-a", maxToolCalls: 2 };
+    const base = { signal: new AbortController().signal, recursionLimit: 4, maxModelCalls: 4, agentId: "agent-a", maxToolCalls: 2 };
     const [first, second] = await Promise.all([
       invoker.invoke({ messages: [{ role: "user", content: "first" }] }, { ...base, runId: "run-1", eventId: "event-1" }),
       invoker.invoke({ messages: [{ role: "user", content: "second" }] }, { ...base, runId: "run-2", eventId: "event-2" })
