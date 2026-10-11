@@ -1103,3 +1103,7 @@ SchedulerはEventの宛先・replyContextを解決し、Runtimeが通常応答�
 ### 後処理の再試行単位（Issue 124 / R07）
 
 claim済みjobと再claimしたjobは同じ実行loopを使う。即時後処理とbackground tickでattempt上限・backoffを共有する。別jobの成功を巻き戻さず、Candidateは保存済みMemoryに基づくjobのみを処理する。
+
+### LLM接続と障害境界（Issue 125 / R08）
+
+各Harnessはollama-providerのChat Model生成とproviderFailureを共有する。signalのTimeoutErrorはTIMEOUT、それ以外の中断はABORTED、外部障害はEXTERNALとし、causeは既存errorLogContextで追跡する。プロンプト・Schema・構造修復は用途別に保持する。Long-term Reviewを通常Interactionへ統合しない。

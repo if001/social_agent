@@ -1,4 +1,4 @@
-import { ChatOllama } from "@langchain/ollama";
+import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { createDeepAgent } from "deepagents";
 import { providerStrategy } from "langchain";
 
@@ -55,16 +55,15 @@ export class LongTermReviewDeepAgentHarness implements ReviewHarness {
         if (parsed.success) return parsed.data;
         issues = parsed.error.issues.map(({ code, path, message }) => ({ code, path, message }));
       } catch (error) {
-        if (signal.aborted) throw new DomainError("ABORTED", "Long-term Review was interrupted", { cause: error });
-        throw new DomainError("EXTERNAL", "Long-term Review provider failed", { cause: error });
+        throw providerFailure("Long-term Review", error, signal);
       }
     }
     throw new DomainError("VALIDATION", `Long-term Review returned invalid output: ${JSON.stringify(issues)}`);
   }
 }
 
-export function createOllamaLongTermReviewInvoker(config: { readonly baseUrl: string; readonly apiKey: string; readonly model: string }): ReviewAgentInvoker {
-  const model = new ChatOllama({ model: config.model, baseUrl: config.baseUrl, headers: { Authorization: `Bearer ${config.apiKey}` }, checkOrPullModel: false });
+export function createOllamaLongTermReviewInvoker(config: OllamaChatConfig): ReviewAgentInvoker {
+  const model = createOllamaChatModel(config);
   const agent = createDeepAgent({ model, tools: [], responseFormat: providerStrategy(ReviewOutputSchema), systemPrompt: longTermReviewSystemPrompt });
   return { invoke: async (input, options) => { const result = await agent.invoke({ messages: [...input.messages] }, options); return { structuredResponse: result.structuredResponse }; } };
 }

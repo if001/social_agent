@@ -1,4 +1,4 @@
-import { ChatOllama } from "@langchain/ollama";
+import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { createDeepAgent, createFilesystemMiddleware, createSubAgentMiddleware, createSummarizationMiddleware, StateBackend } from "deepagents";
 import { createMiddleware, ToolMessage, tool, toolStrategy, type ToolRuntime, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
@@ -19,7 +19,7 @@ type ReusableDeepAgent = {
 };
 
 type ReusableDeepAgentFactoryOptions = {
-  readonly model: ChatOllama;
+  readonly model: ReturnType<typeof createOllamaChatModel>;
   readonly tools: DeepAgentToolsOption;
   readonly systemPrompt: string;
   readonly responseFormat: AgentCoreResponseFormat;
@@ -100,15 +100,14 @@ export class DeepAgentHarness implements AgentHarness {
         logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
       } catch (error) {
         observedToolExecutions.push(...errorToolExecutions(error));
-        if (combined.aborted) throw new DomainError(signal.aborted ? "ABORTED" : "TIMEOUT", "Agent run was interrupted", { cause: { providerError: error, toolExecutions: observedToolExecutions } });
-        throw new DomainError("EXTERNAL", "Agent provider failed", { cause: { providerError: error, toolExecutions: observedToolExecutions } });
+        throw providerFailure("Agent", error, combined, { providerError: error, toolExecutions: observedToolExecutions });
       }
     }
     throw new DomainError("VALIDATION", `Agent returned invalid structured output: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions } });
   }
 }
 
-export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date; readonly agentFactory?: ReusableDeepAgentFactory };
+export type OllamaDeepAgentConfig = OllamaChatConfig & { readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date; readonly agentFactory?: ReusableDeepAgentFactory };
 
 export class ToolExecutionCollector {
   count = 0;
@@ -417,7 +416,7 @@ export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConf
 }
 
 export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): DeepAgentInvoker {
-  const model = new ChatOllama({ model: config.model, baseUrl: config.baseUrl, headers: { Authorization: `Bearer ${config.apiKey}` }, checkOrPullModel: false });
+  const model = createOllamaChatModel(config);
   const logger = config.logger ?? noopLogger;
   const now = config.now ?? (() => new Date());
   const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
