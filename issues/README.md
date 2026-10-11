@@ -79,5 +79,39 @@
 | 083 | [初期の具体的嗜好と適応的な対話・探索方策をdocsへ反映](083-align-docs-for-initial-tastes-and-adaptive-interaction.md) | 081、082 |
 | 084 | [botごとの具体的な初期嗜好とユーザー理解の関心を設定](084-configure-concrete-initial-tastes-and-relational-interests.md) | 083 |
 | 085 | [行動結果から質問・探索方法を適応](085-adapt-interaction-methods-from-action-results.md) | 083、084 |
+| 134 | [人格上の拒否を外部Actionとして配送](134-deliver-personality-refusal.md) | なし |
+| 135 | [関連状態を選択しModel入力全体を6,000 token以下に制限](135-select-focused-context-and-gate-total-input.md) | なし |
+| 136 | [Run limitを一本化し修復入力を有界化](136-unify-run-limits-and-bounded-repair.md) | 135 |
+| 137 | [Deep Agents middlewareを明示的な最大2段loopへ置換](137-replace-deep-agent-with-explicit-two-stage-loop.md) | 135、136 |
+| 138 | [Action配送をPost-processの完了・失敗から分離](138-decouple-action-delivery-from-post-process.md) | 134 |
+| 139 | [ContinuityとMemory抽出を統合しCandidate判定をReviewへ移動](139-consolidate-continuity-memory-and-defer-candidates.md) | 138 |
+| 140 | [現在のEmotionを短期状態として保持しAction判断へ反映](140-persist-current-emotion-and-use-it-in-decisions.md) | 135、137 |
+| 141 | [Motiveの再検討時刻から自律Eventを前倒し](141-schedule-autonomy-from-due-motives.md) | 139、140 |
+| 142 | [初期Personaから固定的な行動ラベルを除去](142-remove-behavior-labels-from-initial-persona.md) | 137 |
+| 143 | [状態差による行動差を反復評価](143-evaluate-state-dependent-behavior.md) | 134、137、140〜142 |
+| 144 | [状態見直しとMemory想起を自律評価triggerへ統合](144-consolidate-autonomy-triggers.md) | 139、141 |
+| 145 | [最小Agent loopの実装後に現行docsを一次資料へ整合](145-align-current-docs-after-minimal-loop.md) | 134〜144 |
 
 004と005、007と008、010と011は、それぞれの前提Issue完了後に並行実装できる。同じDomain SchemaまたはRuntime orchestrationを変更するIssueは直列化する。
+
+## 2026-10-11 敵対再レビューへの対応
+
+[元レビュー](../note/adversarial-rereview-2026-10-11.md)を実装・検証単位へ分割した後続Issue。146〜158は完了した。Issue 143のdoneは当時の記録であり、単独では受け入れ基準の達成を意味しない。対照scenario・実executor・反復実測は146〜148へ追跡できる。148のlive gateは不合格であり、自律性改善は未実証である。
+
+| ID | Issue | Status | 優先度 | Dependencies |
+|---|---|---|---|---|
+| 146 | [状態差を比較する6組のpaired scenarioを定義する](146-define-state-dependent-paired-scenarios.md) | done | P0 | なし |
+| 147 | [Live評価でTool選択・配送・次stateを実行して記録する](147-execute-live-evaluation-through-runtime.md) | done | P0 | 146 |
+| 148 | [対照試験を各variant 3回実行し自律性の合否を記録する](148-run-paired-live-evaluation-and-gate.md) | done（gate fail） | P0 | 146、147、149、150、151、152 |
+| 149 | [全model call直前に入力予算を検査する](149-gate-every-model-call-input.md) | done | P0 | なし |
+| 150 | [実model call数でmaxStepsとbudgetを強制する](150-account-actual-model-calls.md) | done | P0 | なし |
+| 151 | [motive-review対象MotiveをContextへ必ず選択する](151-retain-target-motive-in-context.md) | done | P0 | なし |
+| 152 | [失敗Toolだけではno-external-actionを許可しない](152-reject-no-action-after-failed-tools.md) | done | P0 | なし |
+| 153 | [現EventのMeaningとEmotionをAction判断へ明示的に渡す](153-pass-current-emotion-into-decision.md) | done | P1 | 149、150、148 |
+| 154 | [activeMotiveの根拠にSelf・Mood・関係性・Motiveを表現する](154-represent-state-evidence-for-active-motive.md) | done | P1 | なし |
+| 155 | [後処理Promiseの失敗cacheを破棄してretryを回復する](155-evict-rejected-postprocess-promises.md) | done | P1 | なし |
+| 156 | [ContinuityとMemoryを永続的な単一jobへ統合する](156-persist-single-experience-integration-job.md) | done | P1 | 155 |
+| 157 | [依存取得と失敗回復のために最大25回のTool実行を許可する](157-allow-bounded-second-tool-call.md) | done | P1 | 149、150、152 |
+| 158 | [現行docsと完了判定を再レビュー後の実装・実測へ揃える](158-align-docs-and-completion-with-rereview-evidence.md) | done | P1 | 146、147、148、149、150、151、152、153、154、155、156、157 |
+
+実装は各Issueブランチで行いmainへ統合した。今後、行動を変える変更を加えた場合は148と同条件で再評価し、gateが通るまで自律性改善を実証済みとしない。

@@ -7,18 +7,20 @@
 ```mermaid
 flowchart TD
   I[外部Message / 内部Event] --> C[Focused Context]
-  C --> D[Decision model call]
+  C --> M[Current Event assessment call]
+  M --> D[Decision model call]
   D -->|Final Action| A[Action commit]
-  D -->|Tool Call| T[登録済みToolを1回実行]
+  D -->|Tool Call| T[登録済みToolを実行]
   T --> F[Continuation model call]
-  F --> A
+  F -->|次のTool、上限25回| T
+  F -->|Final Action| A
   A --> O[Outbox delivery]
   A --> P[Experience integration]
   S[Due motive / autonomy schedule] --> E[Internal Event]
   E --> I
 ```
 
-1回の実行は、最終Actionを直接得る1段階、またはToolを1回実行して継続推論する2段階で終わる。実行時に利用できるのは明示的に登録されたToolだけで、再帰的な委譲、組み込みファイル操作、会話履歴の自動要約は行わない。再帰上限は設定値をそのまま適用し、構造化出力の修復にも同じ実行予算を使う。
+現在EventのMeaningとEmotionを独立したassessment callで構造化し、その結果をDecisionへ渡す。Decisionは最終Action、または登録済みToolを選ぶ。Tool結果を受けたcontinuationは別のToolか最終Actionを選べ、production上限は25 Tool、既定のmodel call上限はassessmentを含む27回である。同一Tool・同一入力の反復は拒否する。構造化出力の修復も実model call数へ数え、各call直前に入力予算と残余回数を検査する。
 
 ## Focused Context
 
@@ -30,7 +32,9 @@ flowchart TD
 - Recent Event: 2〜4件
 - Self: 判断に必要な要約
 
-system prompt、messages、tool定義、出力schemaを含む総入力を6,000 token以内に収める。収まらない場合は低優先度の情報を落とし、それでも超える場合は明示的なlimit errorにする。
+`motive-review`では対象Motiveを上限内に必ず残す。active Motiveの根拠はEvent/MemoryだけでなくSelf、Mood、Social Context、Motiveを型付き参照で表す。
+
+system prompt、messages、tool定義、出力schemaを含む総入力を**推定**6,000 token以内に収める。これはprovider tokenizerによるhard limitではなく、文字数から算出する保守的なgateである。assessment、Decision、Tool continuation、repairを含む全model call直前に適用し、超過時は低優先度情報を落とした後、解消できなければlimit errorにする。
 
 ## Actionと確定境界
 
@@ -40,7 +44,7 @@ ActionとOutboxは同一transactionで確定する。確定後のexperience inte
 
 ## 状態更新
 
-Action確定後、continuity更新とepisodic memory抽出を1回の構造化LLM結果から保存する。Eventを候補検出器として使う経路はない。
+Action確定後、永続的な`experience-integration` jobを1件作る。workerはcontinuity更新とepisodic memory抽出を1回の構造化LLM結果から同一transactionで保存する。失敗jobは再claimでき、process内Promise cacheへ正本を置かない。Eventを候補検出器として使う経路はない。
 
 Emotionは現在状態として、description、発生時刻、根拠Eventとともに永続化する。強いfocusは6時間で期限切れになる。Motiveは`nextConsiderAt`と`considerationReason`を持ち、作成・更新時に再検討scheduleと同期する。
 
@@ -52,4 +56,7 @@ PostgreSQLを状態の正本とし、Drizzle repositoryがtransaction境界を�
 
 ## 実装・評価status
 
-Issue 134〜144の契約は実装され、unit、contract、system、PostgreSQL integration testで検証されている。一方、人格らしさ、拒否の自然さ、状態差による行動変化などの振る舞いは、実モデルによる反復評価artifactが揃った範囲だけを「評価済み」と扱う。実装完了だけを振る舞いの証明にはしない。
+- **実装済み:** Issue 146〜157のpaired scenario、runtime executor、全call gate、実call計数、対象Motive保持、失敗Tool後のAction制約、Event assessment、型付き根拠、永続integration job、最大25 Tool loop。
+- **実行可能:** unit、system、evaluation、PostgreSQL integrationの各suiteと、実Ollamaを使う`pnpm eval:llm`。
+- **実測済み:** 6 pair × 2 variant × 3回の36試行。artifactは[`summary.json`](../artifacts/evaluation/2026-10-11T10-01-53-495Z-870dfd7a-21c3-485b-a994-edfe20718c63/summary.json)に保存した。
+- **未実証:** 上記live gateは全6 pairで不合格だった。主因はAgent Coreのwiring失敗19件とtimeout 16件で、状態差による自律性改善を示していない。実装完了を人格らしさや行動改善の証明として扱わない。
