@@ -43,7 +43,10 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
       if (!config) throw new Error(`Missing initial Self: ${id}`);
       const { agent, initialState } = config;
       await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle','一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する',now()+$3*interval '1 millisecond')", [`idle:${id}`, id, autonomyIntervalMs]);
-      await client.query("UPDATE agent_states SET acquired_disposition='経験から形成された傾向はまだない',values=$2,interests=$3,preferences=$4,roles=$5,raison_detre=$6,self_narrative=$7,self_continuity=$8,mood=$9,motives=$10,emotion=NULL,motive_exploration='[]',version=0,updated_at=now() WHERE agent_id=$1", [id, agent.values, JSON.stringify(agent.interests), JSON.stringify(agent.preferences), JSON.stringify(agent.roles), agent.raisonDetre ?? null, agent.selfNarrative, agent.selfContinuity, initialState.mood, JSON.stringify(initialState.motives)]);
+      const disposition = [config.family.sharedDisposition, agent.initialDisposition, agent.values].join("\n");
+      const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
+      const commitments = [...agent.roles, ...(agent.raisonDetre === undefined ? [] : [agent.raisonDetre])];
+      await client.query("UPDATE agent_states SET disposition=$2,self_story=$3,commitments=$4,concerns='[]',relationships='[]',acquired_disposition='経験から形成された傾向はまだない',values=$5,interests=$6,preferences=$7,roles=$8,raison_detre=$9,self_narrative=$10,self_continuity=$11,mood=$12,motives=$13,emotion=NULL,motive_exploration='[]',version=0,updated_at=now() WHERE agent_id=$1", [id, disposition, selfStory, JSON.stringify(commitments), agent.values, JSON.stringify(agent.interests), JSON.stringify(agent.preferences), JSON.stringify(agent.roles), agent.raisonDetre ?? null, agent.selfNarrative, agent.selfContinuity, initialState.mood, JSON.stringify(initialState.motives)]);
     }
     const suffix = `.before-reset-${randomUUID()}`;
     for (const from of paths) {
