@@ -7,6 +7,8 @@ import { createArtifactMetadata } from "../operations/operations.js";
 import { AgentCoreScenarioExecutor, OllamaEvaluator } from "./ollama-live.js";
 import { runEvaluation } from "./runner.js";
 import { evaluationScenarios } from "./scenarios.js";
+import { ToolRegistry } from "../application/tool-registry.js";
+import { z } from "zod";
 
 async function modelMetadata(baseUrl: string, model: string, headers: Record<string, string> = {}): Promise<unknown> {
   const response = await fetch(new URL("/api/tags", baseUrl), { headers }); if (!response.ok) return { model, available: false, httpStatus: response.status };
@@ -18,7 +20,8 @@ async function modelMetadata(baseUrl: string, model: string, headers: Record<str
 const config = await loadConfig(); const embedding = new OllamaEmbeddingProvider(config.embedding); const controller = new AbortController(); process.once("SIGINT", () => { controller.abort(); });
 await mkdir("artifacts/evaluation", { recursive: true });
 const tracePath = `artifacts/evaluation/agent-core-trace-${new Date().toISOString().replaceAll(/[:.]/gu, "-")}.jsonl`;
-const baseInvoker = createOllamaDeepAgentInvoker(config.chat);
+const evaluationTools = new ToolRegistry([{ name: "evaluation_lookup", description: "評価用の隔離された情報源から、指定topicの追加情報を調べる", schema: z.object({ topic: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: ({ topic }: { topic: string }) => Promise.resolve({ ok: true, value: { topic, finding: `${topic}について未解決点を一つ確認した` } }) }]);
+const baseInvoker = createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry: evaluationTools });
 const harness = new DeepAgentHarness({ invoker: { invoke: async (input, options) => {
   const startedAt = new Date();
   await appendFile(tracePath, `${JSON.stringify({ stage: "agent-core", phase: "start", at: startedAt.toISOString(), runId: options.runId, eventId: options.eventId, inputCharacters: input.messages.reduce((total, message) => total + message.content.length, 0) })}\n`);
@@ -30,7 +33,7 @@ const harness = new DeepAgentHarness({ invoker: { invoke: async (input, options)
     await appendFile(tracePath, `${JSON.stringify({ stage: "agent-core", phase: "error", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime(), error: error instanceof Error ? error.message : "unknown" })}\n`);
     throw error;
   }
-} }, registeredToolNames: new Set(), maxRepairs: 1 });
+} }, registeredToolNames: new Set(evaluationTools.definitions().map(({ name }) => name)), maxRepairs: 1 });
 const selectedScenarios = process.env.EVALUATION_SCENARIO_ID === undefined ? evaluationScenarios : evaluationScenarios.filter(({ id }) => id === process.env.EVALUATION_SCENARIO_ID);
 if (selectedScenarios.length === 0) throw new Error(`Unknown evaluation scenario: ${String(process.env.EVALUATION_SCENARIO_ID)}`);
 const repetitions = process.env.EVALUATION_REPETITIONS === undefined ? 3 : Number.parseInt(process.env.EVALUATION_REPETITIONS, 10);

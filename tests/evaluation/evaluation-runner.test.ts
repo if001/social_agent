@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { recordHumanReview, runEvaluation } from "../../src/evaluation/runner.js";
-import { buildEvaluatorPrompt, parseOllamaJsonContent } from "../../src/evaluation/ollama-live.js";
+import { AgentCoreScenarioExecutor, buildEvaluatorPrompt, parseOllamaJsonContent } from "../../src/evaluation/ollama-live.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { evaluationScenarios, validateScenarioPairs } from "../../src/evaluation/scenarios.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
@@ -29,6 +29,15 @@ describe("live evaluation runner", () => {
     const baseline = praise[0]; const stateful = praise[1]; if (baseline === undefined || stateful === undefined) throw new Error("missing fixture");
     const drifted = { ...stateful, agentCoreInputs: stateful.agentCoreInputs.map((value) => ({ ...value, observation: { ...value.observation, summary: "different" } })) };
     expect(validateScenarioPairs([baseline, drifted])).toContain("praise: observations differ");
+  });
+  it("applies next state and records evaluation-sink delivery through the runtime executor", async () => {
+    const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
+    const executor = new AgentCoreScenarioExecutor({ run: (input) => Promise.resolve({ output: { interpretation: { activeMotive: { description: "respond", evidenceIds: [input.run.eventId] } }, internalChanges: { immediateStateUpdates: [{ target: "emotion", operation: "set", value: "嬉しい", reason: "称賛", evidenceIds: [input.run.eventId] }] }, action: { type: "respond", content: "ありがとう" } }, toolExecutions: [] }) }, () => Promise.resolve());
+    const result = await executor.execute(scenario, 1, new AbortController().signal);
+    expect(result.deliverySucceeded).toBe(true);
+    expect(result.deliveryRecords).toMatchObject([{ destination: "evaluation-sink", delivered: true }]);
+    const states = result.nextState as Record<string, { readonly emotion?: { readonly description: string } }>;
+    expect(states["agent-a"]?.emotion?.description).toBe("嬉しい");
   });
   it("runs twelve paired variants five times and writes traceable, secret-free artifacts", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope);
