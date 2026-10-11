@@ -23,12 +23,12 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
   });
 
-  it("configures the compatibility adapter for one Tool and one continuation without framework middleware", async () => {
+  it("configures the compatibility adapter with the requested bounded Tool budget", async () => {
     let effects = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "lookup", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { effects += 1; return Promise.resolve({ ok: true, value: { answer: 42 } }); } }]);
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "http://unused", apiKey: "unused", model: "fake", toolRegistry: registry, agentFactory: (options) => {
       expect(options.middleware).toHaveLength(1);
-      return { invoke: (_input, config) => { expect(config.context.maxToolCalls).toBe(1); return Promise.resolve({ structuredResponse: finalOutput }); } };
+      return { invoke: (_input, config) => { expect(config.context.maxToolCalls).toBe(8); return Promise.resolve({ structuredResponse: finalOutput }); } };
     } });
     await expect(invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 8, maxModelCalls: 8, agentId: "agent-a", runId: "compatibility", eventId: "event-1", maxToolCalls: 8 })).resolves.toMatchObject({ structuredResponse: finalOutput });
     expect(effects).toBe(0);
@@ -42,6 +42,17 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     await expect(lookup?.invoke({ query: "same" }, { context: runContext })).resolves.toContain("Recent identical Tool input");
     expect(executions).toBe(0);
     expect(runContext.collector.executions).toMatchObject([{ ok: false, error: "Recent identical Tool input must not be repeated" }]);
+  });
+
+  it("rejects an identical Tool input repeated within the same run", async () => {
+    let executions = 0;
+    const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
+    const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 25, signal: new AbortController().signal });
+    await lookup?.invoke({ query: "same" }, { context: runContext });
+    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).resolves.toContain("must not be repeated");
+    expect(executions).toBe(1);
+    expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Recent identical Tool input must not be repeated" });
   });
 
   it("can choose a Tool on autonomy review from Self, Motive, and Memory", async () => {

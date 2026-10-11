@@ -89,7 +89,8 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
     context.collector.contentReadReservedCharacters += requestedContentCharacters;
     const signature = JSON.stringify({ tool: name, input: rawInput });
-    if (context.recentToolInputs.includes(signature)) {
+    const repeatedInRun = context.collector.executions.some((execution) => JSON.stringify({ tool: execution.name, input: execution.input }) === signature);
+    if (context.recentToolInputs.includes(signature) || repeatedInRun) {
       const finishedAt = now().toISOString();
       const error = "Recent identical Tool input must not be repeated";
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
@@ -119,4 +120,3 @@ export function createDeepAgentTools(registry: ToolRegistry, now: () => Date = (
     return executeDeepAgentTool(registry, registered.name, rawInput as Record<string, unknown>, context, now, baseLogger);
   }, { name: registered.name, description: registered.description, schema: registered.schema }));
 }
-
