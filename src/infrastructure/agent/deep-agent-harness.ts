@@ -46,6 +46,15 @@ export type DeepAgentHarnessOptions = {
 };
 
 export const MAX_MODEL_INPUT_TOKENS = 6_000;
+type ModelCallBudget = { readonly total: number; readonly components: Readonly<Record<string, number>> };
+export function modelCallInputBudget(messages: readonly unknown[], tools: readonly unknown[]): ModelCallBudget {
+  const components = { messages: estimateTokens(messages), tools: estimateTokens(tools), outputSchema: estimateTokens(z.toJSONSchema(AgentCoreOutputSchema)) };
+  return { total: Object.values(components).reduce((sum, value) => sum + value, 0), components };
+}
+function assertModelCallInputBudget(messages: readonly unknown[], tools: readonly unknown[], stage: string): void {
+  const budget = modelCallInputBudget(messages, tools);
+  if (budget.total > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Model call input exceeds estimated ${String(MAX_MODEL_INPUT_TOKENS)} token budget at ${stage}: ${JSON.stringify(budget.components)}`);
+}
 export function modelInputBudget(input: AgentCoreInput, content: string): { readonly total: number; readonly components: Readonly<Record<string, number>> } {
   const components = {
     systemPrompt: estimateTokens(agentCoreSystemPrompt),
@@ -154,6 +163,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: Math.min(1, options.maxToolCalls), signal: options.signal, ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }), ...(options.transport === undefined ? {} : { transport: options.transport }) });
         const messages = [new SystemMessage(agentCoreSystemPrompt), ...input.messages];
         try {
+          assertModelCallInputBudget(messages, [...operationalTools, finalTool], "initial");
           const first = await firstModel.invoke(messages, { signal: options.signal });
           const calls = first.tool_calls ?? [];
           const submitted = calls.find(({ name }) => name === finalToolName);
@@ -162,7 +172,9 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
           const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
           if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
           const toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context });
-          const continuation = await finalModel.invoke([...messages, first, new ToolMessage({ name: call.name, tool_call_id: call.id ?? "tool-1", content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) })], { signal: options.signal });
+          const continuationMessages = [...messages, first, new ToolMessage({ name: call.name, tool_call_id: call.id ?? "tool-1", content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) })];
+          assertModelCallInputBudget(continuationMessages, [finalTool], "tool-continuation");
+          const continuation = await finalModel.invoke(continuationMessages, { signal: options.signal });
           const continuationCalls = continuation.tool_calls ?? [];
           const final = continuationCalls.find(({ name }) => name === finalToolName);
           if (final === undefined || continuationCalls.length !== 1) throw new DomainError("LIMIT_EXCEEDED", "Tool continuation must return exactly one final Action");
