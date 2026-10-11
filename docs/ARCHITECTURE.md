@@ -1087,3 +1087,7 @@ Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はIn
 ### Tool結果の用途別投影（Issue 120 / R03）
 
 実装設計 §9・§16・§18・§26を根拠に、結果の投影はToolRegistryのPolicyを経由する。即時参照と監査は元の結果、過去の会話履歴・Recent Experiences・Post-process・Tool Result Observationは保存先に応じた共通投影を使用する。content-readは本文をメタデータへ置換し、Web固有の要約はWeb Tool側で定義する。HarnessはTool名による例外変換を持たない。Tool実行記録のraw結果は監査用途で保持し、Observationから本文が再流入する経路を避ける。
+
+### Tool入力の検証境界（Issue 121 / R04）
+
+Tool入力Schemaは登録箇所で一度定義し、ToolRegistry.executeがparseした入力をexecuteへ渡す。Tool実装はそのSchemaから推論した型を受け取り、同じSchemaを複製して再parseしない。
