@@ -10,7 +10,7 @@
 
 - [x] **R01: 動機モデルの仕様差分を解消する（設計判断が必要）。** 実装設計 §5・§12・§13・§24 は Drive / Current Interest を持つが、`src/domain/contracts.ts` と `src/application/state-update-service.ts` は Motive を扱う。過去に採用した統合方針と一次情報が未整合。概念設計 §8・§10・§15・§23 と照合して正規モデルを明文化した後、docs・Schema・プロンプト・DB・評価・UIの名称と責務を揃える。実装に合わせるためだけにspecを更新しない。完了条件: 動機の生成・活性化・収束・行動への影響を単一の契約で説明でき、旧名称の実行経路が残らない。
 
-- [ ] **R02: Core / Tool Loop / 後処理の正規フローを確定する（設計判断が必要）。** 実装設計 §19・§26 は `action.type: tool` とRuntimeのTool Loopを示すが、現在は `deep-agent-harness.ts` 内部で実行する。§19・§21 の一括Proposalと `agent-runtime.ts` / `post-process.ts` の分割も粒度が異なる。§21 にはDriveの重複記載、§20にはdesireが残る。概念設計 §21・§22 と照合し、論理フローと物理実装の対応をdocsに記載する。完了条件: 即時状態、持続状態、Memory、Candidate、Reviewの担当と実行順序が明確で、不要な互換経路だけを削除できる。
+- [x] **R02: Core / Tool Loop / 後処理の正規フローを確定する（設計判断が必要）。** 実装設計 §19・§26 は `action.type: tool` とRuntimeのTool Loopを示すが、現在は `deep-agent-harness.ts` 内部で実行する。§19・§21 の一括Proposalと `agent-runtime.ts` / `post-process.ts` の分割も粒度が異なる。§21 にはDriveの重複記載、§20にはdesireが残る。概念設計 §21・§22 と照合し、論理フローと物理実装の対応をdocsに記載する。完了条件: 即時状態、持続状態、Memory、Candidate、Reviewの担当と実行順序が明確で、不要な互換経路だけを削除できる。
 
 ## P1: 振る舞いの不一致につながる重複を整理する
 
@@ -57,3 +57,4 @@
 ## 対応記録
 
 - R01: [Issue 118](../issues/118-align-motivation-spec.md)。採用済み方針をspecへ反映し、残存Schema名をMotiveへ統一。
+- R02: [Issue 119](../issues/119-align-core-flow.md)。論理Tool Result Eventと物理再投入を区別し、Interaction / 後処理 / Reviewを整理。配送差分はR06へ引き継ぐ。

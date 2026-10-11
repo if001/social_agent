@@ -101,51 +101,28 @@ Agent自身の継続性と個体差を保持する状態。
 
 ## 3. 全体処理フロー
 
-通常の1 Eventは次のように処理する。
+通常Interactionは以下の順に処理する。Tool loopはDeep Agent内部に置く。
 
-```text
-Event
-  ↓
-Runtime
-  ↓
-Observation生成
-  ↓
-Context Builder
-  ├─ relevant State選択
-  └─ Memory Retrieval
-  ↓
-Agent Core
-  ├─ Subjective Meaning
-  ├─ State Update Proposal
-  ├─ Memory Proposal
-  ├─ Motive Update
-  └─ Action Decision
-  ↓
-Runtime Validation
-  ↓
-必要ならTool実行
-  ↓
-Tool Resultを新しいEventとして再投入
-  ↓
-最終Action
-  ↓
-State / Memory更新
+```mermaid
+flowchart TD
+  E[Event] --> R[Runtime / Observation / Context Builder]
+  R --> C[Interaction Deep Agent]
+  C <--> T[Tool実行・結果]
+  C --> O[Subjective Meaning / activeMotive / Emotion提案 / 最終Action]
+  O --> V[Runtime検証・RunとTool履歴保存・Outbox登録]
+  V --> D[応答配送]
+  V --> P[用途別Post-process]
+  P --> S[Continuity: Mood / Motive / Social Context]
+  P --> M[Episodic Memory抽出・保存]
+  M --> K[Candidate検出・保存]
+  K --> L[別EventでLong-term Review]
 ```
 
-すべてのEventで全状態を更新しない。
+通常Coreの出力確定後に配送と後処理を進める。後処理の完了は応答配送の前提にしない。配送先の障害がある場合、Outboxから再試行するため、相手の受信完了を後処理開始条件にはしない。
 
-単純な問い合わせであれば、
+Post-processはDeep Agentを使わず、用途別の構造化LLM呼び出しを行う。ContinuityとMemory抽出は独立して進め、Candidate検出は保存済みMemoryを根拠に行う。毎回全状態を再生成せず、変更不要なら提案を空にできる。
 
-```text
-User Input
-→ Context Builder
-→ Agent Core
-→ Response
-```
-
-だけで終わってよい。
-
-一方、感情的・社会的・自己認識的に意味のあるEventでは、StateやMemoryの更新が発生する。
+state-reviewはInteractionとTool loopを通さずContinuityだけを実行する。Long-term Reviewは別Eventで複数Candidateと根拠を再評価する。これらの内部処理の完了を、ユーザーへ応答した事実と混同しない。
 
 ---
 
@@ -819,33 +796,29 @@ type AgentCoreInput = {
 
 ## 19. Agent Core Output
 
-Agent Coreの主要出力は次の通り。
+Interactionの最終出力と実行記録は分ける。
 
 ```ts
 type AgentCoreOutput = {
-  subjectiveMeaning?: string
+  interpretation: {
+    subjectiveMeaning?: string
+    activeMotive: ActiveMotive
+  }
+  internalChanges: {
+    immediateStateUpdates: StateUpdateProposal[] // Emotionだけ
+  }
+  action: FinalAction
+}
 
-  stateUpdates?: StateUpdateProposal[]
-  memoryUpdates?: MemoryProposal[]
-  motiveProposals?: MotiveProposal[]
-  longTermCandidates?: LongTermUpdateCandidate[]
-
-  action: AgentAction
+type AgentRunResult = {
+  output: AgentCoreOutput
+  toolExecutions: ToolExecutionRecord[] // 通常コードが観測する実行事実
 }
 ```
 
-Tool利用もActionの一種とする。
+最終Actionは応答、拒否、Tool実行後の外部配送なしを表す。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。Interactionでは動機に基づく具体的Actionを必須とする（§13）。
 
-```ts
-type AgentAction =
-  | { type: "respond"; content: string }
-  | { type: "tool"; toolName: string; input: unknown }
-  | { type: "wait"; reason?: string }
-  | { type: "refuse"; content: string }
-  | { type: "no-external-action"; reason?: string }
-```
-
-Emotion、Mood、Motiveなどの全Stateを毎回再生成するのではなく、変更が必要なものだけProposalとして返す。
+持続状態、Memory、Candidateは最終出力へ混在させず、応答後の各処理が提案する。RuntimeがID・時刻・所有者を付与し、参照整合性と更新可能範囲を検証する。
 
 ---
 
@@ -870,8 +843,7 @@ type StateUpdateProposal = {
   target:
     | "emotion"
     | "mood"
-    | "motive"
-    | "social-context"
+    | "socialContext"
 
   operation:
     | "set"
@@ -884,7 +856,7 @@ type StateUpdateProposal = {
 }
 ```
 
-Long-term Stateは通常のState Update Proposalとは分ける。
+Interactionはemotion、Continuityはmood / socialContextだけを提案する。Motiveはcreate / maintain / update / merge / resolve / dropを持つ専用Proposalとする。Long-term Stateは通常のState Update Proposalとは分ける。
 
 これにより、
 
@@ -906,11 +878,8 @@ Long-term Stateは通常のState Update Proposalとは分ける。
 比較的頻繁に更新可能。
 
 ```text
-Emotion
-Mood
-Motive
-Scheduled Task
-Working Social Context
+Emotion（Interaction）
+Mood / Motive / Working Social Context（Continuity）
 ```
 
 ### Long-term Update
@@ -925,7 +894,7 @@ Raison d'être
 Long-term Preference / Interest
 ```
 
-通常EventではLong-term Stateを直接変更せず、Candidateだけ作る。
+通常EventではLong-term Stateを直接変更しない。Episodic Memory保存後のCandidate検出が候補を作り、別EventのLong-term Reviewだけが確定更新する。Scheduled Taskの登録は心理状態更新ではなくTool経由のRuntime操作とする。
 
 ---
 
@@ -1231,25 +1200,13 @@ RuntimeはAgentごとにautonomy-reviewの機会を与える。Agent Coreはacti
 
 ## 26. Tool Loop
 
-Tool利用は通常のAgent Loopとして扱う。
+Tool利用はDeep Agent内部の標準loopで扱う。起動時に実装済みTool一覧を登録し、EventごとのID・権限・期限は実行Contextとして渡す。
 
 ```text
-Observation
-  ↓
-Agent Core
-  ↓
-Tool Request
-  ↓
-Runtime
-  ↓
-Tool
-  ↓
-Tool Result Event
-  ↓
-Observation
-  ↓
-Agent Core
+Model → Tool call → Tool実行 → Tool Result → Model → 最終構造化出力
 ```
+
+Toolの引数処理とloopはライブラリに任せ、通常コードは権限制約・実行上限・結果の用途別変換・実行記録を担当する。Tool Resultを同じloopへ返した後、RuntimeへTool名・入力・結果・成否・時刻・Event/Runとの関連を渡す。RuntimeはTool Result Eventとして記録するが、それを自動的に別のInteractionとして再投入して二重実行しない。
 
 Tool Resultも新しいEventであり、EmotionやMotiveへ影響してよい。
 
