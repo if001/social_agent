@@ -1,7 +1,7 @@
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelCallInputBudget, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-history.js";
 import { summarizeModelResponse } from "../../src/infrastructure/agent/model-response.js";
@@ -63,6 +63,12 @@ describe("AgentHarness contract", () => {
     expect(budget.total).toBeLessThanOrEqual(MAX_MODEL_INPUT_TOKENS);
     expect(Object.keys(budget.components)).toEqual(["systemPrompt", "messages", "tools", "outputSchema"]);
     expect(modelInputBudget(input, "x".repeat(MAX_MODEL_INPUT_TOKENS * 4)).total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
+  });
+  it("budgets every concrete model call including accumulated Tool results", () => {
+    const small = modelCallInputBudget([{ role: "user", content: "hello" }], []);
+    const continuation = modelCallInputBudget([{ role: "user", content: "hello" }, { role: "tool", content: "あ".repeat(30_000) }], []);
+    expect(small.total).toBeLessThan(MAX_MODEL_INPUT_TOKENS);
+    expect(continuation.total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
 
   it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
