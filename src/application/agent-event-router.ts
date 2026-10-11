@@ -16,8 +16,8 @@ export class AgentEventRouter implements InternalEventRuntime {
   }
   async #route(event: DomainEvent, signal: AbortSignal): Promise<AgentAction> {
     if (event.kind !== "internal" || event.payload.targetKind !== "long-term-review") return this.normalRuntime.process(event, signal);
-    const candidateIds = Array.isArray(event.payload.candidateIds) ? event.payload.candidateIds.filter((id): id is string => typeof id === "string") : typeof event.payload.targetId === "string" ? [event.payload.targetId] : [];
-    if (candidateIds.length === 0) throw new DomainError("VALIDATION", "Long-term Review Event requires Candidate IDs");
+    const candidateIds = event.payload.candidateIds;
+    if (!Array.isArray(candidateIds) || candidateIds.length === 0 || !candidateIds.every((id): id is string => typeof id === "string" && id.trim() !== "")) throw new DomainError("VALIDATION", "Long-term Review Event requires non-empty Candidate IDs");
     await this.review.review(candidateIds, signal);
     return { type: "no-external-action", reason: "Long-term Review completed" };
   }

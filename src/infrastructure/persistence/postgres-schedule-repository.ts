@@ -30,12 +30,12 @@ export class PostgresScheduleRepository implements ScheduleRepository {
   }
   async complete(target: ScheduledTarget, nextReviewAt: Date | null, executionEventId?: string): Promise<void> {
     if (target.kind === "scheduled-task") { await this.pool.query("UPDATE scheduled_tasks SET status='completed',lease_until=NULL,failure_reason=NULL,execution_event_id=$3,updated_at=now() WHERE id=$1 AND agent_id=$2", [target.id, target.agentId, executionEventId ?? null]); return; }
-    if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds ?? [target.id]]); return; }
+    if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds]); return; }
     await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=COALESCE($2,now()+interval '1 day'),updated_at=now() WHERE id=$1", [target.id, nextReviewAt]);
   }
   async release(target: ScheduledTarget): Promise<void> {
     if (target.kind === "scheduled-task") { await this.pool.query("UPDATE scheduled_tasks SET status=CASE WHEN attempt>=3 THEN 'failed' ELSE 'scheduled' END,execute_at=CASE WHEN attempt>=3 THEN execute_at ELSE now()+$3*interval '1 millisecond' END,lease_until=NULL,failure_reason='Scheduled Task execution failed',updated_at=now() WHERE id=$1 AND agent_id=$2", [target.id, target.agentId, this.retryDelayMs]); return; }
-    if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,review_after=now(),updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds ?? [target.id]]); return; }
+    if (target.kind === "long-term-review") { await this.pool.query("UPDATE long_term_candidates SET review_lease_until=NULL,review_after=now(),updated_at=now() WHERE id=ANY($1::text[])", [target.candidateIds]); return; }
     await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=now()+$2*interval '1 millisecond',updated_at=now() WHERE id=$1", [target.id, this.retryDelayMs]);
   }
 }

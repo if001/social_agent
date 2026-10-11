@@ -3,7 +3,11 @@ import { DomainError, type AgentAction, type DomainEvent } from "../domain/contr
 import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
-export type ScheduledTarget = { readonly id: string; readonly agentId: string; readonly kind: "state-review" | "memory-recall" | "autonomy-review" | "long-term-review" | "scheduled-task"; readonly reason: string; readonly candidateIds?: readonly string[]; readonly instruction?: string; readonly destination?: string };
+type ScheduleTargetBase = { readonly id: string; readonly agentId: string; readonly reason: string; readonly instruction?: string; readonly destination?: string };
+export type ScheduledTarget = ScheduleTargetBase & (
+  | { readonly kind: "long-term-review"; readonly candidateIds: readonly string[] }
+  | { readonly kind: "state-review" | "memory-recall" | "autonomy-review" | "scheduled-task"; readonly candidateIds?: never }
+);
 export interface ScheduleRepository {
   claimDue(now: Date, limit: number): Promise<readonly ScheduledTarget[]>;
   complete(target: ScheduledTarget, nextReviewAt: Date | null, executionEventId?: string): Promise<void>;
