@@ -327,6 +327,8 @@ export const ContinuityOutputSchema = z.object({
 export type ContinuityOutput = z.infer<typeof ContinuityOutputSchema>;
 export const MemoryExtractionOutputSchema = z.object({ memoryProposals: z.array(MemoryProposalSchema) });
 export type MemoryExtractionOutput = z.infer<typeof MemoryExtractionOutputSchema>;
+export const ExperienceIntegrationOutputSchema = ContinuityOutputSchema.extend({ memoryProposals: MemoryExtractionOutputSchema.shape.memoryProposals });
+export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;
 export const CandidateDetectionOutputSchema = z.object({ longTermCandidates: z.array(LongTermCandidateProposalSchema) });
 export type CandidateDetectionOutput = z.infer<typeof CandidateDetectionOutputSchema>;
 

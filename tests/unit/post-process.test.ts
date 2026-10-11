@@ -18,7 +18,7 @@ describe("Post-process", () => {
     for (const operation of ["create", "maintain", "update", "merge", "resolve", "drop"]) expect(continuitySystemPrompt).toContain(operation);
   });
 
-  it.each(["immediate", "background"])("retries only the persistent update job after commit (%s)", async (mode) => {
+  it.each(["immediate", "background"])("retries the single experience integration job after failure (%s)", async (mode) => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
     const result = { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond" as const, content: "先に返答" } }, toolExecutions: [] };
@@ -27,18 +27,19 @@ describe("Post-process", () => {
     await persistence.commit(messageFixture({ id: "incoming", destination: input.run.agentId }), event, input, result, { state: input.dynamicState, changes: [] }, [outgoing]);
 
     let calls = 0;
-    const service = new PostProcessService(persistence, { continuity: { run: () => {
+    const integration = { run: () => {
       calls += 1;
       if (calls === 1) return Promise.reject(new Error("temporary"));
-      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], motiveProposals: [] });
-    } }, memory: { run: () => Promise.resolve({ memoryProposals: [] }) }, candidate: { run: () => Promise.resolve({ longTermCandidates: [] }) } }, noopLogger, 1);
+      return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], motiveProposals: [], memoryProposals: [] });
+    } };
+    const service = new PostProcessService(persistence, { integration, continuity: { run: async () => { const combined = await integration.run(); return { persistentStateUpdates: combined.persistentStateUpdates, motiveProposals: combined.motiveProposals }; } }, memory: { run: () => Promise.resolve({ memoryProposals: [] }) }, candidate: { run: () => Promise.resolve({ longTermCandidates: [] }) } }, noopLogger, 1);
     const signal = new AbortController().signal;
     if (mode === "immediate") await service.processAgent(input.run.agentId, signal);
     else { await service.tick(signal); await service.tick(signal); }
 
     expect(calls).toBe(2);
     expect(persistence.postProcessFailures).toHaveLength(1);
-    expect(persistence.postProcessOutputs).toHaveLength(2);
+    expect(persistence.postProcessOutputs).toHaveLength(1);
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);
     const snapshot = persistence.postProcessOutputs[0];
     expect(snapshot).toBeDefined();

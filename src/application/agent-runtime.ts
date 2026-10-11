@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
 import { StateUpdateService, type StateUpdateResult } from "./state-update-service.js";
-import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type CandidateDetectionInput, type CandidateDetectionOutput, type ContinuityInput, type ContinuityOutput, type DomainEvent, type MemoryExtractionInput, type MemoryExtractionOutput, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
+import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type CandidateDetectionInput, type CandidateDetectionOutput, type ContinuityInput, type ContinuityOutput, type DomainEvent, type ExperienceIntegrationOutput, type MemoryExtractionInput, type MemoryExtractionOutput, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
@@ -15,10 +15,11 @@ const IncomingPayload = z.discriminatedUnion("type", [
 
 export type PendingOutput = { readonly envelope: MessageEnvelope };
 export type PendingPostProcess =
+  | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "experience-integration"; readonly input: ContinuityInput; readonly attempt: number }
   | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "continuity"; readonly input: ContinuityInput; readonly attempt: number }
   | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "memory"; readonly input: MemoryExtractionInput; readonly attempt: number }
   | { readonly id: string; readonly agentId: string; readonly inputStateVersion: number; readonly type: "candidate"; readonly input: CandidateDetectionInput; readonly attempt: number };
-export type PostProcessOutput = ContinuityOutput | MemoryExtractionOutput | CandidateDetectionOutput;
+export type PostProcessOutput = ExperienceIntegrationOutput | ContinuityOutput | MemoryExtractionOutput | CandidateDetectionOutput;
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput>;
