@@ -1,3 +1,4 @@
+import { abortableDelay } from "../../shared/abortable-delay.js";
 import { link, mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -120,11 +121,7 @@ export class AddressedFileQueue implements MessageQueue {
     await this.#prepare(destination);
     while (!signal.aborted) {
       if (await this.#consumeOne(destination, handler)) continue;
-      await new Promise<void>((resolveDelay) => {
-        const onAbort = (): void => { clearTimeout(timer); resolveDelay(); };
-        const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolveDelay(); }, this.#pollIntervalMs);
-        signal.addEventListener("abort", onAbort, { once: true });
-      });
+      await abortableDelay(this.#pollIntervalMs, signal);
     }
   }
 
