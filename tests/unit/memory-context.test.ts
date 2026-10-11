@@ -34,8 +34,8 @@ describe("embedding and context", () => {
     expect(result.observation.summary).toHaveLength(1_000);
     expect(result.observation.facts).toHaveLength(8);
     expect(result.observation.content).toBeUndefined();
-    expect(result.self.selfNarrative).toHaveLength(2_000);
-    expect(result.self.interests).toHaveLength(16);
+    expect(result.self.selfNarrative).toHaveLength(500);
+    expect(result.self.interests).toHaveLength(6);
   });
 
   it("builds a bounded deterministic query from observation, state and social context", () => {
@@ -53,7 +53,7 @@ describe("embedding and context", () => {
     const input = agentCoreInputFixture();
     input.socialContext = Array.from({ length: 8 }, (_, index) => ({ id: `social-${String(index)}`, agentId: input.run.agentId, subjectId: `subject-${String(index)}`, subjectType: "user" as const, description: "s".repeat(800), updatedAt: input.run.occurredAt }));
     const result = new ContextBuilder().build({ ...input, requiredSocialContextIds: new Set(["social-0"]) }, { maxTokens: 4_000, maxMemories: 2, maxSocialContexts: 24 });
-    expect(result.socialContext.length).toBeLessThanOrEqual(6);
+    expect(result.socialContext.length).toBeLessThanOrEqual(1);
     expect(result.socialContext[0]).toMatchObject({ id: "social-0" });
     expect(result.socialContext.every(({ description }) => description.length <= 600)).toBe(true);
   });
@@ -62,7 +62,7 @@ describe("embedding and context", () => {
     const input = agentCoreInputFixture();
     input.recentExperiences = Array.from({ length: 10 }, (_, index) => ({ eventId: `history-${String(index)}`, runId: `run-${String(index)}`, agentId: input.run.agentId, occurredAt: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`, eventKind: index % 2 === 0 ? "user-message" as const : "internal" as const, observation: { eventId: `history-${String(index)}`, summary: `event-${String(index)}-${"x".repeat(300)}`, facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "action" as const, action: { type: "no-external-action" as const, reason: `result-${String(index)}` } }], progressChanged: false }));
     const result = new ContextBuilder().build(input, { maxTokens: 3_000, maxMemories: 1, maxSocialContexts: 1 });
-    expect(result.recentExperiences.length).toBeLessThanOrEqual(8);
+    expect(result.recentExperiences.length).toBeLessThanOrEqual(4);
     expect(result.recentExperiences.at(-1)?.eventId).toBe("history-9");
     expect(result.recentExperiences.every(({ observation }) => observation.summary.endsWith("x".repeat(300)))).toBe(true);
   });

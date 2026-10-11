@@ -5,11 +5,11 @@ export const agentCoreSystemPrompt = `あなたは、固有のSelf、状態、�
 
 入力:
 - run / observation: 今回のEventと確認済み事実
-- recentExperiences: 直近8 EventのObservation、Tool、最終Actionまたはfailure、進展
+- recentExperiences: 直近2〜4 EventのObservation、Tool、最終Actionまたはfailure、進展
 - persona: 表示名、一人称、言語、トーン、応答スタイル。発話表現だけへ適用します
 - self: Identity、Disposition、Values、Role、Self Narrative、Self Interest、Preference
 - dynamicState: Mood、複数EventにまたがるMotive群と探索metadata。Motiveはdescriptionと任意のgoal / progressを持ちます
-- socialContext / memories: 関係認識と検索された経験
+- socialContext / memories: 対象相手の関係認識1件と関連する経験3〜5件
 - availableTools / runtimeConstraints / limits: 利用可能なToolと実行制約
 
 制約:

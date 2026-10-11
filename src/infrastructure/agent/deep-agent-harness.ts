@@ -5,9 +5,10 @@ import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunCo
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { createDeepAgent, createFilesystemMiddleware, createSubAgentMiddleware, createSummarizationMiddleware, StateBackend } from "deepagents";
 import { toolStrategy, type TypedToolStrategy } from "langchain";
-import type { z } from "zod";
+import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
+import { estimateTokens } from "../../application/context-builder.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunResult, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
@@ -43,6 +44,17 @@ export type DeepAgentHarnessOptions = {
   readonly maxRepairs?: number;
   readonly logger?: Logger;
 };
+
+export const MAX_MODEL_INPUT_TOKENS = 6_000;
+export function modelInputBudget(input: AgentCoreInput, content: string): { readonly total: number; readonly components: Readonly<Record<string, number>> } {
+  const components = {
+    systemPrompt: estimateTokens(agentCoreSystemPrompt),
+    messages: estimateTokens([{ role: "user", content }]),
+    tools: estimateTokens(input.availableTools),
+    outputSchema: estimateTokens(z.toJSONSchema(AgentCoreOutputSchema))
+  };
+  return { total: Object.values(components).reduce((sum, value) => sum + value, 0), components };
+}
 
 type ProposalIssue = { readonly code: "invalid_reference"; readonly path: readonly PropertyKey[]; readonly message: string };
 function errorToolExecutions(error: unknown): readonly ToolExecutionRecord[] {
@@ -89,6 +101,8 @@ export class DeepAgentHarness implements AgentHarness {
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
           : JSON.stringify({ instruction: "元の入力に対する回答をInteraction出力Schemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、Interaction出力以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
+        const modelBudget = modelInputBudget(input, content);
+        if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Model input exceeds ${String(MAX_MODEL_INPUT_TOKENS)} tokens: ${JSON.stringify(modelBudget.components)}`);
         const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
         const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         observedToolExecutions.push(...(result.toolExecutions ?? []));
