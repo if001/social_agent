@@ -1,10 +1,10 @@
 import { agentCoreSystemPrompt } from "./deep-agent-prompt.js";
 import { createAgentCoreMiddleware } from "./deep-agent-middleware.js";
-import { createToolHistoryCompactionMiddleware } from "./tool-history.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunContextSchema, type DeepAgentToolRunContext } from "./deep-agent-tools.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
-import { createDeepAgent, createFilesystemMiddleware, createSubAgentMiddleware, createSummarizationMiddleware, StateBackend } from "deepagents";
-import { toolStrategy, type TypedToolStrategy } from "langchain";
+import { toolName } from "./model-response.js";
+import { createDeepAgent } from "deepagents";
+import { SystemMessage, ToolMessage, toolStrategy, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
@@ -84,7 +84,7 @@ function actionExecutionIssues(output: AgentRunResult["output"], toolExecutions:
 
 export class DeepAgentHarness implements AgentHarness {
   readonly #maxRepairs: number;
-  constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 1; }
+  constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 0; }
 
   async run(input: AgentCoreInput, signal: AbortSignal): Promise<AgentRunResult> {
     const inputToolNames = new Set(input.availableTools.map(({ name }) => name));
@@ -143,13 +143,35 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   const logger = config.logger ?? noopLogger;
   const now = config.now ?? (() => new Date());
   const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
-  const middleware = [
-    createFilesystemMiddleware({ tools: ["read_file"] }),
-    createSubAgentMiddleware({ defaultModel: model, defaultTools: [], subagents: [], generalPurposeAgent: false }),
-    createSummarizationMiddleware({ model, backend: new StateBackend(), trigger: { type: "tokens", value: 16_000 }, keep: { type: "messages", value: 6 }, trimTokensToSummarize: 12_000, truncateArgsSettings: { trigger: { type: "tokens", value: 12_000 }, keep: { type: "messages", value: 8 }, maxLength: 1_000 } }),
-    createToolHistoryCompactionMiddleware(config.toolRegistry),
-    createAgentCoreMiddleware(config.toolRegistry, logger, now)
-  ];
+  if (config.agentFactory === undefined) {
+    const finalToolName = "submit_agent_action";
+    const finalTool = { type: "function" as const, function: { name: finalToolName, description: "Return the final Interaction decision", parameters: z.toJSONSchema(AgentCoreOutputSchema) } };
+    const operationalTools = config.toolRegistry?.definitions().map(({ name, description, inputSchema }) => ({ type: "function" as const, function: { name, description, parameters: inputSchema } })) ?? [];
+    const firstModel = model.bindTools([...operationalTools, finalTool]);
+    const finalModel = model.bindTools([finalTool]);
+    return {
+      async invoke(input, options) {
+        const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: Math.min(1, options.maxToolCalls), signal: options.signal, ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }), ...(options.transport === undefined ? {} : { transport: options.transport }) });
+        const messages = [new SystemMessage(agentCoreSystemPrompt), ...input.messages];
+        try {
+          const first = await firstModel.invoke(messages, { signal: options.signal });
+          const calls = first.tool_calls ?? [];
+          const submitted = calls.find(({ name }) => name === finalToolName);
+          if (submitted !== undefined) return { structuredResponse: submitted.args, messages: [...messages, first], toolExecutions: context.collector.executions };
+          if (calls.length !== 1) throw new DomainError("VALIDATION", calls.length === 0 ? "Agent did not return a final Action or Tool call" : "Agent requested more than one Tool");
+          const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
+          if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
+          const toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context });
+          const continuation = await finalModel.invoke([...messages, first, new ToolMessage({ name: call.name, tool_call_id: call.id ?? "tool-1", content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) })], { signal: options.signal });
+          const continuationCalls = continuation.tool_calls ?? [];
+          const final = continuationCalls.find(({ name }) => name === finalToolName);
+          if (final === undefined || continuationCalls.length !== 1) throw new DomainError("LIMIT_EXCEEDED", "Tool continuation must return exactly one final Action");
+          return { structuredResponse: final.args, messages: [...messages, first, continuation], toolExecutions: context.collector.executions };
+        } catch (error) { throw new DomainError("EXTERNAL", "Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions } }); }
+      }
+    };
+  }
+  const middleware = [createAgentCoreMiddleware(config.toolRegistry, logger, now)];
   const factory: ReusableDeepAgentFactory = config.agentFactory ?? ((options) => createDeepAgent({
     model: options.model,
     tools: options.tools,
@@ -168,12 +190,12 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         agentId: options.agentId,
         runId: options.runId,
         eventId: options.eventId,
-        maxToolCalls: options.maxToolCalls,
+        maxToolCalls: Math.min(1, options.maxToolCalls),
         signal: options.signal,
         ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }),
         ...(options.transport === undefined ? {} : { transport: options.transport })
       });
-      context.collector.explorationModelCalls = Math.max(1, Math.min(3, Math.floor(options.recursionLimit / 4)));
+      context.collector.explorationModelCalls = 1;
       try {
         const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
         return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions: context.collector.executions };

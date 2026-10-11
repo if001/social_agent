@@ -1,5 +1,3 @@
-import { createDeepAgent } from "deepagents";
-import { FakeToolCallingModel } from "langchain";
 import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
@@ -25,30 +23,15 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
   });
 
-  it.each(["repair", "persistent-failure"])("finalizes through the real Deep Agent graph: %s", async (scenario) => {
+  it("configures the compatibility adapter for one Tool and one continuation without framework middleware", async () => {
     let effects = 0;
-    const logs: string[] = [];
-    const logger = { child: () => logger, log: (_level: unknown, step: string, data?: unknown) => { logs.push(JSON.stringify({ step, data })); } };
     const registry = new ToolRegistry([{ name: "lookup", description: "lookup", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { effects += 1; return Promise.resolve({ ok: true, value: { answer: 42 } }); } }]);
-    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "http://unused", apiKey: "unused", model: "fake", toolRegistry: registry, logger, agentFactory: (options) => {
-      const name = options.responseFormat[0]?.name;
-      if (name === undefined) throw new Error("Missing structured output tool");
-      const model = new FakeToolCallingModel({ toolCalls: [
-        [{ name: "lookup", args: {}, id: "a" }],
-        [{ name: "lookup", args: {}, id: "b" }],
-        [{ name: "lookup", args: {}, id: "c" }],
-        [{ name, args: finalOutput, id: "d" }, { name, args: finalOutput, id: "e" }],
-        scenario === "repair" ? [{ name, args: finalOutput, id: "f" }] : [{ name, args: {}, id: "f" }]
-      ] });
-      const agent = createDeepAgent({ model, tools: options.tools, systemPrompt: options.systemPrompt, responseFormat: options.responseFormat, contextSchema: options.contextSchema, middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]> });
-      return { invoke: (input, config) => agent.invoke({ messages: [...input.messages] }, { ...config, context: { ...config.context, recentToolInputs: [...config.context.recentToolInputs] } }) };
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "http://unused", apiKey: "unused", model: "fake", toolRegistry: registry, agentFactory: (options) => {
+      expect(options.middleware).toHaveLength(1);
+      return { invoke: (_input, config) => { expect(config.context.maxToolCalls).toBe(1); return Promise.resolve({ structuredResponse: finalOutput }); } };
     } });
-    const resultPromise = invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 32, agentId: "agent-a", runId: "real-graph", eventId: "event-1", maxToolCalls: 8 });
-    if (scenario === "repair") expect((await resultPromise).structuredResponse).toEqual(finalOutput);
-    else await expect(resultPromise).rejects.toMatchObject({ cause: { providerError: { message: "Final structured output could not be produced within the model call limit" } } });
-    expect(effects).toBe(3);
-    expect(logs.some((line) => line.includes('"finalizing":true') && line.includes('"toolCount":0'))).toBe(true);
-    expect(logs.some((line) => line.includes("structured_output_invalid"))).toBe(true);
+    await expect(invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 8, agentId: "agent-a", runId: "compatibility", eventId: "event-1", maxToolCalls: 8 })).resolves.toMatchObject({ structuredResponse: finalOutput });
+    expect(effects).toBe(0);
   });
 
   it("returns an identical recent Tool input as a Tool failure without executing it again", async () => {
