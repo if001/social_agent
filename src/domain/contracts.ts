@@ -209,10 +209,10 @@ export const CandidateSchema = z.object({
 export type Candidate = z.infer<typeof CandidateSchema>;
 
 export const FinalActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("respond"), content: NaturalLanguage }),
-  z.object({ type: z.literal("refuse"), reason: NaturalLanguage, basis: z.enum(["personality", "system"]) }),
-  z.object({ type: z.literal("no-external-action"), reason: NaturalLanguage })
-]);
+  z.object({ type: z.literal("respond"), content: NaturalLanguage.describe("相手へ配送する最終応答の本文。personaの発話表現を適用する") }),
+  z.object({ type: z.literal("refuse"), reason: NaturalLanguage.describe("依頼を断る理由"), basis: z.enum(["personality", "system"]).describe("拒否の根拠。personalityは自身の価値観、systemは実行制約") }),
+  z.object({ type: z.literal("no-external-action"), reason: NaturalLanguage.describe("Toolで具体的行動を実行した結果、外部への応答配送が不要な理由。未実行の保留には使わない") })
+]).describe("今回の動機に基づく最終行動。Tool実行自体はAgent内部で完了させる");
 export type FinalAction = z.infer<typeof FinalActionSchema>;
 export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
@@ -264,18 +264,24 @@ export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 
 export const AgentCoreOutputSchema = z.object({
   interpretation: z.object({
-    subjectiveMeaning: NaturalLanguage.optional(),
-    activeMotive: z.object({ description: NaturalLanguage, motiveId: Id.optional(), evidenceIds: z.array(Id).min(1) })
-  }),
+    subjectiveMeaning: NaturalLanguage.optional().describe("今回のEventが自分に持つ主観的な意味。不要な場合は省略する"),
+    activeMotive: z.object({
+      description: NaturalLanguage.describe("今回の行動を生じさせる動機。保存済みMotiveが適切でなければObservation、Self、Mood、Memory、Social Contextから今回限りの動機を形成する"),
+      motiveId: Id.optional().describe("選んだ保存済みMotiveのID。今回形成した動機では省略し、IDを生成しない"),
+      evidenceIds: z.array(Id).min(1).describe("動機の根拠となる入力中のEvent、MemoryなどのID。少なくとも1件指定する")
+    }).describe("今回のActionを生じさせる動機を必ず1件活性化する")
+  }).describe("入力Eventの意味づけと今回の動機"),
   internalChanges: z.object({
-    immediateStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
-      updates.forEach((update, index) => {
-        if (update.target !== "emotion") context.addIssue({ code: "custom", path: [index, "target"], message: "Interaction may update only Emotion" });
-      });
-    })
-  }),
+    immediateStateUpdates: z.array(StateUpdateProposalSchema.extend({
+      target: z.literal("emotion").describe("即時更新の対象はEmotionだけ"),
+      operation: z.literal("set").describe("現在のEmotionを置き換える"),
+      value: NaturalLanguage.describe("今回のEventへの感情を表す自然言語の文章"),
+      reason: NaturalLanguage.describe("この感情になった理由"),
+      evidenceIds: z.array(Id).describe("感情の根拠となる入力中のEvent、MemoryなどのID")
+    })).describe("今回のEmotion更新案。変更が不要なら空配列。持続状態の更新はPost-processに任せる")
+  }).describe("保存前の即時状態の更新提案"),
   action: FinalActionSchema
-});
+}).describe("Interactionの最終結果。Eventの解釈、即時状態の更新案、最終行動を返す");
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
 const MotiveProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
