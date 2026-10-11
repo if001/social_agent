@@ -18,7 +18,7 @@ describe("Post-process", () => {
     for (const operation of ["create", "maintain", "update", "merge", "resolve", "drop"]) expect(continuitySystemPrompt).toContain(operation);
   });
 
-  it("retries only the persistent update job after the Interaction was committed", async () => {
+  it.each(["immediate", "background"])("retries only the persistent update job after commit (%s)", async (mode) => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
     const result = { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond" as const, content: "先に返答" } }, toolExecutions: [] };
@@ -32,7 +32,9 @@ describe("Post-process", () => {
       if (calls === 1) return Promise.reject(new Error("temporary"));
       return Promise.resolve({ persistentStateUpdates: [{ target: "mood" as const, operation: "set" as const, value: "calm", reason: "conversation", evidenceIds: [event.id] }], motiveProposals: [] });
     } }, memory: { run: () => Promise.resolve({ memoryProposals: [] }) }, candidate: { run: () => Promise.resolve({ longTermCandidates: [] }) } }, noopLogger, 1);
-    await service.processAgent(input.run.agentId, new AbortController().signal);
+    const signal = new AbortController().signal;
+    if (mode === "immediate") await service.processAgent(input.run.agentId, signal);
+    else { await service.tick(signal); await service.tick(signal); }
 
     expect(calls).toBe(2);
     expect(persistence.postProcessFailures).toHaveLength(1);
