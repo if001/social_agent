@@ -161,14 +161,21 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     const operationalTools = config.toolRegistry?.definitions().map(({ name, description, inputSchema }) => ({ type: "function" as const, function: { name, description, parameters: inputSchema } })) ?? [];
     const firstModel = model.bindTools([...operationalTools, finalTool]);
     const finalModel = model.bindTools([finalTool]);
-    const assessmentModel = model.withStructuredOutput(EventAssessmentSchema, { name: "assess_current_event" });
+    const assessmentToolName = "submit_event_assessment";
+    const assessmentModel = model.bindTools([{ type: "function" as const, function: { name: assessmentToolName, description: "Return the current Event meaning and feeling", parameters: z.toJSONSchema(EventAssessmentSchema) } }]);
     return {
       async assess(input, options) {
         if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for Event assessment");
-        const messages = [new SystemMessage("現在Eventの主観的Meaningと、そのEventに対するEmotionを先に確定します。最終ActionやTool選択は行いません。"), ...input.messages];
+        const messages = [new SystemMessage(`現在Eventの主観的Meaningと、そのEventに対するEmotionを先に確定します。最終Actionや通常Tool選択は行わず、${assessmentToolName}をちょうど1件呼び出してください。`), ...input.messages];
         const components = { messages: estimateTokens(messages), tools: 0, outputSchema: estimateTokens(z.toJSONSchema(EventAssessmentSchema)) };
         if (Object.values(components).reduce((sum, value) => sum + value, 0) > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Event assessment input exceeds estimated ${String(MAX_MODEL_INPUT_TOKENS)} token budget: ${JSON.stringify(components)}`);
-        try { return { assessment: EventAssessmentSchema.parse(await assessmentModel.invoke(messages, { signal: options.signal })), modelCalls: 1 }; }
+        try {
+          const response = await assessmentModel.invoke(messages, { signal: options.signal });
+          const calls = response.tool_calls ?? [];
+          const submitted = calls.find(({ name }) => name === assessmentToolName);
+          if (submitted === undefined || calls.length !== 1) throw new DomainError("VALIDATION", "Event assessment must call submit_event_assessment exactly once");
+          return { assessment: EventAssessmentSchema.parse(submitted.args), modelCalls: 1 };
+        }
         catch (error) { throw new DomainError("EXTERNAL", "Event assessment invocation failed", { cause: { providerError: error, modelCalls: 1 } }); }
       },
       async invoke(input, options) {

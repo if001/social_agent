@@ -8,6 +8,7 @@ import { AgentCoreScenarioExecutor, OllamaEvaluator } from "./ollama-live.js";
 import { runEvaluation } from "./runner.js";
 import { evaluationScenarios } from "./scenarios.js";
 import { ToolRegistry } from "../application/tool-registry.js";
+import { errorLogContext } from "../observability/logger.js";
 import { z } from "zod";
 
 async function modelMetadata(baseUrl: string, model: string, headers: Record<string, string> = {}): Promise<unknown> {
@@ -27,7 +28,7 @@ const harness = new DeepAgentHarness({ invoker: {
     const startedAt = new Date();
     await appendFile(tracePath, `${JSON.stringify({ stage: "event-assessment", phase: "start", at: startedAt.toISOString(), runId: options.runId, eventId: options.eventId })}\n`);
     try { const result = await baseInvoker.assess?.(input, options); if (result === undefined) throw new Error("Event assessment is unavailable"); await appendFile(tracePath, `${JSON.stringify({ stage: "event-assessment", phase: "finish", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime() })}\n`); return result; }
-    catch (error) { await appendFile(tracePath, `${JSON.stringify({ stage: "event-assessment", phase: "error", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime(), error: error instanceof Error ? error.message : "unknown" })}\n`); throw error; }
+    catch (error) { await appendFile(tracePath, `${JSON.stringify({ stage: "event-assessment", phase: "error", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime(), ...errorLogContext(error) })}\n`); throw error; }
   } }),
   invoke: async (input, options) => {
   const startedAt = new Date();
@@ -37,7 +38,7 @@ const harness = new DeepAgentHarness({ invoker: {
     await appendFile(tracePath, `${JSON.stringify({ stage: "agent-core", phase: "finish", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime(), toolCalls: result.toolExecutions?.length ?? 0 })}\n`);
     return result;
   } catch (error) {
-    await appendFile(tracePath, `${JSON.stringify({ stage: "agent-core", phase: "error", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime(), error: error instanceof Error ? error.message : "unknown" })}\n`);
+    await appendFile(tracePath, `${JSON.stringify({ stage: "agent-core", phase: "error", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime(), ...errorLogContext(error) })}\n`);
     throw error;
   }
 } }, registeredToolNames: new Set(evaluationTools.definitions().map(({ name }) => name)), maxRepairs: 1 });
@@ -47,13 +48,15 @@ const repetitions = process.env.EVALUATION_REPETITIONS === undefined ? 3 : Numbe
 if (!Number.isSafeInteger(repetitions) || repetitions < 3) throw new Error("EVALUATION_REPETITIONS must be an integer of at least 3 for the live gate");
 const concurrency = process.env.EVALUATION_CONCURRENCY === undefined ? 4 : Number.parseInt(process.env.EVALUATION_CONCURRENCY, 10);
 if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new Error("EVALUATION_CONCURRENCY must be an integer from 1 to 8");
+const evaluatorTimeoutMs = process.env.EVALUATION_TIMEOUT_MS === undefined ? Math.max(config.runDeadlineMs, 180_000) : Number.parseInt(process.env.EVALUATION_TIMEOUT_MS, 10);
+if (!Number.isSafeInteger(evaluatorTimeoutMs) || evaluatorTimeoutMs < 30_000) throw new Error("EVALUATION_TIMEOUT_MS must be an integer of at least 30000");
 process.stdout.write(`${JSON.stringify({ tracePath })}\n`);
 const [chatMetadata, embeddingMetadata] = await Promise.all([modelMetadata(config.chat.baseUrl, config.chat.model, { Authorization: `Bearer ${config.chat.apiKey}` }), modelMetadata(config.embedding.baseUrl, config.embedding.model)]);
-const evaluator = new OllamaEvaluator({ ...config.chat, timeoutMs: config.runDeadlineMs });
+const evaluator = new OllamaEvaluator({ ...config.chat, timeoutMs: evaluatorTimeoutMs });
 const tracedEvaluator = { evaluate: async (...args: Parameters<OllamaEvaluator["evaluate"]>) => {
   const startedAt = new Date(); await appendFile(tracePath, `${JSON.stringify({ stage: "evaluator", phase: "start", at: startedAt.toISOString(), scenarioId: args[0].id })}\n`);
   try { const result = await evaluator.evaluate(...args); await appendFile(tracePath, `${JSON.stringify({ stage: "evaluator", phase: "finish", at: new Date().toISOString(), scenarioId: args[0].id, elapsedMs: Date.now() - startedAt.getTime() })}\n`); return result; }
-  catch (error) { await appendFile(tracePath, `${JSON.stringify({ stage: "evaluator", phase: "error", at: new Date().toISOString(), scenarioId: args[0].id, elapsedMs: Date.now() - startedAt.getTime(), error: error instanceof Error ? error.message : "unknown" })}\n`); throw error; }
+  catch (error) { await appendFile(tracePath, `${JSON.stringify({ stage: "evaluator", phase: "error", at: new Date().toISOString(), scenarioId: args[0].id, elapsedMs: Date.now() - startedAt.getTime(), ...errorLogContext(error) })}\n`); throw error; }
 } };
 const summary = await runEvaluation({ scenarios: selectedScenarios, repetitions, minimumRepetitions: 3, concurrency, executor: new AgentCoreScenarioExecutor(harness, async (text, signal) => { await embedding.embed([text], signal); }), evaluator: tracedEvaluator, artifactRoot: "artifacts/evaluation", metadata: createArtifactMetadata({ now: new Date(), buildRevision: process.env.BUILD_REVISION ?? "working-tree", promptVersion: "agent-core-v2-ja/evaluator-v2-ja", config: { chat: { baseUrl: config.chat.baseUrl, model: config.chat.model, metadata: chatMetadata }, embedding: { ...config.embedding, metadata: embeddingMetadata } } }), signal: controller.signal, ...(process.env.EVALUATION_RESUME_GROUP_ID === undefined ? {} : { resumeGroupId: process.env.EVALUATION_RESUME_GROUP_ID }) });
 process.stdout.write(`${JSON.stringify({ groupId: summary.groupId, scenarios: summary.scenarios, passed: summary.passed }, null, 2)}\n`); if (!summary.passed) process.exitCode = 1;
