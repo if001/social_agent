@@ -84,6 +84,17 @@ function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["
   output.interpretation.activeMotive.evidenceIds.forEach((id) => {
     if (!evidenceIds.has(id)) issues.push({ code: "invalid_reference", path: ["interpretation", "activeMotive", "evidenceIds"], message: `Unknown active Motive evidence reference: ${id}` });
   });
+  (output.interpretation.activeMotive.evidenceRefs ?? []).forEach((reference, index) => {
+    const owned = "agentId" in reference ? reference.agentId === input.run.agentId : true;
+    const valid = reference.kind === "event" ? reference.id === input.run.eventId
+      : reference.kind === "memory" ? input.memories.some(({ id }) => id === reference.id)
+      : reference.kind === "self" ? owned && reference.version === input.self.version
+      : reference.kind === "mood" ? owned && reference.updatedAt === input.dynamicState.updatedAt
+      : reference.kind === "social-context" ? owned && input.socialContext.some(({ id, updatedAt }) => id === reference.id && updatedAt === reference.updatedAt)
+      : reference.kind === "motive" ? owned && input.dynamicState.motives.some(({ id, since }) => id === reference.id && since === reference.since)
+      : owned && input.dynamicState.emotion?.evidenceEventId === reference.evidenceEventId && input.dynamicState.emotion.occurredAt === reference.occurredAt;
+    if (!valid) issues.push({ code: "invalid_reference", path: ["interpretation", "activeMotive", "evidenceRefs", index], message: `Unknown or stale active Motive state reference: ${reference.kind}` });
+  });
   if (output.interpretation.activeMotive.motiveId !== undefined && !input.dynamicState.motives.some(({ id }) => id === output.interpretation.activeMotive.motiveId)) {
     issues.push({ code: "invalid_reference", path: ["interpretation", "activeMotive", "motiveId"], message: `Unknown Motive: ${output.interpretation.activeMotive.motiveId}` });
   }
