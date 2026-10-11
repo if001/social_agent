@@ -14,7 +14,7 @@ run、observation、recentExperiences、persona、self、現在のdynamicState�
 
 出力:
 - persistentStateUpdates: targetはmood | socialContextだけ。operation、value、reason、evidenceIdsを指定します
-- motiveProposals: 持続するMotiveのcreate | maintain | update | merge | resolve | dropです。根拠となるEventまたはMemoryのevidenceIdsを必須とします。ID、所有Agent、since、探索metadataはRuntimeが管理します
+- motiveProposals: 持続するMotiveのcreate | maintain | update | merge | resolve | dropです。create/updateでは必要に応じてnextConsiderAtとconsiderationReasonを対で指定します。根拠となるEventまたはMemoryのevidenceIdsを必須とします。ID、所有Agent、since、探索metadataはRuntimeが管理します
 
 判断:
 1. 今回のactiveMotiveがその場で満たされたなら保存しません。次のEventにも残る現在の動機だけをMotiveとして提案します。

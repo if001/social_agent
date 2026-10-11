@@ -18,7 +18,7 @@ export function applyMotiveProposals(state: DynamicState, rawProposals: readonly
   let motiveExploration = [...state.motiveExploration];
   const changes: StateChange[] = [];
   const metadata = (motiveId: string): MotiveExploration => motiveExploration.find((item) => item.motiveId === motiveId) ?? { motiveId, consecutiveNoProgress: 0 };
-  const materialize = (proposal: Extract<MotiveProposal, { operation: "create" }>, id: string): Motive => ({ id, description: proposal.description, ...(proposal.goal === undefined ? {} : { goal: proposal.goal, progress: proposal.progress ?? 0 }), sourceEvidenceIds: [...new Set(proposal.evidenceIds)], since: occurredAt });
+  const materialize = (proposal: Extract<MotiveProposal, { operation: "create" }>, id: string): Motive => ({ id, description: proposal.description, ...(proposal.goal === undefined ? {} : { goal: proposal.goal, progress: proposal.progress ?? 0 }), ...(proposal.nextConsiderAt === undefined ? {} : { nextConsiderAt: proposal.nextConsiderAt, considerationReason: proposal.considerationReason }), sourceEvidenceIds: [...new Set(proposal.evidenceIds)], since: occurredAt });
   for (const raw of rawProposals) {
     const proposal = MotiveProposalSchema.parse(raw);
     const before = [...motives];
@@ -43,7 +43,7 @@ export function applyMotiveProposals(state: DynamicState, rawProposals: readonly
     const update: Extract<MotiveProposal, { operation: "update" }> = proposal;
     const previous = metadata(update.motiveId); const nextProgress = update.goal === undefined ? undefined : update.progress ?? 0;
     const progressed = nextProgress !== undefined && (existing.progress === undefined || nextProgress > existing.progress);
-    motives[index] = { ...existing, description: update.description, ...(update.goal === undefined ? { goal: undefined, progress: undefined } : { goal: update.goal, progress: nextProgress }), sourceEvidenceIds: [...new Set([...existing.sourceEvidenceIds, ...update.evidenceIds])] };
+    motives[index] = { ...existing, description: update.description, ...(update.goal === undefined ? { goal: undefined, progress: undefined } : { goal: update.goal, progress: nextProgress }), ...(update.nextConsiderAt === undefined ? {} : { nextConsiderAt: update.nextConsiderAt, considerationReason: update.considerationReason }), sourceEvidenceIds: [...new Set([...existing.sourceEvidenceIds, ...update.evidenceIds])] };
     const noProgress = progressed ? 0 : previous.consecutiveNoProgress + 1; const cooldownUntil = noProgress >= 2 ? new Date(new Date(occurredAt).getTime() + 21_600_000).toISOString() : undefined;
     motiveExploration = [...motiveExploration.filter(({ motiveId }) => motiveId !== proposal.motiveId), { motiveId: proposal.motiveId, consecutiveNoProgress: noProgress, lastExploredAt: occurredAt, ...(cooldownUntil === undefined ? {} : { cooldownUntil }) }];
     changes.push({ target: "motives", operation: "set", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });

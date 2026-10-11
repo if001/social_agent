@@ -162,7 +162,7 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).not.toContain("最小引数例");
     expect(agentCoreSystemPrompt).toContain("明示した将来時刻の処理はschedule_task");
     expect(agentCoreSystemPrompt).toContain("autonomy-review");
-    expect(agentCoreSystemPrompt).toContain("activeMotiveを1件");
+    expect(agentCoreSystemPrompt).toContain("保存済みMotiveを機械的に選択しません");
     expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
     expect(agentCoreSystemPrompt).toContain("Tool未使用で理由だけを返すno-external-actionは禁止");
     expect(agentCoreSystemPrompt).toContain("同一手段を繰り返さず");
