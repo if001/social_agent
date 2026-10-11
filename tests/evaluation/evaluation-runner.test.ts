@@ -33,12 +33,12 @@ describe("live evaluation runner", () => {
   });
   it("applies next state and records evaluation-sink delivery through the runtime executor", async () => {
     const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
-    const executor = new AgentCoreScenarioExecutor({ run: (input) => Promise.resolve({ output: { interpretation: { activeMotive: { description: "respond", evidenceIds: [input.run.eventId] } }, internalChanges: { immediateStateUpdates: [{ target: "emotion", operation: "set", value: "嬉しい", reason: "称賛", evidenceIds: [input.run.eventId] }] }, action: { type: "respond", content: "ありがとう" } }, toolExecutions: [] }) }, () => Promise.resolve());
+    const executor = new AgentCoreScenarioExecutor({ run: () => Promise.resolve({ output: { desire: "称賛へ応えたい", action: { type: "respond", content: "ありがとう" }, patch: { mood: "嬉しい" } }, toolExecutions: [] }) }, () => Promise.resolve());
     const result = await executor.execute(scenario, 1, new AbortController().signal);
     expect(result.deliverySucceeded).toBe(true);
     expect(result.deliveryRecords).toMatchObject([{ destination: "evaluation-sink", delivered: true }]);
-    const states = result.nextState as Record<string, { readonly emotion?: { readonly description: string } }>;
-    expect(states["agent-a"]?.emotion?.description).toBe("嬉しい");
+    const states = result.nextState as Record<string, { readonly mood?: string }>;
+    expect(states["agent-a"]?.mood).toBe("嬉しい");
   });
   it("runs twelve paired variants five times and writes traceable, secret-free artifacts", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope);

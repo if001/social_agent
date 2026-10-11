@@ -9,15 +9,12 @@ import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harne
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import { AgentCoreOutputSchema, type AgentCoreOutput } from "../../src/domain/contracts.js";
 
-const output: AgentCoreOutput = { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "Hello" } };
+const output: AgentCoreOutput = { desire: "respond to this event", action: { type: "respond", content: "Hello" } };
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
-  it("rejects the removed Desire output target", () => {
-    expect(() => AgentCoreOutputSchema.parse({
-      ...output,
-      internalChanges: { immediateStateUpdates: [{ target: "desires", operation: "set", value: ["legacy"], reason: "legacy output", evidenceIds: [] }] }
-    })).toThrow();
+  it("rejects the removed legacy output shape", () => {
+    expect(() => AgentCoreOutputSchema.parse({ interpretation: { activeMotive: { description: "legacy" } }, action: output.action })).toThrow();
   });
   it("compacts prior Tool results while preserving the latest Tool batch", () => {
     const registry = new ToolRegistry([{ name: "web_archive_read", description: "read", schema: z.object({}), resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
@@ -124,37 +121,6 @@ describe("AgentHarness contract", () => {
     const input = agentCoreInputFixture(); input.availableTools.push({ name: "unknown", description: "Unknown tool", inputSchema: {} });
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(called).toBe(false);
-  });
-
-  it("rejects persistent state proposals in the Interaction output", async () => {
-    const invalid = { ...output, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "test", evidenceIds: [] }] } };
-    let calls = 0;
-    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result);
-    expect(calls).toBe(2);
-  });
-
-  it("repairs immediate state proposals with invented evidence", async () => {
-    const invalid = structuredClone(output);
-    invalid.internalChanges.immediateStateUpdates.push({ target: "emotion", operation: "set", value: "calm", reason: "test", evidenceIds: ["foreign-event"] });
-    let calls = 0; const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result);
-    expect(calls).toBe(2);
-  });
-
-  it("accepts owned state evidence snapshots and repairs stale or foreign references", async () => {
-    const input = agentCoreInputFixture();
-    input.socialContext = [{ id: "social-1", agentId: input.run.agentId, subjectId: "user", subjectType: "user", description: "trusted", updatedAt: input.dynamicState.updatedAt }];
-    const grounded = { ...output, interpretation: { ...output.interpretation, activeMotive: { ...output.interpretation.activeMotive, evidenceRefs: [
-      { kind: "self" as const, agentId: input.run.agentId, version: input.self.version },
-      { kind: "mood" as const, agentId: input.run.agentId, updatedAt: input.dynamicState.updatedAt },
-      { kind: "social-context" as const, id: "social-1", agentId: input.run.agentId, updatedAt: input.dynamicState.updatedAt }
-    ] } } };
-    await expect(new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: grounded }) }, registeredToolNames: new Set() }).run(input, new AbortController().signal)).resolves.toMatchObject({ output: grounded });
-    const stale = structuredClone(grounded); stale.interpretation.activeMotive.evidenceRefs[0] = { kind: "self", agentId: "other-agent", version: input.self.version };
-    let calls = 0;
-    await expect(new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? stale : grounded }) }, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ output: grounded });
-    expect(calls).toBe(2);
   });
 
   it.each([false, true])("repairs unsupported wait for schedulerGenerated=%s", async (schedulerGenerated) => {

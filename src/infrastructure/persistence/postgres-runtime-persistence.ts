@@ -4,7 +4,7 @@ import { errorLogContext } from "../../observability/logger.js";
 import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
-import type { StateUpdateResult } from "../../application/state-update-service.js";
+import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
 import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import { PostgresUnitOfWork } from "./postgres.js";
@@ -30,14 +30,16 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
-  async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
+  async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
+    const immediateMemories = update.remember === undefined ? [] : [{ id: this.ids.next(), agentId: event.agentId, kind: "episodic" as const, content: update.remember, occurredAt: event.occurredAt, createdAt: this.now().toISOString(), relatedSubjectIds: input.state.relationships.map(({ subjectId }) => subjectId), importance: "Agent Coreが次の判断へ残すと決めた経験", retrievalPriority: "normal" as const, evidenceEventIds: [event.id] }];
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
-      stateValues: { mood: update.state.mood, emotion: update.state.emotion ?? null, motives: update.state.motives, motive_exploration: update.state.motiveExploration },
-      changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
+      stateValues: { mood: update.state.mood, concerns: update.state.concerns, relationships: update.state.relationships },
+      changes: update.changes.map((change) => ({ ...change, id: this.ids.next(), reason: "AgentTurn patch", evidenceIds: [change.eventId] })),
+      memories: immediateMemories,
       toolExecutions: validatedTools,
       outbox: outgoing
     });

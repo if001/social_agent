@@ -1,21 +1,8 @@
-import { z } from "zod";
-import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, MessageEnvelopeSchema, SelfSchema } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, MessageEnvelopeSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
 describe("domain contracts", () => {
-  it("exposes immediate Emotion constraints and descriptions to structured output", () => {
-    const schema = z.toJSONSchema(AgentCoreOutputSchema);
-    const updates = AgentCoreOutputSchema.shape.internalChanges.shape.immediateStateUpdates;
-    expect(JSON.stringify(schema)).toContain("今回の行動を生じさせる動機");
-    expect(JSON.stringify(schema)).toContain('"const":"emotion"');
-    const update = { target: "emotion", operation: "set", value: "嬉しい", reason: "挨拶された", evidenceIds: ["event-1"] };
-    expect(updates.safeParse([update]).success).toBe(true);
-    for (const invalid of [{ target: "mood" }, { operation: "append" }, { value: {} }]) {
-      expect(updates.safeParse([{ ...update, ...invalid }]).success).toBe(false);
-    }
-  });
-
   it("represents every action", () => {
     for (const action of [
       { type: "respond", content: "Hello" },
@@ -63,13 +50,4 @@ describe("domain contracts", () => {
     expect(AgentCoreInputSchema.safeParse({ ...input, self: legacySelf }).success).toBe(false);
   });
 
-  it("separates immediate Interaction state from persistent Post-process proposals", () => {
-    const parsed = AgentCoreOutputSchema.parse({
-      interpretation: { subjectiveMeaning: "A meaningful event", activeMotive: { description: "Respond", evidenceIds: ["event-1"] } },
-      internalChanges: { immediateStateUpdates: [{ target: "emotion", operation: "set", value: "interested", reason: "Useful exchange", evidenceIds: ["event-1"] }] },
-      action: { type: "respond", content: "Understood" }
-    });
-    expect(parsed.internalChanges.immediateStateUpdates[0]?.target).toBe("emotion");
-    expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }] } }).success).toBe(false);
-  });
 });

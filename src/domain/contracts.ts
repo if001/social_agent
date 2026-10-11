@@ -325,27 +325,7 @@ export const ActiveMotiveEvidenceRefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("emotion"), agentId: Id, evidenceEventId: Id, occurredAt: Instant })
 ]);
 
-export const AgentCoreOutputSchema = z.object({
-  interpretation: z.object({
-    subjectiveMeaning: NaturalLanguage.optional().describe("今回のEventが自分に持つ主観的な意味。不要な場合は省略する"),
-    activeMotive: z.object({
-      description: NaturalLanguage.describe("今回の行動を生じさせる動機。保存済みMotiveが適切でなければObservation、Self、Mood、Memory、Social Contextから今回限りの動機を形成する"),
-      motiveId: Id.optional().describe("選んだ保存済みMotiveのID。今回形成した動機では省略し、IDを生成しない"),
-      evidenceIds: z.array(Id).min(1).describe("動機の根拠となる入力中のEvent、MemoryのID。少なくとも1件指定する"),
-      evidenceRefs: z.array(ActiveMotiveEvidenceRefSchema).optional().describe("Self、Mood、Social Context、保存Motive、current Emotionを根拠にする場合の型付きsnapshot参照")
-    }).describe("今回のActionを生じさせる動機を必ず1件活性化する")
-  }).describe("入力Eventの意味づけと今回の動機"),
-  internalChanges: z.object({
-    immediateStateUpdates: z.array(StateUpdateProposalSchema.extend({
-      target: z.literal("emotion").describe("即時更新の対象はEmotionだけ"),
-      operation: z.literal("set").describe("現在のEmotionを置き換える"),
-      value: NaturalLanguage.describe("今回のEventへの感情を表す自然言語の文章"),
-      reason: NaturalLanguage.describe("この感情になった理由"),
-      evidenceIds: z.array(Id).describe("感情の根拠となる入力中のEvent、MemoryなどのID")
-    })).describe("今回のEmotion更新案。変更が不要なら空配列。持続状態の更新はPost-processに任せる")
-  }).describe("保存前の即時状態の更新提案"),
-  action: FinalActionSchema
-}).describe("Interactionの最終結果。Eventの解釈、即時状態の更新案、最終行動を返す");
+export const AgentCoreOutputSchema = AgentTurnSchema.describe("Event Assessmentを受けて決めたDesire、最終Action、次のEventへ残す任意の状態変化");
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
 

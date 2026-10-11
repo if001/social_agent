@@ -333,10 +333,10 @@ describeDatabase("PostgreSQL persistence", () => {
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
-      output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond" as const, content: "Hello" } },
+      output: { desire: "respond to this event", action: { type: "respond" as const, content: "Hello" } },
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
-    await expect(persistence.commit(message, event, input, result, { state: input.dynamicState, changes: [] }, [])).resolves.toBe("committed");
+    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [] }, [])).resolves.toBe("committed");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });

@@ -1,6 +1,5 @@
 import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
 import type { Memory, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
-import type { StateChange } from "../../application/state-update-service.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
 
@@ -10,7 +9,7 @@ export type CommitEventInput = {
   readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date; readonly causationId?: string; readonly correlationId?: string };
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
-  readonly changes: readonly (StateChange & { readonly id: string })[];
+  readonly changes: readonly { readonly id: string; readonly target: string; readonly operation: string; readonly before: unknown; readonly after: unknown; readonly reason: string; readonly evidenceIds: readonly string[] }[];
   readonly memories?: readonly Memory[];
   readonly memoryWebEvidence?: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[];
   readonly toolExecutions?: readonly (ToolExecutionRecord & { readonly id: string })[];
@@ -29,14 +28,8 @@ export class PostgresEventTransaction {
       await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,started_at) VALUES ($1,$2,$3,$4,$5)", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.startedAt]);
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
-      await this.#syncMotiveSchedules(client, input.event.agentId, input.stateValues.motives);
+      await this.#syncConcernSchedules(client, input.event.agentId, input.stateValues.concerns);
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.run.id, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
-      for (const change of input.changes.filter(({ target }) => target === "socialContext")) {
-        const value = change.after as { readonly subjectId?: string; readonly subjectType?: string; readonly description?: string } | undefined;
-        if (value?.subjectId === undefined) throw new Error("Social Context change is missing subjectId");
-        if (change.operation === "remove") await client.query("DELETE FROM social_contexts WHERE agent_id=$1 AND subject_id=$2", [input.event.agentId, value.subjectId]);
-        else await client.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (agent_id,subject_id) DO UPDATE SET subject_type=EXCLUDED.subject_type,description=EXCLUDED.description,updated_at=now()", [change.id, input.event.agentId, value.subjectId, value.subjectType, value.description]);
-      }
       for (const memory of input.memories ?? []) {
         await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.occurredAt, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
         for (const subjectId of memory.relatedSubjectIds) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [memory.id, subjectId]);
@@ -70,14 +63,15 @@ export class PostgresEventTransaction {
     }
   }
 
-  async #syncMotiveSchedules(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], agentId: string, rawMotives: unknown): Promise<void> {
-    if (!Array.isArray(rawMotives)) return;
+  async #syncConcernSchedules(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], agentId: string, rawConcerns: unknown): Promise<void> {
+    if (!Array.isArray(rawConcerns)) return;
     await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='concern-due'", [agentId]);
-    for (const value of rawMotives) {
+    for (const value of rawConcerns) {
       if (typeof value !== "object" || value === null) continue;
-      const motive = value as { id?: unknown; nextConsiderAt?: unknown; considerationReason?: unknown };
-      if (typeof motive.id !== "string" || typeof motive.nextConsiderAt !== "string" || typeof motive.considerationReason !== "string") continue;
-      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,$4)", [`concern:${motive.id}`, agentId, motive.considerationReason, motive.nextConsiderAt]);
+      const concern = value as { id?: unknown; description?: unknown; whyItMatters?: unknown; status?: unknown; reconsiderAt?: unknown };
+      if (concern.status !== "active" || typeof concern.id !== "string" || typeof concern.reconsiderAt !== "string") continue;
+      const reason = typeof concern.whyItMatters === "string" ? concern.whyItMatters : typeof concern.description === "string" ? concern.description : "Concernを再検討する";
+      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,$4)", [`concern:${concern.id}`, agentId, reason, concern.reconsiderAt]);
     }
   }
 }

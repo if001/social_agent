@@ -7,8 +7,7 @@ import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
 const finalOutput: AgentCoreOutput = {
-  interpretation: { subjectiveMeaning: "The Tool result answered the question", activeMotive: { description: "Answer the question", evidenceIds: ["event-1"] } },
-  internalChanges: { immediateStateUpdates: [] },
+  desire: "Answer the question",
   action: { type: "respond", content: "The result is 42" }
 };
 

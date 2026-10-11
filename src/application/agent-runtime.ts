@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
-import { StateUpdateService, type StateUpdateResult } from "./state-update-service.js";
+import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
@@ -17,7 +17,7 @@ export type PendingOutput = { readonly envelope: MessageEnvelope };
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput>;
-  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: StateUpdateResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
+  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
   recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
@@ -29,7 +29,7 @@ export type AgentRuntimeOptions = { readonly destination: string; readonly defau
 const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined;
 
 export class AgentRuntime {
-  readonly #updates = new StateUpdateService();
+  readonly #updates = new AgentStatePatchService();
   #tail: Promise<void> = Promise.resolve();
   constructor(private readonly options: AgentRuntimeOptions) {}
 
@@ -121,8 +121,8 @@ export class AgentRuntime {
       await this.options.persistence.recordFailure(message, event, input, error, result.toolExecutions);
       throw error;
     }
-    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.internalChanges.immediateStateUpdates.length });
-    const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.immediateStateUpdates, input.socialContext, event.occurredAt, event.id);
+    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.patch === undefined ? 0 : 1 });
+    const update = this.#updates.apply(event.agentId, input.state, output.patch, event.id);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });

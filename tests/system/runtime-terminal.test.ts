@@ -26,7 +26,7 @@ describe("ST-01 Terminal round trip", () => {
       destination: "agent-a",
       defaultOutputDestination: "terminal",
       queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
-      harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { interpretation: { activeMotive: { description: "状態を再評価する", evidenceIds: ["state-review-event"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" } }, toolExecutions: [] }); } },
+      harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { desire: "状態を再評価する", action: { type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" } }, toolExecutions: [] }); } },
       persistence,
       ids: new SequenceIdGenerator(["autonomous-notification"]),
       now: () => clock.now()
@@ -70,7 +70,7 @@ describe("ST-01 Terminal round trip", () => {
   it("does not publish or mark an outbox record when publish fails", async () => {
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
-    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().dynamicState, changes: [] }, [message]);
+    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { desire: "finish after tool work", action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().state, changes: [] }, [message]);
     const queue = { publish: () => Promise.reject(new Error("down")), subscribe: () => Promise.resolve() };
     await expect(new OutboxDispatcher(persistence, queue).dispatch()).rejects.toThrow("down");
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);
