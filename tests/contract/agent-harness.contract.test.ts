@@ -1,7 +1,7 @@
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, checkOllamaChatCapability, createOllamaDeepAgentInvoker, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-history.js";
 import { summarizeModelResponse } from "../../src/infrastructure/agent/model-response.js";
@@ -54,6 +54,15 @@ describe("AgentHarness contract", () => {
     const input = agentCoreInputFixture(); input.availableTools = [{ name: "lookup", description: "Search", inputSchema: { type: "object", properties: { secretSchemaMarker: { type: "string" } } } }];
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
     expect(prompt).toContain('"name":"lookup"'); expect(prompt).not.toContain("secretSchemaMarker");
+  });
+
+  it("counts the system prompt, messages, Tool schemas, and output schema in the final input gate", () => {
+    const input = agentCoreInputFixture();
+    input.availableTools = [{ name: "lookup", description: "Search", inputSchema: { type: "object", properties: { query: { type: "string" } } } }];
+    const budget = modelInputBudget(input, JSON.stringify({ input }));
+    expect(budget.total).toBeLessThanOrEqual(MAX_MODEL_INPUT_TOKENS);
+    expect(Object.keys(budget.components)).toEqual(["systemPrompt", "messages", "tools", "outputSchema"]);
+    expect(modelInputBudget(input, "x".repeat(MAX_MODEL_INPUT_TOKENS * 4)).total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
 
   it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {

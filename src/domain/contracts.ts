@@ -376,7 +376,7 @@ export const MessageEnvelopeSchema = z.object({
 }).refine((value) => Date.parse(value.expiresAt) > Date.parse(value.sentAt), { message: "expiresAt must be after sentAt", path: ["expiresAt"] });
 export type MessageEnvelope = z.infer<typeof MessageEnvelopeSchema>;
 
-export type DomainErrorCode = "VALIDATION" | "CONFLICT" | "NOT_FOUND" | "TIMEOUT" | "ABORTED" | "EXTERNAL";
+export type DomainErrorCode = "VALIDATION" | "CONFLICT" | "NOT_FOUND" | "TIMEOUT" | "ABORTED" | "EXTERNAL" | "LIMIT_EXCEEDED";
 export class DomainError extends Error {
   constructor(readonly code: DomainErrorCode, message: string, options?: ErrorOptions) {
     super(message, options);

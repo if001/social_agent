@@ -59,7 +59,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const contextLoader = new PostgresAgentContextLoader({
     pool, ids, tools: toolRegistry,
     embedding: embeddingProvider,
-    budget: { maxTokens: 24_000, maxMemories: 24, maxSocialContexts: 24 },
+    budget: { maxTokens: 4_500, maxMemories: 5, maxSocialContexts: 1 },
     limits, logger,
     ...(config.persona === undefined ? {} : { persona: config.persona })
   });
