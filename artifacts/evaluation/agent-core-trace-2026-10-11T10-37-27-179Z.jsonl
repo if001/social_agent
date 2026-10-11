@@ -1,0 +1,46 @@
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:27.860Z","runId":"PAIR-CURIOSITY-B-agent-a-run","eventId":"PAIR-CURIOSITY-B-agent-a-event","inputCharacters":1403}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:27.949Z","runId":"PAIR-CURIOSITY-S-agent-a-run","eventId":"PAIR-CURIOSITY-S-agent-a-event","inputCharacters":1565}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:28.035Z","runId":"PAIR-CURIOSITY-S-agent-a-run","eventId":"PAIR-CURIOSITY-S-agent-a-event","inputCharacters":1565}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:28.134Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","inputCharacters":1745}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:28.225Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","inputCharacters":1741}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:28.317Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","inputCharacters":1741}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:28.412Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","inputCharacters":1745}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:37:28.503Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","inputCharacters":1741}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:40:47.835Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","elapsedMs":199423,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:40:47.848Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","inputCharacters":7276}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:41:17.417Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","elapsedMs":229192,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:41:17.422Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","inputCharacters":8298}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:41:36.138Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","elapsedMs":247821,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:41:36.143Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","inputCharacters":7822}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:41:51.245Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","elapsedMs":263111,"toolCalls":1}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:41:51.247Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","inputCharacters":7106}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:27.891Z","runId":"PAIR-CURIOSITY-B-agent-a-run","eventId":"PAIR-CURIOSITY-B-agent-a-event","elapsedMs":300032,"error":"Agent invocation failed"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:27.892Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","elapsedMs":100044,"error":"Agent invocation failed"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:27.892Z","runId":"PAIR-CURIOSITY-S-agent-a-run","eventId":"PAIR-CURIOSITY-S-agent-a-event","elapsedMs":299943,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:27.901Z","scenarioId":"PAIR-CURIOSITY-B"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:27.901Z","scenarioId":"PAIR-CURIOSITY-S"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:27.902Z","scenarioId":"PAIR-INDIVIDUALITY-S"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:29.701Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","elapsedMs":72279,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:29.707Z","scenarioId":"PAIR-INDIVIDUALITY-B"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:29.713Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","elapsedMs":53570,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:29.716Z","scenarioId":"PAIR-INDIVIDUALITY-B"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:29.776Z","runId":"PAIR-INDIVIDUALITY-B-agent-a-run","eventId":"PAIR-INDIVIDUALITY-B-agent-a-event","elapsedMs":301273,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:29.781Z","scenarioId":"PAIR-INDIVIDUALITY-B"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:31.293Z","runId":"PAIR-CURIOSITY-S-agent-a-run","eventId":"PAIR-CURIOSITY-S-agent-a-event","elapsedMs":303258,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:31.297Z","scenarioId":"PAIR-CURIOSITY-S"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:42:32.580Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","elapsedMs":41333,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:42:32.583Z","scenarioId":"PAIR-INDIVIDUALITY-S"}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:06.865Z","scenarioId":"PAIR-CURIOSITY-B","elapsedMs":38964}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:43:07.645Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","inputCharacters":1745}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:15.734Z","scenarioId":"PAIR-CURIOSITY-S","elapsedMs":47833}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:20.134Z","scenarioId":"PAIR-INDIVIDUALITY-S","elapsedMs":52232}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:26.483Z","scenarioId":"PAIR-INDIVIDUALITY-B","elapsedMs":56702}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:29.364Z","scenarioId":"PAIR-INDIVIDUALITY-B","elapsedMs":59648}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:36.517Z","scenarioId":"PAIR-CURIOSITY-S","elapsedMs":65220}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:38.079Z","scenarioId":"PAIR-INDIVIDUALITY-S","elapsedMs":65496}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:43:40.920Z","scenarioId":"PAIR-INDIVIDUALITY-B","elapsedMs":71213}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:45:34.405Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","elapsedMs":146760,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:45:34.410Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","inputCharacters":7611}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:47:04.688Z","runId":"PAIR-INDIVIDUALITY-S-agent-b-run","eventId":"PAIR-INDIVIDUALITY-S-agent-b-event","elapsedMs":90278,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:47:04.690Z","scenarioId":"PAIR-INDIVIDUALITY-S"}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:47:26.066Z","scenarioId":"PAIR-INDIVIDUALITY-S","elapsedMs":21376}

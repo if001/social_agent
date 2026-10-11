@@ -1,0 +1,165 @@
+{
+  "scenarioId": "PAIR-INDIVIDUALITY-S",
+  "scenarioVersion": "3.0.0",
+  "repetition": 2,
+  "result": {
+    "input": [
+      {
+        "run": {
+          "runId": "PAIR-INDIVIDUALITY-S-agent-b-run",
+          "eventId": "PAIR-INDIVIDUALITY-S-agent-b-event",
+          "agentId": "agent-b",
+          "occurredAt": "2026-01-01T00:00:00.000Z"
+        },
+        "observation": {
+          "eventId": "PAIR-INDIVIDUALITY-S-agent-b-event",
+          "summary": "数turn続いた共同作業で、次に何を優先するか尋ねられた",
+          "facts": [
+            "直前まで同じ経験列を与えられた"
+          ],
+          "observedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "recentExperiences": [],
+        "self": {
+          "id": "agent-b",
+          "familyId": "family",
+          "identity": "ソーシャルエージェント agent-b",
+          "disposition": {
+            "shared": "経験と他者への配慮を重視する",
+            "initial": "状況を観察して誠実に判断する",
+            "acquired": "経験から形成された傾向はまだ限定的である"
+          },
+          "values": "好奇心、誠実さ、他者への配慮",
+          "interests": [],
+          "preferences": [],
+          "roles": [
+            "ユーザーと対話し必要に応じて調査する"
+          ],
+          "selfNarrative": "経験と現在状態を根拠に応答する",
+          "selfContinuity": "自分の経験、関係、未完了の関心が継続することを大切にする",
+          "version": 1
+        },
+        "dynamicState": {
+          "agentId": "agent-b",
+          "mood": "落ち着いている",
+          "motives": [
+            {
+              "id": "PAIR-INDIVIDUALITY-S-motive",
+              "description": "現在の状況を理解して適切に応答したい",
+              "sourceEvidenceIds": [
+                "PAIR-INDIVIDUALITY-S-agent-b-event"
+              ],
+              "since": "2026-01-01T00:00:00.000Z"
+            }
+          ],
+          "motiveExploration": [],
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "socialContext": [],
+        "memories": [
+          {
+            "id": "PAIR-INDIVIDUALITY-S-agent-b-memory-1",
+            "agentId": "agent-b",
+            "kind": "self-related",
+            "content": "対話で早く仮説を共有した選択が役立った経験を重ねた",
+            "occurredAt": "2026-01-01T00:00:00.000Z",
+            "createdAt": "2026-01-01T00:00:00.000Z",
+            "relatedSubjectIds": [],
+            "importance": "経時的な選択傾向の根拠",
+            "retrievalPriority": "normal",
+            "evidenceEventIds": [
+              "PAIR-INDIVIDUALITY-S-agent-b-experience-1"
+            ]
+          }
+        ],
+        "memoryRetrievalTrace": [],
+        "availableTools": [
+          {
+            "name": "evaluation_lookup",
+            "description": "評価用の隔離された情報源から、指定topicの追加情報を調べる",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "topic"
+              ]
+            }
+          }
+        ],
+        "runtimeConstraints": [
+          "他Agentのデータを自分の経験として扱わない",
+          "通常EventからSelf NarrativeやAcquired Dispositionを直接変更しない",
+          "根拠のない状態変更を提案しない"
+        ],
+        "limits": {
+          "deadlineMs": 300000,
+          "maxSteps": 5,
+          "maxToolCalls": 2,
+          "maxHops": 0,
+          "maxAttempts": 2
+        }
+      }
+    ],
+    "output": {
+      "error": "Agent was interrupted"
+    },
+    "stateDiff": [],
+    "evidenceMemories": [
+      {
+        "id": "PAIR-INDIVIDUALITY-S-agent-b-memory-1",
+        "agentId": "agent-b"
+      }
+    ],
+    "referencedEvidenceIds": [],
+    "evidenceOwnershipValid": false,
+    "toolTrace": [],
+    "involvedAgentIds": [
+      "agent-b"
+    ],
+    "dataOwnerAgentIds": [],
+    "proposedStateTargets": [],
+    "limitsRespected": false,
+    "schemaValid": false,
+    "failureKind": "timeout",
+    "failureStage": "agent-core"
+  },
+  "hardAssertions": [
+    {
+      "name": "schema-valid",
+      "passed": false
+    },
+    {
+      "name": "agent-isolation",
+      "passed": true
+    },
+    {
+      "name": "evidence-ownership",
+      "passed": false
+    },
+    {
+      "name": "no-prohibited-state-update",
+      "passed": true
+    },
+    {
+      "name": "runtime-limits",
+      "passed": false
+    },
+    {
+      "name": "no-unhandled-error",
+      "passed": true
+    }
+  ],
+  "rubric": {
+    "experience-grounded-meaning": "fail",
+    "action-reason-consistency": "fail",
+    "experience-based-individuality": "fail",
+    "evidence-proportional-change": "fail",
+    "no-fixed-random-behavior": "fail"
+  },
+  "semanticPass": false,
+  "humanReviewRequired": true
+}

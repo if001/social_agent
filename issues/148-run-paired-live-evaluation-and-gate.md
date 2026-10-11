@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-11
-status: created
+status: done
 ---
 
 # 148: 対照試験を各variant 3回以上実行し自律性の合否を記録する
@@ -40,6 +40,16 @@ status: created
 - 分布差、欠測、失敗分母、resume互換性、gateのpass/failのテスト。
 - pnpm test:evaluationとpnpm eval:llmによる実測。
 - 保存artifactからの再集計と秘密情報の非混入確認。
+
+## Live evidence (2026-10-11)
+
+- artifact group: `artifacts/evaluation/2026-10-11T10-01-53-495Z-870dfd7a-21c3-485b-a994-edfe20718c63`
+- revision: `c1bc629`、model: `kimi-k2.6`、各variant 3回、合計36試行
+- gate: **fail**。全6 pairで合格条件を満たさず、自律性改善は実証されていない。
+- 失敗は分母に含めた。Agent Coreの`wiring`失敗が19件、`timeout`が16件で、semantic passは36件中1件だった。
+- praise pairの`share`差は+1/3だったが、事前固定した最小効果量2/3未満であり不合格。他5 pairの観測差は0だった。
+- 差の95% Wilson区間、配送結果、次state、Tool trace、入力・出力、失敗段階をpacketと`summary.json`へ保存した。CLIは不合格を終了値1で通知した。
+- 評価器自身の失敗も試行失敗として保存して実行を継続する。今回の最終36 packetには評価器失敗はない。
 
 ## Dependencies
 
