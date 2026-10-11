@@ -34,8 +34,8 @@ type ReusableDeepAgentFactoryOptions = {
 
 export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions) => ReusableDeepAgent;
 
-export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[] };
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker { invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>; }
 
 export type DeepAgentHarnessOptions = {
@@ -70,6 +70,10 @@ function errorToolExecutions(error: unknown): readonly ToolExecutionRecord[] {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause) || !Array.isArray(error.cause.toolExecutions)) return [];
   return error.cause.toolExecutions as ToolExecutionRecord[];
 }
+function errorModelCalls(error: unknown): number {
+  if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("modelCalls" in error.cause) || typeof error.cause.modelCalls !== "number") return 0;
+  return error.cause.modelCalls;
+}
 function proposalReferenceIssues(input: AgentCoreInput, output: AgentRunResult["output"]): ProposalIssue[] {
   const memoryIds = new Set(input.memories.map(({ id }) => id));
   const evidenceIds = new Set([input.run.eventId, ...memoryIds]);
@@ -101,10 +105,10 @@ export class DeepAgentHarness implements AgentHarness {
     for (const name of this.options.registeredToolNames) if (!inputToolNames.has(name)) throw new DomainError("VALIDATION", `Registered tool is missing from Agent Core input: ${name}`);
     const timeout = AbortSignal.timeout(input.limits.deadlineMs);
     const combined = AbortSignal.any([signal, timeout]);
-    let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = [];
-    const maxModelCalls = Math.min(input.limits.maxSteps, this.#maxRepairs + 1);
+    let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = []; let consumedModelCalls = 0;
+    const maxAttempts = this.#maxRepairs + 1;
     const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
-    for (let attempt = 0; attempt < maxModelCalls; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts && consumedModelCalls < input.limits.maxSteps; attempt += 1) {
       try {
         const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
@@ -115,22 +119,27 @@ export class DeepAgentHarness implements AgentHarness {
         const modelBudget = modelInputBudget(input, content);
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Model input exceeds ${String(MAX_MODEL_INPUT_TOKENS)} tokens: ${JSON.stringify(modelBudget.components)}`);
         const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: remainingModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: input.limits.maxToolCalls, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const invokedModelCalls = result.modelCalls ?? 1;
+        if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
+        consumedModelCalls += invokedModelCalls;
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
           const referenceIssues = [...proposalReferenceIssues(input, parsed.data), ...actionExecutionIssues(parsed.data, observedToolExecutions)];
-          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, maxModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(attempt + 1, attempt) }; }
+          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, attempt) }; }
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
         logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
       } catch (error) {
+        consumedModelCalls += errorModelCalls(error);
         observedToolExecutions.push(...errorToolExecutions(error));
-        throw providerFailure("Agent", error, combined, { providerError: error, toolExecutions: observedToolExecutions });
+        throw providerFailure("Agent", error, combined, { providerError: error, toolExecutions: observedToolExecutions, modelCalls: consumedModelCalls, budget: budgetResult(consumedModelCalls, 0) });
       }
     }
-    throw new DomainError(maxModelCalls <= this.#maxRepairs ? "LIMIT_EXCEEDED" : "VALIDATION", `Agent returned invalid structured output after ${String(maxModelCalls)} model calls: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions, budget: budgetResult(maxModelCalls, Math.max(0, maxModelCalls - 1)) } });
+    throw new DomainError(consumedModelCalls >= input.limits.maxSteps ? "LIMIT_EXCEEDED" : "VALIDATION", `Agent returned invalid structured output after ${String(consumedModelCalls)} model calls: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, Math.max(0, Math.min(this.#maxRepairs, consumedModelCalls - 1))) } });
   }
 }
 
@@ -162,24 +171,29 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
       async invoke(input, options) {
         const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: Math.min(1, options.maxToolCalls), signal: options.signal, ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }), ...(options.transport === undefined ? {} : { transport: options.transport }) });
         const messages = [new SystemMessage(agentCoreSystemPrompt), ...input.messages];
+        let modelCalls = 0;
         try {
           assertModelCallInputBudget(messages, [...operationalTools, finalTool], "initial");
+          if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains");
+          modelCalls += 1;
           const first = await firstModel.invoke(messages, { signal: options.signal });
           const calls = first.tool_calls ?? [];
           const submitted = calls.find(({ name }) => name === finalToolName);
-          if (submitted !== undefined) return { structuredResponse: submitted.args, messages: [...messages, first], toolExecutions: context.collector.executions };
+          if (submitted !== undefined) return { structuredResponse: submitted.args, messages: [...messages, first], toolExecutions: context.collector.executions, modelCalls };
           if (calls.length !== 1) throw new DomainError("VALIDATION", calls.length === 0 ? "Agent did not return a final Action or Tool call" : "Agent requested more than one Tool");
           const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
           if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
           const toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context });
           const continuationMessages = [...messages, first, new ToolMessage({ name: call.name, tool_call_id: call.id ?? "tool-1", content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) })];
           assertModelCallInputBudget(continuationMessages, [finalTool], "tool-continuation");
+          if (modelCalls >= options.maxModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Model call budget exhausted before Tool continuation");
+          modelCalls += 1;
           const continuation = await finalModel.invoke(continuationMessages, { signal: options.signal });
           const continuationCalls = continuation.tool_calls ?? [];
           const final = continuationCalls.find(({ name }) => name === finalToolName);
           if (final === undefined || continuationCalls.length !== 1) throw new DomainError("LIMIT_EXCEEDED", "Tool continuation must return exactly one final Action");
-          return { structuredResponse: final.args, messages: [...messages, first, continuation], toolExecutions: context.collector.executions };
-        } catch (error) { throw new DomainError("EXTERNAL", "Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions } }); }
+          return { structuredResponse: final.args, messages: [...messages, first, continuation], toolExecutions: context.collector.executions, modelCalls };
+        } catch (error) { throw new DomainError("EXTERNAL", "Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls } }); }
       }
     };
   }
@@ -210,8 +224,8 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
       context.collector.explorationModelCalls = 1;
       try {
         const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
-        return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions: context.collector.executions };
-      } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions } }); }
+        return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) };
+      } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) } }); }
     }
   };
 }

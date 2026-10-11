@@ -70,6 +70,11 @@ describe("AgentHarness contract", () => {
     expect(small.total).toBeLessThan(MAX_MODEL_INPUT_TOKENS);
     expect(continuation.total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
+  it("rejects an invoker that exceeds the remaining model call budget", async () => {
+    const input = agentCoreInputFixture(); input.limits.maxSteps = 1;
+    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: output, modelCalls: 2 }) };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal)).rejects.toMatchObject({ code: "EXTERNAL", cause: { modelCalls: 2 } });
+  });
 
   it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
     let creations = 0; const calls: { messages: unknown; context: { runId: string; eventId: string } }[] = [];
