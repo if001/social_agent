@@ -30,7 +30,7 @@
 
 - [x] **R09: Candidate単体IDへのフォールバックを削除する（互換候補）。** `agent-event-router.ts` のcandidateIds欠落時targetId利用と `postgres-schedule-repository.ts` の `candidateIds ?? [target.id]` が残る。現在のScheduler生成元はcandidateIdsを渡している。実装設計 §23・§24 に沿い、他の生成元がないことを確認し、Long-term Review用の必須candidateIdsを持つ判別可能な型にする。完了条件: 複数Candidateのlease解除・完了を維持し、入力欠落は明確な契約違反になる。
 
-- [ ] **R10: 共有Web Archiveの未使用agentId引数を削除する（確認済み）。** `postgres-web-archive.ts::search/backfill` は `_agentId` を使用しない。共有アーカイブという採用方針を実装設計 §16・§28 と照合しdocsで明確にした上で、呼び出し元・テストも含め引数を削除する。保存者のprovenanceは別責務として維持する。完了条件: 検索が個体別に分離されていると誤解させるAPIがなく、取得者と保存者を混同しない。
+- [x] **R10: 共有Web Archiveの未使用agentId引数を削除する（確認済み）。** `postgres-web-archive.ts::search/backfill` は `_agentId` を使用しない。共有アーカイブという採用方針を実装設計 §16・§28 と照合しdocsで明確にした上で、呼び出し元・テストも含め引数を削除する。保存者のprovenanceは別責務として維持する。完了条件: 検索が個体別に分離されていると誤解させるAPIがなく、取得者と保存者を混同しない。
 
 - [ ] **R11: ApplicationからInfrastructureへの型依存を解消する（確認済み）。** `application/post-process.ts` がHarness interfaceを `infrastructure/agent/post-process-harness.ts` からimportし、`infrastructure/tools/web-tools.ts` の契約は具象PostgresWebArchiveのPickになっている。実装設計 §2・§29 に沿い、必要最小限のportを適切な境界へ移す。完了条件: 処理担当のinterfaceが実装方式やDB名に依存せず、模擬実装を差し替えられる。巨大な汎用Repositoryは作らない。
 
@@ -65,3 +65,4 @@
 - R07: [Issue 124](../issues/124-unify-post-process-retries.md)。claim済みjobを含むretry loopを共有。
 - R08: [Issue 125](../issues/125-share-llm-provider-boundary.md)。接続設定とprovider障害の分類・cause保持を共有。
 - R09: [Issue 126](../issues/126-remove-review-id-fallback.md)。Candidate配列を必須化し、単体ID補完を削除。
+- R10: [Issue 127](../issues/127-remove-archive-agent-scope.md)。共有Archiveのsearch/backfillから未使用Agent ID引数を削除。

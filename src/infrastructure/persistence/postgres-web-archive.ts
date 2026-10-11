@@ -51,7 +51,7 @@ export class PostgresWebArchive {
     const row = await this.#snapshot(snapshotId); return { snapshotId: row.id, url: row.canonical_url, title: row.title, summary: row.summary, fetchedAt: row.fetched_at.toISOString(), status: row.processing_status, reference: { type: "web-snapshot", id: row.id } };
   }
 
-  async search(_agentId: string, input: WebArchiveSearchInput, signal: AbortSignal): Promise<readonly WebArchiveSearchResult[]> {
+  async search(input: WebArchiveSearchInput, signal: AbortSignal): Promise<readonly WebArchiveSearchResult[]> {
     let vector: string | null = null; try { const [embedded] = await this.embedding.embed([input.query], signal); if (embedded !== undefined) vector = `[${embedded.join(",")}]`; } catch { /* keyword fallback */ }
     const keywords = input.query.normalize("NFKC").toLocaleLowerCase("ja").split(/\s+/u).filter((value) => value.length >= 2).slice(0, 32);
     const result = await this.pool.query<SnapshotRow>(`SELECT s.*,r.canonical_url FROM web_snapshots s JOIN web_resources r ON r.id=s.resource_id WHERE s.processing_status='ready' AND ($3::timestamptz IS NULL OR s.fetched_at >= $3) AND ($4::text IS NULL OR r.canonical_url LIKE $4 || '%') ORDER BY COALESCE(CASE WHEN $1::text IS NULL OR s.embedding IS NULL THEN NULL ELSE s.embedding <=> $1::vector END,2),(SELECT count(*) FROM unnest($2::text[]) keyword WHERE position(keyword in lower(s.title || ' ' || s.summary || ' ' || r.canonical_url))>0) DESC,s.fetched_at DESC,s.id LIMIT $5`, [vector, keywords, input.fetchedAfter ?? null, input.urlPrefix ?? null, input.limit]);
@@ -72,7 +72,7 @@ export class PostgresWebArchive {
     return { snapshotId, matches: bounded.entries, truncated: ranges.truncated || bounded.truncated };
   }
 
-  async backfill(_agentId: string, limit: number, signal: AbortSignal): Promise<number> {
+  async backfill(limit: number, signal: AbortSignal): Promise<number> {
     const rows = await this.pool.query<{ id: string }>("SELECT id FROM web_snapshots WHERE processing_status IN ('pending','failed') ORDER BY fetched_at,id LIMIT $1", [limit]); for (const row of rows.rows) await this.#process(row.id, signal); return rows.rows.length;
   }
 

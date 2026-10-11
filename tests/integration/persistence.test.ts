@@ -199,7 +199,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const latest = await archive.archivePages([{ url: "https://example.com/article?a=1&b=2", title: "Postgres vectors", markdown: changed }], { ...context, toolCallId: "tool-3" }, new AbortController().signal);
     expect(first[0]?.snapshotId).toBe(repeated[0]?.snapshotId); expect(latest[0]?.snapshotId).not.toBe(first[0]?.snapshotId);
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM web_snapshots")).rows[0]?.count).toBe("2");
-    const found = await archive.search("b", { query: "vector search", limit: 5 }, new AbortController().signal);
+    const found = await archive.search({ query: "vector search", limit: 5 }, new AbortController().signal);
     expect(found.map(({ snapshotId }) => snapshotId)).toContain(first[0]?.snapshotId);
     expect((await archive.read(first[0]?.snapshotId ?? "", 0, 20)).text.length).toBeLessThanOrEqual(20);
     expect((await archive.grep(first[0]?.snapshotId ?? "", "HNSW")).matches.length).toBeGreaterThan(0);

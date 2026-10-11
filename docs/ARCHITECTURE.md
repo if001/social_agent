@@ -1111,3 +1111,7 @@ claim済みjobと再claimしたjobは同じ実行loopを使う。即時後処理
 ### Long-term Review EventのID契約（Issue 126 / R09）
 
 Review Eventは空でないcandidateIds配列を必須とする。targetIdからCandidate IDを補完せず、不正な配列を部分採用しない。Schedulerのcomplete/releaseも同じ配列を使用する。
+
+### 共有Web ArchiveのAPI（Issue 127 / R10）
+
+検索とbackfillは個体を指定しない。資料はBot間で共有するが、保存者のAgent ID・Event/Run IDはprovenanceとして残す。個体のMemory検索に適用する所有者制約とは別の契約である。
