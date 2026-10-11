@@ -1,45 +1,56 @@
 # Test Strategy
 
-本書は現在の実装に対する検証方針を定める。要求の一次資料は[概念設計](../spec/personal-agent-concept-design-restructured-v2.md)と[実装設計](../spec/personal-agent-implementation-design-v2.md)である。
-
 ## Test layers
 
 ### Unit / contract
 
-schema、focused context上限、推定token budget、実model call予算、Action変換、schedule計算を外部serviceなしで検証する。全call種別のgate、境界値、不正な構造化出力を含める。
+- Self、State、Concern、Relationship、Memory、Event Assessment、Agent Turnのschema
+- Contextの所有権、件数・文字列・推定token budget、Memory重複排除
+- State Patchのupsert/removeと別Agent更新拒否
+- 不正なstructured output、未登録Tool、call budget、反復Tool入力の拒否
+- Concern schedule、Scheduled Task、Reflection契約
 
 ### System
 
-fake model、fake tool、in-memory adapterで、直接ActionとTool経由Actionの両方を検証する。特に次を固定する。
-
-- assessmentを含む実model call計数、設定されたTool上限、production上限25
-- 依存Tool、失敗後の別Tool、同一Tool・同一入力の拒否、失敗Toolだけでのno-action拒否
-- 現EventのMeaning/Emotionと、Self/Mood/Social Context/Motiveを含む型付き根拠
-- `respond`と`refuse`のOutbox保存
-- Action確定後のpost-process failure分離
-- 永続的な単一experience-integration job、continuityとmemoryの共有model result、失敗後の再claim
-- Emotionの根拠と6時間expiry
-- Motiveと再検討scheduleの同期
-- autonomy reviewから通常Decision loopへの接続
+- Terminal、Discord、Agent間Messageが同じAgent Loopを通ること
+- Event AssessmentからDesire、Action、Patchへの引き渡し
+- Tool continuationと最終Action、失敗Toolだけによる無行動拒否
+- respond/refuseのOutbox保存と配送再試行
+- 自律EventがActionも通知もなく成功しないこと
+- crash recovery、複数Agent分離、Runtime制限
 
 ### PostgreSQL integration
 
-実repositoryとmigrationを使い、transaction、claim、冪等性、Outbox、Emotion、Motive scheduleを検証する。DB接続値はtest実行時に環境から読み取ってよいが、test outputへ値を表示しない。
+実migrationと隔離schemaを使い、State version競合、transaction rollback、advisory lock、Memory検索、Reflection commit、Concern schedule、Tool trace、Outbox冪等性を検証する。接続設定はtest processから読み込めるが、値をoutputへ表示しない。
 
 ### Evaluation
 
-人格らしさや状態に応じた判断は、同じ観測で内部状態だけを変えた6組のpaired scenarioを実モデルで反復する。各variantを最低3回実行し、scenario ID、state条件、model、時刻、入力・出力、Tool trace、配送、次state、構造化判定、failure stage/kindを記録する。失敗を分母に含め、行動率差、最小効果量2/3、95% Wilson区間をpair別に集計する。
+同一Observationに状態差だけを与えるpaired scenarioを反復し、Action、Tool利用、配送、次Stateをartifactへ保存する。少なくとも以下を含める。
 
-自動testの合格だけでは振る舞いを「実証済み」にしない。欠測、hard/semantic failure、期待方向の効果量不足はいずれもgate不合格とし、CLI終了値1で検出する。2026-10-11の36試行は全件保存されたが全6 pairが不合格であり、自律性改善の成功証拠には使わない。
+- praise / criticism: MemoryとRelationshipによるMeaning・Feeling・Action差
+- boredom: MoodによるAction差
+- refusal: 競合Concernによる受諾・拒否差
+- curiosity: ConcernとMemoryによる自律Tool利用差
+- individuality: 異なる経験から形成されたSelf Storyと行動差
+
+欠測、schema failure、timeout、期待方向に届かない効果量を成功へ含めない。自動testの合格だけで人格らしさを実証済みとはしない。
 
 ## Standard verification
 
-通常の変更は`pnpm verify`でformat、lint、typecheck、unit、system、integrationを実行する。変更範囲に応じてmigration検証と実モデルevaluationを追加する。
+```sh
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm test:system
+pnpm test:evaluation
+node --env-file=.env ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts --passWithNoTests
+```
+
+DB schema変更時は`pnpm db:generate`でmigrationを生成し、隔離schemaで検証してから、明示的な許可を得て共有DBへ`pnpm db:migrate`を適用する。
 
 ## Release conditions
 
-- 対象contractのunit / system testが成功する。
-- DB変更がある場合はPostgreSQL integration testが成功する。
-- schema、migration、repository、文書の用語が一致する。
-- 振る舞いを主張する変更では、反復evaluation artifactと集計を保存する。
-- flaky、skip、未分類failureを成功件数に含めない。
+- 全自動suiteが成功する。
+- schema、migration、repository、prompt、文書の用語が一致する。
+- 旧互換経路をtestのためだけに残していない。
+- 振る舞いを主張する場合は反復live evaluation artifactと集計を保存する。

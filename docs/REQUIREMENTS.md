@@ -1,56 +1,50 @@
 # Requirements
 
-本書は現在の実装要求をまとめた二次資料である。要求の一次資料は[概念設計](../spec/personal-agent-concept-design-restructured-v2.md)と[実装設計](../spec/personal-agent-implementation-design-v2.md)である。
+本書は現行実装の要求をまとめる。再設計の判断根拠は[`note/agent-architecture-redesign-policy.md`](../note/agent-architecture-redesign-policy.md)を参照する。
 
-## Agent loop
+## Agent Loop
 
-- 現在EventのMeaningとEmotionをassessment callで決定し、その出力をDecisionへ渡す。
-- Decisionとcontinuationは、最終Actionまたは登録済みToolを選ぶ。productionでは最大25 Tool、既定でassessmentを含む最大27 model callとする。
-- assessment、Decision、continuation、repairの実model callをすべて実行予算へ数える。
-- 同一Tool・同一入力の反復、26回目のTool、予算を超えるcallを拒否する。testでは設定値により小さい上限を使用できる。
-- production loopは再帰的委譲、組み込みファイル操作、履歴の自動要約に依存しない。
+- すべての通常EventはContext構築、Event Assessment、Agent Core、commitの単一経路を通る。
+- Event AssessmentはMeaningとFeelingを決める。
+- Agent Coreは`desire`、最終`action`、任意の`patch`を返す。
+- Tool continuationも同じAgent Core契約を使い、model call数・Tool call数・deadlineをRuntimeが制限する。
+- 同一Tool・同一入力の反復、未登録Tool、予算超過を拒否する。
 
-## Context
+## Self、State、Memory
 
-- Motiveは最大3件、Social Contextは最大1件、Memoryは3〜5件、Recent Eventは2〜4件を選ぶ。
-- `motive-review`の対象MotiveはMotive枠へ必ず含める。
-- Selfは判断に必要な内容へ圧縮する。
-- active Motiveの根拠はEvent、Memory、Self、Mood、Social Context、Motiveの型付き参照とする。
-- system prompt、messages、tools、output schemaを含む総入力を文字数ベースの推定6,000 token以内にする。この値をprovider tokenizerのhard limitとは表現しない。
-- 全model callの直前に同じ入力gateを適用する。
-- 超過を解消できない場合は黙って切り詰めず、limit errorを返す。
+- Current Selfはidentity、disposition、selfStory、commitmentsを持つ。
+- Current Agent Stateは任意のmood、concerns、relationshipsを持つ。
+- Concernは継続中の関心・約束・未完了課題・感情的なしこりを統合し、任意の再検討時刻を持つ。
+- FeelingはEvent Assessment内の短期反応であり、次のEventにも影響するときだけMood、Concern、Relationshipへ保存する。
+- Memoryは内容、重要性、時刻、subject、根拠Event/Memoryを保持する。
+- Contextに別Agent所有のSelf、State、Recent Experience、Memoryを混入させない。
 
-## Action
+## ActionとPatch
 
-- `respond`は利用者向け`content`を持つ。
-- `refuse`は利用者向け`content`と内部用`reason`を持つ。
-- 送信対象ActionはOutboxへ保存し、配送を再試行可能にする。
-- ActionとOutboxを同一transactionで確定する。
-- Action確定後の状態更新失敗は、確定済みActionを取り消さない。
+- `respond`と`refuse`は利用者向けcontentを持ち、Outboxで配送する。
+- `no-external-action`は観測可能な理由を持つ。
+- 通常Interactionは成功Toolなしの`no-external-action`で成功できない。
+- 自律Eventは具体的Actionまたは配送可能な通知なしに成功できない。
+- Patchはmood、Concern 1件、Relationship 1件、Memory意図に限定する。
+- Self変更はReflectionだけがMemory根拠と変更理由を伴って行う。
 
-## Experience integration
+## Event-driven autonomyとReflection
 
-- continuity更新とepisodic memory抽出は、永続的な単一`experience-integration` jobと1回の構造化LLM出力を共有し、同一transactionで反映する。
-- integration失敗を再試行でき、process再起動でjobを失わない。
-- Eventからlong-term memory候補を直接作らない。
-- Emotionはdescription、発生時刻、根拠Eventを持つ現在状態として保存する。
-- 強いfocusは6時間で失効する。
-- Motiveは`nextConsiderAt`と`considerationReason`を持つ。
-- Motiveの作成・更新と再検討scheduleを同期する。
-
-## Schedule
-
-- 期限を迎えたMotiveは`motive-review` Eventへ変換する。
-- 自律的な再検討は共通のautonomy review経路からDecision loopへ入れる。
-- ユーザーが明示したreminder等のScheduled Taskは独立した配送契約として扱う。
+- 自律性は`idle`、`concern-due`、`external-change`などのEvent sourceで起動し、常時polling型の認知loopに依存しない。
+- Concernの作成・更新・削除と再検討scheduleを同期する。
+- ユーザー指定のScheduled Taskは独立した約束として保持する。
+- ReflectionはEvent logをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance Eventである。
+- Candidate Detection、Long-term Review、interaction単位のcontinuity/memory後処理を正規経路へ戻さない。
 
 ## 永続化と運用
 
-- PostgreSQLを永続状態の正本とする。
-- Queue受信とOutbox配送は重複実行に耐える。
-- 秘密情報はrepositoryへ保存しない。
-- `.env`は実行時の設定読込にだけ使用し、文書生成や調査で内容を表示しない。公開可能な設定例は`.env.sample`で管理する。
+- Event、Run、Tool execution、State change、Memory、Outboxを監査可能にする。
+- ActionとOutbox、State Patchを一貫したtransaction境界で確定する。
+- Queue、Outbox、Tool実行はretryと重複実行に耐える。
+- Agentごとのadvisory lock、Tool権限、TTL、hop、rate limitを維持する。
+- PostgreSQL schemaは現行Domain契約だけを保持し、旧互換列・tableを追加しない。
+- `.env`は実行時だけ読み込み、内容を表示・文書化しない。
 
-## 完了と評価
+## 完了判定
 
-機能の「実装済み」はcode reviewと自動testの合格を意味する。「実行可能」は必要なruntime・test入口が存在すること、「実測済み」は指定条件のlive artifactが保存されたこと、「振る舞いを実証済み」はそのartifactが事前基準を満たしたことを意味する。2026-10-11の36試行は実測済みだがgate不合格であり、状態差による自律性改善は未実証である。
+自動test合格は契約と運用保証の実装済み判定である。状態差が行動差を生むことの実証には、同一ObservationでSelf、Mood、Concern、Relationship、Memoryだけを変えたpaired live evaluationを用いる。
