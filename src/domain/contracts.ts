@@ -239,21 +239,6 @@ export const RecentExperienceSchema = z.object({
 });
 export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 
-export const ReviewDecisionSchema = z.enum(["KEEP", "UPDATE", "MERGE", "DROP"]);
-export const CandidateSchema = z.object({
-  id: Id,
-  agentId: Id,
-  target: z.enum(["selfNarrative", "selfContinuity", "values", "acquiredDisposition", "role", "raisonDetre", "longTermPreference", "longTermInterest", "semanticMemory", "selfRelatedMemory"]),
-  proposal: NaturalLanguage,
-  reason: NaturalLanguage,
-  evidenceMemoryIds: z.array(Id),
-  evidenceEventIds: z.array(Id).default([]),
-  status: z.enum(["pending", "kept", "applied", "merged", "dropped"]),
-  createdAt: Instant
-}).superRefine((value, context) => {
-  if (value.evidenceMemoryIds.length === 0 && value.evidenceEventIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "candidate requires Memory or Event evidence" });
-});
-export type Candidate = z.infer<typeof CandidateSchema>;
 
 export const FinalActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond"), content: NaturalLanguage.describe("相手へ配送する最終応答の本文。personaの発話表現を適用する") }),
@@ -302,17 +287,6 @@ export const StateUpdateProposalSchema = z.object({
   evidenceIds: z.array(Id)
 });
 
-export const MemoryProposalSchema = MemorySchema.omit({ id: true, agentId: true, occurredAt: true, createdAt: true, kind: true, sourceAgentId: true, evidenceEventIds: true }).extend({ webSnapshotIds: z.array(Id).default([]) });
-
-export const LongTermCandidateProposalSchema = z.object({
-  target: CandidateSchema.shape.target,
-  proposal: NaturalLanguage,
-  reason: NaturalLanguage,
-  evidenceMemoryIds: z.array(Id),
-  evidenceEventIds: z.array(Id).default([])
-}).superRefine((value, context) => {
-  if (value.evidenceMemoryIds.length === 0 && value.evidenceEventIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "candidate requires Memory or Event evidence" });
-});
 
 export const AgentCoreInputSchema = z.object({
   run: z.object({
@@ -374,35 +348,6 @@ export const AgentCoreOutputSchema = z.object({
 }).describe("Interactionの最終結果。Eventの解釈、即時状態の更新案、最終行動を返す");
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
-const MotiveProposalBase = { reason: NaturalLanguage, evidenceIds: z.array(Id).min(1) };
-const MotiveShape = { description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional(), nextConsiderAt: Instant.optional(), considerationReason: NaturalLanguage.optional() };
-export const MotiveProposalSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("create"), ...MotiveShape, ...MotiveProposalBase }).strict(),
-  z.object({ operation: z.literal("maintain"), motiveId: Id, ...MotiveProposalBase }).strict(),
-  z.object({ operation: z.literal("update"), motiveId: Id, ...MotiveShape, ...MotiveProposalBase }).strict(),
-  z.object({ operation: z.literal("merge"), motiveIds: z.array(Id).min(2), ...MotiveShape, ...MotiveProposalBase }).strict(),
-  z.object({ operation: z.enum(["resolve", "drop"]), motiveId: Id, ...MotiveProposalBase }).strict()
-]).superRefine((value, context) => {
-  if ("goal" in value && ((value.goal === undefined) !== (value.progress === undefined))) context.addIssue({ code: "custom", path: [value.goal === undefined ? "goal" : "progress"], message: "goal and progress must be provided together" });
-  if ("nextConsiderAt" in value && ((value.nextConsiderAt === undefined) !== (value.considerationReason === undefined))) context.addIssue({ code: "custom", path: [value.nextConsiderAt === undefined ? "nextConsiderAt" : "considerationReason"], message: "nextConsiderAt and considerationReason must be provided together" });
-});
-export type MotiveProposal = z.infer<typeof MotiveProposalSchema>;
-
-export const ContinuityOutputSchema = z.object({
-  persistentStateUpdates: z.array(StateUpdateProposalSchema).superRefine((updates, context) => {
-    updates.forEach((update, index) => {
-      if (!["mood", "socialContext"].includes(update.target)) context.addIssue({ code: "custom", path: [index, "target"], message: "Continuity may update only Mood and Social Context here" });
-    });
-  }),
-  motiveProposals: z.array(MotiveProposalSchema)
-});
-export type ContinuityOutput = z.infer<typeof ContinuityOutputSchema>;
-export const MemoryExtractionOutputSchema = z.object({ memoryProposals: z.array(MemoryProposalSchema) });
-export type MemoryExtractionOutput = z.infer<typeof MemoryExtractionOutputSchema>;
-export const ExperienceIntegrationOutputSchema = ContinuityOutputSchema.extend({ memoryProposals: MemoryExtractionOutputSchema.shape.memoryProposals });
-export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;
-export const CandidateDetectionOutputSchema = z.object({ longTermCandidates: z.array(LongTermCandidateProposalSchema) });
-export type CandidateDetectionOutput = z.infer<typeof CandidateDetectionOutputSchema>;
 
 export const ToolExecutionRecordSchema = z.object({
   callId: Id,
@@ -431,29 +376,6 @@ export const AgentRunResultSchema = z.object({
 });
 export type AgentRunResult = z.infer<typeof AgentRunResultSchema>;
 
-const PostProcessToolResultSchema = z.object({ name: Id, ok: z.boolean(), summary: NaturalLanguage, webSnapshotIds: z.array(Id) });
-export const PostProcessSnapshotSchema = z.object({
-  run: AgentCoreInputSchema.shape.run.pick({ runId: true, eventId: true, agentId: true, occurredAt: true }),
-  observation: ObservationSchema,
-  recentExperiences: z.array(RecentExperienceSchema),
-  persona: BotPersonaSchema.optional(),
-  self: AgentSchema,
-  dynamicState: DynamicStateSchema,
-  socialContext: z.array(SocialContextSchema),
-  memories: z.array(MemorySchema),
-  interaction: z.object({ interpretation: AgentCoreOutputSchema.shape.interpretation, action: FinalActionSchema, toolResults: z.array(PostProcessToolResultSchema) })
-});
-export type PostProcessSnapshot = z.infer<typeof PostProcessSnapshotSchema>;
-export const ContinuityInputSchema = PostProcessSnapshotSchema;
-export type ContinuityInput = z.infer<typeof ContinuityInputSchema>;
-export const MemoryExtractionInputSchema = PostProcessSnapshotSchema;
-export type MemoryExtractionInput = z.infer<typeof MemoryExtractionInputSchema>;
-export const CandidateDetectionInputSchema = z.object({
-  run: PostProcessSnapshotSchema.shape.run,
-  self: AgentSchema,
-  memories: z.array(MemorySchema).min(1)
-});
-export type CandidateDetectionInput = z.infer<typeof CandidateDetectionInputSchema>;
 
 export const MessageEnvelopeSchema = z.object({
   id: Id,

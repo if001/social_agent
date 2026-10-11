@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { DomainError, MotiveProposalSchema, StateUpdateProposalSchema, type DynamicState, type Motive, type MotiveExploration, type MotiveProposal, type SocialContext } from "../domain/contracts.js";
+import { DomainError, StateUpdateProposalSchema, type DynamicState, type SocialContext } from "../domain/contracts.js";
 
 export type StateChange = {
   readonly target: string;
@@ -13,43 +13,6 @@ export type StateChange = {
 
 export type StateUpdateResult = { readonly state: DynamicState; readonly changes: readonly StateChange[] };
 
-export function applyMotiveProposals(state: DynamicState, rawProposals: readonly unknown[], nextId: () => string, occurredAt = state.updatedAt): StateUpdateResult {
-  let motives = [...state.motives];
-  let motiveExploration = [...state.motiveExploration];
-  const changes: StateChange[] = [];
-  const metadata = (motiveId: string): MotiveExploration => motiveExploration.find((item) => item.motiveId === motiveId) ?? { motiveId, consecutiveNoProgress: 0 };
-  const materialize = (proposal: Extract<MotiveProposal, { operation: "create" }>, id: string): Motive => ({ id, description: proposal.description, ...(proposal.goal === undefined ? {} : { goal: proposal.goal, progress: proposal.progress ?? 0 }), ...(proposal.nextConsiderAt === undefined ? {} : { nextConsiderAt: proposal.nextConsiderAt, considerationReason: proposal.considerationReason }), sourceEvidenceIds: [...new Set(proposal.evidenceIds)], since: occurredAt });
-  for (const raw of rawProposals) {
-    const proposal = MotiveProposalSchema.parse(raw);
-    const before = [...motives];
-    if (proposal.operation === "create") {
-      const motive = materialize(proposal, nextId()); motives.push(motive); motiveExploration.push({ motiveId: motive.id, consecutiveNoProgress: 0 });
-      changes.push({ target: "motives", operation: "append", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue;
-    }
-    if (proposal.operation === "merge") {
-      const sources = proposal.motiveIds.map((id) => motives.find((item) => item.id === id));
-      if (sources.some((item) => item === undefined)) throw new DomainError("VALIDATION", "Cannot merge an unknown Motive");
-      const known = sources.filter((item): item is Motive => item !== undefined); const id = nextId();
-      motives = motives.filter((item) => !proposal.motiveIds.includes(item.id));
-      motives.push({ id, description: proposal.description, ...(proposal.goal === undefined ? {} : { goal: proposal.goal, progress: proposal.progress ?? 0 }), sourceEvidenceIds: [...new Set([...known.flatMap(({ sourceEvidenceIds }) => sourceEvidenceIds), ...proposal.evidenceIds])], since: known.map(({ since }) => since).sort()[0] ?? occurredAt });
-      motiveExploration = [...motiveExploration.filter((item) => !proposal.motiveIds.includes(item.motiveId)), { motiveId: id, consecutiveNoProgress: 0 }];
-      changes.push({ target: "motives", operation: "set", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue;
-    }
-    const index = motives.findIndex(({ id }) => id === proposal.motiveId); const existing = motives[index];
-    if (existing === undefined) throw new DomainError("VALIDATION", "Cannot update an unknown Motive");
-    if (proposal.operation === "resolve" || proposal.operation === "drop") { motives.splice(index, 1); motiveExploration = motiveExploration.filter(({ motiveId }) => motiveId !== proposal.motiveId); changes.push({ target: "motives", operation: "remove", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue; }
-    if (proposal.operation === "maintain") { changes.push({ target: "motives", operation: "set", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds }); continue; }
-    if (!("description" in proposal)) throw new DomainError("VALIDATION", "Unsupported Motive operation");
-    const update: Extract<MotiveProposal, { operation: "update" }> = proposal;
-    const previous = metadata(update.motiveId); const nextProgress = update.goal === undefined ? undefined : update.progress ?? 0;
-    const progressed = nextProgress !== undefined && (existing.progress === undefined || nextProgress > existing.progress);
-    motives[index] = { ...existing, description: update.description, ...(update.goal === undefined ? { goal: undefined, progress: undefined } : { goal: update.goal, progress: nextProgress }), ...(update.nextConsiderAt === undefined ? {} : { nextConsiderAt: update.nextConsiderAt, considerationReason: update.considerationReason }), sourceEvidenceIds: [...new Set([...existing.sourceEvidenceIds, ...update.evidenceIds])] };
-    const noProgress = progressed ? 0 : previous.consecutiveNoProgress + 1; const cooldownUntil = noProgress >= 2 ? new Date(new Date(occurredAt).getTime() + 21_600_000).toISOString() : undefined;
-    motiveExploration = [...motiveExploration.filter(({ motiveId }) => motiveId !== proposal.motiveId), { motiveId: proposal.motiveId, consecutiveNoProgress: noProgress, lastExploredAt: occurredAt, ...(cooldownUntil === undefined ? {} : { cooldownUntil }) }];
-    changes.push({ target: "motives", operation: "set", before, after: motives, reason: proposal.reason, evidenceIds: proposal.evidenceIds });
-  }
-  return { state: { ...state, motives, motiveExploration }, changes };
-}
 
 const persistentScalarTargets = new Set(["mood"]);
 const persistentCollectionTargets = new Set<string>();

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, AgentStateSchema, AgentTurnSchema, CandidateSchema, ContinuityOutputSchema, EpisodicMemorySchema, EventAssessmentSchema, MemoryExtractionOutputSchema, MessageEnvelopeSchema, ReviewDecisionSchema, SelfSchema } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, MessageEnvelopeSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -16,7 +16,7 @@ describe("domain contracts", () => {
     }
   });
 
-  it("represents every action and review decision", () => {
+  it("represents every action", () => {
     for (const action of [
       { type: "respond", content: "Hello" },
       { type: "refuse", content: "I can't help with that.", reason: "Unsafe", basis: "system" },
@@ -26,7 +26,6 @@ describe("domain contracts", () => {
     expect(AgentActionSchema.safeParse({ type: "refuse", reason: "private reason", basis: "personality" }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "tool", call: { id: "c", name: "web", input: {} } }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "wait", reason: "Later" }).success).toBe(false);
-    for (const decision of ["KEEP", "UPDATE", "MERGE", "DROP"]) expect(ReviewDecisionSchema.parse(decision)).toBe(decision);
   });
 
   it("defines the redesigned natural-language Self, State, Memory, Assessment and Turn", () => {
@@ -36,11 +35,6 @@ describe("domain contracts", () => {
     expect(EventAssessmentSchema.parse({ meaning: "大切な約束が軽視された", feeling: "怒りと失望" })).toBeDefined();
     expect(AgentTurnSchema.safeParse({ desire: "境界を伝えたい", action: { type: "notify-no-execution", content: "今回は待つ", reason: "材料不足" } }).success).toBe(true);
     expect(AgentTurnSchema.safeParse({ desire: "待つ", action: { type: "wait" } }).success).toBe(false);
-  });
-
-  it("keeps natural-language state and candidate evidence", () => {
-    expect(CandidateSchema.safeParse({ id: "c", agentId: "a", target: "selfNarrative", proposal: "I increasingly value patient inquiry", reason: "Repeated experiences", evidenceMemoryIds: [], evidenceEventIds: [], status: "pending", createdAt: "2026-01-01T00:00:00Z" }).success).toBe(false);
-    expect(CandidateSchema.safeParse({ id: "c", agentId: "a", target: "semanticMemory", proposal: "The user prefers concise plans", reason: "Explicit statement", evidenceMemoryIds: [], evidenceEventIds: ["event-1"], status: "pending", createdAt: "2026-01-01T00:00:00Z" }).success).toBe(true);
   });
 
   it("maps every Event kind to an objective, provenance-aware Observation", () => {
@@ -77,21 +71,5 @@ describe("domain contracts", () => {
     });
     expect(parsed.internalChanges.immediateStateUpdates[0]?.target).toBe("emotion");
     expect(AgentCoreOutputSchema.safeParse({ ...parsed, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }] } }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "Persistent", evidenceIds: [] }], motiveProposals: [] }).success).toBe(true);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], motiveProposals: [{ operation: "create", description: "Understand", reason: "Grounded", evidenceIds: ["event-1"], since: "2026-01-01T00:00:00Z" }] }).success).toBe(false);
-    expect(ContinuityOutputSchema.safeParse({ persistentStateUpdates: [], motiveProposals: [{ operation: "create", description: "Understand", reason: "Ungrounded", evidenceIds: [] }] }).success).toBe(false);
-    expect(MemoryExtractionOutputSchema.safeParse({ memoryProposals: [] }).success).toBe(true);
-  });
-
-  it("represents an exploratory Motive with an optional provisional goal", () => {
-    const base = { persistentStateUpdates: [] };
-    expect(ContinuityOutputSchema.safeParse({
-      ...base,
-      motiveProposals: [{ operation: "create", description: "三角関数を理解したい", goal: "sinとcosの関係を説明できる", progress: 25, reason: "今の理解に合う関心", evidenceIds: ["event-1"] }]
-    }).success).toBe(true);
-    expect(ContinuityOutputSchema.safeParse({
-      ...base,
-      motiveProposals: [{ operation: "create", question: "三角関数とは何か", goal: "sinとcosの関係を説明できる", progress: 25, reason: "旧契約", evidenceIds: ["event-1"] }]
-    }).success).toBe(false);
   });
 });
