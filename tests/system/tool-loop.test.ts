@@ -54,7 +54,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Recent identical Tool input must not be repeated" });
   });
 
-  it("can choose a Tool on autonomy review from Self, Motive, and Memory", async () => {
+  it("can choose a Tool on autonomy review from Self, Concern, and Memory", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
       const prompt = modelInput.messages[0]?.content ?? "";
@@ -64,7 +64,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
       await lookup?.invoke({ query: "HNSW tradeoffs" }, { context: runContext });
       return { structuredResponse: finalOutput, toolExecutions: runContext.collector.executions };
     } };
-    const input = agentCoreInputFixture(); input.observation = { eventId: input.run.eventId, summary: "Autonomy review", facts: ["No user request"], observedAt: fixtureInstant, content: { targetKind: "autonomy-review", schedulerGenerated: true } }; input.dynamicState = { ...input.dynamicState, motives: [{ id: "motive-hnsw", description: "Understand HNSW tradeoffs", goal: "Explain the main tradeoffs", progress: 25, sourceEvidenceIds: [input.run.eventId], since: fixtureInstant }] }; input.memories = [{ id: "memory-index", agentId: input.run.agentId, kind: "episodic", content: "Previous index research", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], importance: "Unresolved", retrievalPriority: "normal", evidenceEventIds: [input.run.eventId] }]; input.availableTools = [{ name: "lookup", description: "Search a topic", inputSchema: {} }];
+    const input = agentCoreInputFixture(); input.observation = { eventId: input.run.eventId, summary: "Autonomy review", facts: ["No user request"], observedAt: fixtureInstant, content: { targetKind: "autonomy-review", schedulerGenerated: true } }; input.state = { ...input.state, concerns: [{ id: "concern-hnsw", description: "Understand HNSW tradeoffs", whyItMatters: "Explain the main tradeoffs", status: "active" }] }; input.memories = [{ id: "memory-index", agentId: input.run.agentId, kind: "episodic", content: "Previous index research", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], importance: "Unresolved", retrievalPriority: "normal", evidenceEventIds: [input.run.eventId] }]; input.availableTools = [{ name: "lookup", description: "Search a topic", inputSchema: {} }];
     const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
     expect(result.toolExecutions).toHaveLength(1);
   });

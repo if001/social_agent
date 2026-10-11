@@ -64,26 +64,6 @@ export const AgentFamilySchema = z.object({
   sharedDisposition: NaturalLanguage
 });
 
-export const AgentSchema = z.object({
-  id: Id,
-  familyId: Id,
-  identity: NaturalLanguage,
-  disposition: z.object({
-    shared: NaturalLanguage,
-    initial: NaturalLanguage,
-    acquired: NaturalLanguage
-  }),
-  values: NaturalLanguage,
-  interests: z.array(NaturalLanguage),
-  preferences: z.array(NaturalLanguage),
-  roles: z.array(NaturalLanguage),
-  raisonDetre: NaturalLanguage.optional(),
-  selfNarrative: NaturalLanguage,
-  selfContinuity: NaturalLanguage,
-  version: z.number().int().nonnegative()
-});
-export type Agent = z.infer<typeof AgentSchema>;
-
 export const BotPersonaSchema = z.object({
   version: z.literal(1),
   identity: z.object({ displayName: NaturalLanguage, description: NaturalLanguage.optional() }),
@@ -97,14 +77,6 @@ export const BotPersonaSchema = z.object({
 });
 export type BotPersona = z.infer<typeof BotPersonaSchema>;
 
-export const MotiveProgressSchema = z.union([z.literal(0), z.literal(25), z.literal(50), z.literal(75), z.literal(100)]);
-export const MotiveSchema = z.object({ id: Id, description: NaturalLanguage, goal: NaturalLanguage.optional(), progress: MotiveProgressSchema.optional(), sourceEvidenceIds: z.array(Id), since: Instant, nextConsiderAt: Instant.optional(), considerationReason: NaturalLanguage.optional() }).superRefine((value, context) => {
-  if ((value.goal === undefined) !== (value.progress === undefined)) context.addIssue({ code: "custom", path: [value.goal === undefined ? "goal" : "progress"], message: "goal and progress must be provided together" });
-  if ((value.nextConsiderAt === undefined) !== (value.considerationReason === undefined)) context.addIssue({ code: "custom", path: [value.nextConsiderAt === undefined ? "nextConsiderAt" : "considerationReason"], message: "nextConsiderAt and considerationReason must be provided together" });
-});
-export type Motive = z.infer<typeof MotiveSchema>;
-export const MotiveExplorationSchema = z.object({ motiveId: Id, consecutiveNoProgress: z.number().int().nonnegative(), lastExploredAt: Instant.optional(), cooldownUntil: Instant.optional() });
-export type MotiveExploration = z.infer<typeof MotiveExplorationSchema>;
 export const InitialSelfConfigSchema = z.object({
   version: z.literal(1),
   family: z.object({
@@ -127,30 +99,11 @@ export const InitialSelfConfigSchema = z.object({
   }),
   initialState: z.object({
     mood: NaturalLanguage.default("特定の持続的な気分はまだ形成されていない"),
-    motives: z.array(MotiveSchema).default([])
-  }).default({ mood: "特定の持続的な気分はまだ形成されていない", motives: [] })
+    concerns: z.array(ConcernSchema).default([]),
+    relationships: z.array(RelationshipSchema).default([])
+  }).default({ mood: "特定の持続的な気分はまだ形成されていない", concerns: [], relationships: [] })
 });
 export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
-export const DynamicStateSchema = z.object({
-  agentId: Id,
-  mood: NaturalLanguage,
-  emotion: z.object({ description: NaturalLanguage, occurredAt: Instant, evidenceEventId: Id }).optional(),
-  motives: z.array(MotiveSchema),
-  motiveExploration: z.array(MotiveExplorationSchema).default([]),
-  updatedAt: Instant
-});
-export type DynamicState = z.infer<typeof DynamicStateSchema>;
-
-export const SocialContextSchema = z.object({
-  id: Id,
-  agentId: Id,
-  subjectId: Id,
-  subjectType: z.enum(["user", "agent", "team", "project", "organization"]),
-  description: NaturalLanguage,
-  updatedAt: Instant
-});
-export type SocialContext = z.infer<typeof SocialContextSchema>;
-
 export const EventKindSchema = z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]);
 export const EventSchema = z.object({
   id: Id,
@@ -275,18 +228,9 @@ export const AgentTurnSchema = z.object({
     concern: ConcernChangeSchema.optional(),
     relationship: RelationshipChangeSchema.optional(),
     remember: NaturalLanguage.optional()
-  }).optional()
-});
+  }).strict().optional()
+}).strict();
 export type AgentTurn = z.infer<typeof AgentTurnSchema>;
-
-export const StateUpdateProposalSchema = z.object({
-  target: z.enum(["emotion", "mood", "socialContext"]),
-  operation: z.enum(["set", "append", "remove"]),
-  value: z.unknown(),
-  reason: NaturalLanguage,
-  evidenceIds: z.array(Id)
-});
-
 
 export const AgentCoreInputSchema = z.object({
   run: z.object({
@@ -301,29 +245,16 @@ export const AgentCoreInputSchema = z.object({
   persona: BotPersonaSchema.optional(),
   currentSelf: CurrentSelfSchema,
   state: CurrentAgentStateSchema,
-  self: AgentSchema,
-  dynamicState: DynamicStateSchema,
-  socialContext: z.array(SocialContextSchema),
   memories: z.array(MemorySchema),
   memoryRetrievalTrace: z.array(MemoryRetrievalTraceSchema).default([]),
   availableTools: z.array(z.object({ name: Id, description: NaturalLanguage, inputSchema: z.record(z.string(), z.unknown()) })),
   runtimeConstraints: z.array(NaturalLanguage),
   limits: RunLimitsSchema
-}).superRefine((value, context) => {
-  const owners = [value.currentSelf.agentId, value.state.agentId, value.self.id, value.dynamicState.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.socialContext.map((item) => item.agentId), ...value.memories.map((item) => item.agentId)];
+}).strict().superRefine((value, context) => {
+  const owners = [value.currentSelf.agentId, value.state.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.memories.map((item) => item.agentId)];
   if (owners.some((owner) => owner !== value.run.agentId)) context.addIssue({ code: "custom", message: "context contains data owned by another agent" });
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
-
-export const ActiveMotiveEvidenceRefSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("event"), id: Id }),
-  z.object({ kind: z.literal("memory"), id: Id }),
-  z.object({ kind: z.literal("self"), agentId: Id, version: z.number().int().nonnegative() }),
-  z.object({ kind: z.literal("mood"), agentId: Id, updatedAt: Instant }),
-  z.object({ kind: z.literal("social-context"), id: Id, agentId: Id, updatedAt: Instant }),
-  z.object({ kind: z.literal("motive"), id: Id, agentId: Id, since: Instant }),
-  z.object({ kind: z.literal("emotion"), agentId: Id, evidenceEventId: Id, occurredAt: Instant })
-]);
 
 export const AgentCoreOutputSchema = AgentTurnSchema.describe("Event Assessmentを受けて決めたDesire、最終Action、次のEventへ残す任意の状態変化");
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;

@@ -15,7 +15,7 @@ describe("configuration and lifecycle", () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
     const valid = `${cwd}/initial-self.yaml`;
     await writeFile(valid, `version: 1\nfamily:\n  id: family\n  name: Family\n  sharedDisposition: 共通の傾向\nagent:\n  id: ao\n  identity: アオ\n  initialDisposition: 好奇心が強い\n  values: 発見を大切にする\n  roles: [対話相手]\n  selfNarrative: 経験を始めた\n  selfContinuity: 経験をつなぐ\n`);
-    await expect(loadInitialSelfFile(valid)).resolves.toMatchObject({ family: { id: "family", baseInstruction: "" }, agent: { id: "ao", interests: [], preferences: [] }, initialState: { motives: [] } });
+    await expect(loadInitialSelfFile(valid)).resolves.toMatchObject({ family: { id: "family", baseInstruction: "" }, agent: { id: "ao", interests: [], preferences: [] }, initialState: { concerns: [], relationships: [] } });
     await writeFile(`${cwd}/invalid-self.yaml`, `version: 1\nfamily: { id: family }\nagent: { id: ao }\n`);
     await expect(loadInitialSelfFile(`${cwd}/invalid-self.yaml`)).rejects.toThrow();
     await scope.close();

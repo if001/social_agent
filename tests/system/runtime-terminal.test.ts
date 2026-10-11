@@ -50,8 +50,8 @@ describe("ST-01 Terminal round trip", () => {
     const terminal = new TerminalAdapter(queue, clock, new SequenceIdGenerator(["input-1", "input-2"]));
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.observation.eventId = event.id; return input; });
     const harness = new ScriptedAgentHarness([
-      { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [{ target: "emotion", operation: "set", value: "Engaged", reason: "Conversation", evidenceIds: [] }] }, action: { type: "respond", content: "First" } },
-      { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "Second" } }
+      { desire: "respond to this event", action: { type: "respond", content: "First" }, patch: { mood: "Engaged" } },
+      { desire: "respond to this event", action: { type: "respond", content: "Second" } }
     ]);
     const logLines: string[] = []; const logger = createStdoutLogger({ botId: "agent-a" }, (line) => { logLines.push(line); }, () => clock.now());
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness, persistence, ids: new SequenceIdGenerator(["event-1", "output-1", "event-2", "output-2"]), logger, now: () => clock.now() });
@@ -62,7 +62,7 @@ describe("ST-01 Terminal round trip", () => {
     await queue.publish(messageFixture({ id: "input-1", destination: "agent-a", replyTo: "terminal", sentAt: "2026-01-01T00:00:00.000Z", availableAt: "2026-01-01T00:00:00.000Z", expiresAt: "2026-01-02T00:00:00.000Z", payload: { type: "user-message", text: "hello" } }));
     await new Promise((resolve) => setTimeout(resolve, 50)); expect(persistence.events).toHaveLength(1);
     await terminal.send("agent-a", "again"); await eventually(() => { expect(persistence.events).toHaveLength(2); }); await dispatcher.dispatch(); await eventually(() => { expect(responses).toEqual(["First", "Second"]); });
-    expect(persistence.updates[0]?.changes[0]?.target).toBe("emotion");
+    expect(persistence.updates[0]?.changes[0]?.target).toBe("mood");
     const steps = logLines.map((line) => (JSON.parse(line) as { step: string }).step); expect(steps).toEqual(expect.arrayContaining(["message.received", "event.created", "context.loading", "context.loaded", "agent_core.started", "agent_core.completed", "event.committed", "outbox.delivery_started", "outbox.delivery_completed"]));
     controller.abort(); await Promise.all([running, receiving]); await runtime.drain(); await scope.close();
   });
@@ -79,7 +79,7 @@ describe("ST-01 Terminal round trip", () => {
   it("accepts External, Time and System Events through the production queue contract", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.observation.eventId = event.id; return input; });
-    const noAction = { interpretation: { activeMotive: { description: "respond to this event", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action" as const, reason: "Observed" } };
+    const noAction = { desire: "respond to this event", action: { type: "no-external-action" as const, reason: "Observed" } };
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness: new ScriptedAgentHarness([noAction, noAction, noAction]), persistence, ids: new SequenceIdGenerator(["external-domain-event", "time-domain-event", "system-domain-event"]), now: () => clock.now() });
     const publisher = new RuntimeEventPublisher(queue, clock, new SequenceIdGenerator(["external-message", "time-message", "system-message"])); const controller = new AbortController(); const running = runtime.start(controller.signal);
     await publisher.publishExternal("agent-a", { text: "A build completed", sourceId: "ci", facts: ["status=success"], resultOfActionId: "prior-run", correlationId: "conversation" });
@@ -100,7 +100,7 @@ describe("autonomous response outbox", () => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
-    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, persistence, ids: new SequenceIdGenerator(["autonomous-output"]), now: () => new Date("2026-01-01T00:00:00Z"), harness: new ScriptedAgentHarness([{ interpretation: { activeMotive: { description: "share", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "respond", content: "発見を共有する" } }]) });
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, persistence, ids: new SequenceIdGenerator(["autonomous-output"]), now: () => new Date("2026-01-01T00:00:00Z"), harness: new ScriptedAgentHarness([{ desire: "share", action: { type: "respond", content: "発見を共有する" } }]) });
     await runtime.process({ id: "autonomous-event", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind: "autonomy-review", destination: "discord", replyContext: { channelId: "channel" } } }, new AbortController().signal);
     const pending = await persistence.pendingOutbox(10);
     expect(pending).toHaveLength(1);
@@ -118,7 +118,7 @@ describe("autonomous response outbox", () => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
-    const refusal = { interpretation: { activeMotive: { description: "decline", evidenceIds: ["event-1"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "refuse" as const, content: "今回は引き受けられません。", reason: "価値観に反する", basis: "personality" as const } };
+    const refusal = { desire: "decline", action: { type: "refuse" as const, content: "今回は引き受けられません。", reason: "価値観に反する", basis: "personality" as const } };
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, persistence, ids: new SequenceIdGenerator([`${targetKind}-output`]), now: () => new Date("2026-01-01T00:00:00Z"), harness: new ScriptedAgentHarness([refusal]) });
     await runtime.process({ id: `${targetKind}-event`, agentId: "agent-a", kind, occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind, destination: "terminal" } }, new AbortController().signal);
     const [pending] = await persistence.pendingOutbox(10);

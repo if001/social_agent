@@ -40,7 +40,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await migrate(pool);
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
-    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,acquired_disposition,values,roles,self_narrative,self_continuity,mood,motives) VALUES ($1,'Careful learner','Growing continuously','[\"Care\"]','[]','[]','Learning','Care','[\"Helper\"]','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ id: "motive-learn", description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
+    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful learner','Growing continuously','[\"Care\"]','[]','[]','Calm')", [agentId]);
     await migrate(pool);
   });
   afterAll(async () => {
@@ -56,7 +56,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Focused" })).resolves.toBe(1);
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
-    expect((await repository.find<{ roles: string[]; motives: { description: string }[] }>("a"))).toMatchObject({ roles: ["Helper"], motives: [{ description: "Learn" }] });
+    expect((await repository.find<{ commitments: string[]; concerns: unknown[] }>("a"))).toMatchObject({ commitments: ["Care"], concerns: [] });
   });
 
   it("initializes configured Self and preserves acquired experience on reapply", async () => {
@@ -64,24 +64,22 @@ describeDatabase("PostgreSQL persistence", () => {
       version: 1 as const,
       family: { id: "configured-family", name: "Configured", sharedDisposition: "共通傾向", baseInstruction: "根拠を区別する" },
       agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "初期個体差", values: "初期価値", interests: ["最初の関心"], preferences: [], roles: ["対話相手"], selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
-      initialState: { mood: "中立", motives: [] }
+      initialState: { mood: "中立", concerns: [], relationships: [] }
     };
     const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000, memoryRecallIntervalMs: 4_000 };
     await initializeAgent(pool, config, initialTimings);
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='idle'", [config.agent.id])).rows).toEqual([{ kind: "idle" }]);
     expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "idle", delay_ms: 2_000 }, { kind: "reflection", delay_ms: 3_000 }]);
-    await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', motives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ id: "motive-existing", description: "継続中のMotive", sourceEvidenceIds: [], since: fixtureInstant }])]);
-    await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
+    await pool.query("UPDATE agent_states SET disposition='経験で得た傾向',mood='持続する気分',concerns=$2,relationships=$3 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ id: "concern-existing", description: "継続中の関心", whyItMatters: "大切", status: "active" }]), JSON.stringify([{ subjectId: "owner", description: "継続する関係" }])]);
     await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } }, initialTimings);
-    const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; acquired_disposition: string; values: string; mood: string; motives: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.acquired_disposition,s.values,s.mood,s.motives FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
-    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", acquired_disposition: "経験で得た傾向", values: "経験で変化した価値", mood: "持続する気分", motives: [{ description: "継続中のMotive" }] });
+    const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; disposition: string; mood: string; concerns: unknown; relationships: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.disposition,s.mood,s.concerns,s.relationships FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", disposition: "経験で得た傾向", mood: "持続する気分", concerns: [{ description: "継続中の関心" }], relationships: [{ subjectId: "owner" }] });
     const redesigned = await pool.query<{ disposition: string; self_story: string; commitments: string[]; concerns: unknown[]; relationships: unknown[] }>("SELECT disposition,self_story,commitments,concerns,relationships FROM agent_states WHERE agent_id=$1", [config.agent.id]);
-    expect(redesigned.rows[0]?.disposition).toContain("共通傾向"); expect(redesigned.rows[0]?.self_story).toContain("始まったばかり"); expect(redesigned.rows[0]?.commitments).toContain("対話相手"); expect(redesigned.rows[0]?.concerns).toEqual([]); expect(redesigned.rows[0]?.relationships).toEqual([]);
-    expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
+    expect(redesigned.rows[0]?.disposition).toBe("経験で得た傾向"); expect(redesigned.rows[0]?.self_story).toContain("始まったばかり"); expect(redesigned.rows[0]?.commitments).toContain("対話相手"); expect(redesigned.rows[0]?.concerns).toMatchObject([{ id: "concern-existing" }]); expect(redesigned.rows[0]?.relationships).toMatchObject([{ subjectId: "owner" }]);
     await initializeAgent(pool, { ...config, family: { ...config.family, sharedDisposition: "更新した共通傾向" }, agent: { ...config.agent, values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"] } }, initialTimings, { overwriteConfiguredSelf: true });
-    const overwritten = await pool.query<{ shared_disposition: string; acquired_disposition: string; values: string; interests: string[]; preferences: string[]; mood: string; motives: unknown; version: number }>("SELECT f.shared_disposition,s.acquired_disposition,s.values,s.interests,s.preferences,s.mood,s.motives,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
-    expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", acquired_disposition: "経験で得た傾向", values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"], mood: "持続する気分", motives: [{ description: "継続中のMotive" }], version: 1 });
-    expect((await pool.query("SELECT 1 FROM social_contexts WHERE id='configured-social'")).rowCount).toBe(1);
+    const overwritten = await pool.query<{ shared_disposition: string; disposition: string; commitments: string[]; mood: string; concerns: unknown; relationships: unknown; version: number }>("SELECT f.shared_disposition,s.disposition,s.commitments,s.mood,s.concerns,s.relationships,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", mood: "持続する気分", concerns: [{ description: "継続中の関心" }], relationships: [{ subjectId: "owner" }], version: 1 });
+    expect(overwritten.rows[0]?.disposition).toContain("更新した共通傾向");
   });
 
   it("rolls back event and outbox as one unit", async () => {
@@ -214,7 +212,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("loads a complete Agent Core context from PostgreSQL without crossing Agent ownership", async () => {
     await pool.query("UPDATE agent_families SET base_instruction='' WHERE id='family'");
-    await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('social-a','a','owner','user','Trusted'),('social-b','b','owner','user','Private') ON CONFLICT DO NOTHING");
+    await pool.query("UPDATE agent_states SET relationships=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ subjectId: "owner", description: "Trusted" }])]);
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('recent-a','a','user-message',$1,'test','completed','2026-01-01'),('recent-b','b','user-message',$2,'test','completed','2026-01-01')", [JSON.stringify({ eventId: "recent-a", summary: "previous exchange", facts: ["prior context"], observedAt: fixtureInstant }), JSON.stringify({ eventId: "recent-b", summary: "private exchange", facts: ["other agent"], observedAt: fixtureInstant })]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('large-tool-result','a','tool-result',$1,'web_page','completed',now())", [JSON.stringify({ eventId: "large-tool-result", summary: "web_page result", facts: ["tool result"], observedAt: fixtureInstant, content: { markdown: "x".repeat(100_000) } })]);
@@ -233,13 +231,11 @@ describeDatabase("PostgreSQL persistence", () => {
     });
     const input = await loader.load({ id: "context-event", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello", transport: { hop: 2, expiresAt: "2026-01-02T00:00:00Z", replyTo: "discord:a" } } });
     expect(input.run).toMatchObject({ runId: "context-run", agentId: "a", transport: { hop: 2, replyTo: "discord:a" } });
-    expect(input.self.id).toBe("a");
-    expect(input.self.disposition).toEqual({ shared: "Curious", initial: "Calm", acquired: "Learning" });
+    expect(input.currentSelf.agentId).toBe("a");
+    expect(input.currentSelf.disposition).toBe("Careful learner");
     expect(input.currentSelf).toMatchObject({ agentId: "a", disposition: "Careful learner", selfStory: "Growing continuously", commitments: ["Care"] });
-    expect(input.state).toMatchObject({ agentId: "a", mood: input.dynamicState.mood, concerns: [], relationships: [] });
+    expect(input.state).toMatchObject({ agentId: "a", concerns: [], relationships: [{ subjectId: "owner" }] });
     expect(input.persona).toMatchObject({ identity: { displayName: "Agent A" }, communication: { firstPerson: "僕" } });
-    expect(input.socialContext.map(({ id }) => id)).toContain("social-a");
-    expect(input.socialContext.map(({ id }) => id)).not.toContain("social-b");
     expect(input.memories.every(({ agentId }) => agentId === "a")).toBe(true);
     expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"] });
     expect(input.recentExperiences.map(({ eventId }) => eventId)).toEqual(expect.arrayContaining(["attempt-event-a", "failed-experience-a"]));
@@ -259,12 +255,12 @@ describeDatabase("PostgreSQL persistence", () => {
     const allowed = await loader.load({ id: "context-event-2", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
     expect(allowed.availableTools.map(({ name }) => name)).toEqual(input.availableTools.map(({ name }) => name));
     const other = await loader.load({ id: "context-event-b", agentId: "b", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
-    expect(other.self.disposition).toEqual({ shared: "Curious", initial: "Bold", acquired: "Learning" });
-    const saved = await pool.query<{ motives: unknown }>("SELECT motives FROM agent_states WHERE agent_id='a'");
-    await pool.query("UPDATE agent_states SET motives='[{}]' WHERE agent_id='a'");
+    expect(other.currentSelf.disposition).toBe("Careful learner");
+    const saved = await pool.query<{ concerns: unknown }>("SELECT concerns FROM agent_states WHERE agent_id='a'");
+    await pool.query("UPDATE agent_states SET concerns='[{}]' WHERE agent_id='a'");
     try {
-      await expect(loader.load({ id: "invalid-state-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} })).rejects.toMatchObject({ code: "VALIDATION", message: "Persisted motives are invalid" });
-    } finally { await pool.query("UPDATE agent_states SET motives=$1 WHERE agent_id='a'", [JSON.stringify(saved.rows[0]?.motives)]); }
+      await expect(loader.load({ id: "invalid-state-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} })).rejects.toThrow("concerns");
+    } finally { await pool.query("UPDATE agent_states SET concerns=$1 WHERE agent_id='a'", [JSON.stringify(saved.rows[0]?.concerns)]); }
 
   });
 
@@ -322,8 +318,8 @@ describeDatabase("PostgreSQL persistence", () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();
     input.run = { runId: "runtime-run", eventId: "runtime-event", agentId: "a", occurredAt: fixtureInstant };
-    input.self = { ...input.self, id: "a", version };
-    input.dynamicState = { ...input.dynamicState, agentId: "a" };
+    input.currentSelf = { ...input.currentSelf, agentId: "a", version };
+    input.state = { ...input.state, agentId: "a" };
     input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
     input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
@@ -360,7 +356,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();
     input.run = { runId: "failed-run", eventId: "failed-event", agentId: "a", occurredAt: fixtureInstant };
-    input.self = { ...input.self, id: "a", version }; input.dynamicState = { ...input.dynamicState, agentId: "a" };
+    input.currentSelf = { ...input.currentSelf, agentId: "a", version }; input.state = { ...input.state, agentId: "a" };
     input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["failed-tool-record"]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "failed-message", destination: "agent:a" });

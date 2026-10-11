@@ -40,14 +40,10 @@ describe("domain contracts", () => {
     expect(AgentCoreInputSchema.safeParse({ ...input, memories: [{ id: "m", agentId: "agent-b", kind: "episodic", content: "Other experience", occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-02T00:00:00Z", relatedSubjectIds: [], importance: "Relevant", evidenceEventIds: [] }] }).success).toBe(false);
   });
 
-  it("requires Shared, Initial, and Acquired Disposition inside Self", () => {
+  it("rejects removed legacy Self input", () => {
     const input = agentCoreInputFixture();
     expect(AgentCoreInputSchema.safeParse(input).success).toBe(true);
-    const legacySelf = { ...input.self } as Record<string, unknown>;
-    delete legacySelf.disposition;
-    legacySelf.initialDisposition = "legacy";
-    legacySelf.acquiredDisposition = "legacy";
-    expect(AgentCoreInputSchema.safeParse({ ...input, self: legacySelf }).success).toBe(false);
+    expect(AgentCoreInputSchema.safeParse({ ...input, self: { id: input.run.agentId } }).success).toBe(false);
   });
 
 });

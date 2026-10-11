@@ -5,12 +5,11 @@ import type { Memory } from "../../src/domain/contracts.js";
 import { buildRelevantMemoryQuery } from "../../src/application/memory-query.js";
 
 describe("embedding and context", () => {
-  it("keeps a scheduled motive target beyond the normal three-item limit", () => {
+  it("bounds concerns in the canonical state", () => {
     const input = agentCoreInputFixture();
-    input.observation.content = { targetKind: "motive-review", targetId: "motive:m4", schedulerGenerated: true };
-    input.dynamicState.motives = ["m1", "m2", "m3", "m4"].map((id) => ({ id, description: id, sourceEvidenceIds: [input.run.eventId], since: "2026-01-01T00:00:00.000Z", nextConsiderAt: "2026-01-02T00:00:00.000Z", considerationReason: "review" }));
+    input.state.concerns = Array.from({ length: 14 }, (_, index) => ({ id: `c${String(index)}`, description: `concern-${String(index)}`, whyItMatters: "important", status: "active" as const }));
     const result = new ContextBuilder().build(input, { maxTokens: 6_000, maxMemories: 5, maxSocialContexts: 1 });
-    expect(result.dynamicState.motives[0]?.id).toBe("m4");
+    expect(result.state.concerns).toHaveLength(12);
   });
   it("returns deterministic fake vectors and validates local dimensions", async () => {
     const fake = new FakeEmbeddingProvider({ hello: [1, 0] });
@@ -36,33 +35,31 @@ describe("embedding and context", () => {
   it("bounds required state and drops oversized Observation content before budgeting", () => {
     const input = agentCoreInputFixture();
     input.observation = { ...input.observation, summary: "s".repeat(2_000), facts: Array.from({ length: 20 }, () => "f".repeat(500)), content: { markdown: "x".repeat(100_000) } };
-    input.self = { ...input.self, selfNarrative: "n".repeat(10_000), interests: Array.from({ length: 30 }, () => "i".repeat(1_000)) };
+    input.currentSelf = { ...input.currentSelf, selfStory: "n".repeat(10_000), commitments: Array.from({ length: 30 }, () => "i".repeat(1_000)) };
     const result = new ContextBuilder().build(input, { maxTokens: 4_000, maxMemories: 1, maxSocialContexts: 1 });
     expect(result.observation.summary).toHaveLength(1_000);
     expect(result.observation.facts).toHaveLength(8);
     expect(result.observation.content).toBeUndefined();
-    expect(result.self.selfNarrative).toHaveLength(500);
-    expect(result.self.interests).toHaveLength(6);
+    expect(result.currentSelf.selfStory).toHaveLength(1_000);
+    expect(result.currentSelf.commitments).toHaveLength(12);
   });
 
-  it("builds a bounded deterministic query from observation, state and social context", () => {
+  it("builds a bounded deterministic query from observation and canonical state", () => {
     const input = agentCoreInputFixture();
-    input.socialContext = [{ id: "social", agentId: input.run.agentId, subjectId: "user", subjectType: "user", description: "発表準備を率直に相談する関係", updatedAt: input.run.occurredAt }];
-    input.dynamicState = { ...input.dynamicState, mood: "発表を慎重に支援したい" };
-    const query = buildRelevantMemoryQuery(input);
+    input.state = { ...input.state, mood: "発表を慎重に支援したい", relationships: [{ subjectId: "user", description: "発表準備を率直に相談する関係" }] };
+    const query = buildRelevantMemoryQuery({ observation: input.observation, state: input.state });
     expect(query.text).toContain("発表を慎重に支援したい");
     expect(query.subjectIds).toEqual(["user"]);
     expect(query.keywords.length).toBeGreaterThan(0);
-    expect(buildRelevantMemoryQuery(input)).toEqual(query);
+    expect(buildRelevantMemoryQuery({ observation: input.observation, state: input.state })).toEqual(query);
   });
 
-  it("reserves required Social Context and bounds selected state text", () => {
+  it("bounds relationship count and text in canonical state", () => {
     const input = agentCoreInputFixture();
-    input.socialContext = Array.from({ length: 8 }, (_, index) => ({ id: `social-${String(index)}`, agentId: input.run.agentId, subjectId: `subject-${String(index)}`, subjectType: "user" as const, description: "s".repeat(800), updatedAt: input.run.occurredAt }));
-    const result = new ContextBuilder().build({ ...input, requiredSocialContextIds: new Set(["social-0"]) }, { maxTokens: 4_000, maxMemories: 2, maxSocialContexts: 24 });
-    expect(result.socialContext.length).toBeLessThanOrEqual(1);
-    expect(result.socialContext[0]).toMatchObject({ id: "social-0" });
-    expect(result.socialContext.every(({ description }) => description.length <= 600)).toBe(true);
+    input.state.relationships = Array.from({ length: 14 }, (_, index) => ({ subjectId: `subject-${String(index)}`, description: "s".repeat(800) }));
+    const result = new ContextBuilder().build(input, { maxTokens: 6_000, maxMemories: 2, maxSocialContexts: 24 });
+    expect(result.state.relationships).toHaveLength(12);
+    expect(result.state.relationships.every(({ description }) => description.length <= 600)).toBe(true);
   });
 
   it("keeps recent experience as whole events and removes oldest events for budget", () => {

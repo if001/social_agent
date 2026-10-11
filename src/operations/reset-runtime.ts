@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import type { InitialSelfConfig } from "../domain/contracts.js";
 import type { SchedulerTimings } from "../config/config.js";
 
-const historyTables = ["state_changes", "tool_executions", "agent_runs", "events", "memory_web_evidence", "memory_subjects", "memories", "web_snapshots", "web_resources", "social_contexts", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
+const historyTables = ["state_changes", "tool_executions", "agent_runs", "events", "memory_web_evidence", "memory_subjects", "memories", "web_snapshots", "web_resources", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
 
 // Move runtime-owned data out of the active roots; never recursively delete a configured path.
 export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConfig[], roots: readonly string[], timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }): Promise<{ agents: string[]; archivedDirectories: string[] }> {
@@ -48,7 +48,7 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
       const disposition = [config.family.sharedDisposition, agent.initialDisposition, agent.values].join("\n");
       const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
       const commitments = [...agent.roles, ...(agent.raisonDetre === undefined ? [] : [agent.raisonDetre])];
-      await client.query("UPDATE agent_states SET disposition=$2,self_story=$3,commitments=$4,concerns='[]',relationships='[]',acquired_disposition='経験から形成された傾向はまだない',values=$5,interests=$6,preferences=$7,roles=$8,raison_detre=$9,self_narrative=$10,self_continuity=$11,mood=$12,motives=$13,emotion=NULL,motive_exploration='[]',version=0,updated_at=now() WHERE agent_id=$1", [id, disposition, selfStory, JSON.stringify(commitments), agent.values, JSON.stringify(agent.interests), JSON.stringify(agent.preferences), JSON.stringify(agent.roles), agent.raisonDetre ?? null, agent.selfNarrative, agent.selfContinuity, initialState.mood, JSON.stringify(initialState.motives)]);
+      await client.query("UPDATE agent_states SET disposition=$2,self_story=$3,commitments=$4,concerns=$5,relationships=$6,mood=$7,version=0,updated_at=now() WHERE agent_id=$1", [id, disposition, selfStory, JSON.stringify(commitments), JSON.stringify(initialState.concerns), JSON.stringify(initialState.relationships), initialState.mood]);
     }
     const suffix = `.before-reset-${randomUUID()}`;
     for (const from of paths) {

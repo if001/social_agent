@@ -101,7 +101,7 @@ export class AgentRuntime {
     eventLogger.log("info", "context.loading");
     const input = await this.options.persistence.loadInput(event);
     const logger = eventLogger.child({ runId: input.run.runId });
-    logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, socialContextCount: input.socialContext.length, availableToolCount: input.availableTools.length });
+    logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, relationshipCount: input.state.relationships.length, availableToolCount: input.availableTools.length });
     let result: AgentRunResult;
     try {
       logger.log("info", "agent_core.started");

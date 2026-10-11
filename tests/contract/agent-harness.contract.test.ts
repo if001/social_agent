@@ -90,7 +90,7 @@ describe("AgentHarness contract", () => {
       creations += 1;
       expect(options.tools).toHaveLength(0);
       expect(options.responseFormat).toBeDefined();
-      return { invoke: (input, invokeOptions) => { calls.push({ messages: input.messages, context: invokeOptions.context }); return Promise.resolve({ structuredResponse: { ...output, interpretation: { activeMotive: { description: "respond to this event", evidenceIds: [invokeOptions.context.eventId] } } }, messages: input.messages }); } };
+      return { invoke: (input, invokeOptions) => { calls.push({ messages: input.messages, context: invokeOptions.context }); return Promise.resolve({ structuredResponse: output, messages: input.messages }); } };
     } });
     const first = agentCoreInputFixture(); first.run.runId = "run-1"; first.run.eventId = "event-1"; first.observation.content = "first-only";
     const second = agentCoreInputFixture(); second.run.runId = "run-2"; second.run.eventId = "event-2"; second.observation.content = "second-only";
@@ -175,7 +175,7 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).not.toContain("最小引数例");
     expect(agentCoreSystemPrompt).toContain("明示した将来時刻の処理はschedule_task");
     expect(agentCoreSystemPrompt).toContain("idle Event");
-    expect(agentCoreSystemPrompt).toContain("保存済みMotiveの選択や型付き参照は要求しません");
+    expect(agentCoreSystemPrompt).toContain("desire");
     expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
     expect(agentCoreSystemPrompt).toContain("Tool未使用で理由だけを返すno-external-actionは禁止");
     expect(agentCoreSystemPrompt).toContain("同一手段を繰り返さず");

@@ -1,14 +1,10 @@
-import type { Agent, AgentCoreInput, AgentRunResult, DomainEvent, Memory, MessageEnvelope } from "../domain/contracts.js";
+import type { AgentCoreInput, AgentRunResult, DomainEvent, Memory, MessageEnvelope } from "../domain/contracts.js";
 
 export interface Clock { now(): Date; }
 export interface IdGenerator { next(): string; }
 export interface MessageQueue {
   publish(message: MessageEnvelope): Promise<void>;
   subscribe(destination: string, handler: (message: MessageEnvelope) => Promise<void>, signal: AbortSignal): Promise<void>;
-}
-export interface AgentRepository {
-  find(agentId: string): Promise<Agent | undefined>;
-  save(agent: Agent, expectedVersion: number): Promise<void>;
 }
 export interface MemoryRepository {
   save(memory: Memory): Promise<void>;

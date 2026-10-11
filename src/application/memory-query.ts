@@ -1,4 +1,4 @@
-import type { DynamicState, Memory, Observation, SocialContext } from "../domain/contracts.js";
+import type { CurrentAgentState, Memory, Observation } from "../domain/contracts.js";
 
 export type RelevantMemoryQuery = {
   readonly text: string;
@@ -9,8 +9,7 @@ export type RelevantMemoryQuery = {
 
 export type RelevantMemoryQueryInput = {
   readonly observation: Observation;
-  readonly dynamicState: DynamicState;
-  readonly socialContext: readonly SocialContext[];
+  readonly state: CurrentAgentState;
 };
 
 const bounded = (value: string, length = 500): string => value.trim().slice(0, length);
@@ -31,17 +30,18 @@ export function memoryKeywords(parts: readonly string[], limit = 32): readonly s
 }
 
 export function buildRelevantMemoryQuery(input: RelevantMemoryQueryInput): RelevantMemoryQuery {
-  const social = input.socialContext.slice(0, 8);
+  const relationships = input.state.relationships.slice(0, 8);
   const parts = [
     bounded(input.observation.summary),
     ...input.observation.facts.slice(0, 8).map((value) => bounded(value, 240)),
-    bounded(input.dynamicState.mood, 240), ...input.dynamicState.motives.map(({ description, goal }) => `${bounded(description, 240)} ${goal === undefined ? "" : bounded(goal, 240)}`),
-    ...social.map(({ description }) => bounded(description, 240))
+    ...(input.state.mood === undefined ? [] : [bounded(input.state.mood, 240)]),
+    ...input.state.concerns.map(({ description, whyItMatters }) => `${bounded(description, 240)} ${bounded(whyItMatters, 240)}`),
+    ...relationships.map(({ description }) => bounded(description, 240))
   ].filter((value) => value.length > 0);
   return {
     text: parts.join("\n").slice(0, 4_000),
     keywords: memoryKeywords(parts),
-    subjectIds: [...new Set(social.map(({ subjectId }) => subjectId))],
+    subjectIds: [...new Set(relationships.map(({ subjectId }) => subjectId))],
     kinds: ["episodic", "semantic", "self-related"]
   };
 }
