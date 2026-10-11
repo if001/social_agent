@@ -1091,3 +1091,7 @@ Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はIn
 ### Tool入力の検証境界（Issue 121 / R04）
 
 Tool入力Schemaは登録箇所で一度定義し、ToolRegistry.executeがparseした入力をexecuteへ渡す。Tool実装はそのSchemaから推論した型を受け取り、同じSchemaを複製して再parseしない。
+
+### 読み取り処理の共有範囲（Issue 122 / R05）
+
+FileとWeb Archiveはtext-extractionの純粋関数を共有する。文字数と件数は別々に制限し、検索文字列はNFKCと大文字小文字を正規化する。path権限・Snapshot解決・公開出力形式は各Adapterに残す。長大な一行はlineTruncatedで欠落を示し、Archiveのoffset読み取りでは残りを取得できる。

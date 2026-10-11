@@ -1,3 +1,4 @@
+import { boundedEntries, matchingRanges, textLines, textRange } from "../tools/text-extraction.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
@@ -58,13 +59,17 @@ export class PostgresWebArchive {
   }
 
   async read(snapshotId: string, offset = 0, maxCharacters = 2_000): Promise<{ snapshotId: string; offset: number; text: string; truncated: boolean }> {
-    const row = await this.#snapshot(snapshotId); const text = await readFile(this.#path(row.raw_file_path), "utf8"); const bounded = text.slice(offset, offset + maxCharacters); return { snapshotId, offset, text: bounded, truncated: offset + bounded.length < text.length };
+    const row = await this.#snapshot(snapshotId); const text = await readFile(this.#path(row.raw_file_path), "utf8"); return { snapshotId, offset, ...textRange(text, offset, maxCharacters) };
   }
 
   async grep(snapshotId: string, pattern: string, contextLines = 2, maxMatches = 10, maxCharacters = 2_000): Promise<{ snapshotId: string; matches: readonly { line: number; text: string }[]; truncated: boolean }> {
-    const row = await this.#snapshot(snapshotId); const lines = (await readFile(this.#path(row.raw_file_path), "utf8")).split(/\r?\n/u); const needle = pattern.toLocaleLowerCase("ja"); const selected = new Map<number, string>(); let matchCount = 0;
-    for (let index = 0; index < lines.length && matchCount < maxMatches; index += 1) if ((lines[index] ?? "").toLocaleLowerCase("ja").includes(needle)) { matchCount += 1; for (let line = Math.max(0, index - contextLines); line <= Math.min(lines.length - 1, index + contextLines); line += 1) selected.set(line, lines[line] ?? ""); }
-    let used = 0; let truncated = matchCount >= maxMatches; const matches: { line: number; text: string }[] = []; for (const [index, text] of selected) { if (used + text.length > maxCharacters) { truncated = true; break; } matches.push({ line: index + 1, text }); used += text.length; } return { snapshotId, matches, truncated };
+    const row = await this.#snapshot(snapshotId);
+    const lines = textLines(await readFile(this.#path(row.raw_file_path), "utf8"));
+    const ranges = boundedEntries(matchingRanges(lines, pattern, contextLines), maxMatches, Infinity, () => 0);
+    const selected = new Map<number, string>();
+    for (const range of ranges.entries) range.lines.forEach((text, index) => selected.set(range.start + index + 1, text));
+    const bounded = boundedEntries([...selected].map(([line, text]) => ({ line, text })), Infinity, maxCharacters, ({ text }) => text.length);
+    return { snapshotId, matches: bounded.entries, truncated: ranges.truncated || bounded.truncated };
   }
 
   async backfill(_agentId: string, limit: number, signal: AbortSignal): Promise<number> {

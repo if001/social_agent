@@ -18,7 +18,7 @@
 
 - [x] **R04: Web Toolの入力Schema二重定義を削除する（確認済み）。** `infrastructure/tools/web-tools.ts` の `web_archive_search/read/grep` は登録時Schemaとexecute内のSchemaを重複定義する。実装設計 §26・§29 の境界検証として `ToolRegistry.execute` のparse後に型付き入力を受け取り、単一定義を使う。完了条件: default・境界値・不正入力の振る舞いが一致し、同じ入力を再parseするための複製Schemaがない。
 
-- [ ] **R05: File / Web Archiveの範囲読み取り・grep処理を共通化する（類似処理確認済み）。** `file-tools.ts` と `postgres-web-archive.ts::read/grep` に文字数上限、周辺行抽出、マッチ数、truncated判定が分散する。Unicode正規化や重複周辺行の扱いにも差がある。実装設計 §26・§29・§30 に沿い、純粋なテキスト抽出処理だけを共有する。ファイルのroot権限とsnapshot解決、行指定とoffset指定の公開契約は分離を保つ。完了条件: 長大な1行、空文字、末尾、重複マッチ、上限到達、継続位置を共通テストで確認し、本文履歴PolicyもR03を通る。
+- [x] **R05: File / Web Archiveの範囲読み取り・grep処理を共通化する（類似処理確認済み）。** `file-tools.ts` と `postgres-web-archive.ts::read/grep` に文字数上限、周辺行抽出、マッチ数、truncated判定が分散する。Unicode正規化や重複周辺行の扱いにも差がある。実装設計 §26・§29・§30 に沿い、純粋なテキスト抽出処理だけを共有する。ファイルのroot権限とsnapshot解決、行指定とoffset指定の公開契約は分離を保つ。完了条件: 長大な1行、空文字、末尾、重複マッチ、上限到達、継続位置を共通テストで確認し、本文履歴PolicyもR03を通る。
 
 - [ ] **R06: 応答Envelope生成と配送責務を統一する（分散確認済み）。** `agent-runtime.ts::process/#handle` と `scheduler.ts::tick` が応答Envelopeをそれぞれ生成し、通常応答・Scheduled TaskはOutbox、その他自律応答はSchedulerからqueueへ直接publishする。実装設計 §3・§14・§27・§29 を基準に、宛先解決とEnvelope組み立てを分離・共通化し、配送の正本を確定する。完了条件: correlation / causation / replyContext / hop / TTLを失わず、commit後配送失敗時も応答を欠落・重複させない。単なる共通関数化だけで完了にしない。
 
@@ -60,3 +60,4 @@
 - R02: [Issue 119](../issues/119-align-core-flow.md)。論理Tool Result Eventと物理再投入を区別し、Interaction / 後処理 / Reviewを整理。配送差分はR06へ引き継ぐ。
 - R03: [Issue 120](../issues/120-unify-tool-result-projection.md)。用途別Tool結果Policyを共有。DB integrationを含め検証済み。
 - R04: [Issue 121](../issues/121-deduplicate-web-tool-schemas.md)。Web Tool Schemaの二重定義・二重parseを削除。
+- R05: [Issue 122](../issues/122-share-text-extraction.md)。文字列抽出を共有し、権限と公開出力は分離を維持。
