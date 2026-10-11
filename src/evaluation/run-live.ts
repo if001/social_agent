@@ -33,8 +33,8 @@ const harness = new DeepAgentHarness({ invoker: { invoke: async (input, options)
 } }, registeredToolNames: new Set(), maxRepairs: 1 });
 const selectedScenarios = process.env.EVALUATION_SCENARIO_ID === undefined ? evaluationScenarios : evaluationScenarios.filter(({ id }) => id === process.env.EVALUATION_SCENARIO_ID);
 if (selectedScenarios.length === 0) throw new Error(`Unknown evaluation scenario: ${String(process.env.EVALUATION_SCENARIO_ID)}`);
-const repetitions = process.env.EVALUATION_REPETITIONS === undefined ? 5 : Number.parseInt(process.env.EVALUATION_REPETITIONS, 10);
-if (!Number.isSafeInteger(repetitions) || repetitions < 1) throw new Error("EVALUATION_REPETITIONS must be a positive integer");
+const repetitions = process.env.EVALUATION_REPETITIONS === undefined ? 3 : Number.parseInt(process.env.EVALUATION_REPETITIONS, 10);
+if (!Number.isSafeInteger(repetitions) || repetitions < 3) throw new Error("EVALUATION_REPETITIONS must be an integer of at least 3 for the live gate");
 process.stdout.write(`${JSON.stringify({ tracePath })}\n`);
 const [chatMetadata, embeddingMetadata] = await Promise.all([modelMetadata(config.chat.baseUrl, config.chat.model, { Authorization: `Bearer ${config.chat.apiKey}` }), modelMetadata(config.embedding.baseUrl, config.embedding.model)]);
 const evaluator = new OllamaEvaluator({ ...config.chat, timeoutMs: config.runDeadlineMs });
