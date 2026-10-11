@@ -5,13 +5,8 @@ import { resolve, sep } from "node:path";
 import type { Pool, QueryResultRow } from "pg";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
 import { DomainError } from "../../domain/contracts.js";
-import type { WebPageSummarizer } from "../agent/web-summary-harness.js";
+import type { WebArchive, WebPageSummarizer, WebPageDocument, WebArchiveContext, WebArchiveSearchInput, WebArchiveSearchResult, ArchivedWebPage } from "../../application/web-archive.js";
 
-export type WebPageDocument = { readonly url: string; readonly title: string; readonly markdown: string };
-export type WebArchiveContext = { readonly agentId: string; readonly runId: string; readonly eventId: string; readonly toolCallId: string };
-export type WebArchiveSearchInput = { readonly query: string; readonly limit: number; readonly fetchedAfter?: string | undefined; readonly urlPrefix?: string | undefined };
-export type WebArchiveSearchResult = { readonly snapshotId: string; readonly url: string; readonly title: string; readonly summary: string; readonly fetchedAt: string; readonly reference: { readonly type: "web-snapshot"; readonly id: string } };
-export type ArchivedWebPage = WebArchiveSearchResult & { readonly status: string };
 type SnapshotRow = QueryResultRow & { id: string; canonical_url: string; fetched_url: string; title: string; raw_file_path: string; summary: string; fetched_at: Date; processing_status: "pending" | "ready" | "failed" };
 
 export function canonicalizeWebUrl(value: string): string {
@@ -21,7 +16,7 @@ export function canonicalizeWebUrl(value: string): string {
   url.search = ""; for (const [key, item] of entries) url.searchParams.append(key, item); return url.toString();
 }
 
-export class PostgresWebArchive {
+export class PostgresWebArchive implements WebArchive {
   readonly #root: string;
   constructor(private readonly pool: Pool, private readonly embedding: EmbeddingProvider, private readonly summarizer: WebPageSummarizer, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly embeddingModel: string, root: string) { this.#root = resolve(root); }
 

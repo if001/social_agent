@@ -32,7 +32,7 @@
 
 - [x] **R10: 共有Web Archiveの未使用agentId引数を削除する（確認済み）。** `postgres-web-archive.ts::search/backfill` は `_agentId` を使用しない。共有アーカイブという採用方針を実装設計 §16・§28 と照合しdocsで明確にした上で、呼び出し元・テストも含め引数を削除する。保存者のprovenanceは別責務として維持する。完了条件: 検索が個体別に分離されていると誤解させるAPIがなく、取得者と保存者を混同しない。
 
-- [ ] **R11: ApplicationからInfrastructureへの型依存を解消する（確認済み）。** `application/post-process.ts` がHarness interfaceを `infrastructure/agent/post-process-harness.ts` からimportし、`infrastructure/tools/web-tools.ts` の契約は具象PostgresWebArchiveのPickになっている。実装設計 §2・§29 に沿い、必要最小限のportを適切な境界へ移す。完了条件: 処理担当のinterfaceが実装方式やDB名に依存せず、模擬実装を差し替えられる。巨大な汎用Repositoryは作らない。
+- [x] **R11: ApplicationからInfrastructureへの型依存を解消する（確認済み）。** `application/post-process.ts` がHarness interfaceを `infrastructure/agent/post-process-harness.ts` からimportし、`infrastructure/tools/web-tools.ts` の契約は具象PostgresWebArchiveのPickになっている。実装設計 §2・§29 に沿い、必要最小限のportを適切な境界へ移す。完了条件: 処理担当のinterfaceが実装方式やDB名に依存せず、模擬実装を差し替えられる。巨大な汎用Repositoryは作らない。
 
 - [ ] **R12: abort可能な待機処理を共通化する（重複確認済み）。** `bootstrap/bot-host.ts` と `application/post-process.ts` にdelayがあり、`addressed-file-queue.ts` に別のpoll待機がある。前二者では通常timeout後のabort listener解除がない。実装設計 §29・§30 に沿い、abortの結果を明確にした待機helperへ整理する。完了条件: 通常終了・事前abort・待機中abortでtimerとlistenerが解放され、各loopの停止動作が変わらない。
 
@@ -66,3 +66,4 @@
 - R08: [Issue 125](../issues/125-share-llm-provider-boundary.md)。接続設定とprovider障害の分類・cause保持を共有。
 - R09: [Issue 126](../issues/126-remove-review-id-fallback.md)。Candidate配列を必須化し、単体ID補完を削除。
 - R10: [Issue 127](../issues/127-remove-archive-agent-scope.md)。共有Archiveのsearch/backfillから未使用Agent ID引数を削除。
+- R11: [Issue 128](../issues/128-extract-application-ports.md)。用途別portをApplicationへ移し、具象Adapterへの型依存を除去。
