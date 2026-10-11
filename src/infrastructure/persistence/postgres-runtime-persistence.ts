@@ -1,4 +1,5 @@
 import type { Pool, QueryResultRow } from "pg";
+import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator } from "../../application/ports.js";
@@ -59,7 +60,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.self.version, startedAt: new Date(input.run.occurredAt), result: null },
       toolExecutions: validatedTools,
-      failureReason: error instanceof Error ? error.message : "Agent run failed"
+      failureReason: JSON.stringify(errorLogContext(error))
     });
   }
 

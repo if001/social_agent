@@ -1067,3 +1067,11 @@ Debug UIは`127.0.0.1`へbindし、SQLの値をparameter化し、`SELECT`以外�
 - [Drizzle ORM migrations](https://orm.drizzle.team/docs/migrations)
 - [Drizzle ORM PostgreSQL extensions](https://orm.drizzle.team/docs/extensions)
 - [Graphile Worker documentation](https://worker.graphile.org/docs)
+
+### Deep Agentの探索終了と障害追跡（Issue 117）
+
+Interactionの探索はModel Call数で制御する。通常設定では最初の3回まで通常Toolを選択可能とし、その後は通常Tool一覧を空にする。構造化出力ToolはLangChainが別経路で追加するため、取得済みの会話・Tool結果から最終Actionを生成できる。構造化出力の検証失敗後も探索へ戻さず、ライブラリのTool Strategyによる修復を使う。複数回答から先頭を独断で採用しない。
+
+Model Callの上限は探索回数+2回。既存maxStepsが小さい場合の探索回数はmax(1,min(3,floor(maxSteps/4)))。Graph自体のrecursionLimitは最低64としてMiddlewareの内部ノード用の余裕を確保し、Model Call数、Tool回数、既存deadlineを実際の実行制約とする。request.state.remainingStepsへの依存は置かない。Provider停止・deadline・繰り返すSchema不適合まで成功を保証するものではない。
+
+構造化出力の検証失敗をagent_core.structured_output_invalid、最終化をmodel_call_started.finalizingへ記録する。Model応答のTool名も記録する。外側の例外に加えcause/providerErrorの原因チェーンをredactionして標準出力とagent_runs.failure_reasonへ保存する。過去の実行に対して失われた原因は復元できない。

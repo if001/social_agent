@@ -1,6 +1,6 @@
 import { ChatOllama } from "@langchain/ollama";
 import { createDeepAgent, createFilesystemMiddleware, createSubAgentMiddleware, createSummarizationMiddleware, StateBackend } from "deepagents";
-import { createMiddleware, ToolMessage, tool, toolStrategy, type ToolRuntime } from "langchain";
+import { createMiddleware, ToolMessage, tool, toolStrategy, type ToolRuntime, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
@@ -9,7 +9,7 @@ import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunR
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
-const AgentCoreResponseFormat = toolStrategy(AgentCoreOutputSchema);
+type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreOutputSchema>>;
 
 type ReusableDeepAgent = {
   invoke(
@@ -22,7 +22,7 @@ type ReusableDeepAgentFactoryOptions = {
   readonly model: ChatOllama;
   readonly tools: DeepAgentToolsOption;
   readonly systemPrompt: string;
-  readonly responseFormat: typeof AgentCoreResponseFormat;
+  readonly responseFormat: AgentCoreResponseFormat;
   readonly contextSchema: typeof DeepAgentToolRunContextSchema;
   readonly middleware: readonly unknown[];
 };
@@ -113,6 +113,8 @@ export type OllamaDeepAgentConfig = { readonly baseUrl: string; readonly apiKey:
 export class ToolExecutionCollector {
   count = 0;
   modelCallCount = 0;
+  explorationModelCalls = 3;
+  structuredOutputFailed = false;
   contentReadCharacters = 0;
   contentReadReservedCharacters = 0;
   contentReadLimitReached = false;
@@ -131,20 +133,6 @@ export function filterModelToolsAfterLimits<T>(tools: readonly T[], operationalT
     if (toolLimitReached && operationalToolNames.has(name)) return false;
     return !(contentReadLimitReached && contentReadToolNames.has(name));
   });
-}
-
-export function shouldFinalizeFromRemainingSteps(state: unknown): boolean {
-  return typeof state === "object" && state !== null && "remainingSteps" in state && typeof state.remainingSteps === "number" && state.remainingSteps <= 3;
-}
-
-export function normalizeStructuredOutputCalls(response: unknown, operationalToolNames: ReadonlySet<string>): number {
-  if (typeof response !== "object" || response === null || !("tool_calls" in response) || !Array.isArray(response.tool_calls)) return 0;
-  const calls = response.tool_calls as Array<{ readonly name?: unknown; readonly args?: unknown }>;
-  if (calls.length < 2 || calls.some((call) => typeof call.name !== "string" || operationalToolNames.has(call.name))) return 0;
-  const valid = calls.filter((call) => AgentCoreOutputSchema.safeParse(call.args).success);
-  if (valid.length === 0) return 0;
-  (response as { tool_calls: typeof calls }).tool_calls = [valid[0] as (typeof calls)[number]];
-  return calls.length - 1;
 }
 
 function contentTextCharacters(value: unknown): number {
@@ -261,8 +249,9 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
       const systemPrompt = serializeMessageContent(request.systemMessage.content);
       const messages = request.messages.map((message) => ({ role: message.type, content: message.content }));
       const serializedMessages = JSON.stringify(messages);
-      const finalizing = shouldFinalizeFromRemainingSteps(request.state);
-      const effectiveTools = filterModelToolsAfterLimits(request.tools, operationalToolNames, contentReadToolNames, finalizing || context.collector.count >= context.maxToolCalls, context.collector.contentReadLimitReached);
+      const finalizing = modelCall > context.collector.explorationModelCalls || context.collector.structuredOutputFailed;
+      if (modelCall > context.collector.explorationModelCalls + 2) throw new DomainError("VALIDATION", "Final structured output could not be produced within the model call limit");
+      const effectiveTools = finalizing || context.collector.count >= context.maxToolCalls ? [] : filterModelToolsAfterLimits(request.tools, operationalToolNames, contentReadToolNames, false, context.collector.contentReadLimitReached);
       const effectiveRequest = effectiveTools.length === request.tools.length ? request : { ...request, tools: effectiveTools };
       const toolNames = effectiveTools.map((candidate) => toolName(candidate) ?? "unknown");
       const startedAt = now();
@@ -270,13 +259,12 @@ function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogge
         inputCharacters: systemPrompt.length + serializedMessages.length,
         estimatedInputTokens: Math.ceil((systemPrompt.length + serializedMessages.length) / 4),
         messageCount: messages.length,
-        toolCount: toolNames.length
+        toolCount: toolNames.length, finalizing
       });
       logger.log("debug", "agent_core.model_call_prompt", { systemPrompt, messages: serializedMessages, toolNames: JSON.stringify(toolNames) });
       try {
         const response = await handler(effectiveRequest);
-        const removedStructuredOutputs = normalizeStructuredOutputCalls(response, operationalToolNames);
-        if (removedStructuredOutputs > 0) logger.log("warn", "agent_core.structured_output_deduplicated", { removedStructuredOutputs });
+        if ("goto" in response) context.collector.structuredOutputFailed = true;
         const summary = summarizeModelResponse(response);
         logger.log("info", "agent_core.model_call_completed", { elapsedMs: now().getTime() - startedAt.getTime(), ...summary });
         if (summary.outputCharacters === 0 && summary.toolCallCount === 0) logger.log("warn", "agent_core.model_call_empty", { finishReason: summary.finishReason, ...(summary.inputTokens === undefined ? {} : { inputTokens: summary.inputTokens }), ...(summary.outputTokens === undefined ? {} : { outputTokens: summary.outputTokens }) });
@@ -358,8 +346,15 @@ function serializeMessageContent(content: unknown): string {
   } catch { return "[unserializable content]"; }
 }
 
-export function summarizeModelResponse(response: unknown): { readonly outputType: string; readonly outputCharacters: number; readonly toolCallCount: number; readonly finishReason: string; readonly inputTokens?: number; readonly outputTokens?: number } {
+export function summarizeModelResponse(response: unknown): { readonly outputType: string; readonly outputCharacters: number; readonly toolCallCount: number; readonly finishReason: string; readonly toolNames?: string; readonly inputTokens?: number; readonly outputTokens?: number } {
   if (typeof response !== "object" || response === null) return { outputType: typeof response, outputCharacters: 0, toolCallCount: 0, finishReason: "not-reported" };
+  // The library returns a structured response or a retry Command after parsing.
+  const envelope = response as { messages?: unknown; update?: { messages?: unknown } };
+  const wrappedMessages = envelope.messages ?? envelope.update?.messages;
+  if (Array.isArray(wrappedMessages)) {
+    const ai = wrappedMessages.find((message: unknown) => typeof message === "object" && message !== null && "tool_calls" in message);
+    if (ai !== undefined) return summarizeModelResponse(ai);
+  }
   const record = response as { readonly content?: unknown; readonly tool_calls?: unknown; readonly response_metadata?: unknown; readonly usage_metadata?: unknown };
   const toolCalls = Array.isArray(record.tool_calls) ? record.tool_calls : [];
   const metadata = typeof record.response_metadata === "object" && record.response_metadata !== null ? record.response_metadata as Record<string, unknown> : {};
@@ -370,6 +365,7 @@ export function summarizeModelResponse(response: unknown): { readonly outputType
     outputType: toolCalls.length > 0 ? "tool-calls" : typeof record.content === "string" ? "text" : Array.isArray(record.content) ? "content-blocks" : "message",
     outputCharacters: serializeMessageContent(record.content).length,
     toolCallCount: toolCalls.length,
+    ...(toolCalls.length === 0 ? {} : { toolNames: JSON.stringify(toolCalls.map((call: unknown) => toolName(call) ?? "unknown")) }),
     finishReason: typeof reportedReason === "string" ? reportedReason : metadata.done === true ? "done" : "not-reported",
     ...(typeof inputTokens === "number" ? { inputTokens } : {}), ...(typeof outputTokens === "number" ? { outputTokens } : {})
   };
@@ -443,7 +439,10 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     contextSchema: options.contextSchema,
     middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]>
   }) as unknown as ReusableDeepAgent);
-  const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt, responseFormat: AgentCoreResponseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware });
+  const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt, responseFormat: toolStrategy(AgentCoreOutputSchema, { handleError: (error) => {
+    logger.log("warn", "agent_core.structured_output_invalid", errorLogContext(error));
+    return "構造化出力が不正です。通常Toolは使わず、指定Schemaの全フィールドを含む最終回答を構造化出力専用Toolでちょうど1件だけ返してください。検証エラー: " + error.message;
+  } }), contextSchema: DeepAgentToolRunContextSchema, middleware });
   return {
     async invoke(input, options) {
       const context = createDeepAgentToolRunContext({
@@ -455,8 +454,9 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }),
         ...(options.transport === undefined ? {} : { transport: options.transport })
       });
+      context.collector.explorationModelCalls = Math.max(1, Math.min(3, Math.floor(options.recursionLimit / 4)));
       try {
-        const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
+        const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: Math.max(64, options.recursionLimit), context });
         return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions: context.collector.executions };
       } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions } }); }
     }

@@ -1,7 +1,9 @@
+import { createDeepAgent } from "deepagents";
+import { FakeToolCallingModel } from "langchain";
 import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, createDeepAgentTools, createDeepAgentToolRunContext, createOllamaDeepAgentInvoker, filterModelToolsAfterLimits, normalizeStructuredOutputCalls, shouldFinalizeFromRemainingSteps, type DeepAgentInvoker, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, createDeepAgentTools, createDeepAgentToolRunContext, createOllamaDeepAgentInvoker, filterModelToolsAfterLimits, type DeepAgentInvoker, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
@@ -22,20 +24,32 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
   });
 
-  it("reserves graph steps for final output and keeps one valid structured output call", () => {
-    expect(shouldFinalizeFromRemainingSteps({ remainingSteps: 4 })).toBe(false);
-    expect(shouldFinalizeFromRemainingSteps({ remainingSteps: 3 })).toBe(true);
-    const first = { name: "extract-1", args: finalOutput };
-    const response = { tool_calls: [first, { name: "extract-1", args: { ...finalOutput, action: { type: "no-external-action", reason: "Recorded the result" } } }] };
-    expect(normalizeStructuredOutputCalls(response, new Set(["file_read"]))).toBe(1);
-    expect(response.tool_calls).toEqual([first]);
+  it.each(["repair", "persistent-failure"])("finalizes through the real Deep Agent graph: %s", async (scenario) => {
+    let effects = 0;
+    const logs: string[] = [];
+    const logger = { child: () => logger, log: (_level: unknown, step: string, data?: unknown) => { logs.push(JSON.stringify({ step, data })); } };
+    const registry = new ToolRegistry([{ name: "lookup", description: "lookup", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { effects += 1; return Promise.resolve({ ok: true, value: { answer: 42 } }); } }]);
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "http://unused", apiKey: "unused", model: "fake", toolRegistry: registry, logger, agentFactory: (options) => {
+      const name = options.responseFormat[0]?.name;
+      if (name === undefined) throw new Error("Missing structured output tool");
+      const model = new FakeToolCallingModel({ toolCalls: [
+        [{ name: "lookup", args: {}, id: "a" }],
+        [{ name: "lookup", args: {}, id: "b" }],
+        [{ name: "lookup", args: {}, id: "c" }],
+        [{ name, args: finalOutput, id: "d" }, { name, args: finalOutput, id: "e" }],
+        scenario === "repair" ? [{ name, args: finalOutput, id: "f" }] : [{ name, args: {}, id: "f" }]
+      ] });
+      const agent = createDeepAgent({ model, tools: options.tools, systemPrompt: options.systemPrompt, responseFormat: options.responseFormat, contextSchema: options.contextSchema, middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]> });
+      return { invoke: (input, config) => agent.invoke({ messages: [...input.messages] }, { ...config, context: { ...config.context, recentToolInputs: [...config.context.recentToolInputs] } }) };
+    } });
+    const resultPromise = invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 12, agentId: "agent-a", runId: "real-graph", eventId: "event-1", maxToolCalls: 8 });
+    if (scenario === "repair") expect((await resultPromise).structuredResponse).toEqual(finalOutput);
+    else await expect(resultPromise).rejects.toMatchObject({ cause: { providerError: { message: "Final structured output could not be produced within the model call limit" } } });
+    expect(effects).toBe(3);
+    expect(logs.some((line) => line.includes('"finalizing":true') && line.includes('"toolCount":0'))).toBe(true);
+    expect(logs.some((line) => line.includes("structured_output_invalid"))).toBe(true);
   });
 
-  it("does not normalize a response that mixes operational and structured Tool calls", () => {
-    const response = { tool_calls: [{ name: "file_read", args: { path: "note.md" } }, { name: "extract-1", args: finalOutput }] };
-    expect(normalizeStructuredOutputCalls(response, new Set(["file_read"]))).toBe(0);
-    expect(response.tool_calls).toHaveLength(2);
-  });
   it("returns an identical recent Tool input as a Tool failure without executing it again", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
