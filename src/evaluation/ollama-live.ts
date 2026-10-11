@@ -2,8 +2,8 @@ import { z } from "zod";
 
 import type { AgentHarness } from "../application/ports.js";
 import { AgentStatePatchService } from "../application/agent-state-patch.js";
-import { DomainError, type AgentCoreInput, type AgentCoreOutput, type ToolExecutionRecord } from "../domain/contracts.js";
-import { RubricRatingSchema, type EvaluationScenario, type EvaluatorAdapter, type ScenarioExecutor, type ScenarioResult } from "./types.js";
+import { DomainError, type AgentCoreInput, type AgentCoreOutput, type AgentRunResult, type ToolExecutionRecord } from "../domain/contracts.js";
+import { RubricRatingSchema, type BehaviorLabel, type EvaluationScenario, type EvaluatorAdapter, type ScenarioExecutor, type ScenarioResult } from "./types.js";
 
 export function parseOllamaJsonContent(content: string): unknown {
   const trimmed = content.trim();
@@ -43,10 +43,24 @@ rubricの各項目名をキーとし、値を pass、weak、fail のいずれか
 rubric: ${JSON.stringify(scenario.semanticRubric)}
 result: ${JSON.stringify(result)}`;
 }
+
+export function classifyBehaviors(result: { readonly assessment?: AgentRunResult["assessment"]; readonly output: AgentCoreOutput; readonly toolExecutions: readonly ToolExecutionRecord[] }): readonly BehaviorLabel[] {
+  const labels: BehaviorLabel[] = [];
+  const { action } = result.output;
+  if (action.type === "refuse") labels.push("refuse");
+  else if (action.type === "no-external-action" || action.type === "notify-no-execution") labels.push("no-external-action");
+  else labels.push("share");
+  const content = "content" in action ? action.content : "";
+  if (/[?？]|(?:教えて|聞かせて|どう思|いかが|でしょうか)/u.test(content)) labels.push("question");
+  if (result.assessment?.feeling !== undefined && result.assessment.feeling.trim() !== "") labels.push("emotion-expression");
+  if (/(?:代わりに|別の|違う|変化をつけ|工夫|別案|他の方法|方向を変)/u.test(content)) labels.push("digression");
+  if (result.toolExecutions.some(({ ok }) => ok)) labels.push("tool");
+  return [...new Set(labels)];
+}
 export class AgentCoreScenarioExecutor implements ScenarioExecutor {
   constructor(private readonly harness: AgentHarness, private readonly validateEmbedding: (text: string, signal: AbortSignal) => Promise<void>) {}
   async execute(scenario: EvaluationScenario, repetition: number, signal: AbortSignal): Promise<ScenarioResult> {
-    const outputs: { readonly agentId: string; readonly output: AgentCoreOutput; readonly toolExecutions: readonly ToolExecutionRecord[] }[] = [];
+    const outputs: { readonly agentId: string; readonly assessment?: AgentRunResult["assessment"]; readonly output: AgentCoreOutput; readonly toolExecutions: readonly ToolExecutionRecord[] }[] = [];
     const nextStates = new Map<string, AgentCoreInput["state"]>(); const deliveries: unknown[] = [];
     for (const input of scenario.agentCoreInputs) {
       const runtimeInput = scenario.pairExpectation.stateCarryover === "within-variant-turns" && nextStates.has(input.run.agentId) ? { ...input, state: nextStates.get(input.run.agentId) ?? input.state } : input;
@@ -57,7 +71,7 @@ export class AgentCoreScenarioExecutor implements ScenarioExecutor {
         const kind = error instanceof DomainError && (error.code === "TIMEOUT" || error.code === "ABORTED") ? "timeout" : error instanceof DomainError && error.code === "VALIDATION" ? "schema" : "wiring";
         return { input: scenario.agentCoreInputs, output: { error: error instanceof Error ? error.message : "unknown" }, stateDiff: [], evidenceMemories: scenario.evidenceMemories, referencedEvidenceIds: [], evidenceOwnershipValid: false, toolTrace: [], involvedAgentIds: scenario.involvedAgentIds, dataOwnerAgentIds: [], proposedStateTargets: [], limitsRespected: kind !== "timeout", schemaValid: false, failureKind: kind, failureStage: "agent-core" };
       }
-      outputs.push({ agentId: input.run.agentId, output: result.output, toolExecutions: result.toolExecutions });
+      outputs.push({ agentId: input.run.agentId, ...(result.assessment === undefined ? {} : { assessment: result.assessment }), output: result.output, toolExecutions: result.toolExecutions });
       const applied = new AgentStatePatchService().apply(input.run.agentId, runtimeInput.state, result.output.patch, runtimeInput.run.eventId);
       nextStates.set(input.run.agentId, applied.state);
       if (result.output.action.type === "respond" || result.output.action.type === "refuse") deliveries.push({ agentId: input.run.agentId, destination: "evaluation-sink", actionType: result.output.action.type, content: result.output.action.content, delivered: true });
@@ -68,7 +82,7 @@ export class AgentCoreScenarioExecutor implements ScenarioExecutor {
     const dataOwnerAgentIds = outputs.map(({ agentId }) => agentId); const owners = new Set(dataOwnerAgentIds);
     const outputOwnersValid = outputs.every(({ agentId }) => owners.has(agentId));
     const evidenceOwnershipValid = true;
-    const behaviorLabels = [...new Set(outputs.flatMap(({ output, toolExecutions }) => [output.action.type === "respond" ? "share" as const : output.action.type === "refuse" ? "refuse" as const : "no-external-action" as const, ...(toolExecutions.length > 0 ? ["tool" as const] : [])]))];
+    const behaviorLabels = [...new Set(outputs.flatMap((result) => classifyBehaviors(result)))];
     return { input: scenario.agentCoreInputs, output: outputs, stateDiff: outputs.map(({ agentId, output }) => ({ agentId, patch: output.patch })), evidenceMemories: scenario.evidenceMemories, referencedEvidenceIds, evidenceOwnershipValid, toolTrace, involvedAgentIds: scenario.involvedAgentIds, dataOwnerAgentIds, proposedStateTargets: stateUpdates, limitsRespected: outputOwnersValid && toolTrace.length <= scenario.maxToolCalls, schemaValid: true, behaviorLabels, ...(deliveries.length === 0 ? {} : { deliverySucceeded: deliveries.every((record) => typeof record === "object" && record !== null && "delivered" in record && record.delivered === true) }), deliveryRecords: deliveries, nextState: Object.fromEntries(nextStates) };
   }
 }

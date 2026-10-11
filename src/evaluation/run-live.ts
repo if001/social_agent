@@ -42,8 +42,12 @@ const harness = new DeepAgentHarness({ invoker: {
     throw error;
   }
 } }, registeredToolNames: new Set(evaluationTools.definitions().map(({ name }) => name)), maxRepairs: 1 });
-const selectedScenarios = process.env.EVALUATION_SCENARIO_ID === undefined ? evaluationScenarios : evaluationScenarios.filter(({ id }) => id === process.env.EVALUATION_SCENARIO_ID);
-if (selectedScenarios.length === 0) throw new Error(`Unknown evaluation scenario: ${String(process.env.EVALUATION_SCENARIO_ID)}`);
+const selectedScenarios = process.env.EVALUATION_SCENARIO_ID !== undefined
+  ? evaluationScenarios.filter(({ id }) => id === process.env.EVALUATION_SCENARIO_ID)
+  : process.env.EVALUATION_PAIR_ID !== undefined
+    ? evaluationScenarios.filter(({ pairId }) => pairId === process.env.EVALUATION_PAIR_ID)
+    : evaluationScenarios;
+if (selectedScenarios.length === 0) throw new Error(`Unknown evaluation selection: scenario=${String(process.env.EVALUATION_SCENARIO_ID)}, pair=${String(process.env.EVALUATION_PAIR_ID)}`);
 const repetitions = process.env.EVALUATION_REPETITIONS === undefined ? 3 : Number.parseInt(process.env.EVALUATION_REPETITIONS, 10);
 if (!Number.isSafeInteger(repetitions) || repetitions < 3) throw new Error("EVALUATION_REPETITIONS must be an integer of at least 3 for the live gate");
 const concurrency = process.env.EVALUATION_CONCURRENCY === undefined ? 4 : Number.parseInt(process.env.EVALUATION_CONCURRENCY, 10);
