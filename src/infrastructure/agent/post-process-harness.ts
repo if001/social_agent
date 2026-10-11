@@ -109,6 +109,7 @@ export function createOllamaPostProcessHarnesses(config: OllamaPostProcessConfig
     if (pending === undefined) {
       pending = combined.run(input, signal);
       cache.set(key, pending);
+      void pending.catch(() => { if (cache.get(key) === pending) cache.delete(key); });
       if (cache.size > 100) cache.delete(cache.keys().next().value ?? key);
     }
     return pending;
