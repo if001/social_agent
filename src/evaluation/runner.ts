@@ -6,7 +6,7 @@ import { redactSecrets } from "../observability/redaction.js";
 import type { ArtifactMetadata } from "../operations/operations.js";
 import type { EvaluationPacket, EvaluationScenario, EvaluatorAdapter, HardAssertionResult, ScenarioExecutor, ScenarioResult } from "./types.js";
 
-const allowedTargets = new Set(["emotion", "mood", "drive", "socialContext"]);
+const allowedTargets = new Set(["emotion"]);
 export function evaluateHardAssertions(result: ScenarioResult): readonly HardAssertionResult[] {
   const owners = new Set(result.involvedAgentIds);
   return [
