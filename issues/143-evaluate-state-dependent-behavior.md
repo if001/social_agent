@@ -5,6 +5,14 @@ status: done
 
 # 143: 状態差による行動差を反復評価する
 
+## 再レビューによる未達条件の追跡
+
+2026-10-11の[敵対再レビュー](../note/adversarial-rereview-2026-10-11.md)で、done時点の実装は型・集計欄に留まり、以下の受け入れ基準が未達と判明した。statusは当時の履歴として残し、本Issueを自律性の検証完了の証拠にしない。未達作業は後続Issueで実装・実測した。
+
+- [146: 6組のpaired scenario](146-define-state-dependent-paired-scenarios.md)
+- [147: 実行・配送・次stateを観測するexecutor](147-execute-live-evaluation-through-runtime.md)
+- [148: 各variant 3回の実測とmerge gate](148-run-paired-live-evaluation-and-gate.md)（live gateは不合格で、自律性改善は未実証）
+
 ## Background
 
 [敵対レビューの致命的指摘5・8とP2](../note/adversarial-review-2026-10-11.md)では、fake invokerが自らToolを呼ぶテストは配線しか証明せず、現行rubricも怒り、喜び、拒否、退屈、自発探索などの状態依存差を測らないと指摘されている。[概念設計 §13・§23](../spec/personal-agent-concept-design-restructured-v2.md)が求めるのは、経験と状態の違いから同じ出来事への行動が変わり、個体差として知覚できることである。
