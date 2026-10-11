@@ -107,7 +107,7 @@ describe("AgentHarness contract", () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけをEmotionやMotiveの根拠にしません");
+    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけをFeelingやDesireの根拠にしません");
   });
 
   it("repairs invalid output once and then stops", async () => {
@@ -208,8 +208,8 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).not.toContain("構造化出力専用Tool");
     expect(agentCoreSystemPrompt).not.toContain("最小引数例");
     expect(agentCoreSystemPrompt).toContain("明示した将来時刻の処理はschedule_task");
-    expect(agentCoreSystemPrompt).toContain("autonomy-review");
-    expect(agentCoreSystemPrompt).toContain("保存済みMotiveを機械的に選択しません");
+    expect(agentCoreSystemPrompt).toContain("idle Event");
+    expect(agentCoreSystemPrompt).toContain("保存済みMotiveの選択や型付き参照は要求しません");
     expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
     expect(agentCoreSystemPrompt).toContain("Tool未使用で理由だけを返すno-external-actionは禁止");
     expect(agentCoreSystemPrompt).toContain("同一手段を繰り返さず");

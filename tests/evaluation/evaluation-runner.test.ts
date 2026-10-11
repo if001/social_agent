@@ -16,7 +16,7 @@ describe("live evaluation runner", () => {
   it("describes the Agent Core purpose, inputs, output fields, and constraints in Japanese", () => {
     const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
     const evaluatorPrompt = buildEvaluatorPrompt(scenario, { input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: [], dataOwnerAgentIds: [], proposedStateTargets: [], limitsRespected: true, schemaValid: true });
-    expect(agentCoreSystemPrompt).toContain("目的:"); expect(agentCoreSystemPrompt).toContain("入力:"); expect(agentCoreSystemPrompt).toContain("Emotionと最終Action"); expect(agentCoreSystemPrompt).toContain("Post-processが担当"); expect(agentCoreSystemPrompt).toContain("当面のgoal"); expect(agentCoreSystemPrompt).toContain("保存済みMotiveを機械的に選択しません"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
+    expect(agentCoreSystemPrompt).toContain("目的:"); expect(agentCoreSystemPrompt).toContain("入力:"); expect(agentCoreSystemPrompt).toContain("MeaningとEmotion"); expect(agentCoreSystemPrompt).toContain("Reflectionが担当"); expect(agentCoreSystemPrompt).toContain("Concern"); expect(agentCoreSystemPrompt).toContain("保存済みMotiveの選択や型付き参照は要求しません"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
   });
   it("defines six complete paired scenarios with equivalent observations", () => {
     expect(validateScenarioPairs(evaluationScenarios)).toEqual([]);

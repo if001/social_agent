@@ -124,7 +124,7 @@ export class DeepAgentHarness implements AgentHarness {
     const maxAttempts = this.#maxRepairs + 1;
     const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
     if (this.options.invoker.assess !== undefined) {
-      const assessmentContent = JSON.stringify({ promptVersion: "event-assessment-v1-ja", input: { observation: input.observation, self: input.self, dynamicState: input.dynamicState, socialContext: input.socialContext, memories: input.memories } });
+      const assessmentContent = JSON.stringify({ promptVersion: "event-assessment-v2-ja", input: { observation: input.observation, currentSelf: input.currentSelf, state: input.state, memories: input.memories } });
       const assessed = await this.options.invoker.assess({ messages: [{ role: "user", content: assessmentContent }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: 0 });
       consumedModelCalls += assessed.modelCalls;
       currentEventAssessment = assessed.assessment;
