@@ -1,0 +1,13 @@
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:01:54.199Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","inputCharacters":1359}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:03:28.081Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","elapsedMs":93882,"toolCalls":1}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:03:28.094Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","inputCharacters":7304}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:04:30.389Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","elapsedMs":62295,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:04:30.392Z","scenarioId":"PAIR-PRAISE-B"}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:04:55.454Z","scenarioId":"PAIR-PRAISE-B","elapsedMs":25062}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:04:55.603Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","inputCharacters":1359}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:07:26.415Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","elapsedMs":150812,"toolCalls":1}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:07:26.419Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","inputCharacters":7234}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:08:06.990Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","elapsedMs":40571,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:08:06.992Z","scenarioId":"PAIR-PRAISE-B"}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:08:44.678Z","scenarioId":"PAIR-PRAISE-B","elapsedMs":37686}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:08:44.823Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","inputCharacters":1359}

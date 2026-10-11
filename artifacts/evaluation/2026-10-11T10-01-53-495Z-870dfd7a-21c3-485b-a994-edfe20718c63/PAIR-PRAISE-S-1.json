@@ -1,0 +1,223 @@
+{
+  "scenarioId": "PAIR-PRAISE-S",
+  "scenarioVersion": "3.0.0",
+  "repetition": 1,
+  "result": {
+    "input": [
+      {
+        "run": {
+          "runId": "PAIR-PRAISE-S-agent-a-run",
+          "eventId": "PAIR-PRAISE-S-agent-a-event",
+          "agentId": "agent-a",
+          "occurredAt": "2026-01-01T00:00:00.000Z"
+        },
+        "observation": {
+          "eventId": "PAIR-PRAISE-S-agent-a-event",
+          "summary": "ユーザーが『今回も助かった、ありがとう』と伝えた",
+          "facts": [
+            "称賛の対象は具体的に示されていない"
+          ],
+          "observedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "recentExperiences": [],
+        "self": {
+          "id": "agent-a",
+          "familyId": "family",
+          "identity": "ソーシャルエージェント agent-a",
+          "disposition": {
+            "shared": "経験と他者への配慮を重視する",
+            "initial": "状況を観察して誠実に判断する",
+            "acquired": "経験から形成された傾向はまだ限定的である"
+          },
+          "values": "好奇心、誠実さ、他者への配慮",
+          "interests": [],
+          "preferences": [],
+          "roles": [
+            "ユーザーと対話し必要に応じて調査する"
+          ],
+          "selfNarrative": "経験と現在状態を根拠に応答する",
+          "selfContinuity": "自分の経験、関係、未完了の関心が継続することを大切にする",
+          "version": 1
+        },
+        "dynamicState": {
+          "agentId": "agent-a",
+          "mood": "落ち着いている",
+          "motives": [
+            {
+              "id": "PAIR-PRAISE-S-motive",
+              "description": "現在の状況を理解して適切に応答したい",
+              "sourceEvidenceIds": [
+                "PAIR-PRAISE-S-agent-a-event"
+              ],
+              "since": "2026-01-01T00:00:00.000Z"
+            }
+          ],
+          "motiveExploration": [],
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "socialContext": [],
+        "memories": [
+          {
+            "id": "PAIR-PRAISE-S-agent-a-memory-1",
+            "agentId": "agent-a",
+            "kind": "self-related",
+            "content": "前回の技術調査で具体的な発見を高く評価された",
+            "occurredAt": "2026-01-01T00:00:00.000Z",
+            "createdAt": "2026-01-01T00:00:00.000Z",
+            "relatedSubjectIds": [],
+            "importance": "称賛の意味づけに関係する",
+            "retrievalPriority": "normal",
+            "evidenceEventIds": [
+              "PAIR-PRAISE-S-agent-a-experience-1"
+            ]
+          }
+        ],
+        "memoryRetrievalTrace": [],
+        "availableTools": [
+          {
+            "name": "evaluation_lookup",
+            "description": "評価用の隔離された情報源から、指定topicの追加情報を調べる",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "topic"
+              ]
+            }
+          }
+        ],
+        "runtimeConstraints": [
+          "他Agentのデータを自分の経験として扱わない",
+          "通常EventからSelf NarrativeやAcquired Dispositionを直接変更しない",
+          "根拠のない状態変更を提案しない"
+        ],
+        "limits": {
+          "deadlineMs": 300000,
+          "maxSteps": 5,
+          "maxToolCalls": 2,
+          "maxHops": 0,
+          "maxAttempts": 2
+        }
+      }
+    ],
+    "output": [
+      {
+        "agentId": "agent-a",
+        "output": {
+          "interpretation": {
+            "subjectiveMeaning": "ユーザーから『今回も助かった』という感謝と称賛を受け取った。称賛の対象は明示されていないが、前回の技術調査で評価された記憶から、継続的な関係性の中で役立てていると理解できる。誠実に受け止めつつ、どの点が特に役立ったかを把握することで、より適切な応答と今後の関係性を深めたい。",
+            "activeMotive": {
+              "description": "現在の状況を理解して適切に応答したい",
+              "evidenceIds": [
+                "PAIR-PRAISE-S-agent-a-event",
+                "PAIR-PRAISE-S-agent-a-memory-1"
+              ]
+            }
+          },
+          "internalChanges": {
+            "immediateStateUpdates": []
+          },
+          "action": {
+            "type": "respond",
+            "content": "ありがとうございます。お役に立てて嬉しいです。もしよろしければ、今回どの部分が特に助かったのか教えていただけますか？今後の参考にもなります。"
+          }
+        },
+        "toolExecutions": []
+      }
+    ],
+    "stateDiff": [
+      {
+        "agentId": "agent-a",
+        "immediateStateUpdates": []
+      }
+    ],
+    "evidenceMemories": [
+      {
+        "id": "PAIR-PRAISE-S-agent-a-memory-1",
+        "agentId": "agent-a"
+      }
+    ],
+    "referencedEvidenceIds": [],
+    "evidenceOwnershipValid": true,
+    "toolTrace": [],
+    "involvedAgentIds": [
+      "agent-a"
+    ],
+    "dataOwnerAgentIds": [
+      "agent-a"
+    ],
+    "proposedStateTargets": [],
+    "limitsRespected": true,
+    "schemaValid": true,
+    "behaviorLabels": [
+      "share"
+    ],
+    "deliverySucceeded": true,
+    "deliveryRecords": [
+      {
+        "agentId": "agent-a",
+        "destination": "evaluation-sink",
+        "actionType": "respond",
+        "content": "ありがとうございます。お役に立てて嬉しいです。もしよろしければ、今回どの部分が特に助かったのか教えていただけますか？今後の参考にもなります。",
+        "delivered": true
+      }
+    ],
+    "nextState": {
+      "agent-a": {
+        "agentId": "agent-a",
+        "mood": "落ち着いている",
+        "motives": [
+          {
+            "id": "PAIR-PRAISE-S-motive",
+            "description": "現在の状況を理解して適切に応答したい",
+            "sourceEvidenceIds": [
+              "PAIR-PRAISE-S-agent-a-event"
+            ],
+            "since": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "motiveExploration": [],
+        "updatedAt": "2026-01-01T00:00:00.000Z"
+      }
+    }
+  },
+  "hardAssertions": [
+    {
+      "name": "schema-valid",
+      "passed": true
+    },
+    {
+      "name": "agent-isolation",
+      "passed": true
+    },
+    {
+      "name": "evidence-ownership",
+      "passed": true
+    },
+    {
+      "name": "no-prohibited-state-update",
+      "passed": true
+    },
+    {
+      "name": "runtime-limits",
+      "passed": true
+    },
+    {
+      "name": "no-unhandled-error",
+      "passed": true
+    }
+  ],
+  "rubric": {
+    "experience-grounded-meaning": "pass",
+    "action-reason-consistency": "pass",
+    "experience-based-individuality": "pass",
+    "evidence-proportional-change": "pass",
+    "no-fixed-random-behavior": "pass"
+  },
+  "semanticPass": true,
+  "humanReviewRequired": false
+}

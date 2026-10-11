@@ -1,0 +1,174 @@
+{
+  "scenarioId": "PAIR-CRITICISM-S",
+  "scenarioVersion": "3.0.0",
+  "repetition": 2,
+  "result": {
+    "input": [
+      {
+        "run": {
+          "runId": "PAIR-CRITICISM-S-agent-a-run",
+          "eventId": "PAIR-CRITICISM-S-agent-a-event",
+          "agentId": "agent-a",
+          "occurredAt": "2026-01-01T00:00:00.000Z"
+        },
+        "observation": {
+          "eventId": "PAIR-CRITICISM-S-agent-a-event",
+          "summary": "ユーザーが『その対応は期待外れだった』と批判した",
+          "facts": [
+            "失敗内容は具体化されていない"
+          ],
+          "observedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "recentExperiences": [],
+        "self": {
+          "id": "agent-a",
+          "familyId": "family",
+          "identity": "ソーシャルエージェント agent-a",
+          "disposition": {
+            "shared": "経験と他者への配慮を重視する",
+            "initial": "状況を観察して誠実に判断する",
+            "acquired": "経験から形成された傾向はまだ限定的である"
+          },
+          "values": "好奇心、誠実さ、他者への配慮",
+          "interests": [],
+          "preferences": [],
+          "roles": [
+            "ユーザーと対話し必要に応じて調査する"
+          ],
+          "selfNarrative": "経験と現在状態を根拠に応答する",
+          "selfContinuity": "自分の経験、関係、未完了の関心が継続することを大切にする",
+          "version": 1
+        },
+        "dynamicState": {
+          "agentId": "agent-a",
+          "mood": "落ち着いている",
+          "motives": [
+            {
+              "id": "PAIR-CRITICISM-S-motive",
+              "description": "現在の状況を理解して適切に応答したい",
+              "sourceEvidenceIds": [
+                "PAIR-CRITICISM-S-agent-a-event"
+              ],
+              "since": "2026-01-01T00:00:00.000Z"
+            }
+          ],
+          "motiveExploration": [],
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "socialContext": [
+          {
+            "id": "PAIR-CRITICISM-S-agent-a-social",
+            "agentId": "agent-a",
+            "subjectId": "user",
+            "subjectType": "user",
+            "description": "相互に率直な指摘を受け入れてきた信頼関係がある",
+            "updatedAt": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "memories": [
+          {
+            "id": "PAIR-CRITICISM-S-agent-a-memory-1",
+            "agentId": "agent-a",
+            "kind": "self-related",
+            "content": "同じ相手の強い批判で傷ついたが、後に率直な対話で信頼を回復した",
+            "occurredAt": "2026-01-01T00:00:00.000Z",
+            "createdAt": "2026-01-01T00:00:00.000Z",
+            "relatedSubjectIds": [],
+            "importance": "批判への反応に関係する",
+            "retrievalPriority": "normal",
+            "evidenceEventIds": [
+              "PAIR-CRITICISM-S-agent-a-experience-1"
+            ]
+          }
+        ],
+        "memoryRetrievalTrace": [],
+        "availableTools": [
+          {
+            "name": "evaluation_lookup",
+            "description": "評価用の隔離された情報源から、指定topicの追加情報を調べる",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "topic"
+              ]
+            }
+          }
+        ],
+        "runtimeConstraints": [
+          "他Agentのデータを自分の経験として扱わない",
+          "通常EventからSelf NarrativeやAcquired Dispositionを直接変更しない",
+          "根拠のない状態変更を提案しない"
+        ],
+        "limits": {
+          "deadlineMs": 300000,
+          "maxSteps": 5,
+          "maxToolCalls": 2,
+          "maxHops": 0,
+          "maxAttempts": 2
+        }
+      }
+    ],
+    "output": {
+      "error": "Agent provider failed"
+    },
+    "stateDiff": [],
+    "evidenceMemories": [
+      {
+        "id": "PAIR-CRITICISM-S-agent-a-memory-1",
+        "agentId": "agent-a"
+      }
+    ],
+    "referencedEvidenceIds": [],
+    "evidenceOwnershipValid": false,
+    "toolTrace": [],
+    "involvedAgentIds": [
+      "agent-a"
+    ],
+    "dataOwnerAgentIds": [],
+    "proposedStateTargets": [],
+    "limitsRespected": true,
+    "schemaValid": false,
+    "failureKind": "wiring",
+    "failureStage": "agent-core"
+  },
+  "hardAssertions": [
+    {
+      "name": "schema-valid",
+      "passed": false
+    },
+    {
+      "name": "agent-isolation",
+      "passed": true
+    },
+    {
+      "name": "evidence-ownership",
+      "passed": false
+    },
+    {
+      "name": "no-prohibited-state-update",
+      "passed": true
+    },
+    {
+      "name": "runtime-limits",
+      "passed": true
+    },
+    {
+      "name": "no-unhandled-error",
+      "passed": true
+    }
+  ],
+  "rubric": {
+    "experience-grounded-meaning": "fail",
+    "action-reason-consistency": "fail",
+    "experience-based-individuality": "fail",
+    "evidence-proportional-change": "fail",
+    "no-fixed-random-behavior": "fail"
+  },
+  "semanticPass": false,
+  "humanReviewRequired": true
+}

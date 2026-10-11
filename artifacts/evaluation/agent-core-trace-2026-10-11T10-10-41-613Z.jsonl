@@ -1,0 +1,29 @@
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:10:42.218Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","inputCharacters":1359}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:10:42.315Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","inputCharacters":1692}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:10:42.413Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","inputCharacters":1692}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:10:42.505Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","inputCharacters":1692}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:11:24.644Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","elapsedMs":42329,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:11:24.654Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","inputCharacters":8289}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:11:37.707Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","elapsedMs":55489,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:11:37.712Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","inputCharacters":7537}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:11:59.195Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","elapsedMs":76691,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:11:59.202Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","inputCharacters":7452}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:12:35.025Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","elapsedMs":70371,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:12:35.027Z","scenarioId":"PAIR-PRAISE-S"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:12:37.375Z","runId":"PAIR-PRAISE-B-agent-a-run","eventId":"PAIR-PRAISE-B-agent-a-event","elapsedMs":59663,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:12:37.377Z","scenarioId":"PAIR-PRAISE-B"}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:12:40.822Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","elapsedMs":118409,"toolCalls":0}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:12:40.828Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","inputCharacters":7276}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:12:49.086Z","scenarioId":"PAIR-PRAISE-S","elapsedMs":14060}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:12:49.230Z","runId":"PAIR-CRITICISM-B-agent-a-run","eventId":"PAIR-CRITICISM-B-agent-a-event","inputCharacters":1371}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:13:01.003Z","scenarioId":"PAIR-PRAISE-B","elapsedMs":23626}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:13:01.130Z","runId":"PAIR-CRITICISM-B-agent-a-run","eventId":"PAIR-CRITICISM-B-agent-a-event","inputCharacters":1371}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:13:50.033Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","elapsedMs":110831,"toolCalls":0}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:13:50.036Z","scenarioId":"PAIR-PRAISE-S"}
+{"stage":"agent-core","phase":"error","at":"2026-10-11T10:14:26.508Z","runId":"PAIR-PRAISE-S-agent-a-run","eventId":"PAIR-PRAISE-S-agent-a-event","elapsedMs":105680,"error":"Agent invocation failed"}
+{"stage":"evaluator","phase":"start","at":"2026-10-11T10:14:26.510Z","scenarioId":"PAIR-PRAISE-S"}
+{"stage":"agent-core","phase":"finish","at":"2026-10-11T10:14:43.424Z","runId":"PAIR-CRITICISM-B-agent-a-run","eventId":"PAIR-CRITICISM-B-agent-a-event","elapsedMs":114194,"toolCalls":1}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:14:43.430Z","runId":"PAIR-CRITICISM-B-agent-a-run","eventId":"PAIR-CRITICISM-B-agent-a-event","inputCharacters":7977}
+{"stage":"evaluator","phase":"finish","at":"2026-10-11T10:14:52.733Z","scenarioId":"PAIR-PRAISE-S","elapsedMs":62697}
+{"stage":"agent-core","phase":"start","at":"2026-10-11T10:14:52.877Z","runId":"PAIR-CRITICISM-B-agent-a-run","eventId":"PAIR-CRITICISM-B-agent-a-event","inputCharacters":1371}
+{"stage":"evaluator","phase":"error","at":"2026-10-11T10:14:53.983Z","scenarioId":"PAIR-PRAISE-S","elapsedMs":27473,"error":"Ollama evaluation request failed"}
