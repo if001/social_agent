@@ -103,9 +103,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     }
     if (job.type === "memory") {
       const parsed = MemoryExtractionOutputSchema.parse(output); const memories = await this.#materializeMemories(job.input, parsed);
-      const shouldDetect = memories.memories.some(({ retrievalPriority }) => retrievalPriority === "high" || retrievalPriority === "critical");
-      const candidateInput = shouldDetect ? CandidateDetectionInputSchema.parse({ run: job.input.run, self: job.input.self, memories: memories.memories }) : undefined;
-      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: {}, changes: [], output: parsed, ...memories, ...(candidateInput === undefined ? {} : { candidateJob: { id: this.ids.next(), payload: candidateInput } }) });
+      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: {}, changes: [], output: parsed, ...memories });
       if (memories.memories.length > 0) await this.memoryEmbedding?.embedMemoryIds(job.agentId, memories.memories.map(({ id }) => id));
       return;
     }
