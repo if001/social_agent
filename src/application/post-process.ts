@@ -1,5 +1,5 @@
 import type { PendingPostProcess, PostProcessOutput, RuntimePersistence } from "./agent-runtime.js";
-import type { CandidateDetectorHarness, ContinuityHarness, MemoryExtractionHarness } from "../infrastructure/agent/post-process-harness.js";
+import type { CandidateDetectorHarness, ContinuityHarness, MemoryExtractionHarness } from "./post-process-ports.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 const delay = (milliseconds: number, signal: AbortSignal): Promise<void> => new Promise((resolve) => {

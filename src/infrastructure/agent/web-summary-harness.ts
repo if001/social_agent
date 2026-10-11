@@ -1,10 +1,11 @@
+import type { WebPageSummarizer } from "../../application/web-archive.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { z } from "zod";
 
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 const SummaryOutput = z.object({ summary: z.string().min(1).max(400) });
-export interface WebPageSummarizer { summarize(input: { readonly url: string; readonly title: string; readonly markdown: string }, signal: AbortSignal): Promise<string>; }
+
 
 export const webSummarySystemPrompt = `あなたはWeb Page Archiveの要約担当です。
 

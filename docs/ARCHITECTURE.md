@@ -1115,3 +1115,7 @@ Review Eventは空でないcandidateIds配列を必須とする。targetIdから
 ### 共有Web ArchiveのAPI（Issue 127 / R10）
 
 検索とbackfillは個体を指定しない。資料はBot間で共有するが、保存者のAgent ID・Event/Run IDはprovenanceとして残す。個体のMemory検索に適用する所有者制約とは別の契約である。
+
+### Application portの所有（Issue 128 / R11）
+
+post-process-portsとweb-archiveはApplicationが所有する契約である。Ollama Harness、Postgres Archive、Web Toolはこの契約へ依存し、Applicationは具象Adapterを参照しない。旧配置のinterfaceを互換exportとして残さない。

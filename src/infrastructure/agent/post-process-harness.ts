@@ -1,11 +1,8 @@
+import type { ContinuityHarness, MemoryExtractionHarness, CandidateDetectorHarness } from "../../application/post-process-ports.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { z, type ZodType } from "zod";
 
-import { CandidateDetectionOutputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionOutputSchema, type CandidateDetectionInput, type CandidateDetectionOutput, type ContinuityInput, type ContinuityOutput, type MemoryExtractionInput, type MemoryExtractionOutput } from "../../domain/contracts.js";
-
-export interface ContinuityHarness { run(input: ContinuityInput, signal: AbortSignal): Promise<ContinuityOutput>; }
-export interface MemoryExtractionHarness { run(input: MemoryExtractionInput, signal: AbortSignal): Promise<MemoryExtractionOutput>; }
-export interface CandidateDetectorHarness { run(input: CandidateDetectionInput, signal: AbortSignal): Promise<CandidateDetectionOutput>; }
+import { CandidateDetectionOutputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionOutputSchema } from "../../domain/contracts.js";
 
 export const continuitySystemPrompt = `あなたはソーシャルエージェントの継続状態更新担当です。
 

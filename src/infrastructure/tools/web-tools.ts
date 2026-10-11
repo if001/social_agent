@@ -2,14 +2,13 @@ import { z } from "zod";
 
 import type { RegisteredTool } from "../../application/tool-registry.js";
 import { DomainError } from "../../domain/contracts.js";
-import type { PostgresWebArchive } from "../persistence/postgres-web-archive.js";
+import type { WebArchive } from "../../application/web-archive.js";
 
 const HttpUrl = z.url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol));
 const SearchResult = z.object({ rank: z.number().int().positive(), title: z.string(), url: HttpUrl, snippet: z.string().nullable().optional(), published_date: z.string().nullable().optional() });
 const ListResponse = z.object({ query: z.string(), k: z.number().int(), results: z.array(SearchResult) });
 const PageResponse = z.object({ docs: z.array(z.object({ url: HttpUrl, title: z.string(), markdown: z.string() })) });
-type WebArchiveTools = Pick<PostgresWebArchive, "archivePages" | "search" | "read" | "grep">;
-type WebOptions = { readonly timeoutMs?: number; readonly maxBytes?: number; readonly fetcher?: typeof fetch; readonly archive?: WebArchiveTools };
+type WebOptions = { readonly timeoutMs?: number; readonly maxBytes?: number; readonly fetcher?: typeof fetch; readonly archive?: WebArchive };
 export const WEB_ARCHIVE_RESULT_MAX_CHARACTERS = 2_000;
 
 function records(value: unknown): Record<string, unknown>[] {
