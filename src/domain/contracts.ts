@@ -333,7 +333,14 @@ export const ToolExecutionRecordSchema = z.object({
 });
 export type ToolExecutionRecord = z.infer<typeof ToolExecutionRecordSchema>;
 
-export const AgentRunResultSchema = z.object({ output: AgentCoreOutputSchema, toolExecutions: z.array(ToolExecutionRecordSchema) });
+export const AgentRunResultSchema = z.object({
+  output: AgentCoreOutputSchema,
+  toolExecutions: z.array(ToolExecutionRecordSchema),
+  budget: z.object({
+    limits: RunLimitsSchema.pick({ deadlineMs: true, maxSteps: true, maxToolCalls: true }),
+    consumed: z.object({ modelCalls: z.number().int().nonnegative(), toolCalls: z.number().int().nonnegative(), repairs: z.number().int().nonnegative() })
+  }).optional()
+});
 export type AgentRunResult = z.infer<typeof AgentRunResultSchema>;
 
 const PostProcessToolResultSchema = z.object({ name: Id, ok: z.boolean(), summary: NaturalLanguage, webSnapshotIds: z.array(Id) });

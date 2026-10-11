@@ -43,7 +43,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
       const agent = createDeepAgent({ model, tools: options.tools, systemPrompt: options.systemPrompt, responseFormat: options.responseFormat, contextSchema: options.contextSchema, middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]> });
       return { invoke: (input, config) => agent.invoke({ messages: [...input.messages] }, { ...config, context: { ...config.context, recentToolInputs: [...config.context.recentToolInputs] } }) };
     } });
-    const resultPromise = invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 12, agentId: "agent-a", runId: "real-graph", eventId: "event-1", maxToolCalls: 8 });
+    const resultPromise = invoker.invoke({ messages: [{ role: "user", content: "Look up the answer" }] }, { signal: new AbortController().signal, recursionLimit: 32, agentId: "agent-a", runId: "real-graph", eventId: "event-1", maxToolCalls: 8 });
     if (scenario === "repair") expect((await resultPromise).structuredResponse).toEqual(finalOutput);
     else await expect(resultPromise).rejects.toMatchObject({ cause: { providerError: { message: "Final structured output could not be produced within the model call limit" } } });
     expect(effects).toBe(3);

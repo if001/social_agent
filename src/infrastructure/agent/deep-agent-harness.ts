@@ -93,14 +93,16 @@ export class DeepAgentHarness implements AgentHarness {
     const timeout = AbortSignal.timeout(input.limits.deadlineMs);
     const combined = AbortSignal.any([signal, timeout]);
     let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = [];
-    for (let attempt = 0; attempt <= this.#maxRepairs; attempt += 1) {
+    const maxModelCalls = Math.min(input.limits.maxSteps, this.#maxRepairs + 1);
+    const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
+    for (let attempt = 0; attempt < maxModelCalls; attempt += 1) {
       try {
         const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
         const promptInput = { ...input, memoryRetrievalTrace: undefined, availableTools: input.availableTools.map(({ name, description }) => ({ name, description })) };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
-          : JSON.stringify({ instruction: "元の入力に対する回答をInteraction出力Schemaへ適合するよう修正してください。不足フィールドを補い、型とenumを守り、Interaction出力以外を返さないでください。", input: promptInput, validationIssues, invalidOutput: raw });
+          : JSON.stringify({ instruction: "無効な出力をInteraction出力Schemaへ適合するよう修正してください。入力Contextを推測せず、許可されたevidence IDだけを使ってください。", allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: z.toJSONSchema(AgentCoreOutputSchema), validationIssues, invalidOutput: raw });
         const modelBudget = modelInputBudget(input, content);
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Model input exceeds ${String(MAX_MODEL_INPUT_TOKENS)} tokens: ${JSON.stringify(modelBudget.components)}`);
         const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
@@ -110,7 +112,7 @@ export class DeepAgentHarness implements AgentHarness {
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
           const referenceIssues = [...proposalReferenceIssues(input, parsed.data), ...actionExecutionIssues(parsed.data, observedToolExecutions)];
-          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1 }); return { output: parsed.data, toolExecutions: observedToolExecutions }; }
+          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, maxModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(attempt + 1, attempt) }; }
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
         logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
@@ -119,7 +121,7 @@ export class DeepAgentHarness implements AgentHarness {
         throw providerFailure("Agent", error, combined, { providerError: error, toolExecutions: observedToolExecutions });
       }
     }
-    throw new DomainError("VALIDATION", `Agent returned invalid structured output: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions } });
+    throw new DomainError(maxModelCalls <= this.#maxRepairs ? "LIMIT_EXCEEDED" : "VALIDATION", `Agent returned invalid structured output after ${String(maxModelCalls)} model calls: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions, budget: budgetResult(maxModelCalls, Math.max(0, maxModelCalls - 1)) } });
   }
 }
 
@@ -173,7 +175,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
       });
       context.collector.explorationModelCalls = Math.max(1, Math.min(3, Math.floor(options.recursionLimit / 4)));
       try {
-        const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: Math.max(64, options.recursionLimit), context });
+        const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
         return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions: context.collector.executions };
       } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions } }); }
     }
