@@ -1,3 +1,4 @@
+import { boundedEntries, lineRange, matchingRanges, normalizeSearchText, textLines } from "./text-extraction.js";
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
@@ -57,12 +58,9 @@ export function createFileTools(options: { readonly readRoots: readonly string[]
   const readRoots = options.readRoots; const writeRoots = options.writeRoots;
   const read: RegisteredTool<z.infer<typeof ReadInput>> = { name: "file_read", description: `Read a bounded line range from an allowed text file. Read roots: ${rootMap(readRoots)}`, schema: ReadInput, resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: async (input) => {
     const { root, target } = await checked(readRoots, input.root, input.path, "existing"); const info = await stat(target); if (!info.isFile()) throw new DomainError("VALIDATION", "File path is not a regular file");
-    const lines = (await readFile(target, "utf8")).split(/\r?\n/u); const requestedStart = input.mode === "tail" ? Math.max(0, lines.length - input.maxLines) : input.mode === "range" ? (input.startLine ?? 1) - 1 : 0;
-    const selected: string[] = []; let characters = 0; let consumed = 0; let lineTruncated = false;
-    for (const line of lines.slice(requestedStart, requestedStart + input.maxLines)) { const addition = (selected.length === 0 ? 0 : 1) + line.length; if (characters + addition > input.maxCharacters) break; selected.push(line); characters += addition; consumed += 1; }
-    if (selected.length === 0 && requestedStart < lines.length) { selected.push((lines[requestedStart] ?? "").slice(0, input.maxCharacters)); consumed = 1; lineTruncated = (lines[requestedStart]?.length ?? 0) > input.maxCharacters; }
-    const startLine = Math.min(requestedStart + 1, lines.length); const endLine = consumed === 0 ? startLine : startLine + consumed - 1; const nextStartLine = requestedStart + consumed < lines.length ? requestedStart + consumed + 1 : undefined;
-    return { ok: true, value: { path: relativePath(root, target), mode: input.mode, startLine, endLine, totalLines: lines.length, content: selected.join("\n"), truncated: lineTruncated || nextStartLine !== undefined, lineTruncated, ...(nextStartLine === undefined ? {} : { nextStartLine }) } };
+    const lines = textLines(await readFile(target, "utf8"));
+    const start = input.mode === "tail" ? Math.max(0, lines.length - input.maxLines) : input.mode === "range" ? (input.startLine ?? 1) - 1 : 0;
+    return { ok: true, value: { path: relativePath(root, target), mode: input.mode, ...lineRange(lines, start, input.maxLines, input.maxCharacters) } };
   } };
   const list: RegisteredTool<z.infer<typeof ListInput>> = { name: "file_list", description: `List entries directly inside an allowed directory. Read roots: ${rootMap(readRoots)}`, schema: ListInput, resultPolicy: { kind: "standard" }, execute: async (input) => {
     const { root, target } = await checked(readRoots, input.root, input.path, "existing"); const info = await stat(target); if (!info.isDirectory()) throw new DomainError("VALIDATION", "File path is not a directory");
@@ -70,17 +68,28 @@ export function createFileTools(options: { readonly readRoots: readonly string[]
     return { ok: true, value: { path: relativePath(root, target), entries, truncated: all.length > entries.length } };
   } };
   const find: RegisteredTool<z.infer<typeof FindInput>> = { name: "file_find", description: `Find file and directory names below an allowed directory using literal case-insensitive matching. Read roots: ${rootMap(readRoots)}`, schema: FindInput, resultPolicy: { kind: "standard" }, execute: async (input) => {
-    const { root, target } = await checked(readRoots, input.root, input.path, "existing"); if (!(await stat(target)).isDirectory()) throw new DomainError("VALIDATION", "File path is not a directory"); const matches: { path: string; type: "file" | "directory" }[] = []; let truncated = false; const query = input.query.normalize("NFKC").toLocaleLowerCase("ja");
+    const { root, target } = await checked(readRoots, input.root, input.path, "existing"); if (!(await stat(target)).isDirectory()) throw new DomainError("VALIDATION", "File path is not a directory"); const matches: { path: string; type: "file" | "directory" }[] = []; let truncated = false; const query = normalizeSearchText(input.query);
     await walk(root, target, input.maxDepth, (path, type) => { if (path.split(/[\\/]/u).at(-1)?.normalize("NFKC").toLocaleLowerCase("ja").includes(query) === true) matches.push({ path: relativePath(root, path), type }); if (matches.length >= input.maxResults) { truncated = true; return false; } return true; });
     return { ok: true, value: { path: relativePath(root, target), query: input.query, matches, truncated } };
   } };
   const grep: RegisteredTool<z.infer<typeof GrepInput>> = { name: "file_grep", description: `Search bounded text snippets below an allowed path using literal case-insensitive matching. Read roots: ${rootMap(readRoots)}`, schema: GrepInput, resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: async (input) => {
     const { root, target } = await checked(readRoots, input.root, input.path, "existing"); const targetInfo = await stat(target); const files: string[] = []; if (targetInfo.isFile()) files.push(target); else if (targetInfo.isDirectory()) await walk(root, target, MAX_FIND_DEPTH, (path, type) => { if (type === "file") files.push(path); return files.length < MAX_GREP_FILES; }); else throw new DomainError("VALIDATION", "File path is not a regular file or directory");
-    const pattern = input.pattern.normalize("NFKC").toLocaleLowerCase("ja"); const matches: { path: string; line: number; snippet: string }[] = []; let outputCharacters = 0; let outputTruncated = false;
+    const matches: { path: string; line: number; snippet: string }[] = [];
+    let outputCharacters = 0;
+    let outputTruncated = false;
     for (const file of files) {
-      if ((await stat(file)).size > MAX_GREP_FILE_BYTES) continue; let content: string; try { content = await readFile(file, "utf8"); } catch { continue; } if (content.includes("\u0000")) continue; const lines = content.split(/\r?\n/u);
-      for (let index = 0; index < lines.length; index += 1) if (lines[index]?.normalize("NFKC").toLocaleLowerCase("ja").includes(pattern) === true) { const snippet = lines.slice(Math.max(0, index - input.contextLines), Math.min(lines.length, index + input.contextLines + 1)).join("\n"); const addition = relativePath(root, file).length + snippet.length; if (matches.length >= input.maxMatches || outputCharacters + addition > input.maxCharacters) { outputTruncated = true; break; } matches.push({ path: relativePath(root, file), line: index + 1, snippet }); outputCharacters += addition; }
-      if (outputTruncated) break;
+      if ((await stat(file)).size > MAX_GREP_FILE_BYTES) continue;
+      let content: string;
+      try { content = await readFile(file, "utf8"); } catch { continue; }
+      if (content.includes("\u0000")) continue;
+      const path = relativePath(root, file);
+      const selection = boundedEntries(matchingRanges(textLines(content), input.pattern, input.contextLines), input.maxMatches - matches.length, input.maxCharacters - outputCharacters, (match) => path.length + match.lines.join("\n").length);
+      for (const match of selection.entries) {
+        const snippet = match.lines.join("\n");
+        matches.push({ path, line: match.line, snippet });
+        outputCharacters += path.length + snippet.length;
+      }
+      if (selection.truncated) { outputTruncated = true; break; }
     }
     return { ok: true, value: { path: relativePath(root, target), pattern: input.pattern, matches, truncated: files.length >= MAX_GREP_FILES || outputTruncated } };
   } };
