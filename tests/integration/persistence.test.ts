@@ -404,7 +404,7 @@ describeDatabase("PostgreSQL persistence", () => {
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
     const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "continuity-job", "memory-job", "motive-new", "state-change-mood", "state-change-social", "state-change-motive", "memory-new", "candidate-job", "candidate-new"]), () => new Date(fixtureInstant), memoryEmbedding);
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "continuity-job", "memory-job", "motive-new", "state-change-mood", "state-change-social", "state-change-motive", "memory-new"]), () => new Date(fixtureInstant), memoryEmbedding);
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
@@ -425,13 +425,11 @@ describeDatabase("PostgreSQL persistence", () => {
     await persistence.completePostProcess(job, { persistentStateUpdates: [{ target: "mood", operation: "set", value: "Attentive", reason: "Conversation", evidenceIds: [] }, { target: "socialContext", operation: "set", value: { subjectId: "owner", subjectType: "user", description: "Trusted collaborator" }, reason: "Conversation", evidenceIds: [] }], motiveProposals: [{ operation: "create", description: "Understand what made the exchange useful", goal: "Explain the useful part", progress: 25, reason: "The interaction remains meaningful", evidenceIds: ["runtime-event"] }] });
     const memoryJob = await persistence.claimPostProcess("a", "runtime-run"); if (memoryJob?.type !== "memory") throw new Error("Memory job was not created");
     await persistence.completePostProcess(memoryJob, { memoryProposals: [{ content: "A useful exchange", relatedSubjectIds: ["owner"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }, { content: "A useful exchange", relatedSubjectIds: ["owner"], importance: "Useful", retrievalPriority: "high", webSnapshotIds: [] }] });
-    const candidateJob = await persistence.claimPostProcess("a", "runtime-run"); if (candidateJob?.type !== "candidate") throw new Error("Candidate job was not created");
-    await persistence.completePostProcess(candidateJob, { longTermCandidates: [{ target: "selfNarrative", proposal: "I follow through", reason: "Repeated evidence", evidenceMemoryIds: ["memory-new"], evidenceEventIds: [] }] });
+    await expect(persistence.claimPostProcess("a", "runtime-run")).resolves.toBeUndefined();
     expect((await pool.query<{ agent_id: string }>("SELECT agent_id FROM memories WHERE id='memory-new'")).rows[0]?.agent_id).toBe("a");
     expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='memory-new'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
-    expect((await pool.query<{ agent_id: string; status: string }>("SELECT agent_id,status FROM long_term_candidates WHERE id='candidate-new'")).rows[0]).toMatchObject({ agent_id: "a", status: "pending" });
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM memories WHERE evidence_event_ids ? 'runtime-event' AND content='A useful exchange'")).rows[0]?.count).toBe("1");
-    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM long_term_candidates WHERE proposed_value='I follow through'")).rows[0]?.count).toBe("1");
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM long_term_candidates WHERE proposed_value='I follow through'")).rows[0]?.count).toBe("0");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
