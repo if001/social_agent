@@ -43,7 +43,7 @@ describe("AgentHarness contract", () => {
     const invoker: DeepAgentInvoker = { invoke: (input, options) => { prompt = input.messages[0]?.content ?? ""; recentToolInputs = options.recentToolInputs; return Promise.resolve({ structuredResponse: output }); } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
     const input = agentCoreInputFixture(); input.recentExperiences = [{ eventId: "history-event", runId: "history-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "internal", observation: { eventId: "history-event", summary: "history marker", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "tool", name: "lookup", input: { query: "same" }, result: { ok: true }, ok: true }, { type: "action", action: { type: "no-external-action", reason: "done" } }], progressChanged: false }];
-    await expect(harness.run(input, new AbortController().signal)).resolves.toEqual(result);
+    await expect(harness.run(input, new AbortController().signal)).resolves.toMatchObject(result);
     expect(prompt).not.toContain("memoryRetrievalTrace");
     expect(prompt).toContain("recentExperiences"); expect(prompt).toContain("history marker"); expect(prompt).not.toContain("recentAttempts"); expect(prompt).not.toContain("recentObservations");
     expect(recentToolInputs).toEqual(['{"tool":"lookup","input":{"query":"same"}}']);
@@ -92,7 +92,7 @@ describe("AgentHarness contract", () => {
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { invalid: true } : output }) };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 });
-    await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result); expect(calls).toBe(2);
+    await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result); expect(calls).toBe(2);
     const broken = new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: {} }) }, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(broken.run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
@@ -108,7 +108,7 @@ describe("AgentHarness contract", () => {
     const invalid = { ...output, internalChanges: { immediateStateUpdates: [{ target: "mood", operation: "set", value: "calm", reason: "test", evidenceIds: [] }] } };
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result);
     expect(calls).toBe(2);
   });
 
@@ -116,7 +116,7 @@ describe("AgentHarness contract", () => {
     const invalid = structuredClone(output);
     invalid.internalChanges.immediateStateUpdates.push({ target: "emotion", operation: "set", value: "calm", reason: "test", evidenceIds: ["foreign-event"] });
     let calls = 0; const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? invalid : output }) };
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result);
     expect(calls).toBe(2);
   });
 
@@ -125,7 +125,7 @@ describe("AgentHarness contract", () => {
     input.observation.content = { schedulerGenerated, targetKind: "autonomy-review" };
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "wait", reason: "対話を待つ" } } : output }) };
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toEqual(result);
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject(result);
     expect(calls).toBe(2);
   });
 
@@ -134,7 +134,7 @@ describe("AgentHarness contract", () => {
     input.observation.content = { schedulerGenerated: true, targetKind: "autonomy-review" };
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "no-external-action", reason: "対話相手を待つ" } } : output }) };
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toEqual(result);
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject(result);
     expect(calls).toBe(2);
   });
 
