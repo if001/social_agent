@@ -1082,3 +1082,8 @@ Model Callの上限は探索回数+2回。既存maxStepsが小さい場合の探
 実装設計 §3・§19〜§21・§26を正本とする。InteractionのTool loopはDeep Agent内で完結し、Runtimeが最終Actionのtoolを実行する旧経路は持たない。Continuity / Memory / Candidateは非Agentの構造化呼び出しであり、Long-term Reviewは独立した責務として維持する。
 
 Outbox登録後、配送と後処理はそれぞれ進む。「応答後」はInteractionの最終出力確定後を意味し、外部サービスの受信完了待ちは含まない。現状のScheduler直接配送との差はR06で解消する。wait型の残存は現行コードの事実であり、必須Action方針の代替にはならない。削除時には配送・評価を含む参照を確認する。
+
+
+### Tool結果の用途別投影（Issue 120 / R03）
+
+実装設計 §9・§16・§18・§26を根拠に、結果の投影はToolRegistryのPolicyを経由する。即時参照と監査は元の結果、過去の会話履歴・Recent Experiences・Post-process・Tool Result Observationは保存先に応じた共通投影を使用する。content-readは本文をメタデータへ置換し、Web固有の要約はWeb Tool側で定義する。HarnessはTool名による例外変換を持たない。Tool実行記録のraw結果は監査用途で保持し、Observationから本文が再流入する経路を避ける。

@@ -27,11 +27,21 @@ describe("tools", () => {
     const result = { path: "notes/a.md", content: "secret body", matches: [{ line: 2, snippet: "secret match" }], truncated: true };
     expect(registry.projectResult("reader", result, "immediate")).toEqual(result);
     expect(registry.projectResult("reader", result, "audit")).toEqual(result);
-    for (const destination of ["conversation-history", "recent-experience", "post-process"] as const) {
+    for (const destination of ["conversation-history", "recent-experience", "post-process", "observation"] as const) {
       const projected = registry.projectResult("reader", result, destination);
       expect(JSON.stringify(projected)).not.toContain("secret");
       expect(projected).toEqual({ path: "notes/a.md", contentCharacters: 11, matches: [{ line: 2, snippetCharacters: 12 }], truncated: true });
     }
+  });
+
+  it("uses the Web tool projection consistently without modifying audit data", () => {
+    const registry = new ToolRegistry(createWebTools("https://example.test"));
+    const result = { documents: [{ snapshotId: "s1", url: "https://example.test/page", title: "Title", summary: "要約", markdown: "raw body" }] };
+    for (const destination of ["conversation-history", "recent-experience", "post-process", "observation"] as const) {
+      expect(registry.projectResult("web_page", result, destination)).toEqual({ documents: [{ snapshotId: "s1", url: "https://example.test/page", title: "Title", summary: "要約" }] });
+    }
+    expect(registry.projectResult("web_page", result, "audit")).toBe(result);
+    expect(registry.projectResult("web_page", result, "immediate")).toBe(result);
   });
 
   it("rejects unknown tools and invalid input before side effects", async () => {

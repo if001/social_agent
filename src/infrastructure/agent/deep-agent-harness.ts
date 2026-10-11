@@ -4,7 +4,7 @@ import { createMiddleware, ToolMessage, tool, toolStrategy, type ToolRuntime, ty
 import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
-import type { ToolRegistry } from "../../application/tool-registry.js";
+import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
 import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunResult, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
@@ -311,18 +311,15 @@ function parsedRecord(content: unknown): Record<string, unknown> | undefined {
   if (typeof content !== "string") return undefined;
   try { const value: unknown = JSON.parse(content); return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined; } catch { return undefined; }
 }
-function recordArray(value: unknown): readonly Record<string, unknown>[] { return Array.isArray(value) ? (value as unknown[]).filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : []; }
-
 function compactToolContent(name: string | undefined, content: unknown, registry?: ToolRegistry): string {
-  const original = serializeMessageContent(content); const envelope = parsedRecord(content); const value = envelope?.value;
-  if (name !== undefined && registry?.resultPolicy(name)?.kind === "content-read") return JSON.stringify(registry.projectResult(name, envelope ?? content, "conversation-history"));
-  if (typeof value !== "object" || value === null) return original.length <= 800 ? original : `${original.slice(0, 800)}…`;
-  const record = value as Record<string, unknown>;
-  const results = recordArray(record.results); const documents = recordArray(record.documents);
-  if (name === "web_list" && results.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { query: record.query, resultCount: results.length, results: results.slice(0, 5).map((item) => ({ title: item.title, url: item.url })) } });
-  if (name === "web_page" && documents.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { documents: documents.map((item) => ({ snapshotId: item.snapshotId, url: item.url, title: item.title, summary: item.summary, ...(item.status === "ready" ? {} : { status: item.status }) })) } });
-  if (name === "web_archive_search" && results.length > 0) return JSON.stringify({ ok: envelope?.ok, value: { resultCount: results.length, results: results.slice(0, 5).map((item) => ({ snapshotId: item.snapshotId, url: item.url, title: item.title })) } });
-  return original.length <= 800 ? original : `${original.slice(0, 800)}…`;
+  const envelope = parsedRecord(content);
+  const project = (value: unknown): unknown => name === undefined || registry === undefined
+    ? projectToolResult(undefined, value, "conversation-history")
+    : registry.projectResult(name, value, "conversation-history");
+  if (envelope !== undefined && "ok" in envelope) {
+    return JSON.stringify(envelope.ok === true ? { ...envelope, value: project(envelope.value) } : project(envelope));
+  }
+  return JSON.stringify(project(envelope ?? content));
 }
 
 export function compactPriorToolMessages(messages: readonly unknown[], registry?: ToolRegistry): readonly unknown[] {

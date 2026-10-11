@@ -12,9 +12,9 @@ export type ToolExecutionContext = {
   readonly transport?: { readonly hop: number; readonly expiresAt: string; readonly replyTo?: string };
 };
 export type ToolResultPolicy =
-  | { readonly kind: "standard" }
+  | { readonly kind: "standard"; readonly project?: (result: unknown) => unknown }
   | { readonly kind: "content-read"; readonly defaultRequestCharacters: number; readonly runCharacterBudget: number };
-export type ToolResultDestination = "immediate" | "conversation-history" | "recent-experience" | "post-process" | "audit";
+export type ToolResultDestination = "immediate" | "conversation-history" | "recent-experience" | "post-process" | "observation" | "audit";
 export type RegisteredTool<T = unknown> = { readonly name: string; readonly description: string; readonly schema: z.ZodType<T>; readonly resultPolicy: ToolResultPolicy; execute(input: T, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> };
 
 const bodyKeys = new Set(["content", "text", "markdown", "snippet"]);
@@ -32,6 +32,7 @@ function metadataOnly(value: unknown): unknown {
 export function projectToolResult(policy: ToolResultPolicy | undefined, result: unknown, destination: ToolResultDestination): unknown {
   if (destination === "immediate" || destination === "audit") return result;
   if (policy?.kind === "content-read") return metadataOnly(result);
+  if (policy?.kind === "standard" && policy.project !== undefined) return policy.project(result);
   const serialized = JSON.stringify(result ?? null);
   return serialized.length <= 800 ? result : { summary: `${serialized.slice(0, 800)}…`, originalCharacters: serialized.length };
 }

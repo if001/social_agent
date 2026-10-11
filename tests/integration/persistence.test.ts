@@ -259,7 +259,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("large-tool-result");
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("attempt-event-b");
     expect(input.recentExperiences.find(({ eventId }) => eventId === "failed-experience-a")?.steps).toEqual([
-      { type: "tool", name: "web_list", input: { q: "agent memory" }, result: { results: [] }, ok: true },
+      { type: "tool", name: "web_list", input: { q: "agent memory" }, result: { resultCount: 0, results: [] }, ok: true },
       { type: "tool", name: "file_read", input: { path: "notes.md" }, result: { path: "notes.md", contentCharacters: 42, truncated: false }, ok: true },
       { type: "failure", reason: "provider timeout" }
     ]);
