@@ -112,9 +112,9 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(2);
   });
 
-  it("repairs wait returned for an autonomous event", async () => {
+  it.each([false, true])("repairs unsupported wait for schedulerGenerated=%s", async (schedulerGenerated) => {
     const input = agentCoreInputFixture();
-    input.observation.content = { schedulerGenerated: true, targetKind: "autonomy-review" };
+    input.observation.content = { schedulerGenerated, targetKind: "autonomy-review" };
     let calls = 0;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "wait", reason: "対話を待つ" } } : output }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toEqual(result);

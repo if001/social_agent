@@ -1124,27 +1124,12 @@ Internal Eventは自律性の入口として採用するが、Agent Coreが直�
 
 Runtimeが既存Stateから発火する。
 
-```ts
-type InternalEvent = BaseEvent & {
-  type: "internal"
-
-  reason:
-    | "scheduled-task"
-    | "autonomy-review"
-    | "memory-recall"
-    | "self-continuity"
-    | "long-term-review"
-    | "state-review"
-
-  relatedStateId?: string
-  description: string
-}
-```
+Internal EventのtargetKindはautonomy-review、state-review、memory-recall、long-term-reviewとする。long-term-reviewには空でないcandidateIds配列を必須とする。Scheduled Taskは§14のSystem Eventであり、Internal Eventへ混在させない。Self Continuityの再評価はstate-reviewまたはlong-term-reviewの理由として扱い、再評価の目的自体は維持する。
 
 基本フローは、
 
 ```text
-Agent Core
+Interaction + Post-process
 → Motive / Candidateを保存
 
 Runtime
@@ -1179,14 +1164,11 @@ Autonomy Review Event
 例:
 
 ```text
-Scheduled Task:
-  時間があるとき論文の続きを確認する
-
 Runtime:
-  idle trigger
+  自律行動の定期的な機会
 
 Internal Event:
-  scheduled-task
+  autonomy-review
 
 Agent Core:
   現在のMotiveと制約から具体的なActionを選ぶ

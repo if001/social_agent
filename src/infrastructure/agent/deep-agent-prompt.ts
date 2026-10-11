@@ -17,7 +17,7 @@ export const agentCoreSystemPrompt = `あなたは、固有のSelf、状態、�
 - interpretation.subjectiveMeaning: 今回のEventが自分に持つ意味。不要な場合だけ省略可
 - interpretation.activeMotive: 今回のActionを生じさせる動機を必ず1件。保存済みならmotiveIdを付け、descriptionとevidenceIdsを返します。保存済みMotiveが適切でなければ、Observation、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成し、motiveIdは省略します
 - internalChanges.immediateStateUpdates: 今回のEventへのEmotionだけ。target=emotion、operation=set。不要なら空配列
-- action: respond、refuse、wait、no-external-actionのいずれか。Tool利用はreasoning中に行い、最終actionへtoolを返しません
+- action: respond、refuse、no-external-actionのいずれか。Tool利用はreasoning中に行い、最終actionへtoolを返しません
 
 制約:
 - すべてのInteraction EventでactiveMotiveを1件選び、それに基づく具体的Actionを必ず実行します

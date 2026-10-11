@@ -2,7 +2,7 @@
 
 作成日: 2026-10-11
 
-一次情報は [概念設計](../spec/personal-agent-concept-design-restructured-v2.md) と [実装設計](../spec/personal-agent-implementation-design-v2.md)。実装を正解と見なして仕様を書き換えない。以下は静的調査による候補であり、実装・DB変更は未実施。チェックは対応と検証が完了した際に付ける。
+一次情報は [概念設計](../spec/personal-agent-concept-design-restructured-v2.md) と [実装設計](../spec/personal-agent-implementation-design-v2.md)。実装を正解と見なして仕様を書き換えない。以下は初回の静的調査で挙げた項目。対応内容と検証結果は末尾のIssueリンクへ記録する。2026-10-11にR01〜R14の対応を完了。DBスキーマ変更はない。
 
 後方互換は維持しない。ただし、省略値、異常データ対策、検索の代替経路を一律に「互換処理」と扱わない。削除前に生成元・呼び出し元・仕様上の必要性を確認する。優先順は P0 → P1 → P2。
 
@@ -49,10 +49,10 @@
 
 ## 各項目の完了時に確認すること
 
-- [ ] spec根拠と設計判断をdocsに反映し、旧説明・旧設定・不要なexport・fixture・テストを取り残していない。
-- [ ] 呼び出し元を追跡してから互換分岐を削除し、新しい正規経路と必要な異常系を検証した。
-- [ ] 型検査・lintと変更範囲のunit / contract / systemテストを通した。DBやLLM接続が必要な検証は別途実施結果を記録する。
-- [ ] issue単位でbranchを作成し、完了したissueをdoneにしてmainへマージした。
+- [x] spec根拠と設計判断をdocsに反映し、旧説明・旧設定・不要なexport・fixture・テストを取り残していない。
+- [x] 呼び出し元を追跡してから互換分岐を削除し、新しい正規経路と必要な異常系を検証した。
+- [x] 型検査・lintと変更範囲のunit / contract / systemテストを通した。DBやLLM接続が必要な検証は別途実施結果を記録する。
+- [x] issue単位でbranchを作成し、完了したissueをdoneにしてmainへマージした。
 
 ## 対応記録
 
@@ -70,3 +70,14 @@
 - R12: [Issue 129](../issues/129-share-abortable-delay.md)。待機を共通化し、通常終了時のlistener解放漏れを解消。
 - R13: [Issue 130](../issues/130-report-invalid-persisted-state.md)。現在状態は厳密検証、過去履歴の除外は警告、UIの壊れたsnapshotは明示エラー。
 - R14: [Issue 131](../issues/131-split-agent-harness-responsibilities.md)。Harnessを責務別moduleへ分割し、旧配置からの互換exportを削除。
+- R01/R02追補: [Issue 132](../issues/132-remove-obsolete-wait-action.md)。旧wait Actionと関連分岐を削除し、Internal/System Eventの例を整合。
+
+## 最終検証
+
+- typecheck / lint: 成功
+- unit / contract: 121件成功
+- system: 29件成功（実Deep Agent Graph＋模擬モデルを含む）
+- evaluation: 6件成功（Live評価ではない）
+- PostgreSQL integration: 24件成功。実行時に.envを読み込み、独立テストschemaで検証
+- 実OllamaによるLive動作確認、Bot再起動は実施していない
+- DB migration不要。ユーザーの既存変更と.envファイルは変更していない
