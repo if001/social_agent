@@ -5,6 +5,13 @@ import type { Memory } from "../../src/domain/contracts.js";
 import { buildRelevantMemoryQuery } from "../../src/application/memory-query.js";
 
 describe("embedding and context", () => {
+  it("keeps a scheduled motive target beyond the normal three-item limit", () => {
+    const input = agentCoreInputFixture();
+    input.observation.content = { targetKind: "motive-review", targetId: "motive:m4", schedulerGenerated: true };
+    input.dynamicState.motives = ["m1", "m2", "m3", "m4"].map((id) => ({ id, description: id, sourceEvidenceIds: [input.run.eventId], since: "2026-01-01T00:00:00.000Z", nextConsiderAt: "2026-01-02T00:00:00.000Z", considerationReason: "review" }));
+    const result = new ContextBuilder().build(input, { maxTokens: 6_000, maxMemories: 5, maxSocialContexts: 1 });
+    expect(result.dynamicState.motives[0]?.id).toBe("m4");
+  });
   it("returns deterministic fake vectors and validates local dimensions", async () => {
     const fake = new FakeEmbeddingProvider({ hello: [1, 0] });
     await expect(fake.embed(["hello"], new AbortController().signal)).resolves.toEqual([[1, 0]]);
