@@ -69,7 +69,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name))
   });
   const postProcess = new PostProcessService(persistence, createOllamaPostProcessHarnesses(config.chat), logger);
-  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, postProcess, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
+  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
   const reviewRepository = new PostgresLongTermReviewRepository(pool, () => ids.next(), memoryEmbedding);
   const review = new LongTermReviewService(reviewRepository, new LongTermReviewDeepAgentHarness(createOllamaLongTermReviewInvoker(config.chat)));
   const router = new AgentEventRouter(runtime, review);
