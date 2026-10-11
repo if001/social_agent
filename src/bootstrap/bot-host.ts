@@ -1,3 +1,4 @@
+import { abortableDelay } from "../shared/abortable-delay.js";
 import { createHash } from "node:crypto";
 
 import { Pool, type PoolClient } from "pg";
@@ -28,11 +29,7 @@ export type BotHostOptions = {
   readonly logger?: Logger;
 };
 
-const delay = (milliseconds: number, signal: AbortSignal): Promise<void> => new Promise((resolve) => {
-  if (signal.aborted) { resolve(); return; }
-  const timer = setTimeout(resolve, milliseconds);
-  signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-});
+
 const agentLockKey = (agentId: string): string => createHash("sha256").update(agentId).digest().readBigInt64BE().toString();
 const isAborted = (signal: AbortSignal): boolean => signal.aborted;
 
@@ -111,14 +108,14 @@ export class BotHost {
     while (!signal.aborted) {
       try { await run(); if (!isAborted(signal)) { (this.options.logger ?? noopLogger).log("warn", "component.stopped", { component }); this.#degrade(); } }
       catch (error) { (this.options.logger ?? noopLogger).log("error", "component.failed", { component, ...errorLogContext(error) }); this.#degrade(); }
-      await delay(this.options.retryDelayMs ?? 1_000, signal);
+      await abortableDelay(this.options.retryDelayMs ?? 1_000, signal);
     }
   }
   async #periodic(component: string, run: () => Promise<unknown>, intervalMs: number, signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       try { await run(); this.#recover(); }
       catch (error) { (this.options.logger ?? noopLogger).log("error", "component.failed", { component, ...errorLogContext(error) }); this.#degrade(); }
-      await delay(intervalMs, signal);
+      await abortableDelay(intervalMs, signal);
     }
   }
   #degrade(): void { if (this.options.lifecycle.state === "ready") this.options.lifecycle.transition("degraded"); }

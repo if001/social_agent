@@ -1119,3 +1119,7 @@ Review Eventは空でないcandidateIds配列を必須とする。targetIdから
 ### Application portの所有（Issue 128 / R11）
 
 post-process-portsとweb-archiveはApplicationが所有する契約である。Ollama Harness、Postgres Archive、Web Toolはこの契約へ依存し、Applicationは具象Adapterを参照しない。旧配置のinterfaceを互換exportとして残さない。
+
+### 中断可能な待機（Issue 129 / R12）
+
+BotHost、Post-process、Queue pollingはabortableDelayを共有する。Node標準timerがlistenerとtimerを解放し、abortは待機の正常終了として扱う。処理を続けるかは各loopがsignalから判断する。

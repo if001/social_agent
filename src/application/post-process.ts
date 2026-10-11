@@ -1,12 +1,9 @@
+import { abortableDelay } from "../shared/abortable-delay.js";
 import type { PendingPostProcess, PostProcessOutput, RuntimePersistence } from "./agent-runtime.js";
 import type { CandidateDetectorHarness, ContinuityHarness, MemoryExtractionHarness } from "./post-process-ports.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
-const delay = (milliseconds: number, signal: AbortSignal): Promise<void> => new Promise((resolve) => {
-  if (signal.aborted) { resolve(); return; }
-  const timer = setTimeout(resolve, milliseconds);
-  signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-});
+
 
 export class PostProcessService {
   constructor(private readonly persistence: RuntimePersistence, private readonly harnesses: { readonly continuity: ContinuityHarness; readonly memory: MemoryExtractionHarness; readonly candidate: CandidateDetectorHarness }, private readonly logger: Logger = noopLogger, private readonly retryBaseMs = 500) {}
@@ -40,7 +37,7 @@ export class PostProcessService {
       if (job === undefined) return true;
       if (await this.#execute(job, signal)) return true;
       if (job.attempt >= 2) return false;
-      await delay(Math.min(30_000, this.retryBaseMs * 2 ** job.attempt), signal);
+      await abortableDelay(Math.min(30_000, this.retryBaseMs * 2 ** job.attempt), signal);
       job = undefined;
     }
     return false;

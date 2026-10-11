@@ -34,7 +34,7 @@
 
 - [x] **R11: ApplicationからInfrastructureへの型依存を解消する（確認済み）。** `application/post-process.ts` がHarness interfaceを `infrastructure/agent/post-process-harness.ts` からimportし、`infrastructure/tools/web-tools.ts` の契約は具象PostgresWebArchiveのPickになっている。実装設計 §2・§29 に沿い、必要最小限のportを適切な境界へ移す。完了条件: 処理担当のinterfaceが実装方式やDB名に依存せず、模擬実装を差し替えられる。巨大な汎用Repositoryは作らない。
 
-- [ ] **R12: abort可能な待機処理を共通化する（重複確認済み）。** `bootstrap/bot-host.ts` と `application/post-process.ts` にdelayがあり、`addressed-file-queue.ts` に別のpoll待機がある。前二者では通常timeout後のabort listener解除がない。実装設計 §29・§30 に沿い、abortの結果を明確にした待機helperへ整理する。完了条件: 通常終了・事前abort・待機中abortでtimerとlistenerが解放され、各loopの停止動作が変わらない。
+- [x] **R12: abort可能な待機処理を共通化する（重複確認済み）。** `bootstrap/bot-host.ts` と `application/post-process.ts` にdelayがあり、`addressed-file-queue.ts` に別のpoll待機がある。前二者では通常timeout後のabort listener解除がない。実装設計 §29・§30 に沿い、abortの結果を明確にした待機helperへ整理する。完了条件: 通常終了・事前abort・待機中abortでtimerとlistenerが解放され、各loopの停止動作が変わらない。
 
 - [ ] **R13: 永続データの黙示的な欠落処理を見直す（互換目的かは未確定）。** `postgres-agent-context-loader.ts` は不正なMotiveやRecentExperienceをsafeParseで除外し、UIも配列不正時に空配列へ変換する。実装設計 §5・§18・§29 に沿い、旧形式救済と破損検知を区別する。旧形式専用なら削除し、破損時はログまたは明確なエラーを返す。完了条件: 「データがない」と「読み取れなかった」が区別でき、必須状態を黙って消さない。
 
@@ -67,3 +67,4 @@
 - R09: [Issue 126](../issues/126-remove-review-id-fallback.md)。Candidate配列を必須化し、単体ID補完を削除。
 - R10: [Issue 127](../issues/127-remove-archive-agent-scope.md)。共有Archiveのsearch/backfillから未使用Agent ID引数を削除。
 - R11: [Issue 128](../issues/128-extract-application-ports.md)。用途別portをApplicationへ移し、具象Adapterへの型依存を除去。
+- R12: [Issue 129](../issues/129-share-abortable-delay.md)。待機を共通化し、通常終了時のlistener解放漏れを解消。
