@@ -10,7 +10,7 @@ import { z } from "zod";
 import type { AgentHarness } from "../../application/ports.js";
 import { estimateTokens } from "../../application/context-builder.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
-import { AgentCoreOutputSchema, DomainError, type AgentCoreInput, type AgentRunResult, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { AgentCoreOutputSchema, DomainError, EventAssessmentSchema, type AgentCoreInput, type AgentRunResult, type EventAssessment, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
@@ -35,8 +35,7 @@ type ReusableDeepAgentFactoryOptions = {
 export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions) => ReusableDeepAgent;
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
-const EventAssessmentSchema = z.object({ subjectiveMeaning: z.string().min(1), emotion: z.object({ value: z.string().min(1), reason: z.string().min(1), evidenceIds: z.array(z.string().min(1)) }) });
-export type EventAssessment = z.infer<typeof EventAssessmentSchema>;
+export type { EventAssessment } from "../../domain/contracts.js";
 export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
   assess?(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<{ readonly assessment: EventAssessment; readonly modelCalls: number }>;

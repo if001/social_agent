@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, CandidateSchema, ContinuityOutputSchema, MemoryExtractionOutputSchema, MessageEnvelopeSchema, ReviewDecisionSchema } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentCoreOutputSchema, AgentStateSchema, AgentTurnSchema, CandidateSchema, ContinuityOutputSchema, EpisodicMemorySchema, EventAssessmentSchema, MemoryExtractionOutputSchema, MessageEnvelopeSchema, ReviewDecisionSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -19,12 +19,23 @@ describe("domain contracts", () => {
   it("represents every action and review decision", () => {
     for (const action of [
       { type: "respond", content: "Hello" },
-      { type: "refuse", content: "I can't help with that.", reason: "Unsafe", basis: "system" }, { type: "no-external-action", reason: "Nothing due" }
+      { type: "refuse", content: "I can't help with that.", reason: "Unsafe", basis: "system" },
+      { type: "notify-no-execution", content: "今回は実行しない", reason: "新しい手掛かりがない" },
+      { type: "no-external-action", reason: "Nothing due" }
     ]) expect(AgentActionSchema.safeParse(action).success).toBe(true);
     expect(AgentActionSchema.safeParse({ type: "refuse", reason: "private reason", basis: "personality" }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "tool", call: { id: "c", name: "web", input: {} } }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "wait", reason: "Later" }).success).toBe(false);
     for (const decision of ["KEEP", "UPDATE", "MERGE", "DROP"]) expect(ReviewDecisionSchema.parse(decision)).toBe(decision);
+  });
+
+  it("defines the redesigned natural-language Self, State, Memory, Assessment and Turn", () => {
+    expect(SelfSchema.parse({ identity: "探究する個体", disposition: "曖昧さを急いで埋めない", selfStory: "対話から学んできた", commitments: ["約束を守る"] })).toBeDefined();
+    expect(AgentStateSchema.parse({ mood: "静かに警戒している", concerns: [{ id: "c1", description: "関係を修復する", whyItMatters: "信頼を大切にしている", status: "active" }], relationships: [{ subjectId: "user", description: "率直に話せる相手" }] })).toBeDefined();
+    expect(EpisodicMemorySchema.parse({ id: "m1", summary: "約束が破られた", significance: "信頼への懸念が生じた", subjects: ["user"], occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-01T00:00:01Z" })).toBeDefined();
+    expect(EventAssessmentSchema.parse({ meaning: "大切な約束が軽視された", feeling: "怒りと失望" })).toBeDefined();
+    expect(AgentTurnSchema.safeParse({ desire: "境界を伝えたい", action: { type: "notify-no-execution", content: "今回は待つ", reason: "材料不足" } }).success).toBe(true);
+    expect(AgentTurnSchema.safeParse({ desire: "待つ", action: { type: "wait" } }).success).toBe(false);
   });
 
   it("keeps natural-language state and candidate evidence", () => {

@@ -4,6 +4,47 @@ const Id = z.string().min(1);
 const Instant = z.iso.datetime({ offset: true });
 const NaturalLanguage = z.string().trim().min(1).max(16_000);
 
+export const SelfSchema = z.object({
+  identity: NaturalLanguage,
+  disposition: NaturalLanguage,
+  selfStory: NaturalLanguage,
+  commitments: z.array(NaturalLanguage)
+});
+export type Self = z.infer<typeof SelfSchema>;
+
+export const ConcernSchema = z.object({
+  id: Id,
+  description: NaturalLanguage,
+  whyItMatters: NaturalLanguage,
+  status: z.enum(["active", "satisfied", "abandoned"]),
+  reconsiderAt: Instant.optional()
+});
+export type Concern = z.infer<typeof ConcernSchema>;
+
+export const RelationshipSchema = z.object({ subjectId: Id, description: NaturalLanguage });
+export type Relationship = z.infer<typeof RelationshipSchema>;
+
+export const AgentStateSchema = z.object({
+  mood: NaturalLanguage.optional(),
+  concerns: z.array(ConcernSchema),
+  relationships: z.array(RelationshipSchema)
+});
+export type AgentState = z.infer<typeof AgentStateSchema>;
+
+export const EpisodicMemorySchema = z.object({
+  id: Id,
+  summary: NaturalLanguage,
+  significance: NaturalLanguage,
+  subjects: z.array(Id),
+  occurredAt: Instant,
+  createdAt: Instant,
+  source: NaturalLanguage.optional()
+});
+export type EpisodicMemory = z.infer<typeof EpisodicMemorySchema>;
+
+export const EventAssessmentSchema = z.object({ meaning: NaturalLanguage.optional(), feeling: NaturalLanguage.optional() });
+export type EventAssessment = z.infer<typeof EventAssessmentSchema>;
+
 export const RunLimitsSchema = z.object({
   deadlineMs: z.number().int().positive(),
   maxSteps: z.number().int().min(1).max(100),
@@ -218,11 +259,36 @@ export const FinalActionSchema = z.discriminatedUnion("type", [
     reason: NaturalLanguage.describe("依頼を断る内部の判断根拠。外部へそのまま配送しない"),
     basis: z.enum(["personality", "system"]).describe("拒否の根拠。personalityは自身の価値観、systemは実行制約")
   }),
+  z.object({
+    type: z.literal("notify-no-execution"),
+    content: NaturalLanguage.describe("具体的な実行対象を選ばなかった判断と理由をownerへ通知する本文"),
+    reason: NaturalLanguage.describe("実行しないと判断した内部理由")
+  }),
   z.object({ type: z.literal("no-external-action"), reason: NaturalLanguage.describe("Toolで具体的行動を実行した結果、外部への応答配送が不要な理由。未実行の保留には使わない") })
 ]).describe("今回の動機に基づく最終行動。Tool実行自体はAgent内部で完了させる");
 export type FinalAction = z.infer<typeof FinalActionSchema>;
 export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
+
+export const ConcernChangeSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("upsert"), concern: ConcernSchema }),
+  z.object({ operation: z.literal("remove"), id: Id })
+]);
+export const RelationshipChangeSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("upsert"), relationship: RelationshipSchema }),
+  z.object({ operation: z.literal("remove"), subjectId: Id })
+]);
+export const AgentTurnSchema = z.object({
+  desire: NaturalLanguage,
+  action: FinalActionSchema,
+  patch: z.object({
+    mood: NaturalLanguage.optional(),
+    concern: ConcernChangeSchema.optional(),
+    relationship: RelationshipChangeSchema.optional(),
+    remember: NaturalLanguage.optional()
+  }).optional()
+});
+export type AgentTurn = z.infer<typeof AgentTurnSchema>;
 
 export const StateUpdateProposalSchema = z.object({
   target: z.enum(["emotion", "mood", "socialContext"]),

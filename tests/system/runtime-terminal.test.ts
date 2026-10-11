@@ -26,17 +26,24 @@ describe("ST-01 Terminal round trip", () => {
       destination: "agent-a",
       defaultOutputDestination: "terminal",
       queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
-      harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { interpretation: { activeMotive: { description: "状態を再評価する", evidenceIds: ["state-review-event"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "no-external-action", reason: "今は外部行動が不要" } }, toolExecutions: [] }); } },
+      harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { interpretation: { activeMotive: { description: "状態を再評価する", evidenceIds: ["state-review-event"] } }, internalChanges: { immediateStateUpdates: [] }, action: { type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" } }, toolExecutions: [] }); } },
       persistence,
       ids: new SequenceIdGenerator([]),
       now: () => clock.now()
     });
-    const action = await runtime.process({ id: "state-review-event", agentId: "agent-a", kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "state-review", schedulerGenerated: true, reason: "Review persistent state" } }, new AbortController().signal);
-    expect(action).toEqual({ type: "no-external-action", reason: "今は外部行動が不要" });
+    const action = await runtime.process({ id: "state-review-event", agentId: "agent-a", kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "state-review", schedulerGenerated: true, reason: "Review persistent state", destination: "terminal" } }, new AbortController().signal);
+    expect(action).toEqual({ type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" });
     expect(harnessCalls).toBe(1);
     expect(persistence.events).toHaveLength(1);
     await expect(persistence.claimPostProcess("agent-a", "run-1", "experience-integration")).resolves.toMatchObject({ type: "experience-integration" });
     await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toBeUndefined();
+  });
+
+  it("does not mark an autonomous Event successful without a destination", async () => {
+    const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "", queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() }, harness: new ScriptedAgentHarness([]), persistence, ids: new SequenceIdGenerator([]), now: () => new Date("2026-01-01T00:00:00Z") });
+    await expect(runtime.process({ id: "autonomous-event", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind: "idle" } }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(persistence.events).toHaveLength(0);
   });
 
   it("continues a conversation, commits once, dispatches outbox, and drains", async () => {

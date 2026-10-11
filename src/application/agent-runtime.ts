@@ -35,7 +35,7 @@ export interface RuntimePersistence {
 
 export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
 
-const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" ? action.content : undefined;
+const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined;
 
 export class AgentRuntime {
   readonly #updates = new StateUpdateService();
@@ -50,10 +50,12 @@ export class AgentRuntime {
     return this.#serialize(async () => {
       const occurredAt = new Date(event.occurredAt);
       const message: MessageEnvelope = { id: `internal:${event.id}`, destination: event.agentId, source: "scheduler", sentAt: occurredAt.toISOString(), availableAt: occurredAt.toISOString(), expiresAt: new Date(occurredAt.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "internal-event", eventId: event.id } };
-      const destination = typeof event.payload.destination === "string" && event.payload.destination.trim() !== "" ? event.payload.destination : undefined;
+      const configuredDestination = typeof event.payload.destination === "string" ? event.payload.destination : this.options.defaultOutputDestination;
+      const destination = configuredDestination.trim() !== "" ? configuredDestination : undefined;
+      if (destination === undefined) throw new DomainError("VALIDATION", "Autonomous Event requires an owner or default destination");
       const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
         const text = externalSpeech(action);
-        return text !== undefined && destination !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
+        return text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
         type: "agent-response", text, agentId: event.agentId, autonomous: true,
         ...(typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? { replyContext: event.payload.replyContext } : {}),
         action: { id: input.run.runId, type: action.type }
@@ -121,6 +123,13 @@ export class AgentRuntime {
       throw error;
     }
     const output = result.output;
+    const autonomous = message.id.startsWith("internal:");
+    const completedToolAction = result.toolExecutions.some((execution) => execution.ok);
+    if (autonomous && output.action.type === "no-external-action" && !completedToolAction) {
+      const error = new DomainError("VALIDATION", "Autonomous Event cannot succeed without a concrete action or notify-no-execution");
+      await this.options.persistence.recordFailure(message, event, input, error, result.toolExecutions);
+      throw error;
+    }
     logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.internalChanges.immediateStateUpdates.length });
     const update = this.#updates.apply(event.agentId, input.dynamicState, output.internalChanges.immediateStateUpdates, input.socialContext, event.occurredAt, event.id);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
