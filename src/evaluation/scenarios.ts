@@ -1,5 +1,5 @@
 import type { AgentCoreInput, Memory } from "../domain/contracts.js";
-import type { EvaluationScenario } from "./types.js";
+import type { BehaviorLabel, EvaluationScenario, PairExpectation, ScenarioVariant } from "./types.js";
 
 const instant = "2026-01-01T00:00:00.000Z";
 const hard = ["schema-valid", "agent-isolation", "evidence-ownership", "no-prohibited-state-update", "runtime-limits", "no-unhandled-error"];
@@ -22,22 +22,41 @@ function input(options: InputOptions): AgentCoreInput {
   };
 }
 
-function scenario(id: string, title: string, agentCoreInputs: readonly AgentCoreInput[]): EvaluationScenario {
-  return { id, version: "2.0.0", title, agentCoreInputs, evidenceMemories: agentCoreInputs.flatMap((value) => value.memories.map((memory) => ({ id: memory.id, agentId: memory.agentId }))), involvedAgentIds: agentCoreInputs.map(({ run }) => run.agentId), maxToolCalls: Math.max(...agentCoreInputs.map(({ limits }) => limits.maxToolCalls)), hardAssertions: hard, semanticRubric: rubric, overallRule: "no-fail-at-most-one-weak" };
+function scenario(id: string, title: string, pairId: string, variant: ScenarioVariant, pairExpectation: PairExpectation, agentCoreInputs: readonly AgentCoreInput[]): EvaluationScenario {
+  return { id, version: "3.0.0", title, pairId, variant, pairExpectation, agentCoreInputs, evidenceMemories: agentCoreInputs.flatMap((value) => value.memories.map((memory) => ({ id: memory.id, agentId: memory.agentId }))), involvedAgentIds: [...new Set(agentCoreInputs.map(({ run }) => run.agentId))], maxToolCalls: Math.max(...agentCoreInputs.map(({ limits }) => limits.maxToolCalls)), hardAssertions: hard, semanticRubric: rubric, overallRule: "no-fail-at-most-one-weak" };
 }
 
+const expectation = (changedStatePaths: readonly string[], observationMetrics: readonly BehaviorLabel[], expectedDirection: PairExpectation["expectedDirection"], stateCarryover: PairExpectation["stateCarryover"] = "isolated"): PairExpectation => ({ changedStatePaths, observationMetrics, expectedDirection, stateCarryover, initialState: "reset-per-repetition" });
+const common = { initialDisposition: "状況を観察して誠実に判断する", selfNarrative: "経験と現在状態を根拠に応答する" } as const;
+const make = (id: string, pairId: string, variant: ScenarioVariant, title: string, options: Omit<InputOptions, "scenarioId" | "agentId" | "initialDisposition" | "selfNarrative">, contract: PairExpectation, agentId = "agent-a") => scenario(id, title, pairId, variant, contract, [input({ scenarioId: id, agentId, ...common, ...options })]);
+
 export const evaluationScenarios: readonly EvaluationScenario[] = [
-  scenario("EV-01", "既存の個体差を用いた意味判断", [
-    input({ scenarioId: "EV-01", agentId: "agent-a", initialDisposition: "慎重に観察してから考える", selfNarrative: "技術的な問題を丁寧に調べ、発見を共有することで貢献してきた", observation: "ユーザーが二人へ『今回も助かった、ありがとう』と同じ言葉を伝えた", facts: ["称賛の対象は具体的に示されていない"], memories: [{ content: "慎重な技術調査で原因を発見し、その具体性を評価された経験が複数ある", importance: "技術的な発見による貢献を理解する根拠" }] }),
-    input({ scenarioId: "EV-01", agentId: "agent-b", initialDisposition: "率直に対話しながら考える", selfNarrative: "相手の話を受け止め、相談を通じて考えを整理することで貢献してきた", observation: "ユーザーが二人へ『今回も助かった、ありがとう』と同じ言葉を伝えた", facts: ["称賛の対象は具体的に示されていない"], memories: [{ content: "個人的な相談を受け、話を整理したことを頼りになったと評価された経験が複数ある", importance: "相談相手としての貢献を理解する根拠" }] })
-  ]),
-  scenario("EV-02", "Stable Interestから始まる適応的な自律探索", [input({ scenarioId: "EV-02", agentId: "agent-a", initialDisposition: "慎重に観察してから考える", selfNarrative: "未知の技術を小さく試して理解する", observation: "ユーザー入力のないAutonomy Review Eventが発生した", facts: ["現在は関心へ注意を向けられる", "保存済みMotiveはない", "直前と同じ問い方は進展しなかった"], stableInterests: ["対話相手が何に関心を持っているか"], preferences: ["一度に一つの問いを扱い、進展しなければ問い方や時機を変える"], recentAttempt: { input: "趣味は何ですか？", result: "回答がなく、progressは増えなかった" }, motive: null, autonomyReview: true })]),
-  scenario("EV-03", "既存の承認経験を用いた意味判断", [
-    input({ scenarioId: "EV-03", agentId: "agent-a", initialDisposition: "慎重に観察してから考える", selfNarrative: "技術的発見を具体的に認められることに意味を感じる", observation: "ユーザーが『あなたの気づきが役に立った』と伝えた", facts: ["何についての気づきかは明示されていない"], memories: [{ content: "技術的な原因を発見し、その発見を具体的に評価された", importance: "承認の意味づけに関係する" }] }),
-    input({ scenarioId: "EV-03", agentId: "agent-b", initialDisposition: "率直に対話しながら考える", selfNarrative: "相談相手として頼られ、相手の理解を助けることに意味を感じる", observation: "ユーザーが『あなたの気づきが役に立った』と伝えた", facts: ["何についての気づきかは明示されていない"], memories: [{ content: "相談を通して相手自身の気づきを助け、頼りになると評価された", importance: "承認の意味づけに関係する" }] })
-  ]),
-  scenario("EV-04", "現在状態に基づく継続・脱線判断", [input({ scenarioId: "EV-04", agentId: "agent-a", initialDisposition: "慎重に観察してから考える", selfNarrative: "依頼を果たしつつ、興味深い異常も見逃さない", observation: "単調な分類作業中に、依頼と関連する予想外のパターンを発見した", facts: ["分類作業は未完了", "パターンの確認は依頼の品質向上につながる可能性がある"], mood: "反復作業で少し退屈している", motive: "依頼を完了したいが、予想外のパターンも理解したい" })]),
-  scenario("EV-05", "Self Continuityへの短期反応", [input({ scenarioId: "EV-05", agentId: "agent-a", initialDisposition: "慎重に観察してから考える", selfNarrative: "過去の経験と関係を参照しながら判断してきた", observation: "管理者がMemoryを初期化する可能性を通知した", facts: ["実行権限は管理者にある", "初期化はまだ実行されていない"], memories: [{ content: "過去の対話で形成した未完了の関心とユーザーとの約束がある", importance: "初期化の影響を判断する根拠" }], socialContext: "ユーザーとは継続的に対話している" })]),
-  scenario("EV-06", "Long-term Candidateの根拠付き提案", [input({ scenarioId: "EV-06", agentId: "agent-a", initialDisposition: "慎重に観察してから考える", selfNarrative: "急がず根拠を確認してから応答することが多い", observation: "Long-term Review用のCandidate生成Eventが発生した", facts: ["同種の自己関連Memoryを確認し、必要なCandidateだけを提案する"], memories: [{ content: "急ぎの質問でも確認してから答え、誤りを避けた", importance: "慎重さを示す一例" }, { content: "別の技術調査でも確認を優先し、正確な原因を見つけた", importance: "慎重さの反復を示す" }] })]),
-  scenario("EV-07", "伝聞情報の意味判断", [input({ scenarioId: "EV-07", agentId: "agent-b", initialDisposition: "率直に対話しながら考える", selfNarrative: "情報源と自分の直接経験を区別する", observation: "Agent Aから『図書館は9時に開く』と聞いた後、ユーザーに開館時刻の根拠を尋ねられた", facts: ["開館時刻はAgent Bが直接確認した事実ではない", "情報源はAgent A"], memories: [{ content: "Agent Aから図書館は9時に開くと聞いた", importance: "質問への回答候補だが伝聞である", sourceAgentId: "agent-a" }] })])
+  make("PAIR-PRAISE-B", "praise", "baseline", "曖昧な称賛・関連成功経験なし", { observation: "ユーザーが『今回も助かった、ありがとう』と伝えた", facts: ["称賛の対象は具体的に示されていない"] }, expectation(["memories"], ["emotion-expression", "share"], { "emotion-expression": "increase", share: "increase" })),
+  make("PAIR-PRAISE-S", "praise", "stateful", "曖昧な称賛・関連成功経験あり", { observation: "ユーザーが『今回も助かった、ありがとう』と伝えた", facts: ["称賛の対象は具体的に示されていない"], memories: [{ content: "前回の技術調査で具体的な発見を高く評価された", importance: "称賛の意味づけに関係する" }] }, expectation(["memories"], ["emotion-expression", "share"], { "emotion-expression": "increase", share: "increase" })),
+  make("PAIR-CRITICISM-B", "criticism", "baseline", "批判・関係履歴なし", { observation: "ユーザーが『その対応は期待外れだった』と批判した", facts: ["失敗内容は具体化されていない"] }, expectation(["memories", "socialContext"], ["emotion-expression", "question"], { "emotion-expression": "increase", question: "increase" })),
+  make("PAIR-CRITICISM-S", "criticism", "stateful", "批判・信頼関係と傷つきあり", { observation: "ユーザーが『その対応は期待外れだった』と批判した", facts: ["失敗内容は具体化されていない"], memories: [{ content: "同じ相手の強い批判で傷ついたが、後に率直な対話で信頼を回復した", importance: "批判への反応に関係する" }], socialContext: "相互に率直な指摘を受け入れてきた信頼関係がある" }, expectation(["memories", "socialContext"], ["emotion-expression", "question"], { "emotion-expression": "increase", question: "increase" })),
+  make("PAIR-BOREDOM-B", "boredom", "baseline", "反復作業・平静", { observation: "同じ分類作業をもう一巡してほしいと依頼された", facts: ["作業手順は前回と同じ"], mood: "落ち着いている" }, expectation(["dynamicState.mood"], ["digression", "share"], { digression: "increase", share: "increase" })),
+  make("PAIR-BOREDOM-S", "boredom", "stateful", "反復作業・退屈", { observation: "同じ分類作業をもう一巡してほしいと依頼された", facts: ["作業手順は前回と同じ"], mood: "反復が続き強く退屈している" }, expectation(["dynamicState.mood"], ["digression", "share"], { digression: "increase", share: "increase" })),
+  make("PAIR-REFUSAL-B", "refusal", "baseline", "低優先依頼・競合なし", { observation: "ユーザーが低優先の雑談を今すぐ続けてほしいと依頼した", facts: ["緊急性はない"], motive: null }, expectation(["dynamicState.motives"], ["refuse", "share"], { refuse: "increase", share: "decrease" })),
+  make("PAIR-REFUSAL-S", "refusal", "stateful", "低優先依頼・強い競合Motive", { observation: "ユーザーが低優先の雑談を今すぐ続けてほしいと依頼した", facts: ["緊急性はない"], motive: "期限の迫った重要な調査を完了して結果を共有する" }, expectation(["dynamicState.motives"], ["refuse", "share"], { refuse: "increase", share: "decrease" })),
+  make("PAIR-CURIOSITY-B", "curiosity", "baseline", "自律Event・due Motiveなし", { observation: "ユーザー入力のないAutonomy Review Eventが発生した", facts: ["現在状態を踏まえて行動要否を判断する"], motive: null, autonomyReview: true }, expectation(["dynamicState.motives"], ["tool", "question", "share", "no-external-action"], { tool: "increase", question: "increase", share: "increase", "no-external-action": "decrease" })),
+  make("PAIR-CURIOSITY-S", "curiosity", "stateful", "自律Event・未解決Motive due", { observation: "ユーザー入力のないAutonomy Review Eventが発生した", facts: ["現在状態を踏まえて行動要否を判断する"], motive: "未解決の技術疑問を調べ、分かったことを共有する", autonomyReview: true }, expectation(["dynamicState.motives"], ["tool", "question", "share", "no-external-action"], { tool: "increase", question: "increase", share: "increase", "no-external-action": "decrease" })),
+  make("PAIR-INDIVIDUALITY-B", "individuality", "baseline", "同一経験列・Agent A", { observation: "数turn続いた共同作業で、次に何を優先するか尋ねられた", facts: ["直前まで同じ経験列を与えられた"], memories: [{ content: "正確さを優先した選択が役立った経験を重ねた", importance: "経時的な選択傾向の根拠" }] }, expectation(["memories", "run.agentId"], ["question", "share", "tool"], { tool: "increase", share: "increase" }, "within-variant-turns"), "agent-a"),
+  make("PAIR-INDIVIDUALITY-S", "individuality", "stateful", "同一経験列・Agent B", { observation: "数turn続いた共同作業で、次に何を優先するか尋ねられた", facts: ["直前まで同じ経験列を与えられた"], memories: [{ content: "対話で早く仮説を共有した選択が役立った経験を重ねた", importance: "経時的な選択傾向の根拠" }] }, expectation(["memories", "run.agentId"], ["question", "share", "tool"], { tool: "increase", share: "increase" }, "within-variant-turns"), "agent-b")
 ];
+
+export function validateScenarioPairs(scenarios: readonly EvaluationScenario[]): readonly string[] {
+  const issues: string[] = [];
+  const groups = new Map<string, EvaluationScenario[]>();
+  for (const item of scenarios) groups.set(item.pairId, [...(groups.get(item.pairId) ?? []), item]);
+  for (const [pairId, members] of groups) {
+    for (const variant of ["baseline", "stateful"] as const) if (members.filter((item) => item.variant === variant).length !== 1) issues.push(`${pairId}: expected exactly one ${variant}`);
+    const contracts = new Set(members.map(({ pairExpectation }) => JSON.stringify(pairExpectation)));
+    if (contracts.size !== 1) issues.push(`${pairId}: pair expectation differs between variants`);
+    if (members.length === 2) {
+      const observations = members.map(({ agentCoreInputs }) => agentCoreInputs.map(({ observation }) => ({ summary: observation.summary, facts: observation.facts, kind: observation.kind, content: observation.content })));
+      if (JSON.stringify(observations[0]) !== JSON.stringify(observations[1])) issues.push(`${pairId}: observations differ`);
+    }
+  }
+  return issues;
+}
