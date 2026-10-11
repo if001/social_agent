@@ -169,30 +169,27 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     const finalModel = model.bindTools([finalTool]);
     return {
       async invoke(input, options) {
-        const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: Math.min(1, options.maxToolCalls), signal: options.signal, ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }), ...(options.transport === undefined ? {} : { transport: options.transport }) });
-        const messages = [new SystemMessage(agentCoreSystemPrompt), ...input.messages];
+        const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: Math.min(25, options.maxToolCalls), signal: options.signal, ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }), ...(options.transport === undefined ? {} : { transport: options.transport }) });
+        const messages: (SystemMessage | ToolMessage | (typeof input.messages)[number] | Awaited<ReturnType<typeof firstModel.invoke>>)[] = [new SystemMessage(agentCoreSystemPrompt), ...input.messages];
         let modelCalls = 0;
         try {
-          assertModelCallInputBudget(messages, [...operationalTools, finalTool], "initial");
-          if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains");
-          modelCalls += 1;
-          const first = await firstModel.invoke(messages, { signal: options.signal });
-          const calls = first.tool_calls ?? [];
-          const submitted = calls.find(({ name }) => name === finalToolName);
-          if (submitted !== undefined) return { structuredResponse: submitted.args, messages: [...messages, first], toolExecutions: context.collector.executions, modelCalls };
-          if (calls.length !== 1) throw new DomainError("VALIDATION", calls.length === 0 ? "Agent did not return a final Action or Tool call" : "Agent requested more than one Tool");
-          const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
-          if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
-          const toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context });
-          const continuationMessages = [...messages, first, new ToolMessage({ name: call.name, tool_call_id: call.id ?? "tool-1", content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) })];
-          assertModelCallInputBudget(continuationMessages, [finalTool], "tool-continuation");
-          if (modelCalls >= options.maxModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Model call budget exhausted before Tool continuation");
-          modelCalls += 1;
-          const continuation = await finalModel.invoke(continuationMessages, { signal: options.signal });
-          const continuationCalls = continuation.tool_calls ?? [];
-          const final = continuationCalls.find(({ name }) => name === finalToolName);
-          if (final === undefined || continuationCalls.length !== 1) throw new DomainError("LIMIT_EXCEEDED", "Tool continuation must return exactly one final Action");
-          return { structuredResponse: final.args, messages: [...messages, first, continuation], toolExecutions: context.collector.executions, modelCalls };
+          for (;;) {
+            const canUseTool = context.collector.count < context.maxToolCalls && modelCalls + 1 < options.maxModelCalls;
+            const definitions = canUseTool ? [...operationalTools, finalTool] : [finalTool];
+            assertModelCallInputBudget(messages, definitions, modelCalls === 0 ? "initial" : `continuation-${String(modelCalls)}`);
+            if (modelCalls >= options.maxModelCalls) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for final Action");
+            modelCalls += 1;
+            const response = await (canUseTool ? firstModel : finalModel).invoke(messages, { signal: options.signal });
+            const calls = response.tool_calls ?? [];
+            const submitted = calls.find(({ name }) => name === finalToolName);
+            if (submitted !== undefined && calls.length === 1) return { structuredResponse: submitted.args, messages: [...messages, response], toolExecutions: context.collector.executions, modelCalls };
+            if (!canUseTool) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
+            if (calls.length !== 1) throw new DomainError("VALIDATION", calls.length === 0 ? "Agent did not return a final Action or Tool call" : "Agent requested more than one Tool");
+            const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
+            if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
+            const toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context });
+            messages.push(response, new ToolMessage({ name: call.name, tool_call_id: call.id ?? `tool-${String(context.collector.count)}`, content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) }));
+          }
         } catch (error) { throw new DomainError("EXTERNAL", "Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls } }); }
       }
     };
@@ -216,7 +213,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         agentId: options.agentId,
         runId: options.runId,
         eventId: options.eventId,
-        maxToolCalls: Math.min(1, options.maxToolCalls),
+        maxToolCalls: Math.min(25, options.maxToolCalls),
         signal: options.signal,
         ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }),
         ...(options.transport === undefined ? {} : { transport: options.transport })
