@@ -18,6 +18,8 @@ export { AddressedFileQueue } from "./infrastructure/queue/addressed-file-queue.
 export type { FileQueueOptions } from "./infrastructure/queue/addressed-file-queue.js";
 export { StateUpdateService } from "./application/state-update-service.js";
 export type { StateChange, StateUpdateResult } from "./application/state-update-service.js";
+export { AgentStatePatchService } from "./application/agent-state-patch.js";
+export type { AgentStatePatchChange, AgentStatePatchResult } from "./application/agent-state-patch.js";
 export { PostgresEventTransaction } from "./infrastructure/persistence/event-transaction.js";
 export type { CommitEventInput, FailedEventInput } from "./infrastructure/persistence/event-transaction.js";
 export { PostgresRuntimePersistence } from "./infrastructure/persistence/postgres-runtime-persistence.js";
