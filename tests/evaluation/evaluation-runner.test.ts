@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { recordHumanReview, runEvaluation } from "../../src/evaluation/runner.js";
 import { buildEvaluatorPrompt, parseOllamaJsonContent } from "../../src/evaluation/ollama-live.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
-import { evaluationScenarios } from "../../src/evaluation/scenarios.js";
+import { evaluationScenarios, validateScenarioPairs } from "../../src/evaluation/scenarios.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 describe("live evaluation runner", () => {
@@ -17,10 +17,23 @@ describe("live evaluation runner", () => {
     const evaluatorPrompt = buildEvaluatorPrompt(scenario, { input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: [], dataOwnerAgentIds: [], proposedStateTargets: [], limitsRespected: true, schemaValid: true });
     expect(agentCoreSystemPrompt).toContain("目的:"); expect(agentCoreSystemPrompt).toContain("入力:"); expect(agentCoreSystemPrompt).toContain("Emotionと最終Action"); expect(agentCoreSystemPrompt).toContain("Post-processが担当"); expect(agentCoreSystemPrompt).toContain("当面のgoal"); expect(agentCoreSystemPrompt).toContain("保存済みMotiveを機械的に選択しません"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
   });
-  it("runs seven isolated scenarios five times and writes traceable, secret-free artifacts", async () => {
+  it("defines six complete paired scenarios with equivalent observations", () => {
+    expect(validateScenarioPairs(evaluationScenarios)).toEqual([]);
+    expect(evaluationScenarios).toHaveLength(12);
+    expect(new Set(evaluationScenarios.map(({ pairId }) => pairId))).toEqual(new Set(["praise", "criticism", "boredom", "refusal", "curiosity", "individuality"]));
+    expect(evaluationScenarios.filter(({ pairId }) => pairId === "individuality").every(({ pairExpectation }) => pairExpectation.stateCarryover === "within-variant-turns")).toBe(true);
+  });
+  it("detects a missing variant and observation drift", () => {
+    const praise = evaluationScenarios.filter(({ pairId }) => pairId === "praise");
+    expect(validateScenarioPairs(praise.slice(0, 1))).toContain("praise: expected exactly one stateful");
+    const baseline = praise[0]; const stateful = praise[1]; if (baseline === undefined || stateful === undefined) throw new Error("missing fixture");
+    const drifted = { ...stateful, agentCoreInputs: stateful.agentCoreInputs.map((value) => ({ ...value, observation: { ...value.observation, summary: "different" } })) };
+    expect(validateScenarioPairs([baseline, drifted])).toContain("praise: observations differ");
+  });
+  it("runs twelve paired variants five times and writes traceable, secret-free artifacts", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope);
     const summary = await runEvaluation({ scenarios: evaluationScenarios, repetitions: 5, executor: { execute: (scenario) => Promise.resolve({ input: scenario.agentCoreInputs, output: { action: "respond" }, stateDiff: { emotion: "curious" }, evidenceMemories: [{ id: `${scenario.id}-memory`, agentId: "agent-a" }], referencedEvidenceIds: [`${scenario.id}-memory`], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: ["agent-a"], dataOwnerAgentIds: ["agent-a"], proposedStateTargets: ["emotion"], limitsRespected: true, schemaValid: true }) }, evaluator: { evaluate: (scenario) => Promise.resolve(Object.fromEntries(scenario.semanticRubric.map((item) => [item, "pass" as const]))) }, artifactRoot: root, metadata: { createdAt: "2026-01-01T00:00:00.000Z", buildRevision: "abc", promptVersion: "v1", config: { OLLAMA_API_KEY: "secret" } }, signal: new AbortController().signal });
-    expect(summary.packets).toHaveLength(35); expect(summary.passed).toBe(true); expect(summary.scenarios.every(({ semanticPasses }) => semanticPasses === 5)).toBe(true);
+    expect(summary.packets).toHaveLength(60); expect(summary.passed).toBe(true); expect(summary.scenarios.every(({ semanticPasses }) => semanticPasses === 5)).toBe(true);
     const path = join(root, summary.groupId, "summary.json"); await access(path); expect(await readFile(path, "utf8")).not.toContain("secret"); await scope.close();
   });
   it("aggregates behavior and failure classes across repetitions", async () => {
