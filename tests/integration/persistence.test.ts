@@ -42,7 +42,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await migrate(pool);
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
-    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,roles,self_narrative,self_continuity,mood,motives) VALUES ($1,'Learning','Care','[\"Helper\"]','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
+    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,acquired_disposition,values,roles,self_narrative,self_continuity,mood,motives) VALUES ($1,'Learning','Care','[\"Helper\"]','Growing','Continuous','Calm',$2)", [agentId, JSON.stringify([{ id: "motive-learn", description: "Learn", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await migrate(pool);
   });
   afterAll(async () => {
@@ -72,7 +72,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await initializeAgent(pool, config, initialTimings);
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='autonomy-review'", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review" }]);
     expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "autonomy-review", delay_ms: 2_000 }, { kind: "memory-recall", delay_ms: 4_000 }, { kind: "state-review", delay_ms: 3_000 }]);
-    await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', motives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ description: "継続中のMotive", sourceEvidenceIds: [], since: fixtureInstant }])]);
+    await pool.query("UPDATE agent_states SET acquired_disposition='経験で得た傾向', values='経験で変化した価値', mood='持続する気分', motives=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ id: "motive-existing", description: "継続中のMotive", sourceEvidenceIds: [], since: fixtureInstant }])]);
     await pool.query("INSERT INTO social_contexts(id,agent_id,subject_id,subject_type,description) VALUES ('configured-social',$1,'owner','user','継続する関係')", [config.agent.id]);
     await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } }, initialTimings);
     const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; acquired_disposition: string; values: string; mood: string; motives: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.acquired_disposition,s.values,s.mood,s.motives FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
@@ -271,6 +271,12 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(allowed.availableTools.map(({ name }) => name)).toEqual(input.availableTools.map(({ name }) => name));
     const other = await loader.load({ id: "context-event-b", agentId: "b", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
     expect(other.self.disposition).toEqual({ shared: "Curious", initial: "Bold", acquired: "Learning" });
+    const saved = await pool.query<{ motives: unknown }>("SELECT motives FROM agent_states WHERE agent_id='a'");
+    await pool.query("UPDATE agent_states SET motives='[{}]' WHERE agent_id='a'");
+    try {
+      await expect(loader.load({ id: "invalid-state-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: {} })).rejects.toMatchObject({ code: "VALIDATION", message: "Persisted motives are invalid" });
+    } finally { await pool.query("UPDATE agent_states SET motives=$1 WHERE agent_id='a'", [JSON.stringify(saved.rows[0]?.motives)]); }
+
   });
 
   it("holds one process lock per Agent and drains loops during shutdown", async () => {

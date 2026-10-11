@@ -1123,3 +1123,7 @@ post-process-portsとweb-archiveはApplicationが所有する契約である。O
 ### 中断可能な待機（Issue 129 / R12）
 
 BotHost、Post-process、Queue pollingはabortableDelayを共有する。Node標準timerがlistenerとtimerを解放し、abortは待機の正常終了として扱う。処理を続けるかは各loopがsignalから判断する。
+
+### 不正な永続データの扱い（Issue 130 / R13）
+
+現在のMotiveと探索metadataは厳密に読み取り、不正ならVALIDATIONを返す。空配列への黙示的変換や不正要素だけの削除は行わない。過去のExperienceを除外する場合はcontext.invalid_recent_experienceへEvent/Run IDと理由を記録する。Debug UIはsnapshot未作成と壊れたsnapshotを区別し、後者はエラーとして表示する。既存データを自動修復しない。

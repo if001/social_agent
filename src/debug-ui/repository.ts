@@ -1,3 +1,4 @@
+import { DomainError, RecentExperienceSchema } from "../domain/contracts.js";
 import type { QueryResultRow } from "pg";
 
 export type SqlQuery = <T extends QueryResultRow>(sql: string, values?: readonly unknown[]) => Promise<readonly T[]>;
@@ -60,7 +61,9 @@ export class DebugUiRepository {
         ORDER BY created_at DESC,id DESC LIMIT 1`, [agentId])
     ]);
     const value: unknown = recentExperienceSnapshots[0]?.recentExperiences;
-    const recentExperiences = Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : [];
+    const parsed = RecentExperienceSchema.array().safeParse(recentExperienceSnapshots.length === 0 ? [] : value);
+    if (!parsed.success) throw new DomainError("VALIDATION", "Persisted Recent Experiences snapshot is invalid", { cause: parsed.error });
+    const recentExperiences = parsed.data;
     return { agent, state: states[0] ?? {}, socialContexts, scheduledTasks, schedules, candidates, recentExperiences };
   }
 
