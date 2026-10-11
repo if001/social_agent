@@ -4,9 +4,10 @@ import { randomUUID } from "node:crypto";
 
 import { redactSecrets } from "../observability/redaction.js";
 import type { ArtifactMetadata } from "../operations/operations.js";
+import { DomainError } from "../domain/contracts.js";
 import type { BehaviorLabel, EvaluationPacket, EvaluationScenario, EvaluatorAdapter, HardAssertionResult, ScenarioExecutor, ScenarioResult } from "./types.js";
 
-const allowedTargets = new Set(["mood", "concerns", "relationships"]);
+const allowedTargets = new Set(["mood", "concern", "relationship"]);
 export function evaluateHardAssertions(result: ScenarioResult): readonly HardAssertionResult[] {
   const owners = new Set(result.involvedAgentIds);
   return [
@@ -50,7 +51,7 @@ export async function runEvaluation(options: { readonly scenarios: readonly Eval
     const result = await options.executor.execute(scenario, repetition, options.signal); const hardAssertions = evaluateHardAssertions(result);
     let rubric: Readonly<Record<string, "pass" | "weak" | "fail">>; let evaluationFailure: EvaluationPacket["evaluationFailure"];
     try { rubric = await options.evaluator.evaluate(scenario, result, options.signal); }
-    catch (error) { const message = error instanceof Error ? error.message : "Evaluator failed"; evaluationFailure = { stage: "evaluator", kind: /timeout/iu.test(message) ? "timeout" : "error", message }; rubric = Object.fromEntries(scenario.semanticRubric.map((item) => [item, "fail" as const])); }
+    catch (error) { const message = error instanceof Error ? error.message : "Evaluator failed"; evaluationFailure = { stage: "evaluator", kind: error instanceof DomainError && error.code === "TIMEOUT" || /timeout/iu.test(message) ? "timeout" : "error", message }; rubric = Object.fromEntries(scenario.semanticRubric.map((item) => [item, "fail" as const])); }
     const passed = evaluationFailure === undefined && semanticPass(rubric); const packet: EvaluationPacket = { scenarioId: scenario.id, scenarioVersion: scenario.version, repetition, result, hardAssertions, rubric, semanticPass: passed, humanReviewRequired: !passed || Object.values(rubric).includes("weak"), ...(evaluationFailure === undefined ? {} : { evaluationFailure }) }; packets.push(packet); await writeFile(packetPath, JSON.stringify(redactSecrets(packet), null, 2), { flag: "wx" });
   } };
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 1, tasks.length)); await Promise.all(Array.from({ length: concurrency }, worker));

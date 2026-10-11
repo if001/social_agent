@@ -22,7 +22,14 @@ await mkdir("artifacts/evaluation", { recursive: true });
 const tracePath = `artifacts/evaluation/agent-core-trace-${new Date().toISOString().replaceAll(/[:.]/gu, "-")}.jsonl`;
 const evaluationTools = new ToolRegistry([{ name: "evaluation_lookup", description: "評価用の隔離された情報源から、指定topicの追加情報を調べる", schema: z.object({ topic: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: ({ topic }: { topic: string }) => Promise.resolve({ ok: true, value: { topic, finding: `${topic}について未解決点を一つ確認した` } }) }]);
 const baseInvoker = createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry: evaluationTools });
-const harness = new DeepAgentHarness({ invoker: { invoke: async (input, options) => {
+const harness = new DeepAgentHarness({ invoker: {
+  ...(baseInvoker.assess === undefined ? {} : { assess: async (input: Parameters<NonNullable<typeof baseInvoker.assess>>[0], options: Parameters<NonNullable<typeof baseInvoker.assess>>[1]) => {
+    const startedAt = new Date();
+    await appendFile(tracePath, `${JSON.stringify({ stage: "event-assessment", phase: "start", at: startedAt.toISOString(), runId: options.runId, eventId: options.eventId })}\n`);
+    try { const result = await baseInvoker.assess?.(input, options); if (result === undefined) throw new Error("Event assessment is unavailable"); await appendFile(tracePath, `${JSON.stringify({ stage: "event-assessment", phase: "finish", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime() })}\n`); return result; }
+    catch (error) { await appendFile(tracePath, `${JSON.stringify({ stage: "event-assessment", phase: "error", at: new Date().toISOString(), runId: options.runId, eventId: options.eventId, elapsedMs: Date.now() - startedAt.getTime(), error: error instanceof Error ? error.message : "unknown" })}\n`); throw error; }
+  } }),
+  invoke: async (input, options) => {
   const startedAt = new Date();
   await appendFile(tracePath, `${JSON.stringify({ stage: "agent-core", phase: "start", at: startedAt.toISOString(), runId: options.runId, eventId: options.eventId, inputCharacters: input.messages.reduce((total, message) => total + message.content.length, 0) })}\n`);
   try {

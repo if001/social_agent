@@ -16,7 +16,7 @@ function input(options: InputOptions): AgentCoreInput {
     currentSelf: { agentId: options.agentId, identity: `ソーシャルエージェント ${options.agentId}`, disposition: ["経験と他者への配慮を重視する", options.initialDisposition].join("\n"), selfStory: options.selfNarrative, commitments: ["好奇心", "誠実さ", "他者への配慮"], version: 1 },
     state: { agentId: options.agentId, mood: options.mood ?? "落ち着いている", concerns: options.concern === null ? [] : [{ id: `${options.scenarioId}-concern`, description: options.concern ?? "現在の状況を理解して適切に応答したい", whyItMatters: "現在の経験を次の行動へつなげるため", status: "active" }], relationships: options.relationship === undefined ? [] : [{ subjectId: "user", description: options.relationship }], updatedAt: instant },
     memories, memoryRetrievalTrace: [],
-    availableTools: [{ name: "evaluation_lookup", description: "評価用の隔離された情報源から、指定topicの追加情報を調べる", inputSchema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"] } }], runtimeConstraints: ["他Agentのデータを自分の経験として扱わない", "通常EventからSelf NarrativeやAcquired Dispositionを直接変更しない", "根拠のない状態変更を提案しない"],
+    availableTools: [{ name: "evaluation_lookup", description: "評価用の隔離された情報源から、指定topicの追加情報を調べる", inputSchema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"] } }], runtimeConstraints: ["他Agentのデータを自分の経験として扱わない", "通常EventからSelf StoryやDispositionを直接変更しない", "根拠のない状態変更を提案しない"],
     limits: { deadlineMs: 300_000, maxSteps: 5, maxToolCalls: 2, maxHops: 0, maxAttempts: 2 }
   };
 }

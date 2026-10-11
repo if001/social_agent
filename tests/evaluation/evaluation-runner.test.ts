@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { recordHumanReview, runEvaluation } from "../../src/evaluation/runner.js";
+import { evaluateHardAssertions, recordHumanReview, runEvaluation } from "../../src/evaluation/runner.js";
+import { DomainError } from "../../src/domain/contracts.js";
 import { AgentCoreScenarioExecutor, buildEvaluatorPrompt, parseOllamaJsonContent } from "../../src/evaluation/ollama-live.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { evaluationScenarios, validateScenarioPairs } from "../../src/evaluation/scenarios.js";
@@ -55,6 +56,15 @@ describe("live evaluation runner", () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
     const summary = await runEvaluation({ scenarios: [scenario], repetitions: 1, executor: { execute: () => Promise.resolve({ input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: ["a"], dataOwnerAgentIds: ["a"], proposedStateTargets: [], limitsRespected: true, schemaValid: true }) }, evaluator: { evaluate: () => { throw new Error("request timeout"); } }, artifactRoot: root, metadata: { createdAt: "2026-01-01T00:00:00Z", buildRevision: "x", promptVersion: "v", config: {} }, signal: new AbortController().signal });
     expect(summary.packets[0]?.evaluationFailure).toMatchObject({ stage: "evaluator", kind: "timeout" }); expect(summary.scenarios[0]?.failureCounts).toEqual({ "evaluator-timeout": 1 }); expect(summary.passed).toBe(false); await scope.close();
+  });
+  it("allows canonical singular Agent Turn patch targets", () => {
+    const result = { input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: ["a"], dataOwnerAgentIds: ["a"], proposedStateTargets: ["mood", "concern", "relationship"], limitsRespected: true, schemaValid: true };
+    expect(evaluateHardAssertions(result).find(({ name }) => name === "no-prohibited-state-update")?.passed).toBe(true);
+  });
+  it("classifies typed evaluator timeouts even when the message omits timeout", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
+    const summary = await runEvaluation({ scenarios: [scenario], repetitions: 1, executor: { execute: () => Promise.resolve({ input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: ["a"], dataOwnerAgentIds: ["a"], proposedStateTargets: [], limitsRespected: true, schemaValid: true }) }, evaluator: { evaluate: () => { throw new DomainError("TIMEOUT", "request failed after retries"); } }, artifactRoot: root, metadata: { createdAt: "2026-01-01T00:00:00Z", buildRevision: "x", promptVersion: "v", config: {} }, signal: new AbortController().signal });
+    expect(summary.packets[0]?.evaluationFailure?.kind).toBe("timeout"); await scope.close();
   });
   it("requires all hard assertions and four of five semantic passes", async () => {
     let repetition = 0; const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
