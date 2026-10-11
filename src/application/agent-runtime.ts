@@ -32,7 +32,7 @@ export interface RuntimePersistence {
   failPostProcess(job: PendingPostProcess, error: unknown): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly postProcess?: { processAgent(agentId: string, signal: AbortSignal): Promise<void> }; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
 
 const isStateReview = (event: DomainEvent): boolean => event.kind === "internal" && event.payload.targetKind === "state-review";
 const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" ? action.content : undefined;
@@ -142,7 +142,6 @@ export class AgentRuntime {
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
-    if (committed === "committed" && this.options.postProcess !== undefined) await this.options.postProcess.processAgent(event.agentId, signal);
     return output.action;
   }
 }
