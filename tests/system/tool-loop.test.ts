@@ -3,7 +3,8 @@ import { FakeToolCallingModel } from "langchain";
 import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, createDeepAgentTools, createDeepAgentToolRunContext, createOllamaDeepAgentInvoker, filterModelToolsAfterLimits, type DeepAgentInvoker, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, createOllamaDeepAgentInvoker, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { createDeepAgentTools, createDeepAgentToolRunContext, filterModelToolsAfterLimits, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-tools.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 

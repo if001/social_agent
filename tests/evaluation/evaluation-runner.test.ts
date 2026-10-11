@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { recordHumanReview, runEvaluation } from "../../src/evaluation/runner.js";
 import { buildEvaluatorPrompt, parseOllamaJsonContent } from "../../src/evaluation/ollama-live.js";
-import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { evaluationScenarios } from "../../src/evaluation/scenarios.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
