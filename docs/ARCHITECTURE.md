@@ -1127,3 +1127,17 @@ BotHost、Post-process、Queue pollingはabortableDelayを共有する。Node標
 ### 不正な永続データの扱い（Issue 130 / R13）
 
 現在のMotiveと探索metadataは厳密に読み取り、不正ならVALIDATIONを返す。空配列への黙示的変換や不正要素だけの削除は行わない。過去のExperienceを除外する場合はcontext.invalid_recent_experienceへEvent/Run IDと理由を記録する。Debug UIはsnapshot未作成と壊れたsnapshotを区別し、後者はエラーとして表示する。既存データを自動修復しない。
+
+### Deep Agent Adapterのmodule構成（Issue 131 / R14）
+
+| module | 責務 |
+|---|---|
+| deep-agent-harness | Domain出力検証、再利用するGraphの組み立て |
+| deep-agent-prompt | Interactionの日本語system prompt |
+| deep-agent-tools | 実行Context、Tool実行、実行記録、制限判定 |
+| deep-agent-middleware | Model/Tool callの観測と最終化への切替 |
+| tool-history | 共通Policyによる過去Tool Messageの投影 |
+| model-response | Model応答のログ用要約 |
+| ollama-provider | 接続設定、例外分類 |
+
+各moduleはHarnessへ逆依存せず、移動したhelperを旧ファイルから互換exportしない。

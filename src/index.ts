@@ -23,8 +23,11 @@ export type { CommitEventInput, FailedEventInput } from "./infrastructure/persis
 export { PostgresRuntimePersistence } from "./infrastructure/persistence/postgres-runtime-persistence.js";
 export { ScriptedAgentHarness } from "./application/scripted-agent-harness.js";
 export type { ScriptedStep } from "./application/scripted-agent-harness.js";
-export { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, createDeepAgentTools, createOllamaDeepAgentInvoker } from "./infrastructure/agent/deep-agent-harness.js";
-export type { DeepAgentHarnessOptions, DeepAgentInvoker, DeepAgentResult, DeepAgentRunTool, DeepAgentToolRunContext, OllamaDeepAgentConfig } from "./infrastructure/agent/deep-agent-harness.js";
+export { DeepAgentHarness, checkOllamaChatCapability, createOllamaDeepAgentInvoker } from "./infrastructure/agent/deep-agent-harness.js";
+export { agentCoreSystemPrompt } from "./infrastructure/agent/deep-agent-prompt.js";
+export { createDeepAgentTools } from "./infrastructure/agent/deep-agent-tools.js";
+export type { DeepAgentHarnessOptions, DeepAgentInvoker, DeepAgentResult, OllamaDeepAgentConfig } from "./infrastructure/agent/deep-agent-harness.js";
+export type { DeepAgentRunTool, DeepAgentToolRunContext } from "./infrastructure/agent/deep-agent-tools.js";
 export { FakeEmbeddingProvider, OllamaEmbeddingProvider, checkOllamaEmbeddingCapability } from "./infrastructure/embedding/ollama-embedding.js";
 export { PostgresMemoryEmbeddingLifecycle } from "./infrastructure/persistence/postgres-memory-embedding.js";
 export type { EmbeddingMetadata } from "./infrastructure/embedding/ollama-embedding.js";

@@ -4,7 +4,8 @@ import { Scheduler, type ScheduledTarget } from "../../src/application/scheduler
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { loadInitialSelfFile } from "../../src/config/initial-self.js";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentHarness, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { createDeepAgentTools, createDeepAgentToolRunContext } from "../../src/infrastructure/agent/deep-agent-tools.js";
+import { DeepAgentHarness, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 

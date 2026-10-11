@@ -1,7 +1,10 @@
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, agentCoreSystemPrompt, checkOllamaChatCapability, compactPriorToolMessages, createOllamaDeepAgentInvoker, summarizeModelResponse, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { DeepAgentHarness, checkOllamaChatCapability, createOllamaDeepAgentInvoker, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
+import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-history.js";
+import { summarizeModelResponse } from "../../src/infrastructure/agent/model-response.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import { AgentCoreOutputSchema, type AgentCoreOutput } from "../../src/domain/contracts.js";
