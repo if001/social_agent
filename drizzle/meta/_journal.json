@@ -85,6 +85,13 @@
       "when": 1791720000000,
       "tag": "0011_experience_integration",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791729850400,
+      "tag": "0012_agent_architecture_redesign",
+      "breakpoints": true
     }
   ]
 }
