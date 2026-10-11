@@ -1,8 +1,8 @@
-import type { ContinuityHarness, MemoryExtractionHarness, CandidateDetectorHarness } from "../../application/post-process-ports.js";
+import type { ContinuityHarness, MemoryExtractionHarness, CandidateDetectorHarness, ExperienceIntegrationHarness } from "../../application/post-process-ports.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { z, type ZodType } from "zod";
 
-import { CandidateDetectionOutputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionOutputSchema, type ContinuityInput } from "../../domain/contracts.js";
+import { CandidateDetectionOutputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionOutputSchema } from "../../domain/contracts.js";
 
 export const continuitySystemPrompt = `あなたはソーシャルエージェントの継続状態更新担当です。
 
@@ -99,24 +99,13 @@ function structuredHarness<O>(config: OllamaPostProcessConfig, schema: ZodType<O
   } };
 }
 
-export function createOllamaPostProcessHarnesses(config: OllamaPostProcessConfig): { continuity: ContinuityHarness; memory: MemoryExtractionHarness; candidate: CandidateDetectorHarness } {
+export function createOllamaPostProcessHarnesses(config: OllamaPostProcessConfig): { integration: ExperienceIntegrationHarness; continuity: ContinuityHarness; memory: MemoryExtractionHarness; candidate: CandidateDetectorHarness } {
   const combinedSchema = ContinuityOutputSchema.extend({ memoryProposals: MemoryExtractionOutputSchema.shape.memoryProposals });
   const combined = structuredHarness(config, combinedSchema, "experience_integration", experienceIntegrationSystemPrompt);
-  const cache = new Map<string, Promise<z.infer<typeof combinedSchema>>>();
-  const run = (input: ContinuityInput, signal: AbortSignal): Promise<z.infer<typeof combinedSchema>> => {
-    const key = input.run.runId;
-    let pending = cache.get(key);
-    if (pending === undefined) {
-      pending = combined.run(input, signal);
-      cache.set(key, pending);
-      void pending.catch(() => { if (cache.get(key) === pending) cache.delete(key); });
-      if (cache.size > 100) cache.delete(cache.keys().next().value ?? key);
-    }
-    return pending;
-  };
   return {
-    continuity: { run: async (input, signal) => { const output = await run(input, signal); return { persistentStateUpdates: output.persistentStateUpdates, motiveProposals: output.motiveProposals }; } },
-    memory: { run: async (input, signal) => { const output = await run(input, signal); cache.delete(input.run.runId); return { memoryProposals: output.memoryProposals }; } },
+    integration: combined,
+    continuity: structuredHarness(config, ContinuityOutputSchema, "legacy_continuity", continuitySystemPrompt),
+    memory: structuredHarness(config, MemoryExtractionOutputSchema, "legacy_memory", memoryExtractionSystemPrompt),
     candidate: structuredHarness(config, CandidateDetectionOutputSchema, "candidate_detection", candidateDetectorSystemPrompt)
   };
 }

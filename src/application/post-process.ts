@@ -1,14 +1,15 @@
 import { abortableDelay } from "../shared/abortable-delay.js";
 import type { PendingPostProcess, PostProcessOutput, RuntimePersistence } from "./agent-runtime.js";
-import type { CandidateDetectorHarness, ContinuityHarness, MemoryExtractionHarness } from "./post-process-ports.js";
+import type { CandidateDetectorHarness, ContinuityHarness, ExperienceIntegrationHarness, MemoryExtractionHarness } from "./post-process-ports.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 
 
 export class PostProcessService {
-  constructor(private readonly persistence: RuntimePersistence, private readonly harnesses: { readonly continuity: ContinuityHarness; readonly memory: MemoryExtractionHarness; readonly candidate: CandidateDetectorHarness }, private readonly logger: Logger = noopLogger, private readonly retryBaseMs = 500) {}
+  constructor(private readonly persistence: RuntimePersistence, private readonly harnesses: { readonly integration: ExperienceIntegrationHarness; readonly continuity: ContinuityHarness; readonly memory: MemoryExtractionHarness; readonly candidate: CandidateDetectorHarness }, private readonly logger: Logger = noopLogger, private readonly retryBaseMs = 500) {}
 
   #run(job: PendingPostProcess, signal: AbortSignal): Promise<PostProcessOutput> {
+    if (job.type === "experience-integration") return this.harnesses.integration.run(job.input, signal);
     if (job.type === "continuity") return this.harnesses.continuity.run(job.input, signal);
     if (job.type === "memory") return this.harnesses.memory.run(job.input, signal);
     return this.harnesses.candidate.run(job.input, signal);
@@ -44,6 +45,8 @@ export class PostProcessService {
   }
 
   async processAgent(agentId: string, signal: AbortSignal): Promise<void> {
+    const integration = await this.persistence.claimPostProcess(agentId, undefined, "experience-integration");
+    if (integration !== undefined) { await this.#executeType(agentId, integration.input.run.runId, "experience-integration", signal, integration); await this.#executeType(agentId, integration.input.run.runId, "candidate", signal); return; }
     const continuity = await this.persistence.claimPostProcess(agentId, undefined, "continuity");
     const memory = await this.persistence.claimPostProcess(agentId, continuity?.input.run.runId, "memory");
     if (continuity === undefined && memory === undefined) return;

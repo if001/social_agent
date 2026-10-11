@@ -35,8 +35,8 @@ describe("ST-01 Terminal round trip", () => {
     expect(action).toEqual({ type: "no-external-action", reason: "今は外部行動が不要" });
     expect(harnessCalls).toBe(1);
     expect(persistence.events).toHaveLength(1);
-    await expect(persistence.claimPostProcess("agent-a", "run-1", "continuity")).resolves.toMatchObject({ type: "continuity" });
-    await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toMatchObject({ type: "memory" });
+    await expect(persistence.claimPostProcess("agent-a", "run-1", "experience-integration")).resolves.toMatchObject({ type: "experience-integration" });
+    await expect(persistence.claimPostProcess("agent-a", "run-1", "memory")).resolves.toBeUndefined();
   });
 
   it("continues a conversation, commits once, dispatches outbox, and drains", async () => {

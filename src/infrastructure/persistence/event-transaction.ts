@@ -15,12 +15,12 @@ export type CommitEventInput = {
   readonly memoryWebEvidence?: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[];
   readonly candidates?: readonly Candidate[];
   readonly toolExecutions?: readonly (ToolExecutionRecord & { readonly id: string })[];
-  readonly postProcessJobs?: readonly { readonly id: string; readonly type: "continuity" | "memory"; readonly inputStateVersion: number; readonly payload: unknown }[];
+  readonly postProcessJobs?: readonly { readonly id: string; readonly type: "experience-integration"; readonly inputStateVersion: number; readonly payload: unknown }[];
   readonly outbox: readonly MessageEnvelope[];
 };
 
 export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "candidates" | "postProcessJobs" | "outbox"> & { readonly failureReason: string };
-export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "candidates"> & { readonly jobId: string; readonly jobType: "continuity" | "memory" | "candidate"; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: unknown; readonly candidateJob?: { readonly id: string; readonly payload: unknown } };
+export type CommitPostProcessInput = Pick<CommitEventInput, "stateValues" | "changes" | "memories" | "memoryWebEvidence" | "candidates"> & { readonly jobId: string; readonly jobType: "experience-integration" | "continuity" | "memory" | "candidate"; readonly runId: string; readonly agentId: string; readonly expectedStateVersion: number; readonly output: unknown; readonly candidateJob?: { readonly id: string; readonly payload: unknown } };
 
 export class PostgresEventTransaction {
   constructor(private readonly unitOfWork: PostgresUnitOfWork, private readonly tools?: ToolRegistry) {}
@@ -73,7 +73,7 @@ export class PostgresEventTransaction {
       const job = await client.query<{ status: string }>("SELECT status FROM post_process_jobs WHERE id=$1 FOR UPDATE", [input.jobId]);
       if (job.rows[0]?.status === "completed") return;
       if (job.rows[0] === undefined) throw new Error("Post-process job not found");
-      if (input.jobType === "continuity") {
+      if (input.jobType === "continuity" || input.jobType === "experience-integration") {
         const repository = new AgentStateRepository(client);
         await repository.update(input.agentId, input.expectedStateVersion, input.stateValues);
         await this.#syncMotiveSchedules(client, input.agentId, input.stateValues.motives);

@@ -5,7 +5,7 @@ import type { PendingOutput, PendingPostProcess, PostProcessOutput, RuntimePersi
 import type { IdGenerator } from "../../application/ports.js";
 import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
 import { applyMotiveProposals, StateUpdateService, type StateUpdateResult } from "../../application/state-update-service.js";
-import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, ContinuityInputSchema, ContinuityOutputSchema, DomainError, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CandidateDetectionInputSchema, CandidateDetectionOutputSchema, ContinuityInputSchema, ContinuityOutputSchema, DomainError, ExperienceIntegrationOutputSchema, MemoryExtractionInputSchema, MemoryExtractionOutputSchema, type AgentCoreInput, type AgentRunResult, type Candidate, type DomainEvent, type Memory, type MemoryExtractionOutput, type MessageEnvelope, type PostProcessSnapshot, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import type { MemoryEmbeddingLifecycle } from "./postgres-memory-embedding.js";
 import { PostgresUnitOfWork } from "./postgres.js";
@@ -41,10 +41,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       stateValues: { mood: update.state.mood, emotion: update.state.emotion ?? null, motives: update.state.motives, motive_exploration: update.state.motiveExploration },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next() })),
       toolExecutions: validatedTools,
-      postProcessJobs: [
-            { id: this.ids.next(), type: "continuity", inputStateVersion: input.self.version + 1, payload: snapshot },
-            { id: this.ids.next(), type: "memory", inputStateVersion: input.self.version + 1, payload: snapshot }
-          ],
+      postProcessJobs: [{ id: this.ids.next(), type: "experience-integration", inputStateVersion: input.self.version + 1, payload: snapshot }],
       outbox: outgoing
     });
     return committed;
@@ -75,12 +72,13 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       if (agentId !== undefined) { values.push(agentId); filters.push(`agent_id=$${String(values.length)}`); }
       if (runId !== undefined) { values.push(runId); filters.push(`interaction_run_id=$${String(values.length)}`); }
       if (type !== undefined) { values.push(type); filters.push(`job_type=$${String(values.length)}`); }
-      const result = await client.query<{ id: string; agent_id: string; job_type: "continuity" | "memory" | "candidate"; input_state_version: number; payload: unknown; attempt: number }>(`SELECT id,agent_id,job_type,input_state_version,payload,attempt FROM post_process_jobs WHERE status IN ('pending','failed') AND attempt<2 AND available_at<=now() AND (lease_until IS NULL OR lease_until<now()) ${filters.length === 0 ? "" : `AND ${filters.join(" AND ")}`} ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, values);
+      const result = await client.query<{ id: string; agent_id: string; job_type: "experience-integration" | "continuity" | "memory" | "candidate"; input_state_version: number; payload: unknown; attempt: number }>(`SELECT id,agent_id,job_type,input_state_version,payload,attempt FROM post_process_jobs WHERE status IN ('pending','failed') AND attempt<2 AND available_at<=now() AND (lease_until IS NULL OR lease_until<now()) ${filters.length === 0 ? "" : `AND ${filters.join(" AND ")}`} ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, values);
       const row = result.rows[0];
       if (row === undefined) { await client.query("COMMIT"); return undefined; }
       await client.query("UPDATE post_process_jobs SET status='processing',attempt=attempt+1,lease_until=now()+interval '5 minutes',updated_at=now() WHERE id=$1", [row.id]);
       await client.query("COMMIT");
       const base = { id: row.id, agentId: row.agent_id, inputStateVersion: row.input_state_version, attempt: row.attempt + 1 };
+      if (row.job_type === "experience-integration") return { ...base, type: "experience-integration", input: ContinuityInputSchema.parse(row.payload) };
       if (row.job_type === "continuity") return { ...base, type: "continuity", input: ContinuityInputSchema.parse(row.payload) };
       if (row.job_type === "memory") return { ...base, type: "memory", input: MemoryExtractionInputSchema.parse(row.payload) };
       return { ...base, type: "candidate", input: CandidateDetectionInputSchema.parse(row.payload) };
@@ -88,6 +86,18 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
 
   async completePostProcess(job: PendingPostProcess, output: PostProcessOutput): Promise<void> {
+    if (job.type === "experience-integration") {
+      const parsed = ExperienceIntegrationOutputSchema.parse(output);
+      const evidenceIds = new Set([job.input.run.eventId, job.input.observation.eventId, ...job.input.recentExperiences.map(({ eventId }) => eventId), ...job.input.memories.map(({ id }) => id)]);
+      if (parsed.motiveProposals.some((proposal) => proposal.evidenceIds.some((id) => !evidenceIds.has(id)))) throw new DomainError("VALIDATION", "Motive evidence must reference an input Event or Memory");
+      const persistent = new StateUpdateService().apply(job.agentId, job.input.dynamicState, parsed.persistentStateUpdates, job.input.socialContext);
+      const motiveUpdates = applyMotiveProposals(persistent.state, parsed.motiveProposals, () => this.ids.next(), job.input.run.occurredAt);
+      const memories = await this.#materializeMemories(job.input, parsed);
+      const changes = [...persistent.changes, ...motiveUpdates.changes];
+      await this.#transaction.commitPostProcess({ jobId: job.id, jobType: job.type, runId: job.input.run.runId, agentId: job.agentId, expectedStateVersion: job.inputStateVersion, stateValues: { mood: motiveUpdates.state.mood, motives: motiveUpdates.state.motives, motive_exploration: motiveUpdates.state.motiveExploration }, changes: changes.map((change) => ({ ...change, id: this.ids.next() })), output: parsed, ...memories });
+      if (memories.memories.length > 0) await this.memoryEmbedding?.embedMemoryIds(job.agentId, memories.memories.map(({ id }) => id));
+      return;
+    }
     if (job.type === "continuity") {
       const parsed = ContinuityOutputSchema.parse(output);
       const evidenceIds = new Set([job.input.run.eventId, job.input.observation.eventId, ...job.input.recentExperiences.map(({ eventId }) => eventId), ...job.input.memories.map(({ id }) => id)]);
