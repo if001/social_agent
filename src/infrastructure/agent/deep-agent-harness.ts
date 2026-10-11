@@ -123,7 +123,7 @@ export class DeepAgentHarness implements AgentHarness {
         const parsed = AgentCoreOutputSchema.safeParse(raw);
         if (parsed.success) {
           const referenceIssues = actionExecutionIssues(parsed.data, observedToolExecutions);
-          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, attempt) }; }
+          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, attempt) }; }
           validationIssues = referenceIssues;
         } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
         logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
@@ -194,7 +194,11 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
             const submitted = calls.find(({ name }) => name === finalToolName);
             if (submitted !== undefined && calls.length === 1) return { structuredResponse: submitted.args, messages: [...messages, response], toolExecutions: context.collector.executions, modelCalls };
             if (!canUseTool) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
-            if (calls.length !== 1) throw new DomainError("VALIDATION", calls.length === 0 ? "Agent did not return a final Action or Tool call" : "Agent requested more than one Tool");
+            if (calls.length === 0) {
+              messages.push({ role: "user", content: `直前の本文は最終Actionとして受理されませんでした。${finalToolName}または許可された通常Toolを、ちょうど1件呼び出してください。` });
+              continue;
+            }
+            if (calls.length !== 1) throw new DomainError("VALIDATION", "Agent requested more than one Tool");
             const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
             if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
             const toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context });

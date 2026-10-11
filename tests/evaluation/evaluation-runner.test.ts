@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evaluateHardAssertions, recordHumanReview, runEvaluation } from "../../src/evaluation/runner.js";
 import { DomainError } from "../../src/domain/contracts.js";
-import { AgentCoreScenarioExecutor, buildEvaluatorPrompt, parseOllamaJsonContent } from "../../src/evaluation/ollama-live.js";
+import { AgentCoreScenarioExecutor, buildEvaluatorPrompt, classifyBehaviors, parseOllamaJsonContent } from "../../src/evaluation/ollama-live.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { evaluationScenarios, validateScenarioPairs } from "../../src/evaluation/scenarios.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
@@ -14,10 +14,14 @@ describe("live evaluation runner", () => {
       .toEqual({ action: "respond" });
     expect(() => parseOllamaJsonContent("```json\nnot-json\n```")).toThrow("Ollama evaluation content was not JSON");
   });
+  it("classifies observable behavior from Assessment, Action, and successful Tools", () => {
+    expect(classifyBehaviors({ assessment: { feeling: "嬉しい" }, output: { desire: "尋ねたい", action: { type: "respond", content: "別の方法も試してみませんか？" } }, toolExecutions: [] })).toEqual(["share", "question", "emotion-expression", "digression"]);
+    expect(classifyBehaviors({ output: { desire: "調べる", action: { type: "no-external-action", reason: "調査済み" } }, toolExecutions: [{ callId: "c", runId: "r", eventId: "e", name: "lookup", input: {}, ok: true, result: {}, startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] })).toEqual(["no-external-action", "tool"]);
+  });
   it("describes the Agent Core purpose, inputs, output fields, and constraints in Japanese", () => {
     const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
     const evaluatorPrompt = buildEvaluatorPrompt(scenario, { input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: [], dataOwnerAgentIds: [], proposedStateTargets: [], limitsRespected: true, schemaValid: true });
-    expect(agentCoreSystemPrompt).toContain("目的:"); expect(agentCoreSystemPrompt).toContain("入力:"); expect(agentCoreSystemPrompt).toContain("MeaningとEmotion"); expect(agentCoreSystemPrompt).toContain("Reflectionが担当"); expect(agentCoreSystemPrompt).toContain("Concern"); expect(agentCoreSystemPrompt).toContain("desire"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
+    expect(agentCoreSystemPrompt).toContain("目的:"); expect(agentCoreSystemPrompt).toContain("入力:"); expect(agentCoreSystemPrompt).toContain("MeaningとEmotion"); expect(agentCoreSystemPrompt).toContain("怒りや悲しみ"); expect(agentCoreSystemPrompt).toContain("Actionの選択"); expect(agentCoreSystemPrompt).toContain("Reflectionが担当"); expect(agentCoreSystemPrompt).toContain("Concern"); expect(agentCoreSystemPrompt).toContain("desire"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
   });
   it("defines six complete paired scenarios with equivalent observations", () => {
     expect(validateScenarioPairs(evaluationScenarios)).toEqual([]);

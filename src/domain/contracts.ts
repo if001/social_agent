@@ -278,6 +278,7 @@ export const ToolExecutionRecordSchema = z.object({
 export type ToolExecutionRecord = z.infer<typeof ToolExecutionRecordSchema>;
 
 export const AgentRunResultSchema = z.object({
+  assessment: EventAssessmentSchema.optional(),
   output: AgentCoreOutputSchema,
   toolExecutions: z.array(ToolExecutionRecordSchema),
   budget: z.object({
