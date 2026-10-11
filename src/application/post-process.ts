@@ -33,14 +33,17 @@ export class PostProcessService {
     }
   }
 
-  async #executeType(agentId: string, runId: string, type: PendingPostProcess["type"], signal: AbortSignal): Promise<void> {
+  async #executeType(agentId: string, runId: string, type: PendingPostProcess["type"], signal: AbortSignal, claimed?: PendingPostProcess): Promise<boolean> {
+    let job = claimed;
     while (!signal.aborted) {
-      const job = await this.persistence.claimPostProcess(agentId, runId, type);
-      if (job === undefined) return;
-      if (await this.#execute(job, signal)) return;
-      if (job.attempt >= 2) return;
+      job ??= await this.persistence.claimPostProcess(agentId, runId, type);
+      if (job === undefined) return true;
+      if (await this.#execute(job, signal)) return true;
+      if (job.attempt >= 2) return false;
       await delay(Math.min(30_000, this.retryBaseMs * 2 ** job.attempt), signal);
+      job = undefined;
     }
+    return false;
   }
 
   async processAgent(agentId: string, signal: AbortSignal): Promise<void> {
@@ -50,8 +53,8 @@ export class PostProcessService {
     const runId = continuity?.input.run.runId ?? memory?.input.run.runId;
     if (runId === undefined) return;
     await Promise.all([
-      continuity === undefined ? this.#executeType(agentId, runId, "continuity", signal) : this.#execute(continuity, signal).then(async (ok) => { if (!ok && continuity.attempt < 2) { await delay(this.retryBaseMs * 2 ** continuity.attempt, signal); await this.#executeType(agentId, runId, "continuity", signal); } }),
-      memory === undefined ? this.#executeType(agentId, runId, "memory", signal) : this.#execute(memory, signal).then(async (ok) => { if (!ok && memory.attempt < 2) { await delay(this.retryBaseMs * 2 ** memory.attempt, signal); await this.#executeType(agentId, runId, "memory", signal); } })
+      this.#executeType(agentId, runId, "continuity", signal, continuity),
+      this.#executeType(agentId, runId, "memory", signal, memory)
     ]);
     await this.#executeType(agentId, runId, "candidate", signal);
   }
@@ -59,7 +62,7 @@ export class PostProcessService {
   async tick(signal: AbortSignal): Promise<number> {
     const job = await this.persistence.claimPostProcess();
     if (job === undefined) return 0;
-    if (!await this.#execute(job, signal)) throw new Error(`${job.type} post-process failed`);
+    if (!await this.#executeType(job.agentId, job.input.run.runId, job.type, signal, job)) throw new Error(`${job.type} post-process failed`);
     return 1;
   }
 }

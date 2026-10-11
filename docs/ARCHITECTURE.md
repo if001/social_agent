@@ -1099,3 +1099,7 @@ FileとWeb Archiveはtext-extractionの純粋関数を共有する。文字数�
 ### 応答配送の統一（Issue 123 / R06）
 
 SchedulerはEventの宛先・replyContextを解決し、Runtimeが通常応答と共通のEnvelope生成処理からOutboxへ登録する。外部publishはOutboxDispatcherだけが担当する。publish失敗では未送信行を保持し、同じIDで再試行する。外部サービスの受信と送信済み記録を跨ぐexactly-onceは保証せず、下流の重複排除を前提とする。
+
+### 後処理の再試行単位（Issue 124 / R07）
+
+claim済みjobと再claimしたjobは同じ実行loopを使う。即時後処理とbackground tickでattempt上限・backoffを共有する。別jobの成功を巻き戻さず、Candidateは保存済みMemoryに基づくjobのみを処理する。
