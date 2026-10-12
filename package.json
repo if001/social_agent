@@ -15,6 +15,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
     "test:system": "vitest run --config vitest.system.config.ts --passWithNoTests",
     "test:evaluation": "vitest run --config vitest.evaluation.config.ts --passWithNoTests",
+    "test:live": "node --env-file=.env ./node_modules/vitest/vitest.mjs run --config vitest.live.config.ts",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:integration && pnpm test:system && pnpm test:evaluation",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
