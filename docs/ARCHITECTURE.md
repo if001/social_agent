@@ -1,59 +1,92 @@
 # Architecture
 
-本書は現在の実装を説明する二次資料である。再設計方針は[`note/agent-architecture-redesign-policy.md`](../note/agent-architecture-redesign-policy.md)、過去資料は[D3](D3/README.md)を参照する。
+本書は現在の実装を説明する二次資料である。概念と要求の一次資料は[`spec/`](../spec/)、簡略化の判断は[`note/agent-architecture-redesign-policy.md`](../note/agent-architecture-redesign-policy.md)を正とする。本書と実装が異なる場合は、出荷時点の挙動をコードとテストで確認し、文書の差分を解消する。`docs/D3/`は本書の対象外である。
 
-## 正規Agent Loop
+## 実行境界
 
 ```mermaid
 flowchart TD
-  E[Message / Scheduled Event / External Event] --> C[Context Builder]
-  C --> A[Event Assessment: Meaning / Feeling]
-  A --> K[Agent Core: Desire / Action / optional Patch]
-  K -->|Tool call| T[Registered Tool]
-  T --> K
-  K --> P[Atomic commit: Event / Run / State / Memory / Outbox]
+  U[Discord / Terminal / Agent / Scheduler] --> Q[Addressed Queue]
+  Q --> R[Agent Runtime]
+  R --> C[Context Builder]
+  C --> E[Event Assessment<br/>Meaning / Feeling]
+  E --> A[Deep Agent Core<br/>Desire / Action / optional Patch]
+  A <--> T[Registered Tools]
+  A --> V[Runtime validation]
+  V --> P[PostgreSQL transaction<br/>Event / Run / State / Memory / Outbox]
   P --> O[Outbox delivery]
-  L[Event log accumulation] --> R[Reflection maintenance]
-  R --> P2[Memory / Concern / Relationship / Self update]
+  S[Event-driven Scheduler] --> R
+  P --> F[Reflection maintenance]
+  F --> P
 ```
 
-通常Eventは一つのAgent Loopを通る。Event Assessmentは現在Eventの主観的意味とFeelingを決め、Agent Coreはその結果と`currentSelf`、`state`、Memoryから今回の`desire`、最終`action`、任意の`patch`を返す。Tool利用時も同じCore内で継続し、別の認知pipelineへ分岐しない。
+UI層はEventの送受信だけを担い、認知・状態更新・永続化を持たない。Discord、Terminal、Agent間Message、自律Eventはいずれも同じ`AgentRuntime`へ入る。配送はcommit後にOutboxから行うため、外部UIの障害とAgentの判断確定を分離できる。
 
-## Context
+## 正規Agent Loop
 
-必須入力はObservation、Current Self、Current Agent State、Recent Experiences、関連Memory、利用可能Tool、Runtime制約である。
+1. Runtimeが受信EnvelopeをEventへ正規化し、重複受信、TTL、hop、rate limit、Agent単位lockを検査する。
+2. Context BuilderがCurrent Self、Current State、Recent Experience、関連Memory、利用可能Tool、実行制約を読み込む。
+3. Event Assessmentが現在Eventの`meaning`と`feeling`を先に構造化出力する。ここではActionや通常Toolを選ばない。
+4. Agent CoreがAssessmentを含むContextから`desire`、最終`action`、任意の`patch`を決める。Toolを使う場合も同じDeep Agent内でTool resultを受けて続行する。
+5. Runtimeが出力、参照、ActionとTool実績の整合性、Patchの更新範囲を検証する。
+6. Event、Run、Tool execution、State change、即時Memory、Receipt、Outboxを一つのtransactionで確定する。
+7. Outbox dispatcherがUIへ配送し、失敗時は未送信recordを保持して再試行する。
 
-- Current Self: identity、disposition、selfStory、commitments
-- Current Agent State: mood、concerns、relationships
-- Concern: description、whyItMatters、status、任意のreconsiderAt
-- Memory: episodic / semantic / self-relatedとprovenance
+旧Candidate Detection、Long-term Review、Interaction後の複数post-process認知pipelineは正規経路に置かない。長期整理はReflectionという独立したmaintenance境界で扱う。
 
-Context Builderは所有Agentを検証し、文字列・件数・推定token budgetを制限する。Recent Experienceと重複する通常優先度のepisodic Memoryは除外する。Memory検索queryにはObservation、Mood、Concern、Relationshipを使う。
+## Contextと状態
 
-## ActionとState Patch
+ContextへAgentState全体を無制限に渡さず、現在の判断に必要な情報を選ぶ。
 
-Agent Coreの正規出力は次の三要素である。
+- Current Self: `identity`、`disposition`、`selfStory`、`commitments`
+- Current State: 任意の`mood`、`concerns`、`relationships`
+- Concern: 内容、重要な理由、状態、任意の再検討時刻
+- Memory: episodic / semantic / self-related、重要度、subject、EventまたはMemoryの根拠
+- Recent Experience: 直近RunのAssessment、Desire、Action、Tool実績
 
-- `desire`: 今回実際に望むこと
-- `action`: `respond`、`refuse`、または`no-external-action`
-- `patch`: mood、Concern 1件、Relationship 1件、次回へ残すMemory意図
+所有Agentをすべての境界で検証する。文字列長、件数、Context tokenを制限し、Recent Experienceと重複する通常優先度のepisodic Memoryは除外する。現在のContext上限は4,500推定token、system promptとTool schemaを含むmodel入力上限は8,000推定tokenである。
 
-通常Interactionの`no-external-action`は、成功したTool実行がある場合に限る。自律Eventは具体的Actionまたは通知可能な応答なしに成功できない。Reflectionは行動選択ではなくmaintenance Eventなので、この制約とは別に実行結果を記録する。
+Feelingは現在Eventへの短期反応であり、それ自体は永続状態にしない。次のEventにも影響する変化だけをMood、Concern、Relationship、MemoryとしてPatchする。Selfは通常Interactionから直接変更できず、ReflectionだけがMemory根拠と理由を伴って更新できる。
 
-RuntimeがPatchを検証・適用し、Event、Run、State change、即時Memory、Tool execution、Outboxをtransaction境界内で確定する。Agent CoreはDB metadataやversionを生成しない。
+## Deep Agentと構造化出力
 
-## Event-driven autonomy
+本番Agent Coreは`createDeepAgent`へ登録Tool群、system prompt、context schema、middlewareを一度設定し、`toolStrategy(...)`を`responseFormat`として渡す。通常Toolの呼び出しと最終構造化出力ToolはDeep Agentsの標準loopに任せる。
 
-常時思考loopは持たない。Runtimeは`idle`、`concern-due`、`external-change`、明示的Scheduled TaskをEventへ変換し、通常と同じAgent Loopへ渡す。Concernの`reconsiderAt`はscheduleと同期する。Scheduled Taskはユーザーとの約束を表し、ConcernやMemoryの代替ではない。
+モデル向け最終出力は、nested unionを直接生成させず、説明付きのflat schemaを使う。必須なのは`desire`と`actionType`で、ActionやPatchに必要なfieldだけを追加する。providerへ渡すJSON Schemaから`$schema`と文字列の正規表現制約を除き、日時や参照整合性を含む厳密なZod Domain schemaはRuntime側で再検証する。これによりモデル負荷を抑えてもDomain保証は緩めない。
 
-## Reflection
+初回出力が不正な場合、validation issue、許可されたevidence ID、不正出力、flat schemaを含むrepair入力で再試行する。repair中は通常Toolを無効にする。全試行後も不正ならcommitせずfailureだけを記録する。ただしuser-messageで既知の`action: string`誤出力だけは、空でない応答または定型の再試行依頼へ限定的に復旧する。自律Eventやその他の不正出力にはこのfallbackを使わない。
 
-Reflectionは蓄積Eventを読み、Memory圧縮、ConcernとRelationshipの整理、必要なSelf更新を一つのmaintenance境界で行う。Self変更にはMemory根拠と明示的理由が必要で、通常Agent Coreから直接変更できない。旧Candidate Detection、Long-term Review、interaction後の複数post-process jobは存在しない。
+## ActionとPatch
+
+Domain上の最終Actionは次の4種類である。
+
+- `respond`: contentを相手へ配送する。
+- `refuse`: contentを配送し、内部にreasonと`personality | system`のbasisを残す。
+- `notify-no-execution`: 自律Eventで実行しない判断と理由をownerへ配送する。
+- `no-external-action`: 成功したToolが具体的な外部Actionを完了し、追加配送が不要な場合だけ使う内部終端である。
+
+通常Interactionは成功Toolなしの`no-external-action`で成功できない。自律Eventも、具体的なTool実行または配送可能なActionなしに成功できない。
+
+Patchは任意のmood、Concern 1件、Relationship 1件、即時Memory意図に限定する。Runtimeがupsert/remove、Agent所有権、evidence、versionを検証し、DB metadataやIDは通常コードが付与する。
+
+## Tool実行
+
+起動時に実装済みToolをRegistryからDeep Agentへ複数登録する。各Toolは短い用途説明と説明付き入力schemaを持ち、Runtime contextからagent / run / event、権限、deadlineを受け取る。Agent Core promptへはTool名と要約だけを重複掲載し、完全なschemaはTool binding側だけに置く。
+
+通常コードは登録有無、入力schema、権限、冪等性、最大25回のTool call、Runごとの設定上限、同一Tool・同一入力の反復、結果サイズを検証する。Tool実績は成功・失敗を含めてRunへ関連付ける。失敗Toolだけでは`no-external-action`の根拠にならない。
+
+## Event-driven autonomyとReflection
+
+常時思考loopは持たない。Schedulerは`idle`、`concern-due`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。`idle`などの自律Eventは通常Agent Loopへ入り、Concernの`reconsiderAt`はscheduleと同期する。
+
+Reflectionは蓄積EventをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理である。通常Action選択とは分離し、Self変更にはMemory根拠と明示的理由を要求する。
 
 ## 永続化と運用保証
 
-PostgreSQLを正本とし、AgentごとのState・Memory分離、advisory lock、Queue receipt、Outbox、Tool冪等性、TTL、hop、rate limitをRuntime責務として維持する。旧`social_contexts`、Motive、Emotion永続列、Candidate、post-process tableはmigrationで削除済みである。
+PostgreSQLを正本とする。Agentごとの状態・Memory分離、advisory lock、optimistic state version、Queue receipt、Outbox、Tool冪等性、correlation、TTL、hop、rate limitを通常コードが保証する。Agent Coreは権限やsystem constraintを上書きできない。
 
-## 評価
+Debug UIは状態、Event、Run、Tool実績、Memory、Outbox等を観測する運用UIであり、別の認知経路や状態更新規則を持たない。
 
-自動testはschemaと運用不変条件を検証する。人格・状態差による行動差はpaired live scenarioで別途検証し、自動test合格だけを振る舞いの実証とは扱わない。
+## 未実装・非目標
+
+一次仕様が示す概念語彙すべてを個別tableや個別認知moduleとして実装することは目標にしない。Acquired Disposition、Self Narrative、長期的な関係等は、現在のSelf / State / Memory / Reflectionの小さい境界で表現する。人格らしさを固定reward、数値心理モデル、巨大な状態遷移へ置き換えない。
