@@ -87,6 +87,22 @@ function actionExecutionIssues(output: AgentRunResult["output"], toolExecutions:
   return [];
 }
 
+const USER_RESPONSE_FALLBACK = "申し訳ありません。応答の形式を処理できませんでした。もう一度お試しください。";
+function recoverUserStringAction(raw: unknown, input: AgentCoreInput): AgentRunResult["output"] | undefined {
+  if (input.observation.kind !== "user-message" || typeof raw !== "object" || raw === null || !("action" in raw) || typeof raw.action !== "string") return undefined;
+  const actionText = raw.action.trim();
+  let action: unknown;
+  if (actionText.startsWith("{")) {
+    try { action = JSON.parse(actionText); } catch { action = undefined; }
+  }
+  if (action === undefined) {
+    const content = actionText.length === 0 || ["respond", "response", "reply"].includes(actionText.toLowerCase()) ? USER_RESPONSE_FALLBACK : actionText;
+    action = { type: "respond", content };
+  }
+  const recovered = AgentCoreOutputSchema.safeParse({ ...raw, action });
+  return recovered.success ? recovered.data : undefined;
+}
+
 export class DeepAgentHarness implements AgentHarness {
   readonly #maxRepairs: number;
   constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 0; }
@@ -136,6 +152,11 @@ export class DeepAgentHarness implements AgentHarness {
         observedToolExecutions.push(...errorToolExecutions(error));
         throw providerFailure("Agent", error, combined, { providerError: error, toolExecutions: observedToolExecutions, modelCalls: consumedModelCalls, budget: budgetResult(consumedModelCalls, 0) });
       }
+    }
+    const recovered = recoverUserStringAction(raw, input);
+    if (recovered !== undefined) {
+      (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId }).log("warn", "agent_core.string_action_recovered", { modelCalls: consumedModelCalls });
+      return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: recovered, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, this.#maxRepairs) };
     }
     throw new DomainError(consumedModelCalls >= input.limits.maxSteps ? "LIMIT_EXCEEDED" : "VALIDATION", `Agent returned invalid structured output after ${String(consumedModelCalls)} model calls: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, Math.max(0, Math.min(this.#maxRepairs, consumedModelCalls - 1))) } });
   }
@@ -189,7 +210,8 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         try {
           for (;;) {
             const canRetryModel = modelCalls + 1 < options.maxModelCalls;
-            const canUseTool = operationalTools.length > 0 && context.collector.count < context.maxToolCalls && canRetryModel;
+            let canUseTool = operationalTools.length > 0 && context.collector.count < context.maxToolCalls && canRetryModel;
+            if (canUseTool && modelCallInputBudget(messages, [...operationalTools, finalTool]).total > MAX_MODEL_INPUT_TOKENS) canUseTool = false;
             const definitions = canUseTool ? [...operationalTools, finalTool] : [finalTool];
             assertModelCallInputBudget(messages, definitions, modelCalls === 0 ? "initial" : `continuation-${String(modelCalls)}`);
             if (modelCalls >= options.maxModelCalls) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for final Action");
