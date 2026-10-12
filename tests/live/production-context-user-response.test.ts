@@ -37,6 +37,8 @@ describe("production-like text UI user response", () => {
       await expect(new OutboxDispatcher(composition.persistence, queue).dispatch()).resolves.toBe(1);
       expect(published).toHaveLength(1); expect(published[0]?.destination).toBe("text-user");
       expect(published[0]?.payload).toMatchObject({ type: "agent-response", agentId: "live-e2e-agent" });
+      const responsePayload = published[0]?.payload;
+      expect(responsePayload !== undefined && responsePayload.type === "agent-response" && typeof responsePayload.text === "string" && responsePayload.text.trim().length > 0).toBe(true);
       const autonomousAction = await (async () => {
         try {
           return await composition.runtime.process({ id: "production-like-idle", agentId: "live-e2e-agent", kind: "internal", occurredAt: "2026-10-12T00:05:00.000Z", payload: { targetKind: "idle", schedulerGenerated: true, reason: "現在の状態から小さな行動を検討する", destination: "text-user" } }, new AbortController().signal);
