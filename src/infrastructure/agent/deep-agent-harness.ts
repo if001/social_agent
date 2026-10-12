@@ -188,7 +188,8 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         let modelCalls = 0;
         try {
           for (;;) {
-            const canUseTool = context.collector.count < context.maxToolCalls && modelCalls + 1 < options.maxModelCalls;
+            const canRetryModel = modelCalls + 1 < options.maxModelCalls;
+            const canUseTool = operationalTools.length > 0 && context.collector.count < context.maxToolCalls && canRetryModel;
             const definitions = canUseTool ? [...operationalTools, finalTool] : [finalTool];
             assertModelCallInputBudget(messages, definitions, modelCalls === 0 ? "initial" : `continuation-${String(modelCalls)}`);
             if (modelCalls >= options.maxModelCalls) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for final Action");
@@ -197,15 +198,20 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
             const calls = response.tool_calls ?? [];
             const submitted = calls.find(({ name }) => name === finalToolName);
             if (submitted !== undefined && calls.length === 1) return { structuredResponse: submitted.args, messages: [...messages, response], toolExecutions: context.collector.executions, modelCalls };
-            if (!canUseTool) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
             if (calls.length === 0) {
+              if (!canRetryModel) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
               messages.push({ role: "user", content: `直前の本文は最終Actionとして受理されませんでした。${finalToolName}または許可された通常Toolを、ちょうど1件呼び出してください。` });
               continue;
             }
             if (calls.length !== 1) throw new DomainError("VALIDATION", "Agent requested more than one Tool");
+            if (!canUseTool) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
             const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
             if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
-            const toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context });
+            let toolResult: unknown;
+            try { toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context }); }
+            catch (error) {
+              toolResult = { ok: false, errorCode: "INVALID_TOOL_INPUT", error: error instanceof Error ? error.message : "Tool input validation failed", requiredNextStep: "Correct the Tool input or return the final Action." };
+            }
             messages.push(response, new ToolMessage({ name: call.name, tool_call_id: call.id ?? `tool-${String(context.collector.count)}`, content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) }));
           }
         } catch (error) { throw new DomainError("EXTERNAL", "Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls } }); }
