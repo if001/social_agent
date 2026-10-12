@@ -52,7 +52,9 @@ export type DeepAgentHarnessOptions = {
 export const MAX_MODEL_INPUT_TOKENS = 6_000;
 type ModelCallBudget = { readonly total: number; readonly components: Readonly<Record<string, number>> };
 export function modelCallInputBudget(messages: readonly unknown[], tools: readonly unknown[]): ModelCallBudget {
-  const components = { messages: estimateTokens(messages), tools: estimateTokens(tools), outputSchema: estimateTokens(z.toJSONSchema(AgentCoreOutputSchema)) };
+  // Concrete calls receive the final Action schema as a bound Tool. Counting it
+  // again as an output schema rejects valid inputs without reflecting provider usage.
+  const components = { messages: estimateTokens(messages), tools: estimateTokens(tools) };
   return { total: Object.values(components).reduce((sum, value) => sum + value, 0), components };
 }
 function assertModelCallInputBudget(messages: readonly unknown[], tools: readonly unknown[], stage: string): void {
