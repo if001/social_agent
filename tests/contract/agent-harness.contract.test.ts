@@ -116,10 +116,15 @@ describe("AgentHarness contract", () => {
   });
 
   it("repairs invalid output once and then stops", async () => {
-    let calls = 0;
-    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { invalid: true } : output }) };
+    let calls = 0; const toolCallLimits: number[] = []; const prompts: string[] = [];
+    const invoker: DeepAgentInvoker = { invoke: ({ messages }, options) => {
+      toolCallLimits.push(options.maxToolCalls); prompts.push(messages[0]?.content ?? "");
+      return Promise.resolve({ structuredResponse: calls++ === 0 ? { invalid: true } : output });
+    } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result); expect(calls).toBe(2);
+    expect(toolCallLimits[0]).toBeGreaterThan(0); expect(toolCallLimits[1]).toBe(0);
+    expect(prompts[1]).toContain("submit_agent_actionを1件だけ"); expect(prompts[1]).toContain("actionは文字列ではなく");
     const broken = new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: {} }) }, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(broken.run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
