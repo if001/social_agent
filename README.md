@@ -20,6 +20,14 @@ node --env-file=.env.ao --import tsx src/cli.ts \
 pnpm bot:start --env-file .env.ao
 ```
 
+Ao、Aka、Debug UI、Ingestをまとめて起動する場合:
+
+```shell
+pnpm start:all
+```
+
+出力には色付きの`[ao]`、`[aka]`、`[debug]`、`[ingest]`が付く。`Ctrl+C`、終了signal、またはいずれかのprocess終了時に、起動した全processを停止する。
+
 
 
 debug ui

@@ -20,6 +20,7 @@
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "ops": "tsx src/cli.ts",
+    "start:all": "bash scripts/start-all.sh",
     "bot:start": "tsx src/bot.ts",
     "page-ingest:start": "tsx src/page-ingest.ts",
     "debug:ui": "tsx src/debug-ui.ts",
