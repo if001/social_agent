@@ -52,4 +52,15 @@ describe("ST-07 abnormal output", () => {
     await expect(handler?.(messageFixture({ destination: "agent-a", payload: { type: "user-message", text: "hello" } }))).rejects.toMatchObject({ code: "VALIDATION" });
     expect(persistence.failures[0]?.toolExecutions).toEqual([toolExecution]);
   });
+
+  it("does not commit or enqueue a response when both initial output and repair are invalid", async () => {
+    const input = agentCoreInputFixture(); let calls = 0;
+    const harness = new DeepAgentHarness({ invoker: { invoke: () => { calls += 1; return Promise.resolve({ structuredResponse: { desire: "答えたい", action: "respond" }, modelCalls: 1 }); } }, registeredToolNames: new Set(), maxRepairs: 1 });
+    const persistence = new InMemoryRuntimePersistence(() => input); let handler: ((message: MessageEnvelope) => Promise<void>) | undefined;
+    const queue = { publish: () => Promise.resolve(), subscribe: (_destination: string, received: (message: MessageEnvelope) => Promise<void>) => { handler = received; return Promise.resolve(); } };
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness, persistence, ids: new SequenceIdGenerator(["failed-event"]), now: () => new Date(input.run.occurredAt) });
+    await runtime.start(new AbortController().signal);
+    await expect(handler?.(messageFixture({ destination: "agent-a", replyTo: "terminal", payload: { type: "user-message", text: "回答してください" } }))).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(calls).toBe(2); expect(persistence.events).toHaveLength(0); expect(persistence.receipts.size).toBe(0); expect(await persistence.pendingOutbox(10)).toHaveLength(0); expect(persistence.failures).toHaveLength(1);
+  });
 });
