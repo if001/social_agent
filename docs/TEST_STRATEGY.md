@@ -1,31 +1,58 @@
 # Test Strategy
 
+本書は[`spec/`](../spec/)の概念と実装設計、および[`note/agent-architecture-redesign-policy.md`](../note/agent-architecture-redesign-policy.md)の簡略化方針を、現在のコードでどう検証するかを定める。`docs/D3/`は対象外である。
+
 ## Test layers
 
 ### Unit / contract
 
-- Self、State、Concern、Relationship、Memory、Event Assessment、Agent Turnのschema
-- Contextの所有権、件数・文字列・推定token budget、Memory重複排除
-- State Patchのupsert/removeと別Agent更新拒否
-- 不正なstructured output、未登録Tool、call budget、反復Tool入力の拒否
-- Concern schedule、Scheduled Task、Reflection契約
+- Self、State、Concern、Relationship、Memory、Event Assessment、Agent Core outputのZod契約
+- モデル向けflat schemaのfield説明、provider不要制約の除去、strict Domain outputへの変換
+- ContextのAgent所有権、件数・文字列・推定token budget、Memory重複排除
+- State Patchのupsert/remove、evidence、別Agent更新拒否
+- Tool schema、権限、冪等性、call budget、同一入力反復、結果上限
+- Concern schedule、Scheduled Task、Reflection、Debug UIの読取り契約
 
 ### System
 
-- Terminal、Discord、Agent間Messageが同じAgent Loopを通ること
-- Event AssessmentからDesire、Action、Patchへの引き渡し
-- Tool continuationと最終Action、失敗Toolだけによる無行動拒否
-- respond/refuseのOutbox保存と配送再試行
-- 自律EventがActionも通知もなく成功しないこと
-- crash recovery、複数Agent分離、Runtime制限
+実modelと実DBを使わず、Runtime全体の決定論的な不変条件を確認する。
+
+- Terminal、Discord、Agent間Message、各種Eventが同じAgent Loopを通る
+- Event AssessmentからDesire、Action、Patchへの引渡し
+- Tool continuation、複数Tool実績、失敗Toolだけによる`no-external-action`拒否
+- `respond` / `refuse` / `notify-no-execution`のOutbox保存と配送再試行
+- 自律Eventが具体的Tool実行も配送可能Actionもなく成功しない
+- 初回不正・repair成功時は1回だけcommitする
+- 初回とrepairがともに不正なら成功commit、Receipt、Outboxを作らずfailureだけを残す
+- user-messageの`action: string`既知誤出力は空でないfallback応答へ復旧する
+- crash recovery、重複受信、複数Agent分離、Runtime制限
+
+ここでいうシナリオtestは複数componentを通すSystem testであり、実Ollama、実PostgreSQL、外部Discordをすべて使うEnd-to-End testとは区別する。
 
 ### PostgreSQL integration
 
-実migrationと隔離schemaを使い、State version競合、transaction rollback、advisory lock、Memory検索、Reflection commit、Concern schedule、Tool trace、Outbox冪等性を検証する。接続設定はtest processから読み込めるが、値をoutputへ表示しない。
+実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Memory検索、Reflection commit、Concern schedule、Tool trace、Outbox冪等性、Runtime resetを含む。
+
+接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。testは専用schemaだけを作成・破棄し、共有schemaの検証データへ依存しない。
+
+### Live Ollama
+
+`tests/live/ollama-user-response.test.ts`は実Ollamaを呼び、次を確認する。
+
+- 入力「テストです。日本語で一文だけ返答してください。」に対し、Event AssessmentとAgent Coreを通って空でない応答をOutboxへ保存・配送する。
+- 初回に意図的な`action: string`不正出力を与え、実Ollamaによるrepair後にEvent、Receipt、Outboxを一度だけcommitする。
+
+### Production-like text UI E2E
+
+`tests/live/production-context-user-response.test.ts`は外部Discordを使わず、UI非依存のユーザー入力経路を検証する。隔離PostgreSQLへ実migrationとAgent初期値を投入し、本番composition、Context Builder、本番Tool群、Deep Agent、実Ollama、Runtime transaction、Outbox dispatcherを通す。
+
+入力は「動作確認です。日本語で一文だけ返答してください。」で、空でない`agent-response`、Message receipt、完了Run、未送信Outbox、配送先を確認する。続けて`idle` Eventを入力し、自律Actionと2件目のcommitを確認する。このtestとDiscord本番の差は外部adapterとDiscord APIだけであり、ContextとToolの有無ではない。
+
+Live testはproviderとモデルの非決定性を含む。失敗を単なる揺らぎとして成功扱いせず、構造化出力、timeout、Context予算、Tool loopのどの境界で失敗したかをlogから判定する。
 
 ### Evaluation
 
-同一Observationに状態差だけを与えるpaired scenarioを反復し、Action、Tool利用、配送、次Stateをartifactへ保存する。少なくとも以下を含める。
+同一Observationに状態差だけを与えるpaired scenarioを反復し、Action、Tool利用、配送、次Stateをartifactへ保存する。少なくとも次を対象にする。
 
 - praise / criticism: MemoryとRelationshipによるMeaning・Feeling・Action差
 - boredom: MoodによるAction差
@@ -33,9 +60,11 @@
 - curiosity: ConcernとMemoryによる自律Tool利用差
 - individuality: 異なる経験から形成されたSelf Storyと行動差
 
-欠測、schema failure、timeout、期待方向に届かない効果量を成功へ含めない。自動testの合格だけで人格らしさを実証済みとはしない。
+欠測、schema failure、timeout、期待方向に届かない効果量を成功へ含めない。自動testや単発live応答の成功だけで、人格らしさや状態差による行動差を実証済みとはしない。
 
 ## Standard verification
+
+DBや外部modelを必要としない標準suite:
 
 ```sh
 pnpm typecheck
@@ -43,14 +72,27 @@ pnpm lint
 pnpm test
 pnpm test:system
 pnpm test:evaluation
+```
+
+隔離PostgreSQLを使うintegration suite:
+
+```sh
 node --env-file=.env ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts --passWithNoTests
 ```
 
-DB schema変更時は`pnpm db:generate`でmigrationを生成し、隔離schemaで検証してから、明示的な許可を得て共有DBへ`pnpm db:migrate`を適用する。
+実Ollamaと隔離PostgreSQLを使うlive suite:
+
+```sh
+pnpm test:live
+```
+
+`pnpm verify`はtypecheck、lint、unit / contract、integration、system、evaluationを順に実行するが、live suiteは含まない。DB schema変更時は`pnpm db:generate`でmigrationを生成し、隔離schemaで検証してから、明示的な許可を得て共有DBへ`pnpm db:migrate`を適用する。
 
 ## Release conditions
 
-- 全自動suiteが成功する。
-- schema、migration、repository、prompt、文書の用語が一致する。
+- 変更範囲に対応する自動suiteがすべて成功する。
+- schema、migration、repository、prompt、文書の用語と不変条件が一致する。
+- 不正出力、provider失敗、DB失敗の経路が部分commitを残さない。
 - 旧互換経路をtestのためだけに残していない。
-- 振る舞いを主張する場合は反復live evaluation artifactと集計を保存する。
+- 実model対応を変更した場合はLive Ollamaとproduction-like E2Eを実行する。
+- 行動差を主張する場合は、反復paired live evaluation artifactと集計を保存する。

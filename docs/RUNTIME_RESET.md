@@ -1,22 +1,54 @@
 # 動作確認データのリセット
 
-すべてのBotを停止してから実行する。
+`runtime:reset`は、現在のDBにある全Agentを初期Selfへ戻し、Runtime履歴を消去する破壊的な運用コマンドである。すべてのBot、Scheduler、Debug UIなどDBへ接続するプロセスを停止してから実行する。
 
 ```sh
-pnpm run runtime:reset --confirm
+pnpm runtime:reset --confirm
 ```
 
-`.env`はNodeの`--env-file`で実行時に読み込む。POSTGRES_URLの接続先にいる全Agentを対象とする。コマンドは環境ファイルを書き換えない。
+`.env`はNodeの`--env-file`で実行時にだけ読み込む。対象は`POSTGRES_URL`の接続先に登録された全Agentであり、環境ファイル自体は変更しない。
 
-- 保持: agents、agent_families、Bot設定・ペルソナ、migration履歴、設定ファイル
-- 復元: agent_statesをconfig/initial-self/*.yamlの初期Self・Mood・Motiveへ戻す。獲得Disposition、Emotion、探索履歴、versionも初期化
-- 削除: Event、Run、Tool実行、状態変更履歴、Memory、Social Context、Candidate、Scheduled Task、Web Snapshot、後処理、Outbox、受領記録、レート制限記録
-- 自律スケジュール: autonomy-reviewを再作成。初回時刻は実行時刻＋AUTONOMY_REVIEW_INTERVAL_MS
-- QUEUE_ROOTとWEB_ARCHIVE_ROOT: `.before-reset-<UUID>`を付けて退避。未設定時はvar/queueとvar/web-archive。安全のためプロジェクトのvar配下の独立したディレクトリだけを許可し、symlinkは拒否
+## 実行前提
 
-全Agentに対応する初期Selfファイルが必要。Botと同じDBロックを取得できなければ変更せず終了する。
-DB更新はtransaction内で行う。ファイル退避の通常エラーではDBと退避を戻す。ただしプロセス強制終了やCOMMIT時の通信断を含むDBとファイル間の完全な原子性は保証しない。
+- DBに1体以上のAgentが存在する。
+- DB内の各Agentについて、対応する`config/initial-self/*.yaml`がちょうど1件読み込める。
+- 全Agentのadvisory lockを取得できる。稼働中Botがlockを保持している場合は、変更せず失敗する。
+- 退避対象rootはプロジェクトの`var/`直下以下にある相互に独立したdirectoryで、経路途中を含めsymlinkではない。
 
-完了後は通常どおりBotを起動する。migrationやpersona:applyは不要。
-Botごとに異なるQUEUE_ROOT/WEB_ARCHIVE_ROOTを使っている場合は、全ての保存先を別途整理する必要がある。
-ファイルToolで作成した一般ファイル、logs、評価成果物、Discord投稿そのものは削除しない。
+## DBで保持・初期化・削除するもの
+
+保持するもの:
+
+- `agents`、`agent_families`、Agent設定
+- `agent_lock_keys`
+- migration履歴
+
+`agent_states`は初期Self設定から次のように復元する。
+
+- `disposition`: family shared disposition、initial disposition、valuesを統合
+- `self_story`: self narrativeとself continuityを統合
+- `commitments`: rolesと任意のraison d'être
+- `mood`、`concerns`、`relationships`: `initialState`
+- `version`: `0`
+
+次のRuntime履歴を全件削除する。
+
+- state changes、Tool executions、Agent runs、Events
+- Memory本体、subject、Web evidence
+- Web snapshots / resources
+- Scheduled tasks、autonomous schedules
+- Outbox、message receipts
+- runtime correlations、rate windows
+
+各Agentについて次の2 scheduleを再作成する。
+
+- `idle`: 実行時刻 + `AUTONOMY_REVIEW_INTERVAL_MS`
+- `reflection`: 実行時刻 + `STATE_REVIEW_INTERVAL_MS`
+
+## Runtime fileの退避
+
+`QUEUE_ROOT`と`WEB_ARCHIVE_ROOT`を、削除せず同階層の`<元名>.before-reset-<UUID>`へrenameする。directoryが存在しない場合は何もしない。一般のTool file、log、評価artifact、Discord上の投稿は対象外である。
+
+DB変更はtransaction内で行う。file退避中に通常のerrorが発生した場合はDBをrollbackし、すでに移動したdirectoryを元へ戻す。ただしDBの`COMMIT`とfilesystem renameは単一transactionではないため、process強制終了やcommit時の通信断までを含む完全な原子性は保証しない。
+
+成功時の標準出力には、resetしたAgent IDと退避先directoryをJSONで返す。migrationや別のpersona適用は不要で、そのままBotを起動できる。Botごとに標準設定外のRuntime rootを使っている場合は、このコマンドへ渡されない保存先を別途確認する。
