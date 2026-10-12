@@ -64,7 +64,8 @@ export function createBotComposition(options: BotCompositionOptions) {
   const persistence = new PostgresRuntimePersistence(pool, (event) => contextLoader.load(event), ids, () => clock.now(), memoryEmbedding, toolRegistry);
   const harness = new DeepAgentHarness({
     invoker: createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry, logger, now: () => clock.now() }), logger,
-    registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name))
+    registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name)),
+    maxRepairs: 1
   });
   const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
   const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now()), new OllamaReflectionModel(config.chat));
