@@ -5,7 +5,7 @@ import type { Clock, MessageQueue } from "../../application/ports.js";
 import type { RegisteredTool, ToolExecutionContext } from "../../application/tool-registry.js";
 import { DomainError } from "../../domain/contracts.js";
 
-const Input = z.object({ destinationAgentId: z.string().min(1), content: z.string().min(1) });
+const Input = z.object({ destinationAgentId: z.string().min(1).describe("送信先AgentのID"), content: z.string().min(1).describe("送信先へ伝える情報または依頼の本文") });
 export type AgentMessageProvenance = { readonly parentHop: number; readonly expiresAt: string; readonly replyTo?: string };
 export type AgentSendOptions = { readonly queue: MessageQueue; readonly clock: Clock; readonly maxHops: number; readonly provenance: (context: ToolExecutionContext) => AgentMessageProvenance };
 

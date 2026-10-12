@@ -6,7 +6,7 @@ import { createBotComposition } from "../../src/bootstrap/bot-composition.js";
 import { loadConfig } from "../../src/config/config.js";
 import type { MessageEnvelope } from "../../src/domain/contracts.js";
 import { migrate } from "../../src/infrastructure/persistence/postgres.js";
-import { errorLogContext } from "../../src/observability/logger.js";
+import { createStdoutLogger, errorLogContext } from "../../src/observability/logger.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
 
@@ -15,6 +15,7 @@ describe("production-like text UI user response", () => {
     const loaded = await loadConfig(); const databaseUrl = loaded.database.url.replace("postgresql+psycopg://", "postgresql://");
     const schema = `live_e2e_${randomUUID().replaceAll("-", "")}`; const control = new Pool({ connectionString: databaseUrl, max: 1 });
     const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public,ext`, max: 4 });
+    const diagnosticLogs: string[] = []; const logger = createStdoutLogger({}, (line) => { diagnosticLogs.push(line.trim()); });
     const published: MessageEnvelope[] = []; let receive: ((message: MessageEnvelope) => Promise<void>) | undefined;
     const queue = { publish: (message: MessageEnvelope) => { published.push(message); return Promise.resolve(); }, subscribe: (_destination: string, handler: (message: MessageEnvelope) => Promise<void>) => { receive = handler; return Promise.resolve(); } };
     try {
@@ -26,7 +27,7 @@ describe("production-like text UI user response", () => {
         initialState: { mood: "落ち着いている", concerns: [], relationships: [] }
       });
       const config = { ...loaded, botId: "live-e2e-agent", defaultOutputDestination: "text-user", runDeadlineMs: Math.max(loaded.runDeadlineMs, 300_000) };
-      const composition = createBotComposition({ pool, config, queue, limits: { maxToolCalls: 25, maxSteps: 27 } });
+      const composition = createBotComposition({ pool, config, queue, logger, limits: { maxToolCalls: 25, maxSteps: 27 } });
       expect(composition.toolRegistry.definitions().length).toBeGreaterThanOrEqual(10);
       await composition.runtime.start(new AbortController().signal);
       try { await receive?.(messageFixture({ id: "production-like-user-message", destination: "live-e2e-agent", source: "text-user", replyTo: "text-user", sentAt: "2026-10-12T00:00:00.000Z", availableAt: "2026-10-12T00:00:00.000Z", expiresAt: "2026-10-13T00:00:00.000Z", payload: { type: "user-message", text: "動作確認です。日本語で一文だけ返答してください。", sourceType: "terminal" } })); }
@@ -43,7 +44,7 @@ describe("production-like text UI user response", () => {
         try {
           return await composition.runtime.process({ id: "production-like-idle", agentId: "live-e2e-agent", kind: "internal", occurredAt: "2026-10-12T00:05:00.000Z", payload: { targetKind: "idle", schedulerGenerated: true, reason: "現在の状態から小さな行動を検討する", destination: "text-user" } }, new AbortController().signal);
         } catch (error) {
-          throw new Error(`Production-like idle Agent failed: ${JSON.stringify(errorLogContext(error))}`);
+          throw new Error(`Production-like idle Agent failed: ${JSON.stringify(errorLogContext(error))}; diagnostics=${diagnosticLogs.slice(-20).join(" | ")}`);
         }
       })();
       expect(["respond", "refuse", "notify-no-execution", "no-external-action"]).toContain(autonomousAction.type);

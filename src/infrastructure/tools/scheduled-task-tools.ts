@@ -8,9 +8,9 @@ import { DomainError } from "../../domain/contracts.js";
 type TaskRow = QueryResultRow & { id: string; execute_at: Date; instruction: string; reason: string | null; destination: string | null; status: string; attempt: number };
 
 const result = (row: TaskRow) => ({ id: row.id, executeAt: row.execute_at.toISOString(), instruction: row.instruction, ...(row.reason === null ? {} : { reason: row.reason }), ...(row.destination === null ? {} : { destination: row.destination }), status: row.status, attempt: row.attempt });
-const CreateSchema = z.object({ executeAt: z.iso.datetime({ offset: true }), instruction: z.string().trim().min(1).max(4_000), reason: z.string().trim().min(1).max(1_000).optional(), destination: z.string().trim().min(1).max(1_000).optional() }).strict();
-const ListSchema = z.object({ status: z.enum(["scheduled", "running", "completed", "cancelled", "failed"]).optional(), limit: z.number().int().min(1).max(50).default(20) }).strict();
-const CancelSchema = z.object({ taskId: z.string().trim().min(1) }).strict();
+const CreateSchema = z.object({ executeAt: z.iso.datetime({ offset: true }).describe("実行する将来のISO 8601日時"), instruction: z.string().trim().min(1).max(4_000).describe("実行時にAgentへ渡す具体的な指示"), reason: z.string().trim().min(1).max(1_000).optional().describe("予約する理由"), destination: z.string().trim().min(1).max(1_000).optional().describe("実行結果を送る明示的な宛先。通常は省略する") }).strict();
+const ListSchema = z.object({ status: z.enum(["scheduled", "running", "completed", "cancelled", "failed"]).optional().describe("指定した状態だけに絞る。全件なら省略する"), limit: z.number().int().min(1).max(50).default(20).describe("返す最大件数") }).strict();
+const CancelSchema = z.object({ taskId: z.string().trim().min(1).describe("取り消すScheduled TaskのID") }).strict();
 
 export function createScheduledTaskTools(pool: Pool, ids: IdGenerator, now: () => Date): readonly RegisteredTool[] {
   const create: RegisteredTool<z.infer<typeof CreateSchema>> = {
