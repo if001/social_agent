@@ -141,7 +141,7 @@ export class DeepAgentHarness implements AgentHarness {
   }
 }
 
-export type OllamaDeepAgentConfig = OllamaChatConfig & { readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date; readonly agentFactory?: ReusableDeepAgentFactory };
+export type OllamaDeepAgentConfig = OllamaChatConfig & { readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date; readonly agentFactory?: ReusableDeepAgentFactory; readonly modelFactory?: typeof createOllamaChatModel };
 
 export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConfig, "apiKey" | "baseUrl" | "model">, fetcher: typeof fetch = fetch): Promise<void> {
   let response: Response;
@@ -155,7 +155,7 @@ export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConf
 }
 
 export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): DeepAgentInvoker {
-  const model = createOllamaChatModel(config);
+  const model = (config.modelFactory ?? createOllamaChatModel)(config);
   const logger = config.logger ?? noopLogger;
   const now = config.now ?? (() => new Date());
   const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
@@ -203,7 +203,11 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
               messages.push({ role: "user", content: `直前の本文は最終Actionとして受理されませんでした。${finalToolName}または許可された通常Toolを、ちょうど1件呼び出してください。` });
               continue;
             }
-            if (calls.length !== 1) throw new DomainError("VALIDATION", "Agent requested more than one Tool");
+            if (calls.length !== 1) {
+              if (!canRetryModel) throw new DomainError("VALIDATION", "Agent requested more than one Tool");
+              messages.push({ role: "user", content: `複数のTool callは同時に受理できません。${finalToolName}または許可された通常Toolを、ちょうど1件だけ呼び出してください。` });
+              continue;
+            }
             if (!canUseTool) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
             const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
             if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);

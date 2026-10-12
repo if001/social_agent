@@ -124,6 +124,22 @@ describe("AgentHarness contract", () => {
     await expect(broken.run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
+  it("recovers when the model requests an operational Tool and final Action together", async () => {
+    const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: {} }) }]);
+    let decisionCalls = 0;
+    const fakeModel = { bindTools: (definitions: readonly { readonly function: { readonly name: string } }[]) => ({ invoke: () => {
+      if (definitions.some(({ function: value }) => value.name === "submit_event_assessment")) return Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答が必要", feeling: "応えたい" } }] });
+      decisionCalls += 1;
+      return Promise.resolve(decisionCalls === 1
+        ? { tool_calls: [{ id: "lookup", name: "lookup", args: { query: "x" } }, { id: "final-early", name: "submit_agent_action", args: output }] }
+        : { tool_calls: [{ id: "final", name: "submit_agent_action", args: output }] });
+    } }) };
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", toolRegistry: registry, modelFactory: () => fakeModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>> });
+    const input = agentCoreInputFixture(); input.availableTools = [...registry.definitions()];
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ output, toolExecutions: [] });
+    expect(decisionCalls).toBe(2);
+  });
+
   it("rejects unknown tools before invoking the model", async () => {
     let called = false; const invoker: DeepAgentInvoker = { invoke: () => { called = true; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.availableTools.push({ name: "unknown", description: "Unknown tool", inputSchema: {} });
