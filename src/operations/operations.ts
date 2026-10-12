@@ -14,9 +14,9 @@ export async function initializeAgent(pool: Pool, config: InitialSelfConfig, tim
     await client.query("BEGIN");
     await client.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [family.id, family.name, family.sharedDisposition, family.baseInstruction]);
     await client.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [agent.id, family.id, agent.identity, agent.initialDisposition]);
-    const disposition = [family.sharedDisposition, agent.initialDisposition, agent.values].join("\n");
+    const disposition = [family.sharedDisposition, agent.initialDisposition].join("\n");
     const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
-    const commitments = [...agent.roles, ...(agent.raisonDetre === undefined ? [] : [agent.raisonDetre])];
+    const commitments = agent.raisonDetre === undefined ? [] : [agent.raisonDetre];
     await client.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (agent_id) DO NOTHING", [agent.id, disposition, selfStory, JSON.stringify(commitments), JSON.stringify(initialState.concerns), JSON.stringify(initialState.relationships), initialState.mood]);
     if (options.overwriteConfiguredSelf === true) {
       await client.query("UPDATE agent_families SET name=$2,shared_disposition=$3,base_instruction=$4,updated_at=now() WHERE id=$1", [family.id, family.name, family.sharedDisposition, family.baseInstruction]);

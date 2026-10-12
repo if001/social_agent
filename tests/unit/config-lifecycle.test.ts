@@ -15,8 +15,15 @@ describe("configuration and lifecycle", () => {
   it("validates versioned Initial Self YAML separately from Persona", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
     const valid = `${cwd}/initial-self.yaml`;
-    await writeFile(valid, `version: 1\nfamily:\n  id: family\n  name: Family\n  sharedDisposition: 共通の傾向\nagent:\n  id: ao\n  identity: アオ\n  initialDisposition: 好奇心が強い\n  values: 発見を大切にする\n  roles: [対話相手]\n  selfNarrative: 経験を始めた\n  selfContinuity: 経験をつなぐ\n`);
-    await expect(loadInitialSelfFile(valid)).resolves.toMatchObject({ family: { id: "family", baseInstruction: "" }, agent: { id: "ao", interests: [], preferences: [] }, initialState: { concerns: [], relationships: [] } });
+    await writeFile(valid, `version: 1\nfamily:\n  id: family\n  name: Family\n  sharedDisposition: 共通の傾向\nagent:\n  id: ao\n  identity: アオ\n  initialDisposition: 技術を試すことが好きで、根拠のない断定は嫌い\n  selfNarrative: 経験を始めた\n  selfContinuity: 経験をつなぐ\n`);
+    const loaded = await loadInitialSelfFile(valid);
+    expect(loaded).toMatchObject({ family: { id: "family", baseInstruction: "" }, agent: { id: "ao" }, initialState: { concerns: [], relationships: [] } });
+    expect(loaded.agent.initialDisposition).toContain("技術を試す");
+    for (const legacyField of ["values", "interests", "preferences", "roles"]) {
+      const path = `${cwd}/legacy-${legacyField}.yaml`;
+      await writeFile(path, `version: 1\nfamily: { id: family, name: Family, sharedDisposition: 共通の傾向 }\nagent: { id: ao, identity: アオ, initialDisposition: 好奇心が強い, ${legacyField}: 古い値, selfNarrative: 経験を始めた, selfContinuity: 経験をつなぐ }\n`);
+      await expect(loadInitialSelfFile(path)).rejects.toThrow();
+    }
     await writeFile(`${cwd}/invalid-self.yaml`, `version: 1\nfamily: { id: family }\nagent: { id: ao }\n`);
     await expect(loadInitialSelfFile(`${cwd}/invalid-self.yaml`)).rejects.toThrow();
     await scope.close();
@@ -26,13 +33,16 @@ describe("configuration and lifecycle", () => {
     const [ao, aka] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml")]);
     expect(ao.family).toEqual(aka.family);
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);
-    expect(ao.agent.interests.length).toBeGreaterThan(0); expect(ao.agent.preferences.length).toBeGreaterThan(0);
-    expect(aka.agent.interests.length).toBeGreaterThan(0); expect(aka.agent.preferences.length).toBeGreaterThan(0);
-    expect(ao.agent.interests).toEqual(expect.arrayContaining([expect.stringContaining("対話相手"), expect.stringContaining("坂本龍一")]));
-    expect(aka.agent.interests).toEqual(expect.arrayContaining([expect.stringContaining("対話相手"), expect.stringContaining("エドワード・ホッパー")]));
-    expect(ao.agent.preferences).toEqual(expect.arrayContaining([expect.stringContaining("問いを一つ"), expect.stringContaining("問い方や試し方を変える")]));
-    expect(aka.agent.preferences).toEqual(expect.arrayContaining([expect.stringContaining("問いを一つ"), expect.stringContaining("視点や時機を変える")]));
-    expect(ao.agent.interests.some((interest) => aka.agent.interests.includes(interest))).toBe(false);
+    expect(ao.agent.initialDisposition).toContain("坂本龍一");
+    expect(ao.agent.initialDisposition).toContain("試さずに分かったつもり");
+    expect(aka.agent.initialDisposition).toContain("エドワード・ホッパー");
+    expect(aka.agent.initialDisposition).toContain("根拠のない断定");
+    for (const config of [ao, aka]) {
+      expect(config.agent).not.toHaveProperty("values");
+      expect(config.agent).not.toHaveProperty("interests");
+      expect(config.agent).not.toHaveProperty("preferences");
+      expect(config.agent).not.toHaveProperty("roles");
+    }
     expect(ao.agent).not.toHaveProperty("firstPerson");
     expect(aka.agent).not.toHaveProperty("tone");
   });

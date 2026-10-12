@@ -45,9 +45,9 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
       const { agent, initialState } = config;
       await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle','一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する',now()+$3*interval '1 millisecond')", [`idle:${id}`, id, timings.autonomyReviewIntervalMs]);
       await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'reflection','蓄積したEvent logをMemoryと長期状態へ統合する',now()+$3*interval '1 millisecond')", [`reflection:${id}`, id, timings.stateReviewIntervalMs]);
-      const disposition = [config.family.sharedDisposition, agent.initialDisposition, agent.values].join("\n");
+      const disposition = [config.family.sharedDisposition, agent.initialDisposition].join("\n");
       const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
-      const commitments = [...agent.roles, ...(agent.raisonDetre === undefined ? [] : [agent.raisonDetre])];
+      const commitments = agent.raisonDetre === undefined ? [] : [agent.raisonDetre];
       await client.query("UPDATE agent_states SET disposition=$2,self_story=$3,commitments=$4,concerns=$5,relationships=$6,mood=$7,version=0,updated_at=now() WHERE agent_id=$1", [id, disposition, selfStory, JSON.stringify(commitments), JSON.stringify(initialState.concerns), JSON.stringify(initialState.relationships), initialState.mood]);
     }
     const suffix = `.before-reset-${randomUUID()}`;
