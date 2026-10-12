@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { assertDistinctBotConfigs, loadConfig } from "../../src/config/config.js";
 import { loadBotStartConfig, parseBotStartArguments } from "../../src/bootstrap/bot-start.js";
+import { loadPageIngestStartConfig, parsePageIngestStartArguments } from "../../src/bootstrap/page-ingest-start.js";
 import { loadInitialSelfFile } from "../../src/config/initial-self.js";
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { redactSecrets } from "../../src/observability/redaction.js";
@@ -96,6 +97,15 @@ describe("configuration and lifecycle", () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
     await expect(loadBotStartConfig([], { cwd, environment: {} })).rejects.toThrow("Discord configuration");
     await expect(loadBotStartConfig([], { cwd, environment: { DISCORD_BOT_TOKEN: "do-not-print", DISCORD_BOT_USER_ID: "user", DISCORD_CHANNEL_IDS: "channel" } })).rejects.toThrow("DISCORD_OWNER_IDS");
+    await scope.close();
+  });
+
+  it("loads page-ingest:start configuration from a process-specific file", async () => {
+    expect(parsePageIngestStartArguments([])).toEqual({});
+    expect(() => parsePageIngestStartArguments(["--unknown"])).toThrow("Usage");
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
+    await writeFile(`${cwd}/.env.page-ingest`, "BOT_ID=ao\nDISCORD_BOT_TOKEN=secret\nDISCORD_BOT_USER_ID=bot\nDISCORD_OWNER_IDS=owner\nDISCORD_CHANNEL_IDS=pages\n");
+    await expect(loadPageIngestStartConfig(["--env-file", ".env.page-ingest"], { cwd, environment: {} })).resolves.toMatchObject({ botId: "ao", discord: { botUserId: "bot", ownerIds: ["owner"], channelIds: ["pages"] } });
     await scope.close();
   });
 

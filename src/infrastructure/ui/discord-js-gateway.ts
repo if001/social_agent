@@ -1,15 +1,18 @@
 import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
 
 import type { DiscordGateway, DiscordInboundMessage, DiscordReplyContext } from "./discord-adapter.js";
+import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 export class DiscordJsGateway implements DiscordGateway {
   readonly #client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent], partials: [Partials.Channel] });
-  constructor(private readonly token: string) {}
+  constructor(private readonly token: string, private readonly logger: Logger = noopLogger) {}
   async start(handler: (message: DiscordInboundMessage) => Promise<void>, signal: AbortSignal): Promise<void> {
-    void this.#client.on(Events.MessageCreate, (message) => { void handler({ id: message.id, authorId: message.author.id, isBot: message.author.bot, ...(message.guildId === null ? {} : { guildId: message.guildId }), channelId: message.channel.isThread() ? message.channel.parentId ?? message.channelId : message.channelId, ...(message.channel.isThread() ? { threadId: message.channelId } : {}), ...(message.reference?.messageId === undefined ? {} : { referencedMessageId: message.reference.messageId }), content: message.content, createdAt: message.createdAt }).catch(() => { /* keep gateway alive; queue delivery owns retries */ }); });
+    this.logger.log("info", "discord.gateway_login_started");
+    void this.#client.on(Events.MessageCreate, (message) => { void handler({ id: message.id, authorId: message.author.id, isBot: message.author.bot, ...(message.guildId === null ? {} : { guildId: message.guildId }), channelId: message.channel.isThread() ? message.channel.parentId ?? message.channelId : message.channelId, ...(message.channel.isThread() ? { threadId: message.channelId } : {}), ...(message.reference?.messageId === undefined ? {} : { referencedMessageId: message.reference.messageId }), content: message.content, createdAt: message.createdAt }).catch((error: unknown) => { this.logger.log("error", "discord.message_handler_failed", { discordMessageId: message.id, channelId: message.channelId, ...errorLogContext(error) }); }); });
     await this.#client.login(this.token);
+    this.logger.log("info", "discord.gateway_ready", { botUserId: this.#client.user?.id });
     if (signal.aborted) { await this.#client.destroy(); return; }
-    await new Promise<void>((resolve) => { signal.addEventListener("abort", () => { void this.#client.destroy().then(() => { resolve(); }); }, { once: true }); });
+    await new Promise<void>((resolve) => { signal.addEventListener("abort", () => { this.logger.log("info", "discord.gateway_stopping"); void this.#client.destroy().then(() => { resolve(); }); }, { once: true }); });
   }
   async send(context: DiscordReplyContext, content: string, _idempotencyKey: string, signal: AbortSignal): Promise<string> {
     if (signal.aborted) throw new Error("Discord delivery aborted");

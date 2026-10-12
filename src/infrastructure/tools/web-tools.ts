@@ -8,7 +8,7 @@ const HttpUrl = z.url().refine((value) => ["http:", "https:"].includes(new URL(v
 const SearchResult = z.object({ rank: z.number().int().positive(), title: z.string(), url: HttpUrl, snippet: z.string().nullable().optional(), published_date: z.string().nullable().optional() });
 const ListResponse = z.object({ query: z.string(), k: z.number().int(), results: z.array(SearchResult) });
 const PageResponse = z.object({ docs: z.array(z.object({ url: HttpUrl, title: z.string(), markdown: z.string() })) });
-type WebOptions = { readonly timeoutMs?: number; readonly maxBytes?: number; readonly fetcher?: typeof fetch; readonly archive?: WebArchive };
+export type WebOptions = { readonly timeoutMs?: number; readonly maxBytes?: number; readonly fetcher?: typeof fetch; readonly archive?: WebArchive };
 export const WEB_ARCHIVE_RESULT_MAX_CHARACTERS = 2_000;
 
 function records(value: unknown): Record<string, unknown>[] {
@@ -35,6 +35,10 @@ async function request<T>(baseUrl: string, path: "/list" | "/page", body: unknow
   return parsed.data;
 }
 
+export async function fetchWebPages(baseUrl: string, url: string, signal: AbortSignal, options: WebOptions = {}) {
+  return request(baseUrl, "/page", { urls: HttpUrl.parse(url) }, PageResponse, signal, options);
+}
+
 const ArchiveSearchInput = z.object({ query: z.string().min(1).describe("保存済みページの検索語"), limit: z.number().int().min(1).max(20).default(5).describe("返す最大件数"), fetchedAfter: z.iso.datetime({ offset: true }).optional().describe("このISO 8601日時以降に取得したページへ限定する"), urlPrefix: HttpUrl.optional().describe("このURL prefixに一致するページへ限定する") });
 
 const ArchiveReadInput = z.object({ snapshotId: z.string().min(1).describe("web_pageまたは検索結果が返したsnapshot ID"), offset: z.number().int().nonnegative().default(0).describe("本文を読み始める0始まり文字位置"), maxCharacters: z.number().int().min(1).max(WEB_ARCHIVE_RESULT_MAX_CHARACTERS).default(WEB_ARCHIVE_RESULT_MAX_CHARACTERS).describe("返す最大文字数") });
@@ -45,7 +49,7 @@ export function createWebTools(baseUrl: string, options: WebOptions = {}): reado
   const serviceUrl = new URL(baseUrl); if (!["http:", "https:"].includes(serviceUrl.protocol)) throw new Error("Web service base URL must use HTTP(S)");
   const tools: RegisteredTool[] = [
     { name: "web_list", description: "Webを検索し、関連するURLの一覧を返す。", schema: z.object({ q: z.string().min(1).describe("Web検索クエリ"), k: z.number().int().min(1).max(20).describe("返す検索結果数") }), resultPolicy: { kind: "standard", project: projectSearch }, execute: async (input, _context, signal) => ({ ok: true, value: await request(baseUrl, "/list", input, ListResponse, signal, options) }) },
-    { name: "web_page", description: "Webページを取得・保存し、要約とsnapshot IDを返す。本文は返さない。", schema: z.object({ urls: HttpUrl.describe("取得するHTTP(S) URL") }), resultPolicy: { kind: "standard", project: projectPages }, execute: async (input, context, signal) => { const page = await request(baseUrl, "/page", input, PageResponse, signal, options); if (options.archive === undefined) throw new DomainError("EXTERNAL", "Web archive is required for web_page"); const archived = await options.archive.archivePages(page.docs, { agentId: context.agentId, runId: context.runId, eventId: context.eventId ?? context.runId, toolCallId: context.toolCallId ?? context.idempotencyKey }, signal); const documents = archived.map(({ snapshotId, url, title, summary, status }) => ({ snapshotId, url, title, summary, ...(status === "ready" ? {} : { status }) })); return { ok: true, value: { documents } }; } }
+    { name: "web_page", description: "Webページを取得・保存し、要約とsnapshot IDを返す。本文は返さない。", schema: z.object({ urls: HttpUrl.describe("取得するHTTP(S) URL") }), resultPolicy: { kind: "standard", project: projectPages }, execute: async (input: { readonly urls: string }, context, signal) => { const page = await fetchWebPages(baseUrl, input.urls, signal, options); if (options.archive === undefined) throw new DomainError("EXTERNAL", "Web archive is required for web_page"); const archived = await options.archive.archivePages(page.docs, { agentId: context.agentId, runId: context.runId, eventId: context.eventId ?? context.runId, toolCallId: context.toolCallId ?? context.idempotencyKey }, signal); const documents = archived.map(({ snapshotId, url, title, summary, status }) => ({ snapshotId, url, title, summary, ...(status === "ready" ? {} : { status }) })); return { ok: true, value: { documents } }; } }
   ];
   if (options.archive !== undefined) tools.push(
     { name: "web_archive_search", description: "Search web pages in the shared archive", schema: ArchiveSearchInput, resultPolicy: { kind: "standard", project: projectSearch }, execute: async (input: z.infer<typeof ArchiveSearchInput>, _context, signal) => { return { ok: true, value: { results: await options.archive?.search(input, signal) ?? [] } }; } },
