@@ -62,9 +62,12 @@ describe("AgentHarness contract", () => {
     expect(modelInputBudget(input, "x".repeat(MAX_MODEL_INPUT_TOKENS * 4)).total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
   it("budgets every concrete model call including accumulated Tool results", () => {
-    const small = modelCallInputBudget([{ role: "user", content: "hello" }], []);
+    const finalActionTool = { type: "function", function: { name: "submit_agent_action", parameters: z.toJSONSchema(AgentCoreOutputSchema) } };
+    const small = modelCallInputBudget([{ role: "user", content: "hello" }], [finalActionTool]);
     const continuation = modelCallInputBudget([{ role: "user", content: "hello" }, { role: "tool", content: "あ".repeat(30_000) }], []);
     expect(small.total).toBeLessThan(MAX_MODEL_INPUT_TOKENS);
+    expect(Object.keys(small.components)).toEqual(["messages", "tools"]);
+    expect(small.components.tools).toBeGreaterThan(0);
     expect(continuation.total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
   it("rejects an invoker that exceeds the remaining model call budget", async () => {
