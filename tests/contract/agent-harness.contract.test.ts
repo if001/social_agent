@@ -61,10 +61,15 @@ describe("AgentHarness contract", () => {
     expect(Object.keys(budget.components)).toEqual(["systemPrompt", "messages", "tools", "outputSchema"]);
     expect(modelInputBudget(input, "x".repeat(MAX_MODEL_INPUT_TOKENS * 4)).total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
+  it("keeps the model gate large enough for the configured 4,500-token context budget plus contracts", () => {
+    expect(MAX_MODEL_INPUT_TOKENS).toBe(8_000);
+    const reportedProductionInput = { systemPrompt: 418, messages: 2_722, tools: 2_009, outputSchema: 890 };
+    expect(Object.values(reportedProductionInput).reduce((sum, value) => sum + value, 0)).toBeLessThanOrEqual(MAX_MODEL_INPUT_TOKENS);
+  });
   it("budgets every concrete model call including accumulated Tool results", () => {
     const finalActionTool = { type: "function", function: { name: "submit_agent_action", parameters: z.toJSONSchema(AgentCoreOutputSchema) } };
     const small = modelCallInputBudget([{ role: "user", content: "hello" }], [finalActionTool]);
-    const continuation = modelCallInputBudget([{ role: "user", content: "hello" }, { role: "tool", content: "あ".repeat(30_000) }], []);
+    const continuation = modelCallInputBudget([{ role: "user", content: "hello" }, { role: "tool", content: "あ".repeat(MAX_MODEL_INPUT_TOKENS * 5) }], []);
     expect(small.total).toBeLessThan(MAX_MODEL_INPUT_TOKENS);
     expect(Object.keys(small.components)).toEqual(["messages", "tools"]);
     expect(small.components.tools).toBeGreaterThan(0);
