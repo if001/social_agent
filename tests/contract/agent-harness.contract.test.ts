@@ -1,7 +1,8 @@
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelCallInputBudget, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { AgentCoreModelOutputJsonSchema, DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelCallInputBudget, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { modelJsonSchema } from "../../src/infrastructure/agent/model-json-schema.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-history.js";
 import { summarizeModelResponse } from "../../src/infrastructure/agent/model-response.js";
@@ -15,6 +16,11 @@ const result = { output, toolExecutions: [] };
 describe("AgentHarness contract", () => {
   it("rejects the removed legacy output shape", () => {
     expect(() => AgentCoreOutputSchema.parse({ interpretation: { activeMotive: { description: "legacy" } }, action: output.action })).toThrow();
+  });
+  it("removes regex constraints without removing a Tool field named pattern", () => {
+    const schema = modelJsonSchema(z.object({ executeAt: z.iso.datetime({ offset: true }), pattern: z.string().min(1) }));
+    expect(JSON.stringify(schema.properties)).toContain('"pattern"');
+    expect(JSON.stringify((schema.properties as Record<string, unknown>).executeAt)).not.toContain('"pattern":');
   });
   it("compacts prior Tool results while preserving the latest Tool batch", () => {
     const registry = new ToolRegistry([{ name: "web_archive_read", description: "read", schema: z.object({}), resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
@@ -94,12 +100,13 @@ describe("AgentHarness contract", () => {
 
   it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
     let creations = 0; const calls: { messages: unknown; context: { runId: string; eventId: string } }[] = [];
+    const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答を求められた", feeling: "応えたい" } }] }) }) };
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", agentFactory: (options) => {
       creations += 1;
       expect(options.tools).toHaveLength(0);
       expect(options.responseFormat).toBeDefined();
       return { invoke: (input, invokeOptions) => { calls.push({ messages: input.messages, context: invokeOptions.context }); return Promise.resolve({ structuredResponse: output, messages: input.messages }); } };
-    } });
+    }, modelFactory: () => assessmentModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>> });
     const first = agentCoreInputFixture(); first.run.runId = "run-1"; first.run.eventId = "event-1"; first.observation.content = "first-only";
     const second = agentCoreInputFixture(); second.run.runId = "run-2"; second.run.eventId = "event-2"; second.observation.content = "second-only";
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
@@ -124,25 +131,26 @@ describe("AgentHarness contract", () => {
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result); expect(calls).toBe(2);
     expect(toolCallLimits[0]).toBeGreaterThan(0); expect(toolCallLimits[1]).toBe(0);
-    expect(prompts[1]).toContain("submit_agent_actionを1件だけ"); expect(prompts[1]).toContain("actionは文字列ではなく");
+    expect(prompts[1]).toContain("構造化出力専用Toolを1件だけ"); expect(prompts[1]).toContain("actionType");
     const broken = new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: {} }) }, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(broken.run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("recovers when the model requests an operational Tool and final Action together", async () => {
+  it("registers operational Tools and the structured response format with one Deep Agent", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: {} }) }]);
-    let decisionCalls = 0;
-    const fakeModel = { bindTools: (definitions: readonly { readonly function: { readonly name: string } }[]) => ({ invoke: () => {
-      if (definitions.some(({ function: value }) => value.name === "submit_event_assessment")) return Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答が必要", feeling: "応えたい" } }] });
-      decisionCalls += 1;
-      return Promise.resolve(decisionCalls === 1
-        ? { tool_calls: [{ id: "lookup", name: "lookup", args: { query: "x" } }, { id: "final-early", name: "submit_agent_action", args: output }] }
-        : { tool_calls: [{ id: "final", name: "submit_agent_action", args: output }] });
-    } }) };
-    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", toolRegistry: registry, modelFactory: () => fakeModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>> });
+    const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答が必要", feeling: "応えたい" } }] }) }) };
+    let created = 0;
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", toolRegistry: registry, modelFactory: () => assessmentModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>>, agentFactory: (options) => {
+      created += 1; expect(options.tools).toHaveLength(1); expect(options.responseFormat).toBeDefined();
+      return { invoke: (input) => Promise.resolve({ structuredResponse: { desire: output.desire, actionType: "respond", content: "Hello" }, messages: input.messages }) };
+    } });
     const input = agentCoreInputFixture(); input.availableTools = [...registry.definitions()];
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ output, toolExecutions: [] });
-    expect(decisionCalls).toBe(2);
+    expect(created).toBe(1);
+    expect(JSON.stringify(AgentCoreModelOutputJsonSchema)).not.toContain('"pattern"');
+    const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
+    expect(Object.keys(modelProperties)).toHaveLength(16);
+    expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
   });
 
   it("rejects unknown tools before invoking the model", async () => {

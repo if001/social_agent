@@ -16,14 +16,14 @@ const MAX_GREP_CHARACTERS = 4_000;
 const MAX_GREP_FILES = 500;
 const MAX_GREP_FILE_BYTES = 2_000_000;
 
-const PathInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1) });
-const WriteInput = PathInput.extend({ content: z.string() });
-const ReadInput = PathInput.extend({ mode: z.enum(["head", "tail", "range"]).default("head"), startLine: z.number().int().positive().optional(), maxLines: z.number().int().positive().max(MAX_READ_LINES).default(50), maxCharacters: z.number().int().positive().max(MAX_READ_CHARACTERS).default(2_000) }).superRefine((value, context) => {
+const PathInput = z.object({ root: z.number().int().nonnegative().describe("Tool説明に列挙された許可rootの番号"), path: z.string().min(1).describe("選択したrootからの相対パス") });
+const WriteInput = PathInput.extend({ content: z.string().describe("ファイルへ書き込む完全な本文") });
+const ReadInput = PathInput.extend({ mode: z.enum(["head", "tail", "range"]).default("head").describe("先頭、末尾、または指定行から読む方法"), startLine: z.number().int().positive().optional().describe("range時の1始まり開始行"), maxLines: z.number().int().positive().max(MAX_READ_LINES).default(50).describe("返す最大行数"), maxCharacters: z.number().int().positive().max(MAX_READ_CHARACTERS).default(2_000).describe("返す最大文字数") }).superRefine((value, context) => {
   if (value.mode === "range" && value.startLine === undefined) context.addIssue({ code: "custom", path: ["startLine"], message: "range mode requires startLine" });
 });
-const ListInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1).default("."), maxEntries: z.number().int().positive().max(MAX_LIST_ENTRIES).default(100) });
-const FindInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1).default("."), query: z.string().min(1), maxDepth: z.number().int().nonnegative().max(MAX_FIND_DEPTH).default(5), maxResults: z.number().int().positive().max(MAX_FIND_RESULTS).default(100) });
-const GrepInput = z.object({ root: z.number().int().nonnegative(), path: z.string().min(1).default("."), pattern: z.string().min(1), contextLines: z.number().int().nonnegative().max(5).default(2), maxMatches: z.number().int().positive().max(MAX_GREP_MATCHES).default(20), maxCharacters: z.number().int().positive().max(MAX_GREP_CHARACTERS).default(2_000) });
+const ListInput = z.object({ root: PathInput.shape.root, path: PathInput.shape.path.default("."), maxEntries: z.number().int().positive().max(MAX_LIST_ENTRIES).default(100).describe("返す最大エントリ数") });
+const FindInput = z.object({ root: PathInput.shape.root, path: PathInput.shape.path.default("."), query: z.string().min(1).describe("ファイル名またはディレクトリ名に含まれるリテラル文字列"), maxDepth: z.number().int().nonnegative().max(MAX_FIND_DEPTH).default(5).describe("探索する最大階層"), maxResults: z.number().int().positive().max(MAX_FIND_RESULTS).default(100).describe("返す最大件数") });
+const GrepInput = z.object({ root: PathInput.shape.root, path: PathInput.shape.path.default("."), pattern: z.string().min(1).describe("本文から検索するリテラル文字列"), contextLines: z.number().int().nonnegative().max(5).default(2).describe("一致行の前後に含める行数"), maxMatches: z.number().int().positive().max(MAX_GREP_MATCHES).default(20).describe("返す最大一致件数"), maxCharacters: z.number().int().positive().max(MAX_GREP_CHARACTERS).default(2_000).describe("返す最大文字数") });
 
 const within = (root: string, target: string): boolean => { const path = relative(root, target); return path === "" || (!path.startsWith("..") && !isAbsolute(path)); };
 

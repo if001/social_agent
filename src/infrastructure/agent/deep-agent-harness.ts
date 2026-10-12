@@ -2,9 +2,9 @@ import { agentCoreSystemPrompt } from "./deep-agent-prompt.js";
 import { createAgentCoreMiddleware } from "./deep-agent-middleware.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunContextSchema, type DeepAgentToolRunContext } from "./deep-agent-tools.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
-import { toolName } from "./model-response.js";
+import { modelJsonSchema } from "./model-json-schema.js";
 import { createDeepAgent } from "deepagents";
-import { SystemMessage, ToolMessage, toolStrategy, type TypedToolStrategy } from "langchain";
+import { SystemMessage, toolStrategy, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
@@ -14,7 +14,46 @@ import { AgentCoreOutputSchema, DomainError, EventAssessmentSchema, type AgentCo
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
-type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreOutputSchema>>;
+
+const AgentCoreFlatOutputSchema = z.object({
+  desire: z.string().trim().min(1).max(16_000).describe("今回のEventを受けて今具体的に望むこと"),
+  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。通常応答はrespond、自律Eventで実行しない通知はnotify-no-execution、Toolだけで完了した場合だけno-external-action"),
+  content: z.string().trim().min(1).max(16_000).optional().describe("respond、refuse、notify-no-executionで相手へ配送する本文。それらのActionでは必須"),
+  reason: z.string().trim().min(1).max(16_000).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須"),
+  refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
+  mood: z.string().trim().min(1).max(16_000).optional().describe("次のEventにも残す気分。変化がある場合だけ指定"),
+  concernOperation: z.enum(["upsert", "remove"]).optional().describe("Concernを変更する場合の操作。変更しない場合は省略"),
+  concernId: z.string().min(1).optional().describe("変更するConcernのID。concernOperation指定時は必須"),
+  concernDescription: z.string().trim().min(1).max(16_000).optional().describe("追加または更新するConcernの内容。concernOperationがupsertの場合は必須"),
+  concernWhyItMatters: z.string().trim().min(1).max(16_000).optional().describe("Concernが現在のSelfにとって重要な理由。concernOperationがupsertの場合は必須"),
+  concernStatus: z.enum(["active", "satisfied", "abandoned"]).optional().describe("Concernの状態。concernOperationがupsertの場合は必須"),
+  concernReconsiderAt: z.string().optional().describe("Concernを再検討するISO 8601日時。明確な将来時刻がある場合だけ指定"),
+  relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
+  relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
+  relationshipDescription: z.string().trim().min(1).max(16_000).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
+  remember: z.string().trim().min(1).max(16_000).optional().describe("今回すぐ記憶候補に残す内容。長期的価値がある場合だけ指定")
+}).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
+type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
+
+export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
+
+function domainOutputFromFlat(value: unknown): unknown {
+  const parsed = AgentCoreFlatOutputSchema.safeParse(value);
+  if (!parsed.success) return value;
+  const flat = parsed.data;
+  const action = flat.actionType === "respond" ? { type: flat.actionType, content: flat.content }
+    : flat.actionType === "refuse" ? { type: flat.actionType, content: flat.content, reason: flat.reason, basis: flat.refusalBasis }
+      : flat.actionType === "notify-no-execution" ? { type: flat.actionType, content: flat.content, reason: flat.reason }
+        : { type: flat.actionType, reason: flat.reason };
+  const concern = flat.concernOperation === "upsert"
+    ? { operation: flat.concernOperation, concern: { id: flat.concernId, description: flat.concernDescription, whyItMatters: flat.concernWhyItMatters, status: flat.concernStatus, ...(flat.concernReconsiderAt === undefined ? {} : { reconsiderAt: flat.concernReconsiderAt }) } }
+    : flat.concernOperation === "remove" ? { operation: flat.concernOperation, id: flat.concernId } : undefined;
+  const relationship = flat.relationshipOperation === "upsert"
+    ? { operation: flat.relationshipOperation, relationship: { subjectId: flat.relationshipSubjectId, description: flat.relationshipDescription } }
+    : flat.relationshipOperation === "remove" ? { operation: flat.relationshipOperation, subjectId: flat.relationshipSubjectId } : undefined;
+  const hasPatch = flat.mood !== undefined || concern !== undefined || relationship !== undefined || flat.remember !== undefined;
+  return { desire: flat.desire, action, ...(hasPatch ? { patch: { ...(flat.mood === undefined ? {} : { mood: flat.mood }), ...(concern === undefined ? {} : { concern }), ...(relationship === undefined ? {} : { relationship }), ...(flat.remember === undefined ? {} : { remember: flat.remember }) } } : {}) };
+}
 
 type ReusableDeepAgent = {
   invoke(
@@ -58,10 +97,6 @@ export function modelCallInputBudget(messages: readonly unknown[], tools: readon
   // again as an output schema rejects valid inputs without reflecting provider usage.
   const components = { messages: estimateTokens(messages), tools: estimateTokens(tools) };
   return { total: Object.values(components).reduce((sum, value) => sum + value, 0), components };
-}
-function assertModelCallInputBudget(messages: readonly unknown[], tools: readonly unknown[], stage: string): void {
-  const budget = modelCallInputBudget(messages, tools);
-  if (budget.total > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Model call input exceeds estimated ${String(MAX_MODEL_INPUT_TOKENS)} token budget at ${stage}: ${JSON.stringify(budget.components)}`);
 }
 export function modelInputBudget(input: AgentCoreInput, content: string): { readonly total: number; readonly components: Readonly<Record<string, number>> } {
   const components = {
@@ -129,7 +164,7 @@ export class DeepAgentHarness implements AgentHarness {
         const promptInput = { ...input, memoryRetrievalTrace: undefined, availableTools: input.availableTools.map(({ name, description }) => ({ name, description })), currentEventAssessment };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
-          : JSON.stringify({ instruction: "無効な出力をInteraction出力Schemaへ適合するよう修正してください。通常Toolは呼ばず、submit_agent_actionを1件だけ呼び出してください。actionは文字列ではなく、必ずtypeと必要フィールドを持つobjectにしてください。入力Contextを推測せず、許可されたevidence IDだけを使ってください。", allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: z.toJSONSchema(AgentCoreOutputSchema), validationIssues, invalidOutput: raw });
+          : JSON.stringify({ instruction: "無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。通常Toolは呼ばず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。状態変更がなければ状態フィールドは省略してください。入力Contextを推測せず、許可されたevidence IDだけを使ってください。", allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
         const modelBudget = modelInputBudget(input, content);
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Model input exceeds ${String(MAX_MODEL_INPUT_TOKENS)} tokens: ${JSON.stringify(modelBudget.components)}`);
         const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
@@ -180,70 +215,8 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   const logger = config.logger ?? noopLogger;
   const now = config.now ?? (() => new Date());
   const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
-  if (config.agentFactory === undefined) {
-    const finalToolName = "submit_agent_action";
-    const finalTool = { type: "function" as const, function: { name: finalToolName, description: "Return the final Interaction decision", parameters: z.toJSONSchema(AgentCoreOutputSchema) } };
-    const operationalTools = config.toolRegistry?.definitions().map(({ name, description, inputSchema }) => ({ type: "function" as const, function: { name, description, parameters: inputSchema } })) ?? [];
-    const firstModel = model.bindTools([...operationalTools, finalTool]);
-    const finalModel = model.bindTools([finalTool]);
-    const assessmentToolName = "submit_event_assessment";
-    const assessmentModel = model.bindTools([{ type: "function" as const, function: { name: assessmentToolName, description: "Return the current Event meaning and feeling", parameters: z.toJSONSchema(EventAssessmentSchema) } }]);
-    return {
-      async assess(input, options) {
-        if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for Event assessment");
-        const messages = [new SystemMessage(`現在Eventの主観的Meaningと、そのEventに対するEmotionを先に確定します。最終Actionや通常Tool選択は行わず、${assessmentToolName}をちょうど1件呼び出してください。`), ...input.messages];
-        const components = { messages: estimateTokens(messages), tools: 0, outputSchema: estimateTokens(z.toJSONSchema(EventAssessmentSchema)) };
-        if (Object.values(components).reduce((sum, value) => sum + value, 0) > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Event assessment input exceeds estimated ${String(MAX_MODEL_INPUT_TOKENS)} token budget: ${JSON.stringify(components)}`);
-        try {
-          const response = await assessmentModel.invoke(messages, { signal: options.signal });
-          const calls = response.tool_calls ?? [];
-          const submitted = calls.find(({ name }) => name === assessmentToolName);
-          if (submitted === undefined || calls.length !== 1) throw new DomainError("VALIDATION", "Event assessment must call submit_event_assessment exactly once");
-          return { assessment: EventAssessmentSchema.parse(submitted.args), modelCalls: 1 };
-        }
-        catch (error) { throw new DomainError("EXTERNAL", "Event assessment invocation failed", { cause: { providerError: error, modelCalls: 1 } }); }
-      },
-      async invoke(input, options) {
-        const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: Math.min(25, options.maxToolCalls), signal: options.signal, ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }), ...(options.transport === undefined ? {} : { transport: options.transport }) });
-        const messages: (SystemMessage | ToolMessage | (typeof input.messages)[number] | Awaited<ReturnType<typeof firstModel.invoke>>)[] = [new SystemMessage(agentCoreSystemPrompt), ...input.messages];
-        let modelCalls = 0;
-        try {
-          for (;;) {
-            const canRetryModel = modelCalls + 1 < options.maxModelCalls;
-            let canUseTool = operationalTools.length > 0 && context.collector.count < context.maxToolCalls && canRetryModel;
-            if (canUseTool && modelCallInputBudget(messages, [...operationalTools, finalTool]).total > MAX_MODEL_INPUT_TOKENS) canUseTool = false;
-            const definitions = canUseTool ? [...operationalTools, finalTool] : [finalTool];
-            assertModelCallInputBudget(messages, definitions, modelCalls === 0 ? "initial" : `continuation-${String(modelCalls)}`);
-            if (modelCalls >= options.maxModelCalls) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for final Action");
-            modelCalls += 1;
-            const response = await (canUseTool ? firstModel : finalModel).invoke(messages, { signal: options.signal });
-            const calls = response.tool_calls ?? [];
-            const submitted = calls.find(({ name }) => name === finalToolName);
-            if (submitted !== undefined && calls.length === 1) return { structuredResponse: submitted.args, messages: [...messages, response], toolExecutions: context.collector.executions, modelCalls };
-            if (calls.length === 0) {
-              if (!canRetryModel) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
-              messages.push({ role: "user", content: `直前の本文は最終Actionとして受理されませんでした。${finalToolName}または許可された通常Toolを、ちょうど1件呼び出してください。` });
-              continue;
-            }
-            if (calls.length !== 1) {
-              if (!canRetryModel) throw new DomainError("VALIDATION", "Agent requested more than one Tool");
-              messages.push({ role: "user", content: `複数のTool callは同時に受理できません。${finalToolName}または許可された通常Toolを、ちょうど1件だけ呼び出してください。` });
-              continue;
-            }
-            if (!canUseTool) throw new DomainError("LIMIT_EXCEEDED", "Final model call must return exactly one final Action");
-            const [call] = calls; const runnable = tools.find((candidate) => toolName(candidate) === call?.name);
-            if (call === undefined || runnable === undefined) throw new DomainError("NOT_FOUND", `Unknown tool: ${call?.name ?? "missing"}`);
-            let toolResult: unknown;
-            try { toolResult = await runnable.invoke(call.args as Record<string, unknown>, { context }); }
-            catch (error) {
-              toolResult = { ok: false, errorCode: "INVALID_TOOL_INPUT", error: error instanceof Error ? error.message : "Tool input validation failed", requiredNextStep: "Correct the Tool input or return the final Action." };
-            }
-            messages.push(response, new ToolMessage({ name: call.name, tool_call_id: call.id ?? `tool-${String(context.collector.count)}`, content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult) }));
-          }
-        } catch (error) { throw new DomainError("EXTERNAL", "Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls } }); }
-      }
-    };
-  }
+  const assessmentToolName = "submit_event_assessment";
+  const assessmentModel = model.bindTools([{ type: "function" as const, function: { name: assessmentToolName, description: "現在Eventの主観的Meaningと、そのEventに対するEmotionを返す", parameters: z.toJSONSchema(EventAssessmentSchema) } }]);
   const middleware = [createAgentCoreMiddleware(config.toolRegistry, logger, now)];
   const factory: ReusableDeepAgentFactory = config.agentFactory ?? ((options) => createDeepAgent({
     model: options.model,
@@ -253,11 +226,26 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     contextSchema: options.contextSchema,
     middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]>
   }) as unknown as ReusableDeepAgent);
-  const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt, responseFormat: toolStrategy(AgentCoreOutputSchema, { handleError: (error) => {
+  const responseFormat = toolStrategy(AgentCoreModelOutputJsonSchema, { handleError: (error) => {
     logger.log("warn", "agent_core.structured_output_invalid", errorLogContext(error));
     return "構造化出力が不正です。通常Toolは使わず、指定Schemaの全フィールドを含む最終回答を構造化出力専用Toolでちょうど1件だけ返してください。検証エラー: " + error.message;
-  } }), contextSchema: DeepAgentToolRunContextSchema, middleware });
+  } }) as unknown as AgentCoreResponseFormat;
+  const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt, responseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware });
   return {
+    async assess(input, options) {
+      if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for Event assessment");
+      const messages = [new SystemMessage(`現在Eventの主観的Meaningと、そのEventに対するEmotionを先に確定します。最終Actionや通常Tool選択は行わず、${assessmentToolName}をちょうど1件呼び出してください。`), ...input.messages];
+      const components = { messages: estimateTokens(messages), tools: 0, outputSchema: estimateTokens(z.toJSONSchema(EventAssessmentSchema)) };
+      if (Object.values(components).reduce((sum, value) => sum + value, 0) > MAX_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Event assessment input exceeds estimated ${String(MAX_MODEL_INPUT_TOKENS)} token budget: ${JSON.stringify(components)}`);
+      try {
+        const response = await assessmentModel.invoke(messages, { signal: options.signal });
+        const calls = response.tool_calls ?? [];
+        const submitted = calls.find(({ name }) => name === assessmentToolName);
+        if (submitted === undefined || calls.length !== 1) throw new DomainError("VALIDATION", "Event assessment must call submit_event_assessment exactly once");
+        return { assessment: EventAssessmentSchema.parse(submitted.args), modelCalls: 1 };
+      }
+      catch (error) { throw new DomainError("EXTERNAL", "Event assessment invocation failed", { cause: { providerError: error, modelCalls: 1 } }); }
+    },
     async invoke(input, options) {
       const context = createDeepAgentToolRunContext({
         agentId: options.agentId,
@@ -271,7 +259,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
       context.collector.explorationModelCalls = 1;
       try {
         const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
-        return { structuredResponse: result.structuredResponse, messages: result.messages, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) };
+        return { structuredResponse: domainOutputFromFlat(result.structuredResponse), messages: result.messages, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) };
       } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) } }); }
     }
   };

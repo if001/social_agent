@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { DomainError, type AgentCoreInput, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
+import { modelJsonSchema } from "./model-json-schema.js";
 
 export class ToolExecutionCollector {
   count = 0;
@@ -118,5 +119,5 @@ export function createDeepAgentTools(registry: ToolRegistry, now: () => Date = (
   return registry.registered().map((registered) => tool(async (rawInput, runtime: ToolRuntime<unknown, DeepAgentToolRunContext>) => {
     const context = DeepAgentToolRunContextSchema.parse(runtime.context);
     return executeDeepAgentTool(registry, registered.name, rawInput as Record<string, unknown>, context, now, baseLogger);
-  }, { name: registered.name, description: registered.description, schema: registered.schema }));
+  }, { name: registered.name, description: registered.description, schema: modelJsonSchema(registered.schema) }));
 }
