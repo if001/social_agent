@@ -49,7 +49,9 @@ export type DeepAgentHarnessOptions = {
   readonly logger?: Logger;
 };
 
-export const MAX_MODEL_INPUT_TOKENS = 6_000;
+// ContextBuilder may retain 4,500 tokens of Agent context. Production Tool
+// schemas and the system/final-action contracts require roughly 3,500 more.
+export const MAX_MODEL_INPUT_TOKENS = 8_000;
 type ModelCallBudget = { readonly total: number; readonly components: Readonly<Record<string, number>> };
 export function modelCallInputBudget(messages: readonly unknown[], tools: readonly unknown[]): ModelCallBudget {
   // Concrete calls receive the final Action schema as a bound Tool. Counting it
