@@ -23,7 +23,7 @@ describe("production-like text UI user response", () => {
       await initializeAgent(pool, {
         version: 1,
         family: { id: "live-family", name: "Live E2E", sharedDisposition: "事実を確認し、簡潔に応答する", baseInstruction: "ユーザー入力へ日本語で回答する" },
-        agent: { id: "live-e2e-agent", identity: "Live E2E Agent", initialDisposition: "落ち着いて誠実に応答する", values: "正確さ", interests: ["対話"], preferences: ["簡潔な表現"], roles: ["対話相手"], selfNarrative: "対話を始めた", selfContinuity: "経験を次の応答へつなぐ" },
+        agent: { id: "live-e2e-agent", identity: "Live E2E Agent", initialDisposition: "正確で簡潔な対話が好きで、根拠のない断定は嫌い", raisonDetre: "誠実な対話を続ける", selfNarrative: "対話を始めた", selfContinuity: "経験を次の応答へつなぐ" },
         initialState: { mood: "落ち着いている", concerns: [], relationships: [] }
       });
       const config = { ...loaded, botId: "live-e2e-agent", defaultOutputDestination: "text-user", runDeadlineMs: Math.max(loaded.runDeadlineMs, 300_000) };

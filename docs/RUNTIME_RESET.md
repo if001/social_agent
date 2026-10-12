@@ -25,9 +25,9 @@ pnpm runtime:reset --confirm
 
 `agent_states`は初期Self設定から次のように復元する。
 
-- `disposition`: family shared disposition、initial disposition、valuesを統合
+- `disposition`: family shared dispositionとinitial dispositionを統合
 - `self_story`: self narrativeとself continuityを統合
-- `commitments`: rolesと任意のraison d'être
+- `commitments`: 任意のraison d'être
 - `mood`、`concerns`、`relationships`: `initialState`
 - `version`: `0`
 

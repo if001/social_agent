@@ -89,14 +89,10 @@ export const InitialSelfConfigSchema = z.object({
     id: Id,
     identity: NaturalLanguage,
     initialDisposition: NaturalLanguage,
-    values: NaturalLanguage,
-    interests: z.array(NaturalLanguage).default([]),
-    preferences: z.array(NaturalLanguage).default([]),
-    roles: z.array(NaturalLanguage).default([]),
     raisonDetre: NaturalLanguage.optional(),
     selfNarrative: NaturalLanguage,
     selfContinuity: NaturalLanguage
-  }),
+  }).strict(),
   initialState: z.object({
     mood: NaturalLanguage.default("特定の持続的な気分はまだ形成されていない"),
     concerns: z.array(ConcernSchema).default([]),

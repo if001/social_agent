@@ -63,7 +63,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const config = {
       version: 1 as const,
       family: { id: "configured-family", name: "Configured", sharedDisposition: "共通傾向", baseInstruction: "根拠を区別する" },
-      agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "初期個体差", values: "初期価値", interests: ["最初の関心"], preferences: [], roles: ["対話相手"], selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
+      agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "具体的な対象を調べることが好きで、根拠のない断定は嫌い", raisonDetre: "対話相手との約束を守る", selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
       initialState: { mood: "中立", concerns: [], relationships: [] }
     };
     const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000, memoryRecallIntervalMs: 4_000 };
@@ -71,15 +71,16 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='idle'", [config.agent.id])).rows).toEqual([{ kind: "idle" }]);
     expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "idle", delay_ms: 2_000 }, { kind: "reflection", delay_ms: 3_000 }]);
     await pool.query("UPDATE agent_states SET disposition='経験で得た傾向',mood='持続する気分',concerns=$2,relationships=$3 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ id: "concern-existing", description: "継続中の関心", whyItMatters: "大切", status: "active" }]), JSON.stringify([{ subjectId: "owner", description: "継続する関係" }])]);
-    await initializeAgent(pool, { ...config, agent: { ...config.agent, values: "再適用値" } }, initialTimings);
+    await initializeAgent(pool, { ...config, agent: { ...config.agent, initialDisposition: "再適用された初期傾向" } }, initialTimings);
     const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; disposition: string; mood: string; concerns: unknown; relationships: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.disposition,s.mood,s.concerns,s.relationships FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
-    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: "初期個体差", disposition: "経験で得た傾向", mood: "持続する気分", concerns: [{ description: "継続中の関心" }], relationships: [{ subjectId: "owner" }] });
+    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: config.agent.initialDisposition, disposition: "経験で得た傾向", mood: "持続する気分", concerns: [{ description: "継続中の関心" }], relationships: [{ subjectId: "owner" }] });
     const redesigned = await pool.query<{ disposition: string; self_story: string; commitments: string[]; concerns: unknown[]; relationships: unknown[] }>("SELECT disposition,self_story,commitments,concerns,relationships FROM agent_states WHERE agent_id=$1", [config.agent.id]);
-    expect(redesigned.rows[0]?.disposition).toBe("経験で得た傾向"); expect(redesigned.rows[0]?.self_story).toContain("始まったばかり"); expect(redesigned.rows[0]?.commitments).toContain("対話相手"); expect(redesigned.rows[0]?.concerns).toMatchObject([{ id: "concern-existing" }]); expect(redesigned.rows[0]?.relationships).toMatchObject([{ subjectId: "owner" }]);
-    await initializeAgent(pool, { ...config, family: { ...config.family, sharedDisposition: "更新した共通傾向" }, agent: { ...config.agent, values: "明示的な設定値", interests: ["更新した関心"], preferences: ["更新した好み"] } }, initialTimings, { overwriteConfiguredSelf: true });
+    expect(redesigned.rows[0]?.disposition).toBe("経験で得た傾向"); expect(redesigned.rows[0]?.self_story).toContain("始まったばかり"); expect(redesigned.rows[0]?.commitments).toContain("対話相手との約束を守る"); expect(redesigned.rows[0]?.concerns).toMatchObject([{ id: "concern-existing" }]); expect(redesigned.rows[0]?.relationships).toMatchObject([{ subjectId: "owner" }]);
+    await initializeAgent(pool, { ...config, family: { ...config.family, sharedDisposition: "更新した共通傾向" }, agent: { ...config.agent, initialDisposition: "映像史とAI技術が好きで、誇張は嫌い" } }, initialTimings, { overwriteConfiguredSelf: true });
     const overwritten = await pool.query<{ shared_disposition: string; disposition: string; commitments: string[]; mood: string; concerns: unknown; relationships: unknown; version: number }>("SELECT f.shared_disposition,s.disposition,s.commitments,s.mood,s.concerns,s.relationships,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
     expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", mood: "持続する気分", concerns: [{ description: "継続中の関心" }], relationships: [{ subjectId: "owner" }], version: 1 });
     expect(overwritten.rows[0]?.disposition).toContain("更新した共通傾向");
+    expect(overwritten.rows[0]?.disposition).toContain("映像史とAI技術が好き");
   });
 
   it("rolls back event and outbox as one unit", async () => {
