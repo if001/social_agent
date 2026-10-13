@@ -45,7 +45,7 @@ describe("AgentHarness contract", () => {
     let recentToolInputs: readonly string[] | undefined;
     const invoker: DeepAgentInvoker = { invoke: (input, options) => { prompt = input.messages[0]?.content ?? ""; recentToolInputs = options.recentToolInputs; return Promise.resolve({ structuredResponse: output }); } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set() });
-    const input = agentCoreInputFixture(); input.recentExperiences = [{ eventId: "history-event", runId: "history-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "internal", observation: { eventId: "history-event", summary: "history marker", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "tool", name: "lookup", input: { query: "same" }, result: { ok: true }, ok: true }, { type: "action", action: { type: "no-external-action", reason: "done" } }], progressChanged: false }];
+    const input = agentCoreInputFixture(); input.recentExperiences = [{ eventId: "history-event", runId: "history-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "internal", observation: { summary: "history marker", facts: [] }, steps: [{ type: "tool", name: "lookup", input: { query: "same" }, result: { ok: true }, ok: true }, { type: "action", action: { type: "no-external-action", reason: "done" } }], progressChanged: false }];
     await expect(harness.run(input, new AbortController().signal)).resolves.toMatchObject(result);
     expect(prompt).not.toContain("memoryRetrievalTrace");
     expect(prompt).toContain("recentExperiences"); expect(prompt).toContain("history marker"); expect(prompt).not.toContain("recentAttempts"); expect(prompt).not.toContain("recentObservations");

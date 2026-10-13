@@ -64,7 +64,7 @@ describe("embedding and context", () => {
 
   it("keeps recent experience as whole events and removes oldest events for budget", () => {
     const input = agentCoreInputFixture();
-    input.recentExperiences = Array.from({ length: 10 }, (_, index) => ({ eventId: `history-${String(index)}`, runId: `run-${String(index)}`, agentId: input.run.agentId, occurredAt: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`, eventKind: index % 2 === 0 ? "user-message" as const : "internal" as const, observation: { eventId: `history-${String(index)}`, summary: `event-${String(index)}-${"x".repeat(300)}`, facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "action" as const, action: { type: "no-external-action" as const, reason: `result-${String(index)}` } }], progressChanged: false }));
+    input.recentExperiences = Array.from({ length: 10 }, (_, index) => ({ eventId: `history-${String(index)}`, runId: `run-${String(index)}`, agentId: input.run.agentId, occurredAt: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`, eventKind: index % 2 === 0 ? "user-message" as const : "internal" as const, observation: { summary: `event-${String(index)}-${"x".repeat(300)}`, facts: [] }, steps: [{ type: "action" as const, action: { type: "no-external-action" as const, reason: `result-${String(index)}` } }], progressChanged: false }));
     const result = new ContextBuilder().build(input, { maxTokens: 3_000, maxMemories: 1, maxSocialContexts: 1 });
     expect(result.recentExperiences.length).toBeLessThanOrEqual(4);
     expect(result.recentExperiences.at(-1)?.eventId).toBe("history-9");
@@ -73,7 +73,7 @@ describe("embedding and context", () => {
 
   it("deduplicates ordinary episodic Memory covered by Recent Experience", () => {
     const input = agentCoreInputFixture(); const eventId = "recent-event";
-    input.recentExperiences = [{ eventId, runId: "recent-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "user-message", observation: { eventId, summary: "recent exchange", facts: [], observedAt: input.run.occurredAt }, steps: [{ type: "action", action: { type: "respond", content: "answer" } }], progressChanged: false }];
+    input.recentExperiences = [{ eventId, runId: "recent-run", agentId: input.run.agentId, occurredAt: input.run.occurredAt, eventKind: "user-message", observation: { summary: "recent exchange", facts: [] }, steps: [{ type: "action", action: { type: "respond", content: "answer" } }], progressChanged: false }];
     const makeMemory = (id: string, kind: Memory["kind"], priority: Memory["retrievalPriority"], evidenceEventIds: string[]): Memory => ({ id, agentId: input.run.agentId, kind, content: id, occurredAt: input.run.occurredAt, createdAt: input.run.occurredAt, relatedSubjectIds: [], importance: "useful", retrievalPriority: priority, evidenceEventIds });
     input.memories = [makeMemory("duplicate", "episodic", "normal", [eventId]), makeMemory("important", "episodic", "high", [eventId]), makeMemory("semantic", "semantic", "normal", [eventId]), makeMemory("older", "episodic", "normal", ["older-event"])];
     input.memoryRetrievalTrace = input.memories.map((item, index) => ({ memoryId: item.id, finalRank: index + 1, matchedBy: ["recency" as const], kind: item.kind, selected: true }));

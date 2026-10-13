@@ -42,9 +42,9 @@ ContextへAgentState全体を無制限に渡さず、現在の判断に必要な
 - Current State: 任意の`mood`、`concerns`、`relationships`
 - Concern: 内容、重要な理由、状態、任意の再検討時刻
 - Memory: episodic / semantic / self-related、重要度、subject、EventまたはMemoryの根拠
-- Recent Experience: 直近RunのAssessment、Desire、Action、Tool実績
+- Recent Experience: 直近Eventの再判断に必要なObservation要点、Action、Tool実績、進展有無。Event IDと時刻は外側に一度だけ保持し、監査用provenanceや元入力本文は含めない
 
-所有Agentをすべての境界で検証する。文字列長、件数、Context tokenを制限し、Recent Experienceと重複する通常優先度のepisodic Memoryは除外する。現在のContext上限は4,500推定token、system promptとTool schemaを含むmodel入力上限は8,000推定tokenである。
+所有Agentをすべての境界で検証する。文字列長、件数、Context tokenを制限し、Recent Experienceと重複する通常優先度のepisodic Memoryは除外する。現在のContext上限は4,500推定tokenである。system promptとTool schemaを含む8,000推定tokenは観測用警告閾値であり、provider呼び出しは中断しない。
 
 Feelingは現在Eventへの短期反応であり、それ自体は永続状態にしない。次のEventにも影響する変化だけをMood、Concern、Relationship、MemoryとしてPatchする。Selfは通常Interactionから直接変更できず、ReflectionだけがMemory根拠と理由を伴って更新できる。
 
@@ -77,11 +77,13 @@ Patchは任意のmood、Concern 1件、Relationship 1件、即時Memory意図に
 
 通常コードは登録有無、入力schema、権限、冪等性、最大25回のTool call、Runごとの設定上限、同一Tool・同一入力の反復、結果サイズを検証する。Tool実績は成功・失敗を含めてRunへ関連付ける。失敗Toolだけでは`no-external-action`の根拠にならない。
 
+完全なTool入出力は監査記録に保存するが、Recent Experienceへは再判断に必要な識別子、URL、path、query、件数、状態などのsignalだけを投影する。本文fieldは文字数、短いpreview、hashへ変換し、巨大な本文を次のmodel入力へ戻さない。Tool固有projectorがある場合はそれを優先する。同一Tool入力の反復判定にも同じ投影を使うため、本文をContextへ戻さず反復を検出できる。
+
 ## Event-driven autonomyとReflection
 
 常時思考loopは持たない。Schedulerは`idle`、`concern-due`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。`idle`などの自律Eventは通常Agent Loopへ入り、Concernの`reconsiderAt`はscheduleと同期する。`idle`はEvent種類を増やさず、永続化した`explorationMode`を`deepen`、`bridge`、`distant`の順に成功時だけ巡回させる。`deepen`は現在の具体的対象を深掘りし、`bridge`は惹かれる性質を介して別領域の具体へ移る。`distant`では`config/exploration-domains.yaml`の100〜200件のカタログから、永続cursorで最大8件をEventへ渡し、Agent CoreがMemoryの薄い領域を一つ選んで具体化する。失敗時はmodeとcursorを進めない。
 
-Reflectionは蓄積EventをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理である。通常Action選択とは分離し、Self変更にはMemory根拠と明示的理由を要求する。ReflectionもDeep Agentsの`toolStrategy`による説明付き構造化出力を使い、モデル向けの単純な変更recordを厳密なDomain outputへ変換する。入力はEvent / Memory各32件と8,000推定token、1回の出力はMemory / Concern / Relationship各4件までに制限する。連続失敗時のscheduleは5分を起点に指数backoffし、最大24時間まで延長する。
+Reflectionは蓄積EventをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理である。Memoryは会話やTool結果の保存場所ではなく、後の検索と判断で再利用する具体的な要点を1〜2文で生成する。通常Action選択とは分離し、Self変更にはMemory根拠と明示的理由を要求する。ReflectionもDeep Agentsの`toolStrategy`による説明付き構造化出力を使い、モデル向けの単純な変更recordを厳密なDomain outputへ変換する。入力はEvent / Memory各32件と8,000推定token、1回の出力はMemory / Concern / Relationship各4件までに制限する。連続失敗時のscheduleは5分を起点に指数backoffし、最大24時間まで延長する。
 
 Agent Coreの8,000推定tokenはproviderのcontext上限ではなく観測用の警告閾値とする。超過時も呼び出しを継続し、実際の受付可否はproviderへ委ねる。ToolのJSON SchemaはDeep AgentのTool定義だけに保持し、Agent Coreのuser messageへTool名・説明・Schemaを重複して埋め込まない。
 

@@ -47,7 +47,9 @@
 
 - Contextの所有権、件数、文字列長、推定tokenを制限する。
 - Recent Experienceと重複する通常優先度のepisodic Memoryを除外する。
-- Agent Contextを4,500推定token以内、system promptとTool schemaを含むmodel入力を8,000推定token以内に収める。
+- Recent Experienceは次の判断に必要なObservation要点、Action、Tool signal、進展有無だけを持ち、重複Event metadata、監査metadata、元入力本文を持たない。
+- Memoryは会話またはTool結果の転載ではなく、後の検索と判断で再利用する具体的要点として生成する。
+- Agent Contextを4,500推定token以内に収める。system promptとTool schemaを含むmodel入力が8,000推定tokenを超えた場合は警告するが、provider呼び出しを中断しない。
 - model call数、Deep Agent step数、Tool call数、deadlineをRun単位で制限する。
 - 予算超過、未登録Tool、schema不正、権限違反、同一Tool・同一入力の反復を拒否する。
 
@@ -57,6 +59,7 @@
 - Tool説明と全入力fieldへ、モデルが用途と値を判断できる具体的な説明を付ける。
 - RuntimeはTool入力、権限、最大call数、冪等性、結果サイズ、実行記録を管理する。
 - Tool Resultは同じAgent loopへ返すが、別Interactionとして自動再投入して二重実行しない。
+- 完全なTool入出力は監査用に保持し、Recent ExperienceにはTool固有の要約、または識別子・状態・件数と本文のpreview/hashだけを保存する。
 - 失敗Toolだけを`no-external-action`成功の根拠にしない。
 
 ## R7. Event-driven autonomyとReflection

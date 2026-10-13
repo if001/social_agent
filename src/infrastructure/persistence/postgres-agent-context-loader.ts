@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, AgentStateSchema, DomainError, FinalActionSchema, ObservationSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RunLimits } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, AgentStateSchema, DomainError, FinalActionSchema, ObservationSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
@@ -31,13 +31,30 @@ export type PostgresAgentContextLoaderOptions = {
 };
 
 function text(value: unknown): string | undefined { return typeof value === "string" && value.trim() !== "" ? value : undefined; }
+const boundedText = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
+function recentObservation(value: Observation): RecentObservation {
+  const facts = value.facts.filter((fact) => fact !== value.summary).slice(0, 4).map((fact) => boundedText(fact, 240));
+  const raw = typeof value.content === "object" && value.content !== null ? value.content as Record<string, unknown> : {};
+  const schedulerContent = value.source?.type === "scheduler" ? {
+    ...(typeof raw.targetKind === "string" ? { targetKind: raw.targetKind } : {}),
+    ...(typeof raw.explorationMode === "string" ? { explorationMode: raw.explorationMode } : {}),
+    ...(Array.isArray(raw.explorationCandidates) ? { explorationCandidates: raw.explorationCandidates.filter((item): item is string => typeof item === "string").slice(0, 8).map((item) => boundedText(item, 120)) } : {})
+  } : undefined;
+  return { summary: boundedText(value.summary, 800), facts, ...(value.kind === undefined ? {} : { kind: value.kind }), ...(value.actor === undefined ? {} : { actor: value.actor }), ...(value.source === undefined ? {} : { source: value.source }), ...(schedulerContent === undefined ? {} : { scheduler: schedulerContent }) };
+}
+function recentAction(value: ReturnType<typeof FinalActionSchema.parse>): ReturnType<typeof FinalActionSchema.parse> {
+  if (value.type === "respond") return { ...value, content: boundedText(value.content, 1_000) };
+  if (value.type === "refuse") return { ...value, content: boundedText(value.content, 1_000), reason: boundedText(value.reason, 400) };
+  if (value.type === "notify-no-execution") return { ...value, content: boundedText(value.content, 800), reason: boundedText(value.reason, 400) };
+  return { ...value, reason: boundedText(value.reason, 400) };
+}
 function recentExperience(row: RecentExperienceRow, toolsRegistry: ToolRegistry, logger: Logger): RecentExperience | undefined {
   const observation = ObservationSchema.safeParse(row.observation); if (!observation.success) { logger.log("warn", "context.invalid_recent_experience", { eventId: row.event_id, runId: row.run_id, reason: "invalid-observation" }); return undefined; }
   const tools = Array.isArray(row.tools) ? row.tools : []; const steps: RecentExperience["steps"] = [];
-  for (const raw of tools) if (typeof raw === "object" && raw !== null) { const value = raw as Record<string, unknown>; if (typeof value.tool === "string") steps.push({ type: "tool", name: value.tool, input: value.input, result: value.error === null || value.error === undefined ? toolsRegistry.projectResult(value.tool, value.result, "recent-experience") : { error: value.error }, ok: value.error === null || value.error === undefined }); }
+  for (const raw of tools) if (typeof raw === "object" && raw !== null) { const value = raw as Record<string, unknown>; if (typeof value.tool === "string") steps.push({ type: "tool", name: value.tool, input: toolsRegistry.projectInput(value.input), result: value.error === null || value.error === undefined ? toolsRegistry.projectResult(value.tool, value.result, "recent-experience") : { error: boundedText(typeof value.error === "string" ? value.error : JSON.stringify(value.error), 400) }, ok: value.error === null || value.error === undefined }); }
   const result = typeof row.result === "object" && row.result !== null ? row.result as Record<string, unknown> : {}; const output = typeof result.output === "object" && result.output !== null ? result.output as Record<string, unknown> : {}; const action = FinalActionSchema.safeParse(output.action);
-  if (action.success) steps.push({ type: "action", action: action.data }); else if (row.failure_reason !== null) steps.push({ type: "failure", reason: row.failure_reason });
-  const parsed = RecentExperienceSchema.safeParse({ eventId: row.event_id, ...(row.run_id === null ? {} : { runId: row.run_id }), agentId: row.agent_id, occurredAt: row.occurred_at.toISOString(), eventKind: row.event_kind, observation: observation.data, steps, progressChanged: row.progress_changed });
+  if (action.success) steps.push({ type: "action", action: recentAction(action.data) }); else if (row.failure_reason !== null) steps.push({ type: "failure", reason: boundedText(row.failure_reason, 400) });
+  const parsed = RecentExperienceSchema.safeParse({ eventId: row.event_id, ...(row.run_id === null ? {} : { runId: row.run_id }), agentId: row.agent_id, occurredAt: row.occurred_at.toISOString(), eventKind: row.event_kind, observation: recentObservation(observation.data), steps, progressChanged: row.progress_changed });
   if (!parsed.success) { logger.log("warn", "context.invalid_recent_experience", { eventId: row.event_id, runId: row.run_id, reason: "invalid-experience" }); return undefined; }
   return parsed.data;
 }

@@ -27,7 +27,7 @@ flowchart LR
     RF --> ST
 ```
 
-通常Interactionは一つのAgent Loopで処理する。その内部で、Event Assessmentが今回の出来事の主観的な`meaning`と`feeling`を先に確定し、Agent Coreがそれを変更せずに`desire`と最終`action`を決める。Toolを使う場合も同じrunを継続し、Tool結果を受けた最終Actionまで完了させる。Recent Experiencesは新しい永続概念ではなく、直近EventのObservation、Tool、Actionまたはfailure、進展有無をEvent logから組み立てた入力である。
+通常Interactionは一つのAgent Loopで処理する。その内部で、Event Assessmentが今回の出来事の主観的な`meaning`と`feeling`を先に確定し、Agent Coreがそれを変更せずに`desire`と最終`action`を決める。Toolを使う場合も同じrunを継続し、Tool結果を受けた最終Actionまで完了させる。Recent Experiencesは新しい永続概念ではなく、直近Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。
 
 ## 要素と持続時間
 
@@ -36,7 +36,7 @@ flowchart LR
 | Self | 長期 | Identity、Disposition、Self Story、Commitmentsを保持する |
 | State | 複数Event | Mood、Concerns、Relationshipsを保持する |
 | Memory | 長期・検索可能 | 経験と、その後の判断に必要な根拠を保持する |
-| Recent Experiences | 直近2〜4 Eventの入力表現 | 直前の試行、失敗、進展有無を示し、同じ手段の反復を避ける |
+| Recent Experiences | 直近2〜4 Eventの意味投影 | 直前の試行、失敗、進展有無とToolの識別signalを示し、本文を再投入せず同じ手段の反復を避ける |
 | Event Assessment | 今回のEvent | ObservationをSelf・State・Memoryに照らしてMeaning / Feelingへ解釈する |
 | Desire | 今回のEvent | Assessmentを受けて今回実現したいことを自然言語で表す |
 | Action | 今回のEvent | 応答、拒否、非実行通知、または実行済みTool後の配送不要を表す |
@@ -205,6 +205,8 @@ flowchart LR
 ```
 
 Reflectionは、入力時点のSelf、State、対象Event、参照Memoryを監査可能な形で保存する。Self変更には理由と入力に含まれるMemory IDを必須とし、一度の弱い経験で大きく人格を変えない。通常runとReflection runはそれぞれ一つの正規永続化経路を持ち、旧Post-processやCandidate経路を併存させない。
+
+Memoryは元会話やTool結果の保管場所ではない。後の検索で状況と判断への影響を復元できる、具体的な経験の要点を1〜2文で持つ。完全な本文が必要な場合は、Recent Experienceを肥大化させず、保存済みsnapshot IDやpathをToolで再参照する。
 
 ## 運用上の不変条件
 

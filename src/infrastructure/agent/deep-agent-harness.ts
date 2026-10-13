@@ -33,7 +33,7 @@ const AgentCoreFlatOutputSchema = z.object({
   relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
   relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
   relationshipDescription: z.string().trim().min(1).max(16_000).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
-  remember: z.string().trim().min(1).max(16_000).optional().describe("今回すぐ記憶候補に残す内容。長期的価値がある場合だけ指定")
+  remember: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す要点。会話やTool結果を転載せず、長期的価値がある内容を1〜2文で指定")
 }).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
 export const completeAgentCoreSystemPrompt = `${agentCoreSystemPrompt}${autonomousExplorationPrompt}${concernLifecyclePrompt}`;
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;

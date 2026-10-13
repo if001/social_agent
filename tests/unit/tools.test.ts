@@ -44,6 +44,19 @@ describe("tools", () => {
     expect(registry.projectResult("web_page", result, "immediate")).toBe(result);
   });
 
+  it("stores decision signals instead of large Tool input and output bodies in Recent Experience", () => {
+    const registry = new ToolRegistry([{ name: "writer", description: "Write", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true }) }]);
+    const body = "private-body-".repeat(500);
+    const input = registry.projectInput({ path: "notes/report.md", content: body, mode: "replace" });
+    const result = registry.projectResult("writer", { id: "result-1", status: "saved", content: body, metadata: { count: 500, details: body } }, "recent-experience");
+    expect(JSON.stringify(input).length).toBeLessThanOrEqual(400);
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(400);
+    expect(JSON.stringify(input)).toContain("notes/report.md");
+    expect(JSON.stringify(result)).toContain("result-1");
+    expect(JSON.stringify({ input, result })).not.toContain(body);
+    expect(JSON.stringify(input)).toContain("sha256");
+  });
+
   it("rejects unknown tools and invalid input before side effects", async () => {
     let calls = 0; const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { calls += 1; return Promise.resolve({ ok: true }); } }]);
     await expect(registry.execute("missing", {}, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "NOT_FOUND" });

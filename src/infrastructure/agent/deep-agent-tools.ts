@@ -2,6 +2,7 @@ import { toolName } from "./model-response.js";
 import { tool, type ToolRuntime } from "langchain";
 import { z } from "zod";
 import type { ToolRegistry } from "../../application/tool-registry.js";
+import { projectToolInput } from "../../application/tool-registry.js";
 import { DomainError, type AgentCoreInput, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
@@ -89,8 +90,8 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       return JSON.stringify({ ok: false, errorCode: "CONTENT_READ_LIMIT_REACHED", error, requiredNextStep: "Use the information already obtained and return the final Action now." });
     }
     context.collector.contentReadReservedCharacters += requestedContentCharacters;
-    const signature = JSON.stringify({ tool: name, input: rawInput });
-    const repeatedInRun = context.collector.executions.some((execution) => JSON.stringify({ tool: execution.name, input: execution.input }) === signature);
+    const signature = JSON.stringify({ tool: name, input: projectToolInput(rawInput) });
+    const repeatedInRun = context.collector.executions.some((execution) => JSON.stringify({ tool: execution.name, input: projectToolInput(execution.input) }) === signature);
     if (context.recentToolInputs.includes(signature) || repeatedInRun) {
       const finishedAt = now().toISOString();
       const error = "Recent identical Tool input must not be repeated";

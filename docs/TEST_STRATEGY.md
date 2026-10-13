@@ -11,6 +11,8 @@
 - ContextのAgent所有権、件数・文字列・推定token budget、Memory重複排除
 - State Patchのupsert/remove、evidence、別Agent更新拒否
 - Tool schema、権限、冪等性、call budget、同一入力反復、結果上限
+- Recent Experience用Tool投影が400文字以内で識別signalを残し、巨大な入力・結果本文を含めないこと
+- Recent ObservationがEvent metadataを重複保持せず、要点・非重複facts・必要な自律探索条件だけを残すこと
 - Concern schedule、Scheduled Task、Reflection、Debug UIの読取り契約
 - idle探索モードのEvent伝播、成功時の巡回、失敗時の維持
 - 探索領域カタログの件数・重複検証、`distant`候補の上限制御、cursorの成功時更新と失敗時維持
@@ -36,7 +38,7 @@
 
 ### PostgreSQL integration
 
-実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Memory検索、Reflection commit、Concern schedule、Tool trace、Outbox冪等性、Runtime resetを含む。
+実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Memory検索、Reflection commit、Concern schedule、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。
 
 接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。testは専用schemaだけを作成・破棄し、共有schemaの検証データへ依存しない。
 

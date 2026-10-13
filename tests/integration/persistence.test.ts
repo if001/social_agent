@@ -222,7 +222,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('failed-experience-a','a','internal',$1,'scheduler','failed',now())", [JSON.stringify({ eventId: "failed-experience-a", summary: "failed exploration", facts: [], observedAt: new Date().toISOString(), kind: "internal" })]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,failure_reason,started_at,finished_at) VALUES ('failed-run-a','a','failed-experience-a',0,NULL,'provider timeout',now(),now())");
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-tool-a','failed-run-a','failed-experience-a','call-1','web_list',$1,$2,NULL,now(),now())", [JSON.stringify({ q: "agent memory" }), JSON.stringify({ results: [] })]);
-    await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-file-tool-a','failed-run-a','failed-experience-a','call-2','file_read',$1,$2,NULL,now(),now())", [JSON.stringify({ path: "notes.md" }), JSON.stringify({ path: "notes.md", content: "raw file must not enter recent experiences", truncated: false })]);
+    await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-file-tool-a','failed-run-a','failed-experience-a','call-2','file_read',$1,$2,NULL,now(),now())", [JSON.stringify({ path: "notes.md", content: "raw input must not enter recent experiences".repeat(100) }), JSON.stringify({ path: "notes.md", content: "raw file must not enter recent experiences", truncated: false })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const loader = new PostgresAgentContextLoader({
       pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry([...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]),
@@ -246,10 +246,12 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("attempt-event-b");
     expect(input.recentExperiences.find(({ eventId }) => eventId === "failed-experience-a")?.steps).toEqual([
       { type: "tool", name: "web_list", input: { q: "agent memory" }, result: { resultCount: 0, results: [] }, ok: true },
-      { type: "tool", name: "file_read", input: { path: "notes.md" }, result: { path: "notes.md", contentCharacters: 42, truncated: false }, ok: true },
+      { type: "tool", name: "file_read", input: { path: "notes.md", contentSummary: { characters: 4_300, preview: "raw input must not enter recent experiencesraw input must not enter recent experiencesraw input must not enter recent experiencesraw input must not enter recent…", sha256: "e92f5dbf0154a0a4" } }, result: { path: "notes.md", contentCharacters: 42, truncated: false }, ok: true },
       { type: "failure", reason: "provider timeout" }
     ]);
     expect(JSON.stringify(input.recentExperiences)).not.toContain("raw file must not enter recent experiences");
+    expect(JSON.stringify(input.recentExperiences)).not.toContain("raw input must not enter recent experiences".repeat(5));
+    expect(input.recentExperiences.find(({ eventId }) => eventId === "recent-a")?.observation).toEqual({ summary: "previous exchange", facts: ["prior context"] });
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
     expect(input.availableTools.map(({ name }) => name)).toEqual(["web_list", "web_page", "file_read"]);

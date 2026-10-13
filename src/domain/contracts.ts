@@ -176,13 +176,26 @@ export const RecentExperienceStepSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("action"), action: z.lazy(() => FinalActionSchema) }),
   z.object({ type: z.literal("failure"), reason: NaturalLanguage })
 ]);
+export const RecentObservationSchema = z.object({
+  summary: z.string().trim().min(1).max(800).describe("過去Eventから、今回の判断に再利用できる中心的な出来事を1〜2文で表したもの"),
+  facts: z.array(z.string().trim().min(1).max(240)).max(4).describe("summaryと重複しない、次の判断に必要な具体的事実"),
+  kind: EventKindSchema.optional().describe("観測元Eventの種類"),
+  actor: z.object({ id: Id, type: z.enum(["human", "agent", "tool", "system", "unknown"]) }).optional().describe("次の判断で相手の識別が必要な場合の行為者"),
+  source: z.object({ type: z.enum(["terminal", "discord", "agent", "tool", "scheduler", "system", "unknown"]), id: Id.optional(), direct: z.boolean() }).optional().describe("観測経路。UIや自律Eventの区別に用いる"),
+  scheduler: z.object({
+    targetKind: z.string().optional(),
+    explorationMode: z.string().optional(),
+    explorationCandidates: z.array(z.string().trim().min(1).max(120)).max(8).optional()
+  }).optional().describe("自律Eventの継続性を判断するために必要な探索条件")
+}).strict().describe("Recent Experience専用の再判断材料。監査用メタデータや入力本文は含めない");
+export type RecentObservation = z.infer<typeof RecentObservationSchema>;
 export const RecentExperienceSchema = z.object({
   eventId: Id,
   runId: Id.optional(),
   agentId: Id,
   occurredAt: Instant,
   eventKind: EventKindSchema,
-  observation: ObservationSchema,
+  observation: RecentObservationSchema,
   steps: z.array(RecentExperienceStepSchema),
   progressChanged: z.boolean()
 });

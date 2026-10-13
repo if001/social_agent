@@ -11,8 +11,8 @@ import { concernLifecyclePrompt } from "./concern-lifecycle-prompt.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 
 const ReflectionMemorySchema = z.object({
-  summary: z.string().trim().min(1).max(16_000).describe("後の判断や検索で再利用する経験の記録。何が起き、どうなったかを具体的に1〜2文で書く"),
-  significance: z.string().trim().min(1).max(16_000).describe("この経験を今後も覚える具体的理由。Self、Concern、関係、判断のどれに影響するかを書く"),
+  summary: z.string().trim().min(1).max(800).describe("後の判断や検索で再利用する経験の要点。会話やTool結果を転載せず、何が起き、どうなったかを具体的に1〜2文で書く"),
+  significance: z.string().trim().min(1).max(400).describe("この経験を今後も覚える具体的理由。説明を繰り返さず、Self、Concern、関係、判断のどれに影響するかを1文で書く"),
   subjects: z.array(z.string().min(1)).max(12).describe("このMemoryを人物・対象から検索するためのID。入力にあるIDだけを使い、対象がなければ空配列"),
   occurredAt: z.string().describe("Memoryの時系列順と根拠追跡に使う発生日時。根拠EventのoccurredAtをそのまま使う"),
   source: z.string().trim().min(1).max(16_000).optional().describe("伝聞と直接経験を区別する情報源ID。入力に情報源が明記された伝聞だけに指定する")
