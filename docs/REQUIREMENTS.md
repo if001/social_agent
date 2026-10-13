@@ -34,8 +34,9 @@
 - `respond`は空でないcontentを配送する。
 - `refuse`は空でないcontent、内部reason、`personality | system`のbasisを持つ。内部reasonは利用者向けpayloadへ露出しない。
 - `notify-no-execution`は自律Eventで実行しない判断と理由を配送可能にする。
-- `no-external-action`は成功したTool実行がある場合だけ許可し、単なる無行動として使わない。
-- 自律Eventは具体的Tool実行または配送可能なActionなしに成功できない。
+- Tool利用とユーザーへの発話判断を独立させる。Toolの利用・成功・失敗を`respond`または`no-external-action`の前提条件にしない。
+- `no-external-action`は今回は発話しない具体的理由を持つ。ユーザーからの返信待ちはその理由として認めない。
+- 夜間はRuntimeで配送禁止にせず、Agentが緊急性と合わせて発話を控える判断材料にできる。
 - Patchはmood、Concern 1件、Relationship 1件、即時Memory意図に限定する。
 - Concernのupsert/removeと`reconsiderAt` scheduleを同期する。
 - Concernは進展、満足点、現在のSelfにとっての価値に基づいて継続・変更・満足・放棄・削除する。進展のない同一内容を機械的に延長せず、一律の時間だけでも削除しない。
@@ -60,7 +61,7 @@
 - RuntimeはTool入力、権限、最大call数、冪等性、結果サイズ、実行記録を管理する。
 - Tool Resultは同じAgent loopへ返すが、別Interactionとして自動再投入して二重実行しない。
 - 完全なTool入出力は監査用に保持し、Recent ExperienceにはTool固有の要約、または識別子・状態・件数と本文のpreview/hashだけを保存する。
-- 失敗Toolだけを`no-external-action`成功の根拠にしない。
+- Tool成否と通知判断の整合性をRuntimeで結合しない。
 
 ## R7. Event-driven autonomyとReflection
 

@@ -215,7 +215,7 @@ export const FinalActionSchema = z.discriminatedUnion("type", [
     content: NaturalLanguage.describe("具体的な実行対象を選ばなかった判断と理由をownerへ通知する本文"),
     reason: NaturalLanguage.describe("実行しないと判断した内部理由")
   }).describe("実行しない判断をownerへ通知するAction"),
-  z.object({ type: z.literal("no-external-action").describe("Tool実行が完了し外部メッセージが不要な場合だけ選ぶ"), reason: NaturalLanguage.describe("Toolで具体的行動を実行した結果、外部への応答配送が不要な理由。未実行の保留には使わない") }).describe("Tool実行だけで完了したAction")
+  z.object({ type: z.literal("no-external-action").describe("今回はユーザーへ発話しないと判断した場合に選ぶ。Tool利用の有無とは無関係"), reason: NaturalLanguage.describe("今回は発話しない具体的理由。ユーザーからの返信待ちは理由にしてはならない") }).describe("外部発話を行わないAction")
 ]).describe("今回の動機に基づく最終行動。Tool実行自体はAgent内部で完了させる");
 export type FinalAction = z.infer<typeof FinalActionSchema>;
 export const AgentActionSchema = FinalActionSchema;

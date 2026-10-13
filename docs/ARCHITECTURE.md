@@ -65,9 +65,9 @@ Domain上の最終Actionは次の4種類である。
 - `respond`: contentを相手へ配送する。
 - `refuse`: contentを配送し、内部にreasonと`personality | system`のbasisを残す。
 - `notify-no-execution`: 自律Eventで実行しない判断と理由をownerへ配送する。
-- `no-external-action`: 成功したToolが具体的な外部Actionを完了し、追加配送が不要な場合だけ使う内部終端である。
+- `no-external-action`: Agentが今回は外部発話を行わないと判断した内部終端である。Tool利用の有無とは独立して選ぶ。
 
-通常Interactionは成功Toolなしの`no-external-action`で成功できない。自律Eventも、具体的なTool実行または配送可能なActionなしに成功できない。
+Tool利用とユーザーへの発話判断は独立する。Toolの前後を問わず共有価値があれば`respond`でき、Toolを使わなくても発話できる。反対に、Agentは具体的理由があれば`no-external-action`を選べる。ただし、ユーザーからの返信待ちは発話を控える理由にしない。夜間であることは強制制御ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
 
 Patchは任意のmood、Concern 1件、Relationship 1件、即時Memory意図に限定する。Runtimeがupsert/remove、Agent所有権、evidence、versionを検証し、DB metadataやIDは通常コードが付与する。
 
@@ -75,7 +75,7 @@ Patchは任意のmood、Concern 1件、Relationship 1件、即時Memory意図に
 
 起動時に実装済みToolをRegistryからDeep Agentへ複数登録する。各Toolは短い用途説明と説明付き入力schemaを持ち、Runtime contextからagent / run / event、権限、deadlineを受け取る。Agent Core promptへはTool名と要約だけを重複掲載し、完全なschemaはTool binding側だけに置く。
 
-通常コードは登録有無、入力schema、権限、冪等性、最大25回のTool call、Runごとの設定上限、同一Tool・同一入力の反復、結果サイズを検証する。Tool実績は成功・失敗を含めてRunへ関連付ける。失敗Toolだけでは`no-external-action`の根拠にならない。
+通常コードは登録有無、入力schema、権限、冪等性、最大25回のTool call、Runごとの設定上限、同一Tool・同一入力の反復、結果サイズを検証する。Tool実績は成功・失敗を含めてRunへ関連付けるが、Tool成否から発話可否を決定しない。
 
 完全なTool入出力は監査記録に保存するが、Recent Experienceへは再判断に必要な識別子、URL、path、query、件数、状態などのsignalだけを投影する。本文fieldは文字数、短いpreview、hashへ変換し、巨大な本文を次のmodel入力へ戻さない。Tool固有projectorがある場合はそれを優先する。同一Tool入力の反復判定にも同じ投影を使うため、本文をContextへ戻さず反復を検出できる。
 

@@ -19,7 +19,7 @@ type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeep
 
 const AgentCoreFlatOutputSchema = z.object({
   desire: z.string().trim().min(1).max(16_000).describe("今回のEventを受けて今具体的に望むこと"),
-  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。通常応答はrespond、自律Eventで実行しない通知はnotify-no-execution、Toolだけで完了した場合だけno-external-action"),
+  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話する場合はrespond、自律Eventで非実行判断を通知する場合はnotify-no-execution、今回は発話しない場合はno-external-action。Tool利用の有無とは独立して選ぶ"),
   content: z.string().trim().min(1).max(16_000).optional().describe("respond、refuse、notify-no-executionで相手へ配送する本文。それらのActionでは必須"),
   reason: z.string().trim().min(1).max(16_000).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
@@ -111,7 +111,6 @@ export function modelInputBudget(input: AgentCoreInput, content: string): { read
   return { total: Object.values(components).reduce((sum, value) => sum + value, 0), components };
 }
 
-type ProposalIssue = { readonly code: "invalid_reference"; readonly path: readonly PropertyKey[]; readonly message: string };
 function errorToolExecutions(error: unknown): readonly ToolExecutionRecord[] {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause) || !Array.isArray(error.cause.toolExecutions)) return [];
   return error.cause.toolExecutions as ToolExecutionRecord[];
@@ -120,11 +119,6 @@ function errorModelCalls(error: unknown): number {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("modelCalls" in error.cause) || typeof error.cause.modelCalls !== "number") return 0;
   return error.cause.modelCalls;
 }
-function actionExecutionIssues(output: AgentRunResult["output"], toolExecutions: readonly ToolExecutionRecord[]): ProposalIssue[] {
-  if (output.action.type === "no-external-action" && !toolExecutions.some(({ ok }) => ok)) return [{ code: "invalid_reference", path: ["action", "type"], message: toolExecutions.length === 0 ? "Interaction events must perform a Tool action or choose an external action" : "Failed Tool executions do not justify no-external-action; explain, ask, or choose another action" }];
-  return [];
-}
-
 const USER_RESPONSE_FALLBACK = "申し訳ありません。応答の形式を処理できませんでした。もう一度お試しください。";
 function recoverUserStringAction(raw: unknown, input: AgentCoreInput): AgentRunResult["output"] | undefined {
   if (input.observation.kind !== "user-message" || typeof raw !== "object" || raw === null || !("action" in raw) || typeof raw.action !== "string") return undefined;
@@ -179,11 +173,8 @@ export class DeepAgentHarness implements AgentHarness {
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
-        if (parsed.success) {
-          const referenceIssues = actionExecutionIssues(parsed.data, observedToolExecutions);
-          if (referenceIssues.length === 0) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, attempt) }; }
-          validationIssues = referenceIssues;
-        } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
+        if (parsed.success) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, attempt) }; }
+        validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
         logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
       } catch (error) {
         consumedModelCalls += errorModelCalls(error);

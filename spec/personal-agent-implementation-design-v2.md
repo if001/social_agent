@@ -592,7 +592,7 @@ type ActiveMotive = {
 
 保存済みMotiveを選ぶか、今回のEvent、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成する。今回の意味づけ、Emotion、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。保存済みMotiveが空であることは停止理由にならない。
 
-理由だけのno-external-actionは認めない。Tool実行後に外部配送が不要な場合には最終結果として利用できる。activeMotiveはEvent内の判断であり、そのまま永続状態へ追加しない。state-reviewとLong-term Reviewは状態再評価であり、この必須Action契約の対象外とする。
+no-external-actionは、Agentが今回は外部発話を行わないと判断した場合に利用でき、Tool利用の有無とは結合しない。ユーザーからの返信待ちは発話を控える理由にせず、夜間は強制制御ではなく判断材料とする。activeMotiveはEvent内の判断であり、そのまま永続状態へ追加しない。state-reviewとLong-term Reviewは状態再評価であり、このAction契約の対象外とする。
 
 ---
 

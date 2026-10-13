@@ -96,6 +96,16 @@ describe("ST-01 Terminal round trip", () => {
 });
 
 describe("autonomous response outbox", () => {
+  it("commits an autonomous decision not to speak without requiring a Tool", async () => {
+    const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
+    const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
+    const action = { desire: "今は静かにしていたい", action: { type: "no-external-action" as const, reason: "夜間で緊急性がない" } };
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, persistence, ids: new SequenceIdGenerator([]), now: () => new Date("2026-01-01T00:00:00Z"), harness: new ScriptedAgentHarness([action]) });
+    await expect(runtime.process({ id: "quiet-event", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind: "idle" } }, new AbortController().signal)).resolves.toEqual(action.action);
+    expect(persistence.events).toHaveLength(1);
+    expect(await persistence.pendingOutbox(10)).toHaveLength(0);
+  });
+
   it("retains an autonomous response across delivery failure with its routing context", async () => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);

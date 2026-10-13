@@ -114,13 +114,6 @@ export class AgentRuntime {
       throw error;
     }
     const output = result.output;
-    const autonomous = message.id.startsWith("internal:");
-    const completedToolAction = result.toolExecutions.some((execution) => execution.ok);
-    if (autonomous && output.action.type === "no-external-action" && !completedToolAction) {
-      const error = new DomainError("VALIDATION", "Autonomous Event cannot succeed without a concrete action or notify-no-execution");
-      await this.options.persistence.recordFailure(message, event, input, error, result.toolExecutions);
-      throw error;
-    }
     logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.patch === undefined ? 0 : 1 });
     const update = this.#updates.apply(event.agentId, input.state, output.patch, event.id);
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;

@@ -22,7 +22,7 @@ describe("Initial disposition → autonomous action", () => {
       expect(prompt).toContain(ao.agent.initialDisposition); expect(prompt).toContain("AIやAgentが経験から変化する仕組み"); expect(prompt).toContain('"concerns":[]');
       const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: options.maxToolCalls, signal: options.signal });
       const [webPage] = createDeepAgentTools(registry, () => new Date(fixtureInstant)); await webPage?.invoke({ urls: "https://example.com/hnsw" }, { context });
-      return { structuredResponse: { desire: "関心を一歩進めたい", action: { type: "no-external-action", reason: "外部へ通知する必要はない" } }, toolExecutions: context.collector.executions };
+      return { structuredResponse: { desire: "関心を一歩進め、発見を共有したい", action: { type: "respond", content: "調べて分かったことを共有する" } }, toolExecutions: context.collector.executions };
     } };
     const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set(["web_page"]) });
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); let claimed = false; const completions: (Date | null)[] = [];

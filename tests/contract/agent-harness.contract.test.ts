@@ -178,23 +178,20 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(2);
   });
 
-  it("repairs an Interaction output without a concrete action", async () => {
+  it("accepts an Agent decision not to speak without coupling it to Tool use", async () => {
     const input = agentCoreInputFixture();
     input.observation.content = { schedulerGenerated: true, targetKind: "autonomy-review" };
     let calls = 0;
-    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "no-external-action", reason: "対話相手を待つ" } } : output }) };
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject(result);
-    expect(calls).toBe(2);
+    const noAction = { ...output, action: { type: "no-external-action" as const, reason: "夜間で緊急性がない" } };
+    const invoker: DeepAgentInvoker = { invoke: () => { calls += 1; return Promise.resolve({ structuredResponse: noAction }); } };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ output: noAction });
+    expect(calls).toBe(1);
   });
 
-  it("rejects no-external-action after only failed Tools but accepts it after a success", async () => {
-    const noAction = { ...output, action: { type: "no-external-action" as const, reason: "Toolで処理済み" } };
-    let calls = 0;
-    const failed: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? noAction : output, toolExecutions: [{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: {}, ok: false, error: "unavailable", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] }) };
-    await expect(new DeepAgentHarness({ invoker: failed, registeredToolNames: new Set(), maxRepairs: 1 }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject({ output });
-    expect(calls).toBe(2);
-    const successful: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: noAction, toolExecutions: [{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: {}, ok: true, result: {}, startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] }) };
-    await expect(new DeepAgentHarness({ invoker: successful, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject({ output: noAction });
+  it("accepts a user-facing response regardless of whether a Tool failed", async () => {
+    const respond = { ...output, action: { type: "respond" as const, content: "調査できなかったことも含めて共有する" } };
+    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: respond, toolExecutions: [{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: {}, ok: false, error: "unavailable", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] }) };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject({ output: respond });
   });
 
   it("normalizes provider errors, abort and timeout", async () => {
@@ -223,7 +220,10 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("idle Event");
     expect(agentCoreSystemPrompt).toContain("desire");
     expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
-    expect(agentCoreSystemPrompt).toContain("Tool未使用で理由だけを返すno-external-actionは禁止");
+    expect(agentCoreSystemPrompt).toContain("Toolを使うかどうかと、ユーザーへ発話するかどうかは独立");
+    expect(agentCoreSystemPrompt).toContain("返信がまだ来ていないこと");
+    expect(agentCoreSystemPrompt).toContain("発話を控える理由に絶対にしません");
+    expect(agentCoreSystemPrompt).toContain("夜間");
     expect(agentCoreSystemPrompt).toContain("同一手段を繰り返さず");
     expect(agentCoreSystemPrompt).not.toContain("content-readの文字予算");
     expect(agentCoreSystemPrompt).not.toContain("次のrun開始時");
