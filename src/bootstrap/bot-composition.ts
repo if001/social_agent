@@ -68,7 +68,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     maxRepairs: 2
   });
   const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
-  const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now()), new OllamaReflectionModel(config.chat));
+  const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now()), new OllamaReflectionModel(config.chat, logger));
   const router = new AgentEventRouter(runtime);
   const outbox = new OutboxDispatcher(persistence, queue, logger);
   return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, reflection, router, outbox };

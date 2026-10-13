@@ -305,6 +305,17 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM autonomous_schedules WHERE id='legacy-drive'")).rows[0]?.lease_until).toBeNull();
   });
 
+  it("backs off repeated Reflection failures instead of retrying at a fixed interval", async () => {
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('reflection:a','a','reflection','maintenance',now())");
+    for (const id of ["reflection-failed-1", "reflection-failed-2", "reflection-failed-3"]) {
+      await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,failure_reason) VALUES ($1,'a',0,'failed','{}','invalid output')", [id]);
+    }
+    const repository = new PostgresScheduleRepository(pool, 60_000, "a", 1_000);
+    await repository.release({ id: "reflection:a", agentId: "a", kind: "reflection", reason: "maintenance" });
+    const row = (await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='reflection:a'")).rows[0];
+    expect(row?.delay_ms).toBe(4_000);
+  });
+
   it("shares correlation-loop and rate limits across Runtime instances", async () => {
     const first = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const second = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
