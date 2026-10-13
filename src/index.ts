@@ -59,7 +59,7 @@ export { createWebTools, fetchWebPages } from "./infrastructure/tools/web-tools.
 export type { WebOptions } from "./infrastructure/tools/web-tools.js";
 export { createFileTools } from "./infrastructure/tools/file-tools.js";
 export { Scheduler } from "./application/scheduler.js";
-export type { InternalEventRuntime, ScheduleRepository, ScheduledTarget, SchedulerOptions } from "./application/scheduler.js";
+export type { ExplorationMode, InternalEventRuntime, ScheduleRepository, ScheduledTarget, SchedulerOptions } from "./application/scheduler.js";
 export { PostgresScheduleRepository } from "./infrastructure/persistence/postgres-schedule-repository.js";
 export { createAgentSendTool } from "./infrastructure/tools/agent-send-tool.js";
 export { createScheduledTaskTools } from "./infrastructure/tools/scheduled-task-tools.js";

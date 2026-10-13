@@ -1,0 +1,1 @@
+ALTER TABLE "autonomous_schedules" ADD COLUMN "exploration_mode" text DEFAULT 'deepen' NOT NULL;

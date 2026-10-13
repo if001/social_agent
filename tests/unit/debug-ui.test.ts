@@ -30,6 +30,7 @@ describe("Agent Debug UI", () => {
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
     expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(7);
     expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("FROM autonomous_schedules"))?.sql).toContain('exploration_mode AS "explorationMode"');
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.values).toEqual(["ao", 100]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.sql).toContain("e.observation#>>'{content,targetKind}'");
     expect(overview?.state).toEqual({ mood: "calm" });

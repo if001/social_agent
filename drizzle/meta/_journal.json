@@ -120,6 +120,13 @@
       "when": 1791744317774,
       "tag": "0016_lumpy_chronomancer",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791860641541,
+      "tag": "0017_whole_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

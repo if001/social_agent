@@ -305,6 +305,19 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM autonomous_schedules WHERE id='legacy-drive'")).rows[0]?.lease_until).toBeNull();
   });
 
+  it("rotates the persisted idle exploration mode only after successful completion", async () => {
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,exploration_mode,next_due_at) VALUES ('idle-mode:b','b','idle','explore','deepen','2026-01-01')");
+    const repository = new PostgresScheduleRepository(pool, 60_000, "b");
+    const first = (await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ id }) => id === "idle-mode:b");
+    expect(first).toMatchObject({ kind: "idle", explorationMode: "deepen" });
+    if (first === undefined) throw new Error("Idle schedule was not claimed");
+    await repository.complete(first, new Date("2026-01-03T00:00:00Z"));
+    expect((await pool.query<{ exploration_mode: string }>("SELECT exploration_mode FROM autonomous_schedules WHERE id='idle-mode:b'")).rows[0]?.exploration_mode).toBe("bridge");
+    await pool.query("UPDATE autonomous_schedules SET next_due_at='2026-01-01' WHERE id='idle-mode:b'");
+    const second = (await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ id }) => id === "idle-mode:b");
+    expect(second).toMatchObject({ kind: "idle", explorationMode: "bridge" });
+  });
+
   it("backs off repeated Reflection failures instead of retrying at a fixed interval", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('reflection:a','a','reflection','maintenance',now())");
     for (const id of ["reflection-failed-1", "reflection-failed-2", "reflection-failed-3"]) {

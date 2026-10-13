@@ -4,8 +4,10 @@ import type { ProcessLifecycle } from "../bootstrap/lifecycle.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 type ScheduleTargetBase = { readonly id: string; readonly agentId: string; readonly reason: string; readonly instruction?: string; readonly destination?: string };
+export type ExplorationMode = "deepen" | "bridge" | "distant";
 export type ScheduledTarget = ScheduleTargetBase & (
-  | { readonly kind: "idle" | "concern-due" | "external-change" | "reflection" | "scheduled-task" }
+  | { readonly kind: "idle"; readonly explorationMode: ExplorationMode }
+  | { readonly kind: "concern-due" | "external-change" | "reflection" | "scheduled-task" }
 );
 export interface ScheduleRepository {
   claimDue(now: Date, limit: number): Promise<readonly ScheduledTarget[]>;
@@ -34,7 +36,7 @@ export class Scheduler {
         const occurredAt = this.options.clock.now();
         const destination = target.destination ?? (target.kind === "scheduled-task" ? undefined : this.options.defaultDestination(target.agentId));
         const replyContext = destination === this.options.defaultDestination(target.agentId) ? this.options.defaultReplyContext?.(target.agentId) : undefined;
-        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
+        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.kind === "idle" ? { explorationMode: target.explorationMode } : {}), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
         let action: AgentAction;
         if (target.kind === "reflection") {
           if (this.options.reflection === undefined) throw new Error("Reflection runtime is not configured");

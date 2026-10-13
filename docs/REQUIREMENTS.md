@@ -38,6 +38,9 @@
 - 自律Eventは具体的Tool実行または配送可能なActionなしに成功できない。
 - Patchはmood、Concern 1件、Relationship 1件、即時Memory意図に限定する。
 - Concernのupsert/removeと`reconsiderAt` scheduleを同期する。
+- Concernは進展、満足点、現在のSelfにとっての価値に基づいて継続・変更・満足・放棄・削除する。進展のない同一内容を機械的に延長せず、一律の時間だけでも削除しない。
+- `idle` Eventは`deepen`、`bridge`、`distant`の探索モードを持ち、成功した実行ごとに次のモードへ進む。失敗時は同じモードを再試行する。
+- `bridge`と`distant`の探索も抽象語だけで完結させず、人物、作品、出来事、技術、場所など検証可能な具体的対象へ着地させる。
 
 ## R5. Contextと実行予算
 

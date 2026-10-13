@@ -7,6 +7,7 @@ import { ReflectionInputSchema, ReflectionOutputSchema, type ReflectionInput, ty
 import { DomainError } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
+import { concernLifecyclePrompt } from "./concern-lifecycle-prompt.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 
 const ReflectionMemorySchema = z.object({
@@ -66,7 +67,7 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 - 入力Eventを網羅的に要約しない。同じ内容のMemoryを重複して作らない
 - 変更がなければ配列は空、任意fieldは省略する。空のmaintenance結果は正しい
 - reflectionId、agentId、expectedVersion、入力Selfを出力へ複製しない
-- Action、ユーザー向け応答、Markdown、説明文は返さず、指定された構造化出力だけを返す`;
+- Action、ユーザー向け応答、Markdown、説明文は返さず、指定された構造化出力だけを返す${concernLifecyclePrompt}`;
 
 function domainOutputFromModel(raw: unknown): unknown {
   const parsed = ReflectionModelOutputSchema.safeParse(raw);

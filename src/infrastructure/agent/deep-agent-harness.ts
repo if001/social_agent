@@ -1,4 +1,6 @@
 import { agentCoreSystemPrompt } from "./deep-agent-prompt.js";
+import { autonomousExplorationPrompt } from "./autonomous-exploration-prompt.js";
+import { concernLifecyclePrompt } from "./concern-lifecycle-prompt.js";
 import { createAgentCoreMiddleware } from "./deep-agent-middleware.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunContextSchema, type DeepAgentToolRunContext } from "./deep-agent-tools.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
@@ -33,6 +35,7 @@ const AgentCoreFlatOutputSchema = z.object({
   relationshipDescription: z.string().trim().min(1).max(16_000).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
   remember: z.string().trim().min(1).max(16_000).optional().describe("今回すぐ記憶候補に残す内容。長期的価値がある場合だけ指定")
 }).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
+export const completeAgentCoreSystemPrompt = `${agentCoreSystemPrompt}${autonomousExplorationPrompt}${concernLifecyclePrompt}`;
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
 
 export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
@@ -100,7 +103,7 @@ export function modelCallInputBudget(messages: readonly unknown[], tools: readon
 }
 export function modelInputBudget(input: AgentCoreInput, content: string): { readonly total: number; readonly components: Readonly<Record<string, number>> } {
   const components = {
-    systemPrompt: estimateTokens(agentCoreSystemPrompt),
+    systemPrompt: estimateTokens(completeAgentCoreSystemPrompt),
     messages: estimateTokens([{ role: "user", content }]),
     tools: estimateTokens(input.availableTools),
     outputSchema: estimateTokens(z.toJSONSchema(AgentCoreOutputSchema))
@@ -230,7 +233,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
     logger.log("warn", "agent_core.structured_output_invalid", errorLogContext(error));
     return "構造化出力が不正です。通常Toolは使わず、指定Schemaの全フィールドを含む最終回答を構造化出力専用Toolでちょうど1件だけ返してください。検証エラー: " + error.message;
   } }) as unknown as AgentCoreResponseFormat;
-  const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: agentCoreSystemPrompt, responseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware });
+  const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: completeAgentCoreSystemPrompt, responseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware });
   return {
     async assess(input, options) {
       if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for Event assessment");

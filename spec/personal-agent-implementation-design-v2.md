@@ -574,7 +574,7 @@ type Motive = {
 
 Self Interest、Preference、Dispositionは形成と選択に影響するが、固定対応表でMotiveへ変換しない。Event、Memory、Social Context、現在状態を踏まえて意味を判断する。複数Motiveがあってよく、個数の閾値から機械的に補充しない。
 
-次のEventにも残るMotiveのみ後処理でcreate / maintain / update / merge / resolve / dropする。充足すればresolve、進展可能性や価値を失えばdrop、問い直す場合はdescriptionやgoalを更新する。探索の進展・停滞を記録して判断材料にし、性格にかかわらず一律の時間だけで消す規則にはしない。
+次のEventにも残るMotive（現在実装ではConcern）のみ後処理でcreate / maintain / update / merge / resolve / dropする。充足すれば`satisfied`、進展可能性や価値を失えば`abandoned`またはremove、問い直す場合はdescriptionを更新する。Recent Experienceの進展・停滞を判断材料にし、進展のない同一内容を機械的に延長しない一方、性格にかかわらず一律の時間だけで消す規則にはしない。
 
 ---
 
@@ -1124,7 +1124,9 @@ Internal Eventは自律性の入口として採用するが、Agent Coreが直�
 
 Runtimeが既存Stateから発火する。
 
-Internal EventのtargetKindはautonomy-review、state-review、memory-recall、long-term-reviewとする。long-term-reviewには空でないcandidateIds配列を必須とする。Scheduled Taskは§14のSystem Eventであり、Internal Eventへ混在させない。Self Continuityの再評価はstate-reviewまたはlong-term-reviewの理由として扱い、再評価の目的自体は維持する。
+現在のInternal EventのtargetKindは`idle`、`concern-due`、`external-change`とする。定期的な`reflection`は同じSchedulerから起動するが、通常のAgent Coreではなく専用Reflection処理へ渡す。Scheduled Taskは§14のSystem Eventであり、Internal Eventへ混在させない。
+
+`idle`はEvent種類を細分化せず、payloadの`explorationMode`で探索方法を指定する。モードは`deepen`（現在の具体的対象を深掘り）、`bridge`（惹かれる性質を介して別領域の具体へ移る）、`distant`（経験の薄い領域から具体を選ぶ）の3種類とし、成功した実行ごとに巡回する。抽象化は対象を移るための橋として使い、DesireとActionは検証可能な具体的対象へ戻す。
 
 基本フローは、
 

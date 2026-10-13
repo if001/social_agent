@@ -4,7 +4,7 @@ import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system
 import type { DomainEvent } from "../../src/domain/contracts.js";
 
 describe("Scheduler", () => {
-  const target: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "Due" };
+  const target: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "Due", explorationMode: "deepen" };
   const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 };
   const setup = (action: { type: "no-external-action"; reason: string } | { type: "respond"; content: string }, replyContext?: Readonly<Record<string, unknown>>) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = []; let claimed = false; const completions: (Date | null)[] = [];
@@ -27,10 +27,10 @@ describe("Scheduler", () => {
   });
   it("runs a bounded idle Event", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: unknown[] = []; const completions: (Date | null)[] = [];
-    const review: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "No activity during the configured interval" };
+    const review: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "No activity during the configured interval", explorationMode: "bridge" };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "Internal result" }); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, ...timings });
     await scheduler.tick(new AbortController().signal);
-    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "idle", schedulerGenerated: true } });
+    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "idle", schedulerGenerated: true, explorationMode: "bridge" } });
     expect(completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
   it("consumes a due Concern without installing a fixed periodic schedule", async () => {

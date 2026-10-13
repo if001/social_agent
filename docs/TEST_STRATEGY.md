@@ -12,6 +12,7 @@
 - State Patchのupsert/remove、evidence、別Agent更新拒否
 - Tool schema、権限、冪等性、call budget、同一入力反復、結果上限
 - Concern schedule、Scheduled Task、Reflection、Debug UIの読取り契約
+- idle探索モードのEvent伝播、成功時の巡回、失敗時の維持
 - Reflectionのモデル向けfield説明、flat変更record、repair、入力token上限
 
 ### System
