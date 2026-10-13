@@ -221,8 +221,8 @@ export const AgentTurnSchema = z.object({
   action: FinalActionSchema,
   patch: z.object({
     mood: NaturalLanguage.describe("次のEventにも持続させる現在の気分。変化がない場合は省略する").optional(),
-    concern: ConcernChangeSchema.optional().describe("Concernの変更を1件だけ提案する。変更不要なら省略する"),
-    relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。変更不要なら省略する"),
+    concern: ConcernChangeSchema.optional().describe("Concernの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
+    relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
     remember: NaturalLanguage.describe("今回直ちに記憶候補として残す内容。長期的価値がなければ省略する").optional()
   }).strict().describe("次のEventにも影響する永続状態の変更提案。変更がなければpatch全体を省略する").optional()
 }).strict();
