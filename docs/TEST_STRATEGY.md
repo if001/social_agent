@@ -12,6 +12,7 @@
 - State Patchのupsert/remove、evidence、別Agent更新拒否
 - Tool schema、権限、冪等性、call budget、同一入力反復、結果上限
 - Concern schedule、Scheduled Task、Reflection、Debug UIの読取り契約
+- Reflectionのモデル向けfield説明、flat変更record、repair、入力token上限
 
 ### System
 
@@ -26,6 +27,7 @@
 - 初回とrepairがともに不正なら成功commit、Receipt、Outboxを作らずfailureだけを残す
 - user-messageの`action: string`既知誤出力は空でないfallback応答へ復旧する
 - crash recovery、重複受信、複数Agent分離、Runtime制限
+- Reflection連続失敗時の指数backoff
 
 ここでいうシナリオtestは複数componentを通すSystem testであり、実Ollama、実PostgreSQL、外部Discordをすべて使うEnd-to-End testとは区別する。
 
@@ -41,6 +43,8 @@
 
 - 入力「テストです。日本語で一文だけ返答してください。」に対し、Event AssessmentとAgent Coreを通って空でない応答をOutboxへ保存・配送する。
 - 初回に意図的な`action: string`不正出力を与え、実Ollamaによるrepair後にEvent、Receipt、Outboxを一度だけcommitする。
+
+`tests/live/ollama-reflection.test.ts`は、実OllamaがReflectionのproduction構造化出力経路から有効なmaintenance結果を返すことを確認する。
 
 ### Production-like text UI E2E
 

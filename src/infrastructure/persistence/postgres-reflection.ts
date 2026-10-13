@@ -38,10 +38,10 @@ export class PostgresReflectionRepository implements ReflectionRepository {
     const last = await this.pool.query<{ completed_at: Date | null }>("SELECT completed_at FROM reflection_runs WHERE agent_id=$1 AND status='completed' ORDER BY completed_at DESC,id DESC LIMIT 1", [agentId]);
     const since = last.rows[0]?.completed_at ?? new Date(0);
     const [eventsResult, memoriesResult] = await Promise.all([
-      this.pool.query<EventRow>("SELECT id,occurred_at,observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' AND occurred_at>$2 ORDER BY occurred_at,id LIMIT 128", [agentId, since]),
+      this.pool.query<EventRow>("SELECT id,occurred_at,observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' AND occurred_at>$2 ORDER BY occurred_at,id LIMIT 32", [agentId, since]),
       this.pool.query<MemoryRow>(`SELECT m.id,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects
-        FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id WHERE m.agent_id=$1 GROUP BY m.id ORDER BY m.occurred_at DESC,m.id LIMIT 128`, [agentId])
+        FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id WHERE m.agent_id=$1 GROUP BY m.id ORDER BY m.occurred_at DESC,m.id LIMIT 32`, [agentId])
     ]);
     if (eventsResult.rows.length === 0) return undefined;
     const input = ReflectionInputSchema.parse({

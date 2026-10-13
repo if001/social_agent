@@ -61,6 +61,7 @@
 - 明示的Scheduled Taskは利用者との約束としてConcernやMemoryと分離する。
 - Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。
 - ReflectionはEvent logをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理とする。
+- Reflectionは説明付きのモデル向け構造化出力、厳密なDomain検証、repair、入力上限を持ち、連続失敗時は最大24時間まで指数backoffする。
 
 ## R8. 永続化、配送、運用
 

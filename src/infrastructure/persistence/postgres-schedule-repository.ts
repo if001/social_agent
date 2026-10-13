@@ -27,6 +27,15 @@ export class PostgresScheduleRepository implements ScheduleRepository {
   }
   async release(target: ScheduledTarget): Promise<void> {
     if (target.kind === "scheduled-task") { await this.pool.query("UPDATE scheduled_tasks SET status=CASE WHEN attempt>=3 THEN 'failed' ELSE 'scheduled' END,execute_at=CASE WHEN attempt>=3 THEN execute_at ELSE now()+$3*interval '1 millisecond' END,lease_until=NULL,failure_reason='Scheduled Task execution failed',updated_at=now() WHERE id=$1 AND agent_id=$2", [target.id, target.agentId, this.retryDelayMs]); return; }
+    if (target.kind === "reflection") {
+      const failures = await this.pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM reflection_runs r
+        WHERE r.agent_id=$1 AND r.status='failed'
+        AND r.created_at>COALESCE((SELECT max(completed_at) FROM reflection_runs WHERE agent_id=$1 AND status='completed'),'-infinity'::timestamptz)`, [target.agentId]);
+      const consecutiveFailures = Number.parseInt(failures.rows[0]?.count ?? "1", 10);
+      const delayMs = Math.min(86_400_000, this.retryDelayMs * 2 ** Math.min(8, Math.max(0, consecutiveFailures - 1)));
+      await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=now()+$2*interval '1 millisecond',updated_at=now() WHERE id=$1", [target.id, delayMs]);
+      return;
+    }
     await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=now()+$2*interval '1 millisecond',updated_at=now() WHERE id=$1", [target.id, this.retryDelayMs]);
   }
 }
