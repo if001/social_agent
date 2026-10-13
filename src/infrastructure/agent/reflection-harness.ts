@@ -10,50 +10,63 @@ import { modelJsonSchema } from "./model-json-schema.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 
 const ReflectionMemorySchema = z.object({
-  summary: z.string().trim().min(1).max(16_000).describe("Memoryへ残す経験の簡潔な内容"),
-  significance: z.string().trim().min(1).max(16_000).describe("その経験が現在のAgentにとって重要な理由"),
-  subjects: z.array(z.string().min(1)).max(12).describe("Memoryに関係する入力中の人物または対象ID。なければ空配列"),
-  occurredAt: z.string().describe("経験が起きた入力EventのISO 8601日時"),
-  source: z.string().trim().min(1).max(16_000).optional().describe("他Agentなど情報源が入力に明示されている場合だけ指定")
-}).strict().describe("今回新しく保存するepisodic Memory");
+  summary: z.string().trim().min(1).max(16_000).describe("後の判断や検索で再利用する経験の記録。何が起き、どうなったかを具体的に1〜2文で書く"),
+  significance: z.string().trim().min(1).max(16_000).describe("この経験を今後も覚える具体的理由。Self、Concern、関係、判断のどれに影響するかを書く"),
+  subjects: z.array(z.string().min(1)).max(12).describe("このMemoryを人物・対象から検索するためのID。入力にあるIDだけを使い、対象がなければ空配列"),
+  occurredAt: z.string().describe("Memoryの時系列順と根拠追跡に使う発生日時。根拠EventのoccurredAtをそのまま使う"),
+  source: z.string().trim().min(1).max(16_000).optional().describe("伝聞と直接経験を区別する情報源ID。入力に情報源が明記された伝聞だけに指定する")
+}).strict().describe("今後の判断に再利用する価値がある経験。入力Eventの単なる要約は保存しない");
 
 const ReflectionConcernChangeSchema = z.object({
-  operation: z.enum(["upsert", "remove"]).describe("Concernを追加・更新する場合はupsert、削除する場合はremove"),
-  id: z.string().min(1).describe("変更するConcernの安定したID"),
-  description: z.string().trim().min(1).max(16_000).optional().describe("upsertするConcernの内容。removeでは省略"),
-  whyItMatters: z.string().trim().min(1).max(16_000).optional().describe("upsertするConcernが重要な理由。removeでは省略"),
-  status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("upsertするConcernの状態。removeでは省略"),
-  reconsiderAt: z.string().optional().describe("再検討する明確な将来のISO 8601日時がある場合だけ指定")
-}).strict().describe("持続するConcernの変更");
+  operation: z.enum(["upsert", "remove"]).describe("今後もContextへ残すならupsert、既存Concernを消すならremove"),
+  id: z.string().min(1).describe("同じConcernを次回以降も識別するID。更新・削除では既存IDを使う"),
+  description: z.string().trim().min(1).max(16_000).optional().describe("まだ気に掛ける未解決事項。作業手順ではなく、何が未解決かを一文で書く。upsertだけに指定する"),
+  whyItMatters: z.string().trim().min(1).max(16_000).optional().describe("この未解決事項を次回以降の判断へ残す理由。現在のSelfや関係との結び付きを具体的に書く。upsertだけに指定する"),
+  status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。upsertだけに指定する"),
+  reconsiderAt: z.string().optional().describe("Schedulerが再検討Eventを起こす日時。入力から明確な将来時刻を決められる場合だけ指定する")
+}).strict().describe("複数Eventにわたり判断へ影響する未解決事項の変更。今回だけの感想や実行手順は入れない");
 
 const ReflectionRelationshipChangeSchema = z.object({
-  operation: z.enum(["upsert", "remove"]).describe("Relationshipを追加・更新する場合はupsert、削除する場合はremove"),
-  subjectId: z.string().min(1).describe("関係する相手のID"),
-  description: z.string().trim().min(1).max(16_000).optional().describe("upsertする現在の関係性。removeでは省略")
-}).strict().describe("持続するRelationshipの変更");
+  operation: z.enum(["upsert", "remove"]).describe("今後の対人Contextへ残すならupsert、既存Relationshipを消すならremove"),
+  subjectId: z.string().min(1).describe("関係する相手を識別する入力中のID"),
+  description: z.string().trim().min(1).max(16_000).optional().describe("今後その相手への意味づけや応答へ影響する現在の関係。今回の会話内容ではなく、関係の変化を一文で書く。upsertだけに指定する")
+}).strict().describe("特定の相手との持続的な関係の変更。関係が変わっていなければ出力しない");
 
 export const ReflectionModelOutputSchema = z.object({
-  memories: z.array(ReflectionMemorySchema).max(4).describe("今回新しく保存するMemory。不要なら空配列"),
-  concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("Concern変更。不要なら空配列"),
-  relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("Relationship変更。不要なら空配列"),
-  mood: z.string().trim().min(1).max(16_000).optional().describe("次のEventにも残す気分が変化した場合だけ指定"),
-  selfIdentity: z.string().trim().min(1).max(16_000).optional().describe("十分なMemory根拠によりSelfを変更する場合のidentity"),
-  selfDisposition: z.string().trim().min(1).max(16_000).optional().describe("十分なMemory根拠によりSelfを変更する場合のdisposition"),
-  selfStory: z.string().trim().min(1).max(16_000).optional().describe("十分なMemory根拠によりSelfを変更する場合のselfStory"),
-  selfCommitments: z.array(z.string().trim().min(1).max(16_000)).max(12).optional().describe("十分なMemory根拠によりSelfを変更する場合のcommitments"),
-  selfChangeReason: z.string().trim().min(1).max(16_000).optional().describe("Selfを変更する理由。Selfの全fieldを出す場合だけ必須"),
-  evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更の根拠に使った入力Memory ID。Selfを変更しない場合は空配列")
-}).strict().describe("Reflectionのmaintenance結果。変更不要な配列は空にし、Selfは変更時だけ全fieldを指定する");
+  memories: z.array(ReflectionMemorySchema).max(4).describe("Memory DBへ新規保存し、今後のContext検索に使う経験。保存価値がなければ空配列"),
+  concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("現在Stateのconcernsへ適用する変更。未解決事項が変わらなければ空配列"),
+  relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("現在Stateのrelationshipsへ適用する変更。関係が変わらなければ空配列"),
+  mood: z.string().trim().min(1).max(16_000).optional().describe("次の複数Eventの意味づけや行動へ影響する現在の気分。短期的な感情だけなら省略する"),
+  selfIdentity: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
+  selfDisposition: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、価値を感じやすい対象と意味づけの傾向。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
+  selfStory: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
+  selfCommitments: z.array(z.string().trim().min(1).max(16_000)).max(12).optional().describe("全Eventで守るもの、続ける関係、譲らないこと。十分なMemory根拠で変化した場合だけ、完全な配列を指定する"),
+  selfChangeReason: z.string().trim().min(1).max(16_000).optional().describe("どの反復経験または強い経験によりSelfがどう変わったか。Selfの全fieldと一緒にだけ指定する"),
+  evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更をRuntimeが検証するための根拠Memory ID。Selfを変更しない場合は空配列")
+}).strict().describe("永続状態へ実際に適用する最小限の変更。入力の説明や変更のない値は出力しない");
 
 export const ReflectionModelOutputJsonSchema = modelJsonSchema(ReflectionModelOutputSchema);
 type ReflectionResponseFormat = TypedToolStrategy<z.infer<typeof ReflectionModelOutputSchema>>;
 
-export const reflectionSystemPrompt = `あなたは一個体として経験を蓄積するAgentのReflection担当です。
+export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以降の判断に必要な永続状態へ整理するReflection担当です。
 
-Event logと既存Memoryを振り返り、重要な経験のMemory化、Concern、Relationship、Mood、Selfの長期変化を一つのmaintenance結果として返します。
-単発の弱い経験だけでSelfを変更しません。Self変更には反復、強い経験、または既存Selfとの明確な矛盾を示す入力Memory IDを根拠として指定します。
-事実を創作せず、入力外のIDを使いません。変更がなければ各配列を空にします。Actionやユーザー向け応答は生成しません。
-reflectionId、agentId、expectedVersion、入力Selfや入力Eventそのものを出力へ複製しません。最終回答は指定されたReflection構造化出力だけを返します。`;
+目的:
+- Eventの再説明ではなく、今後も使うMemory、未解決Concern、関係の変化、持続するMoodだけを残す
+- Selfは、反復した経験、強い経験、または既存Selfとの明確な矛盾があるときだけ更新する
+
+出力基準:
+- Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
+- Concern: 今回では解消せず、次回以降も気に掛ける具体的な未解決事項だけを書く
+- Relationship: 特定の相手との関係が実際に変化した場合だけ書く
+- Mood: 一時的な感情ではなく、次の複数Eventへ残る気分だけを書く
+- Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
+
+制約:
+- 入力にない事実、ID、日時、関係を作らない
+- 入力Eventを網羅的に要約しない。同じ内容のMemoryを重複して作らない
+- 変更がなければ配列は空、任意fieldは省略する。空のmaintenance結果は正しい
+- reflectionId、agentId、expectedVersion、入力Selfを出力へ複製しない
+- Action、ユーザー向け応答、Markdown、説明文は返さず、指定された構造化出力だけを返す`;
 
 function domainOutputFromModel(raw: unknown): unknown {
   const parsed = ReflectionModelOutputSchema.safeParse(raw);

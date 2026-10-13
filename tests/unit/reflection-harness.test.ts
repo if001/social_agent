@@ -3,6 +3,7 @@ import {
   MAX_REFLECTION_MODEL_INPUT_TOKENS,
   ReflectionModelOutputJsonSchema,
   StructuredReflectionModel,
+  reflectionSystemPrompt,
   type ReflectionInvoker
 } from "../../src/infrastructure/agent/reflection-harness.js";
 
@@ -73,6 +74,15 @@ describe("structured Reflection model", () => {
     visit(ReflectionModelOutputJsonSchema, "");
     expect(missing).toEqual([]);
     expect(JSON.stringify(ReflectionModelOutputJsonSchema)).not.toContain('"pattern":');
+    const properties = ReflectionModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
+    expect(properties.memories?.description).toContain("Context検索");
+    expect(properties.concernChanges?.description).toContain("未解決事項");
+    expect(properties.relationshipChanges?.description).toContain("関係が変わらなければ");
+    expect(properties.mood?.description).toContain("次の複数Event");
+    expect(properties.selfDisposition?.description).toContain("意味づけの傾向");
+    expect(properties.evidenceMemoryIds?.description).toContain("Runtimeが検証");
+    expect(reflectionSystemPrompt).toContain("空のmaintenance結果は正しい");
+    expect(reflectionSystemPrompt).toContain("入力Eventを網羅的に要約しない");
   });
 
   it("rejects an oversized Reflection prompt before invoking the model", async () => {
