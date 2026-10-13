@@ -52,11 +52,20 @@ describe("AgentHarness contract", () => {
     expect(recentToolInputs).toEqual(['{"tool":"lookup","input":{"query":"same"}}']);
   });
 
-  it("does not duplicate registered Tool JSON Schemas in the Agent input prompt", async () => {
+  it("does not duplicate registered Tools in the Agent input prompt", async () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.availableTools = [{ name: "lookup", description: "Search", inputSchema: { type: "object", properties: { secretSchemaMarker: { type: "string" } } } }];
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
-    expect(prompt).toContain('"name":"lookup"'); expect(prompt).not.toContain("secretSchemaMarker");
+    expect(prompt).not.toContain('"name":"lookup"'); expect(prompt).not.toContain("secretSchemaMarker");
+  });
+
+  it("warns but still invokes the provider when the estimated input exceeds the internal threshold", async () => {
+    const warnings: string[] = []; let invoked = false;
+    const logger = { child: () => logger, log: (level: string, step: string) => { if (level === "warn") warnings.push(step); } };
+    const invoker: DeepAgentInvoker = { invoke: () => { invoked = true; return Promise.resolve({ structuredResponse: output }); } };
+    const input = agentCoreInputFixture(); input.currentSelf = { ...input.currentSelf, disposition: "x".repeat(MAX_MODEL_INPUT_TOKENS * 4) };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), logger }).run(input, new AbortController().signal)).resolves.toMatchObject(result);
+    expect(invoked).toBe(true); expect(warnings).toContain("agent_core.model_input_budget_exceeded");
   });
 
   it("counts the system prompt, messages, Tool schemas, and output schema in the final input gate", () => {
