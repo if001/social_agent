@@ -1,4 +1,4 @@
-import { assertBotStartConfig, loadConfig, type AppConfig } from "../config/config.js";
+import { assertDiscordStartConfig, loadConfig, type AppConfig } from "../config/config.js";
 
 export type PageIngestStartArguments = { readonly environmentFile?: string };
 
@@ -11,6 +11,6 @@ export function parsePageIngestStartArguments(args: readonly string[]): PageInge
 export async function loadPageIngestStartConfig(args: readonly string[], options: { readonly cwd?: string; readonly environment?: NodeJS.ProcessEnv } = {}): Promise<AppConfig> {
   const parsed = parsePageIngestStartArguments(args);
   const config = await loadConfig({ ...options, ...(parsed.environmentFile === undefined ? {} : { environmentFile: parsed.environmentFile }) });
-  assertBotStartConfig(config);
+  assertDiscordStartConfig(config);
   return config;
 }

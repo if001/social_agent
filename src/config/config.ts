@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type { BotPersona } from "../domain/contracts.js";
 import { loadPersonaFile } from "./persona.js";
+import { loadExplorationDomainCatalog } from "./exploration-domains.js";
 
 const HttpUrl = z.url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "must use HTTP(S)");
 const OptionalText = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().min(1).optional());
@@ -72,6 +73,7 @@ export type AppConfig = {
   readonly botId: string;
   readonly familyId: string;
   readonly persona?: BotPersona;
+  readonly explorationDomains: readonly string[];
   readonly database: { readonly url: string; readonly adminUrl: string };
   readonly chat: { readonly baseUrl: string; readonly apiKey: string; readonly model: string };
   readonly embedding: { readonly baseUrl: string; readonly model: string; readonly dimension: number };
@@ -110,12 +112,16 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
   catch (error) {
     if (configuredPersonaPath !== undefined || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  let explorationDomains: readonly string[] = [];
+  try { explorationDomains = (await loadExplorationDomainCatalog(resolve(cwd, "config", "exploration-domains.yaml"))).topics; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const channelIds = list(value.DISCORD_CHANNEL_IDS || value.DISCORD_CHANNEL_ID || "");
   const ownerIds = list(value.DISCORD_OWNER_IDS); const guildIds = list(value.DISCORD_GUILD_IDS);
   return {
     botId: value.BOT_ID,
     familyId: value.BOT_FAMILY_ID,
     ...(persona === undefined ? {} : { persona }),
+    explorationDomains,
     database: { url: value.POSTGRES_URL, adminUrl: value.ADMIN_POSTGRES_URL },
     chat: { baseUrl: value.OLLAMA_BASE_URL, apiKey: value.OLLAMA_API_KEY, model: value.OLLAMA_CHAT_MODEL },
     embedding: { baseUrl: value.OLLAMA_EMBEDDING_BASE_URL, model: value.OLLAMA_EMBEDDING_MODEL, dimension: value.OLLAMA_EMBEDDING_DIMENSION },
@@ -133,10 +139,15 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
   };
 }
 
-export function assertBotStartConfig(config: AppConfig): void {
+export function assertDiscordStartConfig(config: AppConfig): void {
   if (config.discord === undefined) throw new Error("Discord configuration is required for bot:start");
   if (config.discord.ownerIds.length === 0) throw new Error("DISCORD_OWNER_IDS is required for bot:start");
   if (config.discord.channelIds.length === 0) throw new Error("DISCORD_CHANNEL_IDS or DISCORD_CHANNEL_ID is required for bot:start");
+}
+
+export function assertBotStartConfig(config: AppConfig): void {
+  assertDiscordStartConfig(config);
+  if (config.explorationDomains.length < 100) throw new Error("At least 100 exploration domains are required for bot:start");
 }
 
 export function assertDistinctBotConfigs(configs: readonly AppConfig[]): void {

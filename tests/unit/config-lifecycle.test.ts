@@ -5,6 +5,7 @@ import { assertDistinctBotConfigs, loadConfig } from "../../src/config/config.js
 import { loadBotStartConfig, parseBotStartArguments } from "../../src/bootstrap/bot-start.js";
 import { loadPageIngestStartConfig, parsePageIngestStartArguments } from "../../src/bootstrap/page-ingest-start.js";
 import { loadInitialSelfFile } from "../../src/config/initial-self.js";
+import { loadExplorationDomainCatalog } from "../../src/config/exploration-domains.js";
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { redactSecrets } from "../../src/observability/redaction.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
@@ -37,6 +38,8 @@ describe("configuration and lifecycle", () => {
     expect(ao.agent.initialDisposition).toContain("試さずに分かったつもり");
     expect(aka.agent.initialDisposition).toContain("エドワード・ホッパー");
     expect(aka.agent.initialDisposition).toContain("根拠のない断定");
+    expect(ao.agent.initialDisposition).not.toContain("問いを一つ選び");
+    expect(aka.agent.initialDisposition).not.toContain("複数の可能性を比べ");
     for (const config of [ao, aka]) {
       expect(config.agent).not.toHaveProperty("values");
       expect(config.agent).not.toHaveProperty("interests");
@@ -45,6 +48,14 @@ describe("configuration and lifecycle", () => {
     }
     expect(ao.agent).not.toHaveProperty("firstPerson");
     expect(aka.agent).not.toHaveProperty("tone");
+  });
+
+  it("loads a broad and duplicate-free exploration domain catalog", async () => {
+    const catalog = await loadExplorationDomainCatalog("config/exploration-domains.yaml");
+    expect(catalog.topics.length).toBeGreaterThanOrEqual(100);
+    expect(catalog.topics.length).toBeLessThanOrEqual(200);
+    expect(new Set(catalog.topics).size).toBe(catalog.topics.length);
+    expect(catalog.topics).toEqual(expect.arrayContaining(["古代メソポタミアの都市と粘土板記録", "人工知能の評価と限界", "発酵食品と微生物文化", "詩の韻律と声"]));
   });
 
   it("loads sample, then .env, then process overrides", async () => {
@@ -67,6 +78,8 @@ describe("configuration and lifecycle", () => {
   it("loads process-specific bot files after .env and keeps bot destinations distinct", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
     await writeFile(`${cwd}/.env.sample`, required);
+    await mkdir(`${cwd}/config`, { recursive: true });
+    await writeFile(`${cwd}/config/exploration-domains.yaml`, `version: 1\ntopics:\n${Array.from({ length: 100 }, (_, index) => `  - exploration-topic-${String(index + 1)}`).join("\n")}\n`);
     await writeFile(`${cwd}/.env`, "BOT_ID=local\n");
     const discord = "DISCORD_BOT_TOKEN=secret\nDISCORD_BOT_USER_ID=user\nDISCORD_OWNER_IDS=owner,owner\nDISCORD_CHANNEL_IDS=channel\n";
     await writeFile(`${cwd}/.env.bot-a`, `BOT_ID=bot-a\n${discord}`);

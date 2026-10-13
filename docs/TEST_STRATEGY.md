@@ -13,6 +13,7 @@
 - Tool schema、権限、冪等性、call budget、同一入力反復、結果上限
 - Concern schedule、Scheduled Task、Reflection、Debug UIの読取り契約
 - idle探索モードのEvent伝播、成功時の巡回、失敗時の維持
+- 探索領域カタログの件数・重複検証、`distant`候補の上限制御、cursorの成功時更新と失敗時維持
 - Reflectionのモデル向けfield説明、flat変更record、repair、入力token上限
 
 ### System

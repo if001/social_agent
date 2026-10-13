@@ -79,7 +79,7 @@ Patchは任意のmood、Concern 1件、Relationship 1件、即時Memory意図に
 
 ## Event-driven autonomyとReflection
 
-常時思考loopは持たない。Schedulerは`idle`、`concern-due`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。`idle`などの自律Eventは通常Agent Loopへ入り、Concernの`reconsiderAt`はscheduleと同期する。`idle`はEvent種類を増やさず、永続化した`explorationMode`を`deepen`、`bridge`、`distant`の順に成功時だけ巡回させる。`deepen`は現在の具体的対象を深掘りし、`bridge`は惹かれる性質を介して別領域の具体へ移り、`distant`は経験の薄い領域から具体的対象を選ぶ。
+常時思考loopは持たない。Schedulerは`idle`、`concern-due`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。`idle`などの自律Eventは通常Agent Loopへ入り、Concernの`reconsiderAt`はscheduleと同期する。`idle`はEvent種類を増やさず、永続化した`explorationMode`を`deepen`、`bridge`、`distant`の順に成功時だけ巡回させる。`deepen`は現在の具体的対象を深掘りし、`bridge`は惹かれる性質を介して別領域の具体へ移る。`distant`では`config/exploration-domains.yaml`の100〜200件のカタログから、永続cursorで最大8件をEventへ渡し、Agent CoreがMemoryの薄い領域を一つ選んで具体化する。失敗時はmodeとcursorを進めない。
 
 Reflectionは蓄積EventをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理である。通常Action選択とは分離し、Self変更にはMemory根拠と明示的理由を要求する。ReflectionもDeep Agentsの`toolStrategy`による説明付き構造化出力を使い、モデル向けの単純な変更recordを厳密なDomain outputへ変換する。入力はEvent / Memory各32件と8,000推定token、1回の出力はMemory / Concern / Relationship各4件までに制限する。連続失敗時のscheduleは5分を起点に指数backoffし、最大24時間まで延長する。
 

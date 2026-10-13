@@ -6,7 +6,7 @@ import { errorLogContext, noopLogger, type Logger } from "../observability/logge
 type ScheduleTargetBase = { readonly id: string; readonly agentId: string; readonly reason: string; readonly instruction?: string; readonly destination?: string };
 export type ExplorationMode = "deepen" | "bridge" | "distant";
 export type ScheduledTarget = ScheduleTargetBase & (
-  | { readonly kind: "idle"; readonly explorationMode: ExplorationMode }
+  | { readonly kind: "idle"; readonly explorationMode: ExplorationMode; readonly explorationCursor: number }
   | { readonly kind: "concern-due" | "external-change" | "reflection" | "scheduled-task" }
 );
 export interface ScheduleRepository {
@@ -15,7 +15,12 @@ export interface ScheduleRepository {
   release(target: ScheduledTarget): Promise<void>;
 }
 export interface InternalEventRuntime { process(event: DomainEvent, signal: AbortSignal): Promise<AgentAction>; }
-export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly reflection?: { process(reflectionId: string, agentId: string, signal: AbortSignal): Promise<unknown> }; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
+export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly reflection?: { process(reflectionId: string, agentId: string, signal: AbortSignal): Promise<unknown> }; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly explorationDomains?: readonly string[]; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
+
+function explorationCandidates(domains: readonly string[], cursor: number, count = 8): readonly string[] {
+  if (domains.length === 0) return [];
+  return Array.from({ length: Math.min(count, domains.length) }, (_, offset) => domains[(cursor + offset) % domains.length] as string);
+}
 
 export class Scheduler {
   readonly #running = new Set<string>();
@@ -36,7 +41,7 @@ export class Scheduler {
         const occurredAt = this.options.clock.now();
         const destination = target.destination ?? (target.kind === "scheduled-task" ? undefined : this.options.defaultDestination(target.agentId));
         const replyContext = destination === this.options.defaultDestination(target.agentId) ? this.options.defaultReplyContext?.(target.agentId) : undefined;
-        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.kind === "idle" ? { explorationMode: target.explorationMode } : {}), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
+        const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.kind === "idle" ? { explorationMode: target.explorationMode, ...(target.explorationMode === "distant" ? { explorationCandidates: explorationCandidates(this.options.explorationDomains ?? [], target.explorationCursor) } : {}) } : {}), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
         let action: AgentAction;
         if (target.kind === "reflection") {
           if (this.options.reflection === undefined) throw new Error("Reflection runtime is not configured");

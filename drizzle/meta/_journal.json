@@ -127,6 +127,13 @@
       "when": 1791860641541,
       "tag": "0017_whole_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791862854323,
+      "tag": "0018_tiny_pete_wisdom",
+      "breakpoints": true
     }
   ]
 }

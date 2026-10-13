@@ -1,0 +1,1 @@
+ALTER TABLE "autonomous_schedules" ADD COLUMN "exploration_cursor" integer DEFAULT 0 NOT NULL;

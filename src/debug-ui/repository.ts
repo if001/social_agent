@@ -48,7 +48,7 @@ export class DebugUiRepository {
     const [states, scheduledTasks, schedules, reflections] = await Promise.all([
       this.query<QueryResultRow>(`SELECT mood,concerns,relationships,version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 ORDER BY execute_at DESC,id LIMIT 100`, [agentId]),
-      this.query<QueryResultRow>(`SELECT id,kind,reason,exploration_mode AS "explorationMode",next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
+      this.query<QueryResultRow>(`SELECT id,kind,reason,exploration_mode AS "explorationMode",exploration_cursor AS "explorationCursor",next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,input_state_version AS "inputStateVersion",status,input,output,failure_reason AS "failureReason",completed_at AS "completedAt",created_at AS "createdAt",updated_at AS "updatedAt" FROM reflection_runs WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 50`, [agentId])
     ]);
     return { agent, state: states[0] ?? {}, scheduledTasks, schedules, reflections };
