@@ -12,7 +12,7 @@ import { z } from "zod";
 import type { AgentHarness } from "../../application/ports.js";
 import { estimateTokens } from "../../application/context-builder.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
-import { AgentCoreOutputSchema, DomainError, EventAssessmentSchema, type AgentCoreInput, type AgentRunResult, type EventAssessment, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { AgentCoreOutputSchema, ConcernProposalSchema, DomainError, EventAssessmentSchema, type AgentCoreInput, type AgentRunResult, type ConcernProposal, type EventAssessment, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
@@ -24,12 +24,6 @@ const AgentCoreFlatOutputSchema = z.object({
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
   mood: z.string().trim().min(1).max(400).optional().describe("次のEventにも残す気分。変化がある場合だけ指定"),
-  concernOperation: z.enum(["upsert", "remove"]).optional().describe("Concernを変更する場合の操作。変更しない場合は省略"),
-  concernId: z.string().min(1).optional().describe("変更するConcernのID。concernOperation指定時は必須"),
-  concernDescription: z.string().trim().min(1).max(800).optional().describe("追加または更新するConcernの内容。concernOperationがupsertの場合は必須"),
-  concernWhyItMatters: z.string().trim().min(1).max(800).optional().describe("Concernが現在のSelfにとって重要な理由。concernOperationがupsertの場合は必須"),
-  concernStatus: z.enum(["active", "satisfied", "abandoned"]).optional().describe("Concernの状態。concernOperationがupsertの場合は必須"),
-  concernReconsiderAt: z.string().optional().describe("Concernを再検討するISO 8601日時。明確な将来時刻がある場合だけ指定"),
   relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
   relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
   relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
@@ -48,14 +42,20 @@ function domainOutputFromFlat(value: unknown): unknown {
     : flat.actionType === "refuse" ? { type: flat.actionType, content: flat.content, reason: flat.reason, basis: flat.refusalBasis }
       : flat.actionType === "notify-no-execution" ? { type: flat.actionType, content: flat.content, reason: flat.reason }
         : { type: flat.actionType, reason: flat.reason };
-  const concern = flat.concernOperation === "upsert"
-    ? { operation: flat.concernOperation, concern: { id: flat.concernId, description: flat.concernDescription, whyItMatters: flat.concernWhyItMatters, status: flat.concernStatus, ...(flat.concernReconsiderAt === undefined ? {} : { reconsiderAt: flat.concernReconsiderAt }) } }
-    : flat.concernOperation === "remove" ? { operation: flat.concernOperation, id: flat.concernId } : undefined;
   const relationship = flat.relationshipOperation === "upsert"
     ? { operation: flat.relationshipOperation, relationship: { subjectId: flat.relationshipSubjectId, description: flat.relationshipDescription } }
     : flat.relationshipOperation === "remove" ? { operation: flat.relationshipOperation, subjectId: flat.relationshipSubjectId } : undefined;
-  const hasPatch = flat.mood !== undefined || concern !== undefined || relationship !== undefined || flat.remember !== undefined;
-  return { desire: flat.desire, action, ...(hasPatch ? { patch: { ...(flat.mood === undefined ? {} : { mood: flat.mood }), ...(concern === undefined ? {} : { concern }), ...(relationship === undefined ? {} : { relationship }), ...(flat.remember === undefined ? {} : { remember: flat.remember }) } } : {}) };
+  const hasPatch = flat.mood !== undefined || relationship !== undefined || flat.remember !== undefined;
+  return { desire: flat.desire, action, ...(hasPatch ? { patch: { ...(flat.mood === undefined ? {} : { mood: flat.mood }), ...(relationship === undefined ? {} : { relationship }), ...(flat.remember === undefined ? {} : { remember: flat.remember }) } } : {}) };
+}
+
+function concernProposals(executions: readonly ToolExecutionRecord[]): ConcernProposal[] {
+  return executions.flatMap((execution) => {
+    if (execution.name !== "concern_propose" || !execution.ok) return [];
+    const value = typeof execution.result === "object" && execution.result !== null && "proposal" in execution.result ? execution.result.proposal : undefined;
+    const parsed = ConcernProposalSchema.safeParse(value);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 type ReusableDeepAgent = {
@@ -78,7 +78,7 @@ export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
 export type { EventAssessment } from "../../domain/contracts.js";
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly activeConcernCount?: number; readonly dueConcernCount?: number; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
   assess?(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<{ readonly assessment: EventAssessment; readonly modelCalls: number }>;
   invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>;
@@ -149,7 +149,7 @@ export class DeepAgentHarness implements AgentHarness {
     const maxAttempts = this.#maxRepairs + 1;
     const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
     if (this.options.invoker.assess !== undefined) {
-      const assessmentContent = JSON.stringify({ promptVersion: "event-assessment-v2-ja", input: { observation: input.observation, currentSelf: input.currentSelf, state: input.state, memories: input.memories } });
+      const assessmentContent = JSON.stringify({ promptVersion: "event-assessment-v3-ja", input: { observation: input.observation, identity: input.currentSelf.identity, persona: input.persona } });
       const assessed = await this.options.invoker.assess({ messages: [{ role: "user", content: assessmentContent }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: input.limits.maxSteps, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: 0 });
       consumedModelCalls += assessed.modelCalls;
       currentEventAssessment = assessed.assessment;
@@ -158,7 +158,17 @@ export class DeepAgentHarness implements AgentHarness {
       try {
         const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
-        const promptInput = { ...input, memoryRetrievalTrace: undefined, availableTools: undefined, currentEventAssessment };
+        const activeConcerns = input.state.concerns.filter(({ status }) => status === "active");
+        const dueConcernCount = activeConcerns.filter(({ reconsiderAt }) => reconsiderAt !== undefined && Date.parse(reconsiderAt) <= Date.parse(input.run.occurredAt)).length;
+        const promptInput = {
+          event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: input.observation },
+          identity: input.currentSelf.identity,
+          ...(input.persona === undefined ? {} : { persona: input.persona }),
+          concernSummary: { activeCount: activeConcerns.length, dueCount: dueConcernCount },
+          recentExperiences: input.recentExperiences.slice(-2),
+          runtimeConstraints: input.runtimeConstraints,
+          currentEventAssessment
+        };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v2-ja", input: promptInput })
           : JSON.stringify({ instruction: "無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。通常Toolは呼ばず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。状態変更がなければ状態フィールドは省略してください。入力Contextを推測せず、許可されたevidence IDだけを使ってください。", allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
@@ -166,14 +176,14 @@ export class DeepAgentHarness implements AgentHarness {
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "agent_core.model_input_budget_exceeded", { estimatedTokens: modelBudget.total, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(modelBudget.components) });
         const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
         const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: remainingModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, maxToolCalls: attempt === 0 ? input.limits.maxToolCalls : 0, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: remainingModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, activeConcernCount: activeConcerns.length, dueConcernCount, maxToolCalls: attempt === 0 ? input.limits.maxToolCalls : 0, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
         if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
         consumedModelCalls += invokedModelCalls;
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreOutputSchema.safeParse(raw);
-        if (parsed.success) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: parsed.data, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, attempt) }; }
+        if (parsed.success) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: parsed.data, toolExecutions: observedToolExecutions, concernProposals: concernProposals(observedToolExecutions), budget: budgetResult(consumedModelCalls, attempt) }; }
         validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
         logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
       } catch (error) {
@@ -185,7 +195,7 @@ export class DeepAgentHarness implements AgentHarness {
     const recovered = recoverUserStringAction(raw, input);
     if (recovered !== undefined) {
       (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId }).log("warn", "agent_core.string_action_recovered", { modelCalls: consumedModelCalls });
-      return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: recovered, toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, this.#maxRepairs) };
+      return { ...(currentEventAssessment === undefined ? {} : { assessment: currentEventAssessment }), output: recovered, toolExecutions: observedToolExecutions, concernProposals: concernProposals(observedToolExecutions), budget: budgetResult(consumedModelCalls, this.#maxRepairs) };
     }
     throw new DomainError(consumedModelCalls >= input.limits.maxSteps ? "LIMIT_EXCEEDED" : "VALIDATION", `Agent returned invalid structured output after ${String(consumedModelCalls)} model calls: ${JSON.stringify(validationIssues)}`, { cause: { toolExecutions: observedToolExecutions, budget: budgetResult(consumedModelCalls, Math.max(0, Math.min(this.#maxRepairs, consumedModelCalls - 1))) } });
   }
@@ -246,6 +256,9 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         agentId: options.agentId,
         runId: options.runId,
         eventId: options.eventId,
+        eventKind: options.eventKind,
+        activeConcernCount: options.activeConcernCount ?? 0,
+        dueConcernCount: options.dueConcernCount ?? 0,
         maxToolCalls: Math.min(25, options.maxToolCalls),
         signal: options.signal,
         ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }),

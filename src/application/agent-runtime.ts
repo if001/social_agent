@@ -114,8 +114,9 @@ export class AgentRuntime {
       throw error;
     }
     const output = result.output;
-    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: output.patch === undefined ? 0 : 1 });
-    const update = this.#updates.apply(event.agentId, input.state, output.patch, event.id);
+    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: (output.patch === undefined ? 0 : 1) + (result.concernProposals?.length ?? 0) });
+    const patched = this.#updates.apply(event.agentId, input.state, output.patch, event.id);
+    const update = this.#updates.applyConcernProposals(patched, result.concernProposals ?? [], event.id, () => this.options.ids.next());
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });

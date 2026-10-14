@@ -24,6 +24,7 @@ import { PostgresMemoryEmbeddingLifecycle } from "../../src/infrastructure/persi
 import { PostgresWebArchive } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 import { createScheduledTaskTools } from "../../src/infrastructure/tools/scheduled-task-tools.js";
+import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
@@ -212,7 +213,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("loads a complete Agent Core context from PostgreSQL without crossing Agent ownership", async () => {
+  it("loads a minimal Agent Core context and retrieval Tools without crossing Agent ownership", async () => {
     await pool.query("UPDATE agent_families SET base_instruction='' WHERE id='family'");
     await pool.query("UPDATE agent_states SET relationships=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ subjectId: "owner", description: "Trusted" }])]);
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
@@ -225,8 +226,9 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-tool-a','failed-run-a','failed-experience-a','call-1','web_list',$1,$2,NULL,now(),now())", [JSON.stringify({ q: "agent memory" }), JSON.stringify({ results: [] })]);
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-file-tool-a','failed-run-a','failed-experience-a','call-2','file_read',$1,$2,NULL,now(),now())", [JSON.stringify({ path: "notes.md", content: "raw input must not enter recent experiences".repeat(100) }), JSON.stringify({ path: "notes.md", content: "raw file must not enter recent experiences", truncated: false })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
+    const contextToolRegistry = new ToolRegistry([...createAgentContextTools(pool), ...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
     const loader = new PostgresAgentContextLoader({
-      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: new ToolRegistry([...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]),
+      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: contextToolRegistry,
       persona: { version: 1, identity: { displayName: "Agent A" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } },
       budget: { maxTokens: 10_000, maxMemories: 10, maxSocialContexts: 10 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
@@ -238,10 +240,11 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.currentSelf).toMatchObject({ agentId: "a", disposition: "Careful learner", selfStory: "Growing continuously", commitments: ["Care"] });
     expect(input.state).toMatchObject({ agentId: "a", concerns: [], relationships: [{ subjectId: "owner" }] });
     expect(input.persona).toMatchObject({ identity: { displayName: "Agent A" }, communication: { firstPerson: "僕" } });
-    expect(input.memories.every(({ agentId }) => agentId === "a")).toBe(true);
-    expect(input.memories.find(({ id }) => id === "memory-a1")).toMatchObject({ relatedSubjectIds: ["owner"] });
+    expect(input.memories).toEqual([]);
+    expect(input.memoryRetrievalTrace).toEqual([]);
+    expect(input.recentExperiences).toHaveLength(2);
     expect(input.recentExperiences.map(({ eventId }) => eventId)).toEqual(expect.arrayContaining(["attempt-event-a", "failed-experience-a"]));
-    expect(input.recentExperiences.map(({ eventId }) => eventId)).toContain("recent-a");
+    expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("recent-a");
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("recent-b");
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("large-tool-result");
     expect(input.recentExperiences.map(({ eventId }) => eventId)).not.toContain("attempt-event-b");
@@ -252,10 +255,15 @@ describeDatabase("PostgreSQL persistence", () => {
     ]);
     expect(JSON.stringify(input.recentExperiences)).not.toContain("raw file must not enter recent experiences");
     expect(JSON.stringify(input.recentExperiences)).not.toContain("raw input must not enter recent experiences".repeat(5));
-    expect(input.recentExperiences.find(({ eventId }) => eventId === "recent-a")?.observation).toEqual({ summary: "previous exchange", facts: ["prior context"] });
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
-    expect(input.availableTools.map(({ name }) => name)).toEqual(["web_list", "web_page", "file_read"]);
+    expect(input.availableTools.map(({ name }) => name)).toEqual(["concern_list", "concern_get", "concern_propose", "memory_search", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
+    const toolContext = { agentId: "a", runId: "context-run", eventId: "context-event", idempotencyKey: "context-tool" };
+    const memorySearch = await contextToolRegistry.execute("memory_search", { query: "agent", limit: 3 }, toolContext, new AbortController().signal);
+    expect(memorySearch.ok).toBe(true); expect(typeof memorySearch.value === "object" && memorySearch.value !== null && "memories" in memorySearch.value && Array.isArray(memorySearch.value.memories)).toBe(true);
+    await expect(contextToolRegistry.execute("relationship_search", { subjectId: "owner", limit: 3 }, { ...toolContext, idempotencyKey: "relationship-tool" }, new AbortController().signal)).resolves.toMatchObject({ value: { relationships: [{ subjectId: "owner" }] } });
+    await expect(contextToolRegistry.execute("self_get", { fields: ["disposition"] }, { ...toolContext, idempotencyKey: "self-tool" }, new AbortController().signal)).resolves.toMatchObject({ value: { disposition: "Careful learner" } });
+    await expect(contextToolRegistry.execute("concern_propose", { operation: "create", description: "検証方法を確認する", whyItMatters: "信頼性を判断するため" }, { ...toolContext, idempotencyKey: "proposal-tool" }, new AbortController().signal)).resolves.toMatchObject({ value: { queued: true } });
     const allowed = await loader.load({ id: "context-event-2", agentId: "a", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
     expect(allowed.availableTools.map(({ name }) => name)).toEqual(input.availableTools.map(({ name }) => name));
     const other = await loader.load({ id: "context-event-b", agentId: "b", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
@@ -381,6 +389,7 @@ describeDatabase("PostgreSQL persistence", () => {
   });
 
   it("commits Reflection state and Memory atomically and deduplicates retries", async () => {
+    await pool.query("UPDATE agent_states SET concerns=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ id: "concern-1", description: "信頼を守る方法を確認する", whyItMatters: "約束を重視している", status: "active" }])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");

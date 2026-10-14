@@ -48,6 +48,8 @@ export class Reflection {
       const output = ReflectionOutputSchema.parse(await this.model.reflect(input, signal));
       const knownMemories = new Set(input.memories.map(({ id }) => id));
       if (output.evidenceMemoryIds.some((id) => !knownMemories.has(id))) throw new DomainError("VALIDATION", "Reflection referenced Memory outside its input");
+      const knownConcerns = new Set(input.state.concerns.map(({ id }) => id));
+      if (output.concernChanges.some((change) => !knownConcerns.has(change.operation === "remove" ? change.id : change.concern.id))) throw new DomainError("VALIDATION", "Reflection cannot create a new Concern");
       await this.repository.commit(input, output);
       return output;
     } catch (error) {

@@ -6,6 +6,7 @@ import { DeepAgentHarness, createOllamaDeepAgentInvoker, type DeepAgentInvoker }
 import { createAgentCoreMiddleware } from "../../src/infrastructure/agent/deep-agent-middleware.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, filterModelToolsAfterLimits, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-tools.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
+import { noopLogger } from "../../src/observability/logger.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
 const finalOutput: AgentCoreOutput = {
@@ -35,6 +36,20 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     const contentRead = new Set(["file_read", "web_archive_read"]);
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, false, true).map(({ name }) => name)).toEqual(["web_list", "extract-1"]);
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
+  });
+
+  it("dynamically hides autonomous retrieval Tools from user-message calls and after Focus acquisition", async () => {
+    const definitions = ["concern_list", "concern_get", "concern_propose", "memory_search", "relationship_search", "self_get", "web_page"].map((name) => ({ name, description: name, schema: z.object({}), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true as const }) }));
+    const registry = new ToolRegistry(definitions);
+    const middleware = createAgentCoreMiddleware(registry, noopLogger, () => new Date(fixtureInstant)) as unknown as { wrapModelCall(request: { tools: { name: string }[]; messages: { type: string; content: string }[]; systemMessage: { content: string }; runtime: { context: ReturnType<typeof context> } }, handler: (request: { tools: { name: string }[] }) => Promise<unknown>): Promise<unknown> };
+    const userContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "user-run", eventId: "user-event", eventKind: "user-message", maxToolCalls: 10, signal: new AbortController().signal });
+    let visible: string[] = [];
+    await middleware.wrapModelCall({ tools: definitions.map(({ name }) => ({ name })), messages: [], systemMessage: { content: "system" }, runtime: { context: userContext } }, (request) => { visible = request.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
+    expect(visible).toEqual(["concern_propose", "memory_search", "relationship_search", "web_page"]);
+    const autonomous = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "auto-run", eventId: "auto-event", eventKind: "internal", maxToolCalls: 10, signal: new AbortController().signal });
+    autonomous.collector.focusConcernAcquired = true;
+    await middleware.wrapModelCall({ tools: definitions.map(({ name }) => ({ name })), messages: [], systemMessage: { content: "system" }, runtime: { context: autonomous } }, (request) => { visible = request.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
+    expect(visible).not.toContain("concern_list"); expect(visible).not.toContain("concern_get"); expect(visible).toContain("self_get");
   });
 
   it("configures the compatibility adapter with the requested bounded Tool budget", async () => {
@@ -73,7 +88,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
       const prompt = modelInput.messages[0]?.content ?? "";
-      expect(prompt).toContain("autonomy-review"); expect(prompt).toContain("Understand HNSW tradeoffs"); expect(prompt).toContain("Previous index research");
+      expect(prompt).toContain("autonomy-review"); expect(prompt).toContain('"activeCount":1'); expect(prompt).not.toContain("Understand HNSW tradeoffs"); expect(prompt).not.toContain("Previous index research");
       const runContext = context(options.signal, options.maxToolCalls, options.runId, options.eventId);
       const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
       await lookup?.invoke({ query: "HNSW tradeoffs" }, { context: runContext });

@@ -52,6 +52,14 @@ describe("AgentHarness contract", () => {
     expect(recentToolInputs).toEqual(['{"tool":"lookup","input":{"query":"same"}}']);
   });
 
+  it("collects successful concern_propose results outside the final output schema", async () => {
+    const proposal = { operation: "create" as const, description: "復元音声の検証方法を確認する", whyItMatters: "紹介できる確度を判断するため", explorationMode: "distant" as const };
+    const execution = { callId: "tool-1", runId: "run-1", eventId: "event-1", name: "concern_propose", input: proposal, ok: true, result: { queued: true, proposal }, startedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:00Z" };
+    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: output, toolExecutions: [execution] }) };
+    const input = agentCoreInputFixture(); input.availableTools = [{ name: "concern_propose", description: "propose", inputSchema: {} }];
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["concern_propose"]) }).run(input, new AbortController().signal)).resolves.toMatchObject({ concernProposals: [proposal] });
+  });
+
   it("does not duplicate registered Tools in the Agent input prompt", async () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.availableTools = [{ name: "lookup", description: "Search", inputSchema: { type: "object", properties: { secretSchemaMarker: { type: "string" } } } }];
@@ -63,7 +71,7 @@ describe("AgentHarness contract", () => {
     const warnings: string[] = []; let invoked = false;
     const logger = { child: () => logger, log: (level: string, step: string) => { if (level === "warn") warnings.push(step); } };
     const invoker: DeepAgentInvoker = { invoke: () => { invoked = true; return Promise.resolve({ structuredResponse: output }); } };
-    const input = agentCoreInputFixture(); input.currentSelf = { ...input.currentSelf, disposition: "x".repeat(MAX_MODEL_INPUT_TOKENS * 4) };
+    const input = agentCoreInputFixture(); input.observation = { ...input.observation, summary: "x".repeat(MAX_MODEL_INPUT_TOKENS * 4) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), logger }).run(input, new AbortController().signal)).resolves.toMatchObject(result);
     expect(invoked).toBe(true); expect(warnings).toContain("agent_core.model_input_budget_exceeded");
   });
@@ -158,9 +166,10 @@ describe("AgentHarness contract", () => {
     expect(created).toBe(1);
     expect(JSON.stringify(AgentCoreModelOutputJsonSchema)).not.toContain('"pattern"');
     const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
-    expect(Object.keys(modelProperties)).toHaveLength(16);
+    expect(Object.keys(modelProperties)).toHaveLength(10);
     expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
-    expect(modelProperties).toMatchObject({ desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 }, mood: { maxLength: 400 }, concernDescription: { maxLength: 800 }, concernWhyItMatters: { maxLength: 800 }, relationshipDescription: { maxLength: 800 }, remember: { maxLength: 800 } });
+    expect(modelProperties).toMatchObject({ desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 }, mood: { maxLength: 400 }, relationshipDescription: { maxLength: 800 }, remember: { maxLength: 800 } });
+    expect(modelProperties).not.toHaveProperty("concernOperation");
   });
 
   it("rejects unknown tools before invoking the model", async () => {

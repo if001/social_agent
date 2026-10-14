@@ -15,6 +15,7 @@ export class ToolExecutionCollector {
   contentReadCharacters = 0;
   contentReadReservedCharacters = 0;
   contentReadLimitReached = false;
+  focusConcernAcquired = false;
   readonly executions: ToolExecutionRecord[] = [];
 }
 
@@ -38,6 +39,9 @@ export type DeepAgentToolRunContext = {
   readonly agentId: string;
   readonly runId: string;
   readonly eventId: string;
+  readonly eventKind?: AgentCoreInput["observation"]["kind"];
+  readonly activeConcernCount: number;
+  readonly dueConcernCount: number;
   readonly maxToolCalls: number;
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
@@ -49,6 +53,9 @@ export const DeepAgentToolRunContextSchema = z.object({
   agentId: z.string().min(1),
   runId: z.string().min(1),
   eventId: z.string().min(1),
+  eventKind: z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]).optional(),
+  activeConcernCount: z.number().int().nonnegative().default(0),
+  dueConcernCount: z.number().int().nonnegative().default(0),
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
@@ -56,8 +63,8 @@ export const DeepAgentToolRunContextSchema = z.object({
   transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
 });
 
-export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs"> & { readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
-  return { ...options, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
+export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs" | "activeConcernCount" | "dueConcernCount"> & { readonly activeConcernCount?: number; readonly dueConcernCount?: number; readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
+  return { ...options, activeConcernCount: options.activeConcernCount ?? 0, dueConcernCount: options.dueConcernCount ?? 0, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
 }
 
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };
@@ -103,7 +110,7 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };
       const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }) }, context.signal);
       const finishedAt = now().toISOString();
-      if (result.ok) { if (policy?.kind === "content-read") context.collector.contentReadCharacters += contentTextCharacters(result.value); context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt }); }
+      if (result.ok) { if (policy?.kind === "content-read") context.collector.contentReadCharacters += contentTextCharacters(result.value); if (name === "concern_get") context.collector.focusConcernAcquired = true; context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt }); }
       else context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
       logger.log(result.ok ? "info" : "warn", "tool.completed", { ok: result.ok, elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify(result);

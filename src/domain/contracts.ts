@@ -26,6 +26,20 @@ export const ConcernSchema = z.object({
 }).describe("Agentが複数Eventにわたり持続して気に掛ける事項");
 export type Concern = z.infer<typeof ConcernSchema>;
 
+export const ConcernProposalSchema = z.object({
+  operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern"),
+  description: z.string().trim().min(1).max(400).describe("次に何を明らかにする、試す、または確認するかを、対象と行為が分かる一文で書く"),
+  whyItMatters: z.string().trim().min(1).max(400).describe("得られた結果をどの判断、行動、会話、またはConcern解決に使うかを一文で書く"),
+  sourceConcernId: Id.optional().describe("derive時の派生元Concern ID"),
+  explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは経験の薄い領域への移動"),
+  transition: z.enum(["replace", "fork"]).optional().describe("replaceは派生元を閉じて置換、forkは派生元を残して並行追跡"),
+  reconsiderAt: Instant.optional().describe("再検討すべき具体的な将来時刻がある場合だけ指定する")
+}).strict().superRefine((value, context) => {
+  if (value.operation === "derive" && value.sourceConcernId === undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "derive requires sourceConcernId" });
+  if (value.operation === "create" && value.sourceConcernId !== undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "create must not specify sourceConcernId" });
+}).describe("Agent実行中は永続化せず、成功したEvent commit時だけ適用するConcern提案");
+export type ConcernProposal = z.infer<typeof ConcernProposalSchema>;
+
 export const RelationshipSchema = z.object({ subjectId: Id.describe("関係する相手を識別するID"), description: NaturalLanguage.describe("現在の関係性について経験に基づき保持する簡潔な記述") }).describe("特定の相手との持続的な関係状態");
 export type Relationship = z.infer<typeof RelationshipSchema>;
 
@@ -241,7 +255,6 @@ export const AgentTurnSchema = z.object({
   action: FinalActionSchema,
   patch: z.object({
     mood: AgentMood.describe("次のEventにも持続させる現在の気分。変化がない場合は省略する").optional(),
-    concern: ConcernChangeSchema.optional().describe("Concernの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
     relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
     remember: z.string().trim().min(1).max(800).describe("今回直ちに記憶候補として残す内容。長期的価値がなければ省略する").optional()
   }).strict().describe("次のEventにも影響する永続状態の変更提案。変更がなければpatch全体を省略する").optional()
@@ -297,6 +310,7 @@ export const AgentRunResultSchema = z.object({
   assessment: EventAssessmentSchema.optional(),
   output: AgentCoreOutputSchema,
   toolExecutions: z.array(ToolExecutionRecordSchema),
+  concernProposals: z.array(ConcernProposalSchema).optional(),
   budget: z.object({
     limits: RunLimitsSchema.pick({ deadlineMs: true, maxSteps: true, maxToolCalls: true }),
     consumed: z.object({ modelCalls: z.number().int().nonnegative(), toolCalls: z.number().int().nonnegative(), repairs: z.number().int().nonnegative() })

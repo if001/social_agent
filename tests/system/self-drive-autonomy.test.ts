@@ -19,7 +19,7 @@ describe("Initial disposition → autonomous action", () => {
     const registry = new ToolRegistry([{ name: "web_page", description: "Read and archive a page", schema: z.object({ urls: z.url() }), resultPolicy: { kind: "standard" }, execute: () => { toolCalls += 1; return Promise.resolve({ ok: true, value: { docs: [], archivedSnapshots: [{ snapshotId: "snapshot-1" }] } }); } }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
       const prompt = modelInput.messages[0]?.content ?? "";
-      expect(prompt).toContain(ao.agent.initialDisposition); expect(prompt).toContain("AIやAgentが経験から変化する仕組み"); expect(prompt).toContain('"concerns":[]');
+      expect(prompt).not.toContain(ao.agent.initialDisposition); expect(prompt).not.toContain("AIやAgentが経験から変化する仕組み"); expect(prompt).toContain('"activeCount":0');
       const context = createDeepAgentToolRunContext({ agentId: options.agentId, runId: options.runId, eventId: options.eventId, maxToolCalls: options.maxToolCalls, signal: options.signal });
       const [webPage] = createDeepAgentTools(registry, () => new Date(fixtureInstant)); await webPage?.invoke({ urls: "https://example.com/hnsw" }, { context });
       return { structuredResponse: { desire: "関心を一歩進め、発見を共有したい", action: { type: "respond", content: "調べて分かったことを共有する" } }, toolExecutions: context.collector.executions };

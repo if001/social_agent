@@ -2,11 +2,9 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, AgentStateSchema, DomainError, FinalActionSchema, ObservationSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Memory, type Observation, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, AgentStateSchema, DomainError, FinalActionSchema, ObservationSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
-import { buildRelevantMemoryQuery } from "../../application/memory-query.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
-import { PostgresMemoryRetriever } from "./postgres-memory-retriever.js";
 
 type AgentRow = QueryResultRow & {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
@@ -14,7 +12,6 @@ type AgentRow = QueryResultRow & {
   mood: string; version: number; state_updated_at: Date;
   shared_disposition: string; base_instruction: string;
 };
-type LinkRow = QueryResultRow & { memory_id: string; value: string };
 type RecentExperienceRow = QueryResultRow & { event_id: string; agent_id: string; event_kind: DomainEvent["kind"]; observation: unknown; occurred_at: Date; run_id: string | null; result: unknown; failure_reason: string | null; tools: unknown; progress_changed: boolean };
 
 export type PostgresAgentContextLoaderOptions = {
@@ -80,9 +77,8 @@ export function observationFromEvent(event: DomainEvent): Observation {
 }
 
 export class PostgresAgentContextLoader {
-  readonly #retriever: PostgresMemoryRetriever;
   readonly #builder: ContextBuilder;
-  constructor(private readonly options: PostgresAgentContextLoaderOptions) { this.#retriever = new PostgresMemoryRetriever(options.pool); this.#builder = new ContextBuilder(options.logger); }
+  constructor(private readonly options: PostgresAgentContextLoaderOptions) { this.#builder = new ContextBuilder(options.logger); }
 
   async load(event: DomainEvent): Promise<AgentCoreInput> {
     const observation = observationFromEvent(event);
@@ -104,12 +100,6 @@ export class PostgresAgentContextLoader {
         ORDER BY e.occurred_at,e.id`, [event.agentId]);
     const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row, this.options.tools, this.options.logger ?? noopLogger); return value === undefined ? [] : [value]; });
     const state = { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: agent.concerns, relationships: agent.relationships }) };
-    const memoryQuery = buildRelevantMemoryQuery({ observation, state });
-    const embeddingSignal = AbortSignal.timeout(this.options.embeddingTimeoutMs ?? 10_000);
-    let vectors: readonly (readonly number[])[] = [];
-    try { vectors = await this.options.embedding.embed([memoryQuery.text], embeddingSignal); } catch { /* keyword and metadata fallback */ }
-    const retrieval = await this.#retriever.retrieve(event.agentId, memoryQuery, vectors[0] ?? [], this.options.retrievalLimit ?? this.options.budget.maxMemories);
-    const enrichedMemories = await this.#loadMemoryLinks(retrieval.memories);
     const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);
     const built = AgentCoreInputSchema.parse(this.#builder.build({
@@ -118,19 +108,11 @@ export class PostgresAgentContextLoader {
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
       currentSelf: { agentId: agent.id, version: agent.version, ...SelfSchema.parse({ identity: agent.identity, disposition: agent.disposition, selfStory: agent.self_story, commitments: agent.commitments }) },
       state,
-      memories: enrichedMemories, memoryRetrievalTrace: retrieval.trace, availableTools: [...availableTools],
+      memories: [], memoryRetrievalTrace: [], availableTools: [...availableTools],
       runtimeConstraints: [agent.base_instruction.trim(), "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),
       limits: this.options.limits
     }, this.options.budget));
     return built;
-  }
-
-  async #loadMemoryLinks(memories: readonly Memory[]): Promise<readonly Memory[]> {
-    const ids = memories.map(({ id }) => id); if (ids.length === 0) return memories;
-    const subjects = await this.options.pool.query<LinkRow>("SELECT memory_id,subject_id AS value FROM memory_subjects WHERE memory_id=ANY($1::text[]) ORDER BY memory_id,subject_id", [ids]);
-    const grouped = (rows: readonly LinkRow[]): Map<string, string[]> => { const result = new Map<string, string[]>(); for (const row of rows) result.set(row.memory_id, [...(result.get(row.memory_id) ?? []), row.value]); return result; };
-    const subjectsByMemory = grouped(subjects.rows);
-    return memories.map((memory) => ({ ...memory, relatedSubjectIds: subjectsByMemory.get(memory.id) ?? [] }));
   }
 
 }

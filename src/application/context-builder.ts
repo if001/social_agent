@@ -27,7 +27,7 @@ export class ContextBuilder {
     const required = { run: source.run, observation: observation(source.observation), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), currentSelf, state, runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
     let used = estimateTokens(required);
     if (used > budget.maxTokens) throw new Error(`Context budget is too small for required state: required=${String(used)}, max=${String(budget.maxTokens)}`);
-    const recentCandidates = source.recentExperiences.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId)).slice(-4);
+    const recentCandidates = source.recentExperiences.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId)).slice(-2);
     const recentExperiences: RecentExperience[] = [...recentCandidates];
     let recentCost = recentExperiences.reduce((sum, value) => sum + estimateTokens(value), 0);
     while (recentExperiences.length > 0 && used + recentCost > budget.maxTokens) {

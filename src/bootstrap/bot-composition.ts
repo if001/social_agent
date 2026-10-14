@@ -23,6 +23,7 @@ import { createAgentSendTool } from "../infrastructure/tools/agent-send-tool.js"
 import { createFileTools } from "../infrastructure/tools/file-tools.js";
 import { createWebTools } from "../infrastructure/tools/web-tools.js";
 import { createScheduledTaskTools } from "../infrastructure/tools/scheduled-task-tools.js";
+import { createAgentContextTools } from "../infrastructure/tools/agent-context-tools.js";
 
 export type BotCompositionOptions = {
   readonly pool: Pool;
@@ -43,6 +44,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
   const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
+    ...createAgentContextTools(pool),
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
     ...createScheduledTaskTools(pool, ids, () => clock.now()),

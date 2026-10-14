@@ -19,8 +19,8 @@ const ReflectionMemorySchema = z.object({
 }).strict().describe("今後の判断に再利用する価値がある経験。入力Eventの単なる要約は保存しない");
 
 const ReflectionConcernChangeSchema = z.object({
-  operation: z.enum(["upsert", "remove"]).describe("今後もContextへ残すならupsert、既存Concernを消すならremove"),
-  id: z.string().min(1).describe("同じConcernを次回以降も識別するID。更新・削除では既存IDを使う"),
+  operation: z.enum(["upsert", "remove"]).describe("既存Concernを整理・終了状態へ更新するならupsert、重複や不要な既存Concernを消すならremove"),
+  id: z.string().min(1).describe("入力state.concernsに存在するConcern ID。新しいIDは作らない"),
   description: z.string().trim().min(1).max(16_000).optional().describe("まだ気に掛ける未解決事項。作業手順ではなく、何が未解決かを一文で書く。upsertだけに指定する"),
   whyItMatters: z.string().trim().min(1).max(16_000).optional().describe("この未解決事項を次回以降の判断へ残す理由。現在のSelfや関係との結び付きを具体的に書く。upsertだけに指定する"),
   status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。upsertだけに指定する"),
@@ -57,7 +57,7 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 
 出力基準:
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
-- Concern: 今回では解消せず、次回以降も気に掛ける具体的な未解決事項だけを書く
+- Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定だけを行い、新しいConcernは作らない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
 - Mood: 一時的な感情ではなく、次の複数Eventへ残る気分だけを書く
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える

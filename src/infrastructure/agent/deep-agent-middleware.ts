@@ -5,7 +5,7 @@ import { errorLogContext, type Logger } from "../../observability/logger.js";
 import { DeepAgentToolRunContextSchema, filterModelToolsAfterLimits } from "./deep-agent-tools.js";
 import { serializeMessageContent, summarizeModelResponse, toolName } from "./model-response.js";
 
-export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogger: Logger, now: () => Date) {
+export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogger: Logger, now: () => Date): ReturnType<typeof createMiddleware> {
   const registeredToolNames = new Set(registry?.registered().map(({ name }) => name) ?? []);
   const builtInToolNames = new Set(["read_file"]);
   const operationalToolNames = new Set([...registeredToolNames, ...builtInToolNames]);
@@ -27,7 +27,14 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
       const serializedMessages = JSON.stringify(messages);
       const finalizing = modelCall > context.collector.explorationModelCalls || context.collector.structuredOutputFailed;
       if (modelCall > context.collector.explorationModelCalls + 2) throw new DomainError("VALIDATION", "Final structured output could not be produced within the model call limit");
-      const effectiveTools = finalizing || context.collector.count >= context.maxToolCalls ? [] : filterModelToolsAfterLimits(request.tools, operationalToolNames, contentReadToolNames, false, context.collector.contentReadLimitReached);
+      const phaseTools = request.tools.filter((candidate) => {
+        const name = toolName(candidate);
+        if (name === undefined || !registeredToolNames.has(name)) return true;
+        if (context.eventKind === "user-message" && ["concern_list", "concern_get", "self_get"].includes(name)) return false;
+        if (context.collector.focusConcernAcquired && ["concern_list", "concern_get"].includes(name)) return false;
+        return true;
+      });
+      const effectiveTools = finalizing || context.collector.count >= context.maxToolCalls ? [] : filterModelToolsAfterLimits(phaseTools, operationalToolNames, contentReadToolNames, false, context.collector.contentReadLimitReached);
       const effectiveRequest = effectiveTools.length === request.tools.length ? request : { ...request, tools: effectiveTools };
       const toolNames = effectiveTools.map((candidate) => toolName(candidate) ?? "unknown");
       const startedAt = now();

@@ -28,4 +28,9 @@ describe("Reflection", () => {
     await expect(reflection.process("reflection-1", "agent-a", new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(failures).toHaveLength(1);
   });
+
+  it("rejects creation of a new Concern during Reflection", async () => {
+    const reflection = new Reflection({ load: () => Promise.resolve(input), commit: () => Promise.resolve("committed"), fail: () => Promise.resolve() }, { reflect: () => Promise.resolve({ memories: [], concernChanges: [{ operation: "upsert", concern: { id: "new-concern", description: "新しい対象を調べる", whyItMatters: "知りたいため", status: "active" } }], relationshipChanges: [], evidenceMemoryIds: [] }) });
+    await expect(reflection.process("reflection-1", "agent-a", new AbortController().signal)).rejects.toThrow("cannot create a new Concern");
+  });
 });
