@@ -203,7 +203,6 @@ export const RecentObservationSchema = z.object({
   source: z.object({ type: z.enum(["terminal", "discord", "agent", "tool", "scheduler", "system", "unknown"]), id: Id.optional(), direct: z.boolean() }).optional().describe("観測経路。UIや自律Eventの区別に用いる"),
   scheduler: z.object({
     targetKind: z.string().optional(),
-    explorationMode: z.string().optional(),
     explorationCandidates: z.array(z.string().trim().min(1).max(120)).max(8).optional()
   }).optional().describe("自律Eventの継続性を判断するために必要な探索条件")
 }).strict().describe("Recent Experience専用の再判断材料。監査用メタデータや入力本文は含めない");

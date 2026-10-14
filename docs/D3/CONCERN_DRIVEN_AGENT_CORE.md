@@ -70,7 +70,6 @@ flowchart TD
 - 現在EventのObservationとユーザー入力本文
 - `eventKind`、`targetKind`、発生時刻
 - 最小限のIdentityと発話persona
-- active Concern件数とdue Concern件数
 - 直近2件程度の簡潔なRecent Experience
 - Dynamic Tool Filtering後のTool
 
@@ -81,14 +80,14 @@ Concern本文、Memory、Relationship、Mood、Disposition全文、Self Story、
 実行可能なTool集合と、各model callでモデルへ公開するTool集合を分離する。既存middlewareの`wrapModelCall`で、次の条件から`request.tools`を絞る。
 
 - Event種別とrun段階
-- active・due Concern件数とFocus取得状態
+- `concern_list`、`concern_get`の実行状態とFocus取得状態
 - AgentごとのTool権限
 - maxToolCallsとcontent-read budget
 
 | 状況 | 主に公開するTool |
 |---|---|
 | ユーザー入力 | `memory_search`、`relationship_search`、`concern_propose`、利用可能な外部・Scheduled Task Tool |
-| 自律Event開始 | `concern_list`、`concern_get`、`concern_propose`、`memory_search`、`self_get`、探索Tool |
+| 自律Event開始 | `concern_list`、`concern_get`、`concern_propose`、`memory_search`、`self_get`、利用可能な外部Tool |
 | Focus取得後 | Focusを進める取得・調査Toolと`concern_propose` |
 | 最終Action確定 | 通常Toolを隠し、最終構造化出力だけを要求する |
 | Reflection | Agent Core用Toolを公開しない |
@@ -108,7 +107,7 @@ Toolは短い説明、少ない引数、小さい返却値を持ち、検索結�
 | `relationship_search` | subjectId完全一致または自然言語queryで、subjectIdと簡潔なdescriptionを返す |
 | `self_get` | Disposition、Self Story、Commitments、Moodの必要な現在値を返す |
 
-ユーザー入力の送信者は`relationship_search`の既定subjectとしてRuntimeから解決し、Agentに内部IDを推測させない。探索領域は`distant`時だけ少数候補を取得し、全カタログを返さない。元会話やTool本文をMemory検索結果へ複製しない。
+ユーザー入力の送信者は`relationship_search`の既定subjectとしてRuntimeから解決し、Agentに内部IDを推測させない。Schedulerは`idle` Eventに、`config/exploration-domains.yaml`から重複なくランダム抽出した最大8件だけを添付する。Agentは`concern_propose`で`distant`を選ぶときにこの候補を利用できるが、候補の採用は必須ではない。全カタログや永続cursorはmodelへ渡さない。元会話やTool本文をMemory検索結果へ複製しない。
 
 ### `concern_propose`
 
@@ -134,11 +133,11 @@ type ConcernProposal = {
 
 自律Eventは次の順に処理する。
 
-1. active・due件数から`concern_list`の要否を判断する。
-2. dueを優先してFocus Concernを1件選び、`concern_get`で取得する。
+1. 最初に`concern_list`を呼び、Concernの有無とdueを確認する。
+2. Concernがあればdueを優先してFocus Concernを1件選び、`concern_get`で取得する。
 3. Focus Concernを進める具体的なActionを行う。
 4. 継続して追う問いが生じた場合だけ後続Concernを提案する。
-5. active Concernが0件なら、必要なMemoryや探索候補を取得してConcernを原則1件作る。
+5. Concernがなければ、必要なSelfやMemoryとEventの探索候補を参照し、Concernを原則1件提案する。
 
 Tool利用と発話判断は独立する。ユーザーからの返信待ちは沈黙理由にしない。
 
@@ -157,10 +156,12 @@ Reflectionは新規Concernを探索せず、複数Eventを基に次を行う。
 - RuntimeはAgent Core成功後にproposalを状態へ適用し、Event、Action、Outboxと同じtransactionで保存する。失敗runのproposalは適用しない。
 - `derive + replace`は派生元を`satisfied`にして後続Concernをactiveで追加し、`fork`は派生元を残す。
 - 最初のmodel callではEvent種別でToolを絞り、`concern_get`成功後は`concern_list`と`concern_get`を非公開にしてFocusを一件に保つ。
-- 初期promptはEvent、Identity、Persona、Concern件数、直近2件のRecent Experience、制約、Event Assessmentだけを持つ。永続状態はRuntimeのcommit検証用には保持するが、model promptへは渡さない。
+- 初期promptはEvent、Identity、Persona、直近2件のRecent Experience、制約、Event Assessmentだけを持つ。Concernの件数や本文を含む永続状態はRuntimeのcommit検証用には保持するが、model promptへは渡さない。
 - Memoryの事前検索を廃止し、`concern_list`、`concern_get`、`memory_search`、`relationship_search`、`self_get`で必要時に取得する。
+- Schedulerは`idle` Eventを所定時刻に発火し、探索領域カタログからランダムな最大8件を候補として添付するだけとする。Concernの存在確認、Focus選択、`deepen`・`bridge`・`distant`の選択、Concern提案はAgent Coreが行う。
+- Scheduleには探索modeやcursorを永続化しない。候補はEventごとに独立して抽出する。
 
-残る運用課題は、固定巡回する`explorationMode`・`explorationCursor`の整理、既存の肥大化したConcernの清掃、filter前後のTool Schema token量と選択成功率の計測である。
+残る運用課題は、filter前後のTool Schema token量、Tool選択成功率、Concernの具体性と重複率を継続計測することである。
 
 ## 不変条件
 

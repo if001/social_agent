@@ -40,8 +40,6 @@ export type DeepAgentToolRunContext = {
   readonly runId: string;
   readonly eventId: string;
   readonly eventKind?: AgentCoreInput["observation"]["kind"];
-  readonly activeConcernCount: number;
-  readonly dueConcernCount: number;
   readonly maxToolCalls: number;
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
@@ -54,8 +52,6 @@ export const DeepAgentToolRunContextSchema = z.object({
   runId: z.string().min(1),
   eventId: z.string().min(1),
   eventKind: z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]).optional(),
-  activeConcernCount: z.number().int().nonnegative().default(0),
-  dueConcernCount: z.number().int().nonnegative().default(0),
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
@@ -63,8 +59,8 @@ export const DeepAgentToolRunContextSchema = z.object({
   transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
 });
 
-export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs" | "activeConcernCount" | "dueConcernCount"> & { readonly activeConcernCount?: number; readonly dueConcernCount?: number; readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
-  return { ...options, activeConcernCount: options.activeConcernCount ?? 0, dueConcernCount: options.dueConcernCount ?? 0, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
+export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs"> & { readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
+  return { ...options, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
 }
 
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };

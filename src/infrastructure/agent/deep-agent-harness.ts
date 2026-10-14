@@ -78,7 +78,7 @@ export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
 export type { EventAssessment } from "../../domain/contracts.js";
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly activeConcernCount?: number; readonly dueConcernCount?: number; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly maxToolCalls: number; readonly recentToolInputs?: readonly string[]; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
   assess?(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<{ readonly assessment: EventAssessment; readonly modelCalls: number }>;
   invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>;
@@ -158,13 +158,10 @@ export class DeepAgentHarness implements AgentHarness {
       try {
         const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
-        const activeConcerns = input.state.concerns.filter(({ status }) => status === "active");
-        const dueConcernCount = activeConcerns.filter(({ reconsiderAt }) => reconsiderAt !== undefined && Date.parse(reconsiderAt) <= Date.parse(input.run.occurredAt)).length;
         const promptInput = {
           event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: input.observation },
           identity: input.currentSelf.identity,
           ...(input.persona === undefined ? {} : { persona: input.persona }),
-          concernSummary: { activeCount: activeConcerns.length, dueCount: dueConcernCount },
           recentExperiences: input.recentExperiences.slice(-2),
           runtimeConstraints: input.runtimeConstraints,
           currentEventAssessment
@@ -176,7 +173,7 @@ export class DeepAgentHarness implements AgentHarness {
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "agent_core.model_input_budget_exceeded", { estimatedTokens: modelBudget.total, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(modelBudget.components) });
         const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
         const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: remainingModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, activeConcernCount: activeConcerns.length, dueConcernCount, maxToolCalls: attempt === 0 ? input.limits.maxToolCalls : 0, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit: input.limits.maxSteps, maxModelCalls: remainingModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, maxToolCalls: attempt === 0 ? input.limits.maxToolCalls : 0, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
         if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
         consumedModelCalls += invokedModelCalls;
@@ -257,8 +254,6 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         runId: options.runId,
         eventId: options.eventId,
         eventKind: options.eventKind,
-        activeConcernCount: options.activeConcernCount ?? 0,
-        dueConcernCount: options.dueConcernCount ?? 0,
         maxToolCalls: Math.min(25, options.maxToolCalls),
         signal: options.signal,
         ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }),

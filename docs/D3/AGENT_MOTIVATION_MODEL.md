@@ -61,7 +61,7 @@ flowchart TD
     STATE -. concern / relationship Tool .-> CORE
     MEM[Memory] -. memory_search .-> CORE
     RECENT[Recent Experiences] --> CORE
-    MODE[idle explorationMode] --> CORE
+    CATALOG[idle explorationCandidates] --> CORE
 
     CORE -->|今回だけ| DESIRE[Desire]
     CORE --> ACTION[Action / Tool]
@@ -99,7 +99,7 @@ sequenceDiagram
     participant Store as State / Log / Outbox
 
     Source->>Loop: Event
-    Loop->>Loop: 最小ContextとConcern件数を構築
+    Loop->>Loop: 最小Contextを構築
     Loop->>Assess: Observation + Identity / Persona
     Assess-->>Loop: Meaning + Feeling
     Loop->>Core: 最小Context + Assessment
@@ -155,18 +155,17 @@ flowchart TD
     TASK -->|System Event| LOOP
     RF -->|専用maintenance| REFLECTION[Reflection処理]
 
-    I --> MODE{explorationMode}
+    I --> CAND[ランダムな探索候補 最大8件]
+    CAND --> LOOP
+    LOOP --> MODE{Agentが探索方法を選ぶ}
     MODE --> DEEPEN[deepen: 現在の具体を深掘り]
     MODE --> BRIDGE[bridge: 性質を介して別領域の具体へ]
     MODE --> DISTANT[distant: 経験の薄い領域の具体へ]
-    DEEPEN --> LOOP
-    BRIDGE --> LOOP
-    DISTANT --> LOOP
 ```
 
-`idle`は探索方法ごとにEvent種類を増やさず、payloadの`explorationMode`を使う。モードは`deepen → bridge → distant`の順で、runが成功した場合だけ次へ進む。失敗時は同じモードを維持して再試行する。`bridge`は抽象化そのものを目的にせず、ある対象から「惹かれる性質」を取り出し、その性質を共有する別領域の人物、作品、出来事、技術、場所などへ具体化する。
+`idle`は探索方法ごとにEvent種類を増やさない。Agent CoreがConcern取得後に、`concern_propose`の`explorationMode`として`deepen`、`bridge`、`distant`を必要に応じて選ぶ。`bridge`は抽象化そのものを目的にせず、ある対象から「惹かれる性質」を取り出し、その性質を共有する別領域の人物、作品、出来事、技術、場所などへ具体化する。
 
-`distant`のために、`config/exploration-domains.yaml`へ100〜200件の幅広い探索領域を置く。これは好みや永続的関心ではなく、現在の連想範囲から離れるための索引である。Schedulerは全件をContextへ投入せず、永続化した`explorationCursor`から最大8件を`explorationCandidates`としてEventへ含める。Agent Coreは候補のうちMemoryが薄い領域を一つ選び、その領域内の具体的対象へ落とす。`distant`が成功したときだけcursorを進め、失敗時は同じ候補を再利用する。「未知の領域」はDispositionやStateとして別途保存しない。
+`distant`のために、`config/exploration-domains.yaml`へ100〜200件の幅広い探索領域を置く。これは好みや永続的関心ではなく、現在の連想範囲から離れるための索引である。Schedulerは全件をContextへ投入せず、`idle` Eventごとにランダムな最大8件を`explorationCandidates`として含める。Agent Coreは必要な場合だけ候補から経験の薄い領域を一つ選び、その領域内の具体的対象へ落とす。永続cursorや固定順の巡回は持たない。「未知の領域」はDispositionやStateとして別途保存しない。
 
 Scheduled Taskは予約の正本である。期限到来時にSchedulerがTaskをclaimし、通常のRuntimeへSystem Eventを投入する。Action、Outbox、再試行、監査の経路を迂回しない。
 

@@ -34,7 +34,6 @@ function recentObservation(value: Observation): RecentObservation {
   const raw = typeof value.content === "object" && value.content !== null ? value.content as Record<string, unknown> : {};
   const schedulerContent = value.source?.type === "scheduler" ? {
     ...(typeof raw.targetKind === "string" ? { targetKind: raw.targetKind } : {}),
-    ...(typeof raw.explorationMode === "string" ? { explorationMode: raw.explorationMode } : {}),
     ...(Array.isArray(raw.explorationCandidates) ? { explorationCandidates: raw.explorationCandidates.filter((item): item is string => typeof item === "string").slice(0, 8).map((item) => boundedText(item, 120)) } : {})
   } : undefined;
   return { summary: boundedText(value.summary, 800), facts, ...(value.kind === undefined ? {} : { kind: value.kind }), ...(value.actor === undefined ? {} : { actor: value.actor }), ...(value.source === undefined ? {} : { source: value.source }), ...(schedulerContent === undefined ? {} : { scheduler: schedulerContent }) };

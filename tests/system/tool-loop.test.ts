@@ -88,7 +88,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
       const prompt = modelInput.messages[0]?.content ?? "";
-      expect(prompt).toContain("autonomy-review"); expect(prompt).toContain('"activeCount":1'); expect(prompt).not.toContain("Understand HNSW tradeoffs"); expect(prompt).not.toContain("Previous index research");
+      expect(prompt).toContain("autonomy-review"); expect(prompt).not.toContain("concernSummary"); expect(prompt).not.toContain("Understand HNSW tradeoffs"); expect(prompt).not.toContain("Previous index research");
       const runContext = context(options.signal, options.maxToolCalls, options.runId, options.eventId);
       const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
       await lookup?.invoke({ query: "HNSW tradeoffs" }, { context: runContext });
