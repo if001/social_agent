@@ -3,6 +3,11 @@ import { z } from "zod";
 const Id = z.string().min(1);
 const Instant = z.iso.datetime({ offset: true });
 const NaturalLanguage = z.string().trim().min(1).max(16_000);
+const AgentDesire = z.string().trim().min(1).max(800);
+const AgentContent = z.string().trim().min(1).max(6_000);
+const AgentReason = z.string().trim().min(1).max(800);
+const AgentMood = z.string().trim().min(1).max(400);
+const AgentStateDescription = z.string().trim().min(1).max(800);
 
 export const SelfSchema = z.object({
   identity: NaturalLanguage,
@@ -203,40 +208,42 @@ export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 
 
 export const FinalActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("respond").describe("ユーザーまたは他Agentへ本文を返す場合に選ぶ"), content: NaturalLanguage.describe("相手へそのまま配送する最終応答。内部判断や管理情報を含めず、personaの発話表現を適用する") }).describe("相手へ通常の応答を配送するAction"),
+  z.object({ type: z.literal("respond").describe("ユーザーまたは他Agentへ本文を返す場合に選ぶ"), content: AgentContent.describe("相手へそのまま配送する最終応答。内部判断や管理情報を含めず、personaの発話表現を適用する") }).describe("相手へ通常の応答を配送するAction"),
   z.object({
     type: z.literal("refuse").describe("依頼を拒否し、その旨を相手へ返す場合に選ぶ"),
-    content: NaturalLanguage.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),
-    reason: NaturalLanguage.describe("依頼を断る内部の判断根拠。外部へそのまま配送しない"),
+    content: AgentContent.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),
+    reason: AgentReason.describe("依頼を断る内部の判断根拠。外部へそのまま配送しない"),
     basis: z.enum(["personality", "system"]).describe("拒否の根拠。personalityは自身の価値観、systemは実行制約")
   }).describe("依頼を拒否して説明を配送するAction"),
   z.object({
     type: z.literal("notify-no-execution").describe("自律Eventで具体的な実行を選ばずownerへ理由を通知する場合に選ぶ"),
-    content: NaturalLanguage.describe("具体的な実行対象を選ばなかった判断と理由をownerへ通知する本文"),
-    reason: NaturalLanguage.describe("実行しないと判断した内部理由")
+    content: AgentContent.describe("具体的な実行対象を選ばなかった判断と理由をownerへ通知する本文"),
+    reason: AgentReason.describe("実行しないと判断した内部理由")
   }).describe("実行しない判断をownerへ通知するAction"),
-  z.object({ type: z.literal("no-external-action").describe("今回はユーザーへ発話しないと判断した場合に選ぶ。Tool利用の有無とは無関係"), reason: NaturalLanguage.describe("今回は発話しない具体的理由。ユーザーからの返信待ちは理由にしてはならない") }).describe("外部発話を行わないAction")
-]).describe("今回の動機に基づく最終行動。Tool実行自体はAgent内部で完了させる");
+  z.object({ type: z.literal("no-external-action").describe("今回はユーザーへ発話しないと判断した場合に選ぶ"), reason: AgentReason.describe("今回は発話しない具体的理由。ユーザーからの返信待ちは理由にしてはならない") }).describe("外部発話を行わないAction")
+]).describe("今回の動機に基づく最終行動");
 export type FinalAction = z.infer<typeof FinalActionSchema>;
 export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
 
+const ProposedConcernSchema = ConcernSchema.extend({ description: AgentStateDescription, whyItMatters: AgentStateDescription });
+const ProposedRelationshipSchema = RelationshipSchema.extend({ description: AgentStateDescription });
 export const ConcernChangeSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("upsert").describe("Concernを追加または更新する"), concern: ConcernSchema.describe("追加または更新するConcernの完全な値") }),
+  z.object({ operation: z.literal("upsert").describe("Concernを追加または更新する"), concern: ProposedConcernSchema.describe("追加または更新するConcernの完全な値") }),
   z.object({ operation: z.literal("remove").describe("Concernを削除する"), id: Id.describe("削除するConcernのID") })
 ]).describe("次のEventにも残すConcernの変更。変更不要なら出力しない");
 export const RelationshipChangeSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("upsert").describe("Relationshipを追加または更新する"), relationship: RelationshipSchema.describe("追加または更新するRelationshipの完全な値") }),
+  z.object({ operation: z.literal("upsert").describe("Relationshipを追加または更新する"), relationship: ProposedRelationshipSchema.describe("追加または更新するRelationshipの完全な値") }),
   z.object({ operation: z.literal("remove").describe("Relationshipを削除する"), subjectId: Id.describe("削除するRelationshipの相手ID") })
 ]).describe("次のEventにも残すRelationshipの変更。変更不要なら出力しない");
 export const AgentTurnSchema = z.object({
-  desire: NaturalLanguage.describe("現在のSelf、状態、Observation、Memory、Event Assessmentから生じた今回の具体的な望み"),
+  desire: AgentDesire.describe("現在のSelf、状態、Observation、Memory、Event Assessmentから生じた今回の具体的な望み"),
   action: FinalActionSchema,
   patch: z.object({
-    mood: NaturalLanguage.describe("次のEventにも持続させる現在の気分。変化がない場合は省略する").optional(),
+    mood: AgentMood.describe("次のEventにも持続させる現在の気分。変化がない場合は省略する").optional(),
     concern: ConcernChangeSchema.optional().describe("Concernの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
     relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
-    remember: NaturalLanguage.describe("今回直ちに記憶候補として残す内容。長期的価値がなければ省略する").optional()
+    remember: z.string().trim().min(1).max(800).describe("今回直ちに記憶候補として残す内容。長期的価値がなければ省略する").optional()
   }).strict().describe("次のEventにも影響する永続状態の変更提案。変更がなければpatch全体を省略する").optional()
 }).strict();
 export type AgentTurn = z.infer<typeof AgentTurnSchema>;

@@ -160,6 +160,7 @@ describe("AgentHarness contract", () => {
     const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
     expect(Object.keys(modelProperties)).toHaveLength(16);
     expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
+    expect(modelProperties).toMatchObject({ desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 }, mood: { maxLength: 400 }, concernDescription: { maxLength: 800 }, concernWhyItMatters: { maxLength: 800 }, relationshipDescription: { maxLength: 800 }, remember: { maxLength: 800 } });
   });
 
   it("rejects unknown tools before invoking the model", async () => {
@@ -219,8 +220,9 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).toContain("schedule_taskが実際に利用可能な場合だけ");
     expect(agentCoreSystemPrompt).toContain("idle Event");
     expect(agentCoreSystemPrompt).toContain("desire");
-    expect(agentCoreSystemPrompt).toContain("waitは返しません");
-    expect(agentCoreSystemPrompt).toContain("Toolを使うかどうかと、ユーザーへ発話するかどうかは独立");
+    expect(agentCoreSystemPrompt).not.toContain("waitは返しません");
+    expect(agentCoreSystemPrompt).not.toContain("Toolを使うかどうかと、ユーザーへ発話するかどうかは独立");
+    expect(agentCoreSystemPrompt).not.toContain("Toolは必要な最小回数だけ");
     expect(agentCoreSystemPrompt).toContain("返信がまだ来ていないこと");
     expect(agentCoreSystemPrompt).toContain("発話を控える理由に絶対にしません");
     expect(agentCoreSystemPrompt).toContain("夜間");

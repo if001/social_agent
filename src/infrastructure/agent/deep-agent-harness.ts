@@ -18,21 +18,21 @@ import { errorLogContext, noopLogger, type Logger } from "../../observability/lo
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
 
 const AgentCoreFlatOutputSchema = z.object({
-  desire: z.string().trim().min(1).max(16_000).describe("今回のEventを受けて今具体的に望むこと。入力中の具体的な対象と状況に結び付けて短く書く"),
-  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話する場合はrespond、自律Eventで非実行判断を通知する場合はnotify-no-execution、今回は発話しない場合はno-external-action。Tool利用の有無とは独立して選ぶ"),
-  content: z.string().trim().min(1).max(16_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
-  reason: z.string().trim().min(1).max(16_000).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
+  desire: z.string().trim().min(1).max(800).describe("今回のEventを受けて今具体的に望むこと。入力中の具体的な対象と状況に結び付けて短く書く"),
+  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない場合はno-external-actionを選ぶ"),
+  content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
+  reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
-  mood: z.string().trim().min(1).max(16_000).optional().describe("次のEventにも残す気分。変化がある場合だけ指定"),
+  mood: z.string().trim().min(1).max(400).optional().describe("次のEventにも残す気分。変化がある場合だけ指定"),
   concernOperation: z.enum(["upsert", "remove"]).optional().describe("Concernを変更する場合の操作。変更しない場合は省略"),
   concernId: z.string().min(1).optional().describe("変更するConcernのID。concernOperation指定時は必須"),
-  concernDescription: z.string().trim().min(1).max(16_000).optional().describe("追加または更新するConcernの内容。concernOperationがupsertの場合は必須"),
-  concernWhyItMatters: z.string().trim().min(1).max(16_000).optional().describe("Concernが現在のSelfにとって重要な理由。concernOperationがupsertの場合は必須"),
+  concernDescription: z.string().trim().min(1).max(800).optional().describe("追加または更新するConcernの内容。concernOperationがupsertの場合は必須"),
+  concernWhyItMatters: z.string().trim().min(1).max(800).optional().describe("Concernが現在のSelfにとって重要な理由。concernOperationがupsertの場合は必須"),
   concernStatus: z.enum(["active", "satisfied", "abandoned"]).optional().describe("Concernの状態。concernOperationがupsertの場合は必須"),
   concernReconsiderAt: z.string().optional().describe("Concernを再検討するISO 8601日時。明確な将来時刻がある場合だけ指定"),
   relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
   relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
-  relationshipDescription: z.string().trim().min(1).max(16_000).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
+  relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
   remember: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す要点。会話やTool結果を転載せず、長期的価値がある内容を1〜2文で指定")
 }).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
 export const completeAgentCoreSystemPrompt = `${agentCoreSystemPrompt}${autonomousExplorationPrompt}${concernLifecyclePrompt}`;

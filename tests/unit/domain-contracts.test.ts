@@ -24,6 +24,17 @@ describe("domain contracts", () => {
     expect(AgentTurnSchema.safeParse({ desire: "待つ", action: { type: "wait" } }).success).toBe(false);
   });
 
+  it("bounds generated Agent Core text by each field's purpose", () => {
+    const base = { desire: "具体的に話したい", action: { type: "respond" as const, content: "返答" } };
+    expect(AgentTurnSchema.safeParse({ ...base, desire: "d".repeat(801) }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, action: { type: "respond", content: "c".repeat(6_001) } }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, action: { type: "no-external-action", reason: "r".repeat(801) } }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, patch: { mood: "m".repeat(401) } }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, patch: { concern: { operation: "upsert", concern: { id: "c", description: "d".repeat(801), whyItMatters: "理由", status: "active" } } } }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, patch: { relationship: { operation: "upsert", relationship: { subjectId: "user", description: "d".repeat(801) } } } }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, patch: { remember: "m".repeat(801) } }).success).toBe(false);
+  });
+
   it("maps every Event kind to an objective, provenance-aware Observation", () => {
     for (const kind of ["user-message", "tool-result", "time", "external", "internal", "system"] as const) {
       const observation = observationFromEvent({ id: `event-${kind}`, agentId: "a", kind, occurredAt: "2026-01-01T00:00:00Z", payload: { text: "reported fact", actorId: "actor", actorType: kind === "external" ? "agent" : "human", sourceType: kind === "external" ? "agent" : "terminal", provenance: { channel: "test" } }, causationId: "cause", correlationId: "correlation" });
