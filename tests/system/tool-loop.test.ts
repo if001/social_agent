@@ -1,7 +1,9 @@
+import { ToolMessage } from "langchain";
 import { z } from "zod";
 
 import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { DeepAgentHarness, createOllamaDeepAgentInvoker, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { createAgentCoreMiddleware } from "../../src/infrastructure/agent/deep-agent-middleware.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, filterModelToolsAfterLimits, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-tools.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
@@ -14,6 +16,19 @@ const finalOutput: AgentCoreOutput = {
 const context = (signal: AbortSignal, maxToolCalls = 2, runId = "run-1", eventId = "event-1") => createDeepAgentToolRunContext({ agentId: "agent-a", runId, eventId, maxToolCalls, signal });
 
 describe("ST-03 Deep Agent internal Tool Loop", () => {
+  it("returns a hallucinated Tool name as a recoverable Tool failure", async () => {
+    const logs: { level: string; step: string }[] = [];
+    const logger = { child: () => logger, log: (level: string, step: string) => { logs.push({ level, step }); } };
+    const middleware = createAgentCoreMiddleware(new ToolRegistry([]), logger, () => new Date(fixtureInstant)) as unknown as { wrapToolCall(request: { toolCall: { id: string; name: string; args: Record<string, unknown> }; runtime: { context: ReturnType<typeof context> } }, handler: () => Promise<unknown>): Promise<unknown> };
+    const runContext = context(new AbortController().signal);
+    const result = await middleware.wrapToolCall({ toolCall: { id: "provider-call", name: "scheduled_task_update", args: { taskId: "missing" } }, runtime: { context: runContext } }, () => Promise.reject(new Error("must not dispatch")));
+    expect(result).toBeInstanceOf(ToolMessage);
+    const content = (result as ToolMessage).content; if (typeof content !== "string") throw new Error("Expected string Tool failure content");
+    expect(content).toContain('"errorCode":"UNKNOWN_TOOL"');
+    expect(runContext.collector.executions).toMatchObject([{ name: "scheduled_task_update", ok: false, error: "Unknown tool: scheduled_task_update" }]);
+    expect(logs).toContainEqual({ level: "warn", step: "tool.completed" });
+  });
+
   it("removes exhausted operational Tools while preserving the structured output Tool", () => {
     const tools = [{ name: "file_read" }, { name: "web_archive_read" }, { name: "web_list" }, { name: "extract-1" }];
     const operational = new Set(["file_read", "web_archive_read", "web_list"]);

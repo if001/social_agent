@@ -23,4 +23,16 @@ describe("Scheduled Task tools", () => {
     const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-02T00:00:00Z")));
     await expect(registry.execute("schedule_task", { executeAt: "2026-01-01T00:00:00Z", instruction: "old" }, { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "key" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
+
+  it("updates only an owned scheduled Task and validates the requested change", async () => {
+    const queries: { text: string; values: readonly unknown[] }[] = [];
+    const pool = { query: (text: string, values: readonly unknown[]) => { queries.push({ text, values }); return Promise.resolve({ rows: [{ id: "task-1", execute_at: new Date("2026-01-03T00:00:00Z"), instruction: "更新後の指示", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }] }); } } as unknown as Pool;
+    const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));
+    const context = { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "update-1" };
+    await expect(registry.execute("scheduled_task_update", { taskId: "task-1", executeAt: "2026-01-03T00:00:00Z", instruction: "更新後の指示" }, context, new AbortController().signal)).resolves.toMatchObject({ ok: true, value: { id: "task-1", instruction: "更新後の指示" } });
+    expect(queries[0]?.text).toContain("agent_id=$2 AND status='scheduled'");
+    expect(queries[0]?.values.slice(0, 4)).toEqual(["task-1", "agent-a", "2026-01-03T00:00:00Z", "更新後の指示"]);
+    await expect(registry.execute("scheduled_task_update", { taskId: "task-1" }, { ...context, idempotencyKey: "empty" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(registry.execute("scheduled_task_update", { taskId: "task-1", executeAt: "2025-01-01T00:00:00Z" }, { ...context, idempotencyKey: "past" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+  });
 });

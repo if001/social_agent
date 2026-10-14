@@ -11,6 +11,13 @@ const result = (row: TaskRow) => ({ id: row.id, executeAt: row.execute_at.toISOS
 const CreateSchema = z.object({ executeAt: z.iso.datetime({ offset: true }).describe("実行する将来のISO 8601日時"), instruction: z.string().trim().min(1).max(4_000).describe("実行時にAgentへ渡す具体的な指示"), reason: z.string().trim().min(1).max(1_000).optional().describe("予約する理由"), destination: z.string().trim().min(1).max(1_000).optional().describe("実行結果を送る明示的な宛先。通常は省略する") }).strict();
 const ListSchema = z.object({ status: z.enum(["scheduled", "running", "completed", "cancelled", "failed"]).optional().describe("指定した状態だけに絞る。全件なら省略する"), limit: z.number().int().min(1).max(50).default(20).describe("返す最大件数") }).strict();
 const CancelSchema = z.object({ taskId: z.string().trim().min(1).describe("取り消すScheduled TaskのID") }).strict();
+const UpdateSchema = z.object({
+  taskId: z.string().trim().min(1).describe("変更するScheduled TaskのID"),
+  executeAt: z.iso.datetime({ offset: true }).optional().describe("変更後の将来のISO 8601実行日時"),
+  instruction: z.string().trim().min(1).max(4_000).optional().describe("変更後にAgentへ渡す具体的な指示"),
+  reason: z.string().trim().min(1).max(1_000).optional().describe("変更後の予約理由"),
+  destination: z.string().trim().min(1).max(1_000).optional().describe("変更後の明示的な送信先")
+}).strict().refine(({ executeAt, instruction, reason, destination }) => executeAt !== undefined || instruction !== undefined || reason !== undefined || destination !== undefined, { message: "At least one field to update is required" });
 
 export function createScheduledTaskTools(pool: Pool, ids: IdGenerator, now: () => Date): readonly RegisteredTool[] {
   const create: RegisteredTool<z.infer<typeof CreateSchema>> = {
@@ -44,5 +51,18 @@ export function createScheduledTaskTools(pool: Pool, ids: IdGenerator, now: () =
         return { ok: true, value: result(row) };
       }
     };
-  return [create, list, cancel];
+  const update: RegisteredTool<z.infer<typeof UpdateSchema>> = {
+    name: "scheduled_task_update", description: "自分が所有する未実行のScheduled Taskの実行日時、指示、理由、送信先を変更する。", resultPolicy: { kind: "standard" },
+    schema: UpdateSchema,
+    execute: async (input, context) => {
+      if (input.executeAt !== undefined && new Date(input.executeAt).getTime() <= now().getTime()) throw new DomainError("VALIDATION", "executeAt must be in the future");
+      const rows = await pool.query<TaskRow>(`UPDATE scheduled_tasks SET
+          execute_at=COALESCE($3,execute_at),instruction=COALESCE($4,instruction),reason=COALESCE($5,reason),destination=COALESCE($6,destination),updated_at=now()
+        WHERE id=$1 AND agent_id=$2 AND status='scheduled'
+        RETURNING id,execute_at,instruction,reason,destination,status,attempt`, [input.taskId, context.agentId, input.executeAt ?? null, input.instruction ?? null, input.reason ?? null, input.destination ?? null]);
+      const row = rows.rows[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Scheduled Task was not found or cannot be updated");
+      return { ok: true, value: result(row) };
+    }
+  };
+  return [create, list, cancel, update];
 }

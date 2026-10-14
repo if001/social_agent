@@ -26,6 +26,7 @@
 - Terminal、Discord、Agent間Message、各種Eventが同じAgent Loopを通る
 - Event AssessmentからDesire、Action、Patchへの引渡し
 - Tool continuation、複数Tool実績、Tool利用と発話判断が独立していること
+- 未登録Tool callを失敗実績としてcontinuationへ返し、run全体をprovider障害にしないこと
 - `respond` / `refuse` / `notify-no-execution`のOutbox保存と配送再試行
 - 自律Eventが具体的Tool実行も配送可能Actionもなく成功しない
 - 初回不正・repair成功時は1回だけcommitする

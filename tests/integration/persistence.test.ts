@@ -23,6 +23,7 @@ import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../../src/infrastructure/persistence/postgres-memory-embedding.js";
 import { PostgresWebArchive } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
+import { createScheduledTaskTools } from "../../src/infrastructure/tools/scheduled-task-tools.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
@@ -296,6 +297,15 @@ describeDatabase("PostgreSQL persistence", () => {
     const task = claims[0]; if (task === undefined) throw new Error("Scheduled Task was not claimed");
     await first.complete(task, null, "execution-event");
     expect((await pool.query("SELECT status,attempt,execution_event_id FROM scheduled_tasks WHERE id='task-due'")).rows[0]).toMatchObject({ status: "completed", attempt: 1, execution_event_id: "execution-event" });
+  });
+
+  it("updates only an owned pending Scheduled Task", async () => {
+    await pool.query("INSERT INTO scheduled_tasks(id,agent_id,execute_at,instruction,status,idempotency_key,source_event_id,source_run_id) VALUES ('task-update-a','a','2026-01-02','元の指示','scheduled','update-key-a','source-event','source-run'),('task-update-b','b','2026-01-02','他Agentの指示','scheduled','update-key-b','source-event','source-run')");
+    const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));
+    const signal = new AbortController().signal;
+    await expect(registry.execute("scheduled_task_update", { taskId: "task-update-a", executeAt: "2026-01-03T00:00:00Z", instruction: "更新後の指示" }, { agentId: "a", runId: "update-run", eventId: "update-event", idempotencyKey: "update-call" }, signal)).resolves.toMatchObject({ ok: true, value: { id: "task-update-a", instruction: "更新後の指示", status: "scheduled" } });
+    await expect(registry.execute("scheduled_task_update", { taskId: "task-update-b", instruction: "越境更新" }, { agentId: "a", runId: "update-run", eventId: "update-event", idempotencyKey: "cross-owner" }, signal)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await pool.query<{ instruction: string }>("SELECT instruction FROM scheduled_tasks WHERE id='task-update-b'")).rows[0]?.instruction).toBe("他Agentの指示");
   });
 
   it("never claims a legacy or unknown autonomous schedule kind", async () => {

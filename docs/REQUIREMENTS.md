@@ -52,7 +52,7 @@
 - Memoryは会話またはTool結果の転載ではなく、後の検索と判断で再利用する具体的要点として生成する。
 - Agent Contextを4,500推定token以内に収める。system promptとTool schemaを含むmodel入力が8,000推定tokenを超えた場合は警告するが、provider呼び出しを中断しない。
 - model call数、Deep Agent step数、Tool call数、deadlineをRun単位で制限する。
-- 予算超過、未登録Tool、schema不正、権限違反、同一Tool・同一入力の反復を拒否する。
+- 予算超過、schema不正、権限違反、同一Tool・同一入力の反復を拒否する。モデルが生成した未登録Tool callは失敗実績として同じAgent loopへ返し、利用可能なToolまたは最終Actionへ回復させる。
 
 ## R6. Tool
 

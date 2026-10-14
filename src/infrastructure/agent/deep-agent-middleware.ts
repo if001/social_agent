@@ -1,4 +1,4 @@
-import { createMiddleware } from "langchain";
+import { createMiddleware, ToolMessage } from "langchain";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { DomainError } from "../../domain/contracts.js";
 import { errorLogContext, type Logger } from "../../observability/logger.js";
@@ -53,7 +53,15 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
     wrapToolCall: async (request, handler) => {
       const context = DeepAgentToolRunContextSchema.parse(request.runtime.context);
       if (registeredToolNames.has(request.toolCall.name)) return handler(request);
-      if (!builtInToolNames.has(request.toolCall.name)) throw new DomainError("VALIDATION", `Unknown tool: ${request.toolCall.name}`);
+      if (!builtInToolNames.has(request.toolCall.name)) {
+        context.collector.count += 1;
+        const callId = `tool-${String(context.collector.count)}`;
+        const occurredAt = now().toISOString();
+        const error = `Unknown tool: ${request.toolCall.name}`;
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name: request.toolCall.name, input: request.toolCall.args, ok: false, error, startedAt: occurredAt, finishedAt: occurredAt });
+        baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, toolCallId: callId, toolName: request.toolCall.name }).log("warn", "tool.completed", { ok: false, errorCode: "UNKNOWN_TOOL" });
+        return new ToolMessage({ content: JSON.stringify({ ok: false, errorCode: "UNKNOWN_TOOL", error, requiredNextStep: "Use only a currently available Tool, or return the final Action." }), tool_call_id: request.toolCall.id ?? callId, name: request.toolCall.name, status: "error" });
+      }
       context.collector.count += 1;
       const callId = `tool-${String(context.collector.count)}`;
       const startedAt = now().toISOString();
@@ -82,4 +90,3 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
     }
   });
 }
-

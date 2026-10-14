@@ -617,7 +617,7 @@ type ScheduledTask = {
 ```
 
 - `schedule_task` ToolはTaskを登録するだけで、instructionをその場で実行しない。
-- list / cancel Toolも予約データの参照と取消だけを行う。
+- list / cancel / update Toolは予約データの参照、取消、変更だけを行う。updateは所有Agentの`scheduled` Taskだけを変更できる。
 - Schedulerはdue Taskをleaseし、`kind: "system"`かつ`targetKind: "scheduled-task"`のEventを生成する。
 - Agent RuntimeはそのEventを通常どおり処理し、Agent Core、Tool loop、Outboxを利用する。
 - Event完了後にTaskをcompletedへ、再試行可能な失敗ではbackoffを設定し、上限到達後にfailedへ遷移させる。
