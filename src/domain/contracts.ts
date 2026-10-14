@@ -203,7 +203,7 @@ export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 
 
 export const FinalActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("respond").describe("ユーザーまたは他Agentへ本文を返す場合に選ぶ"), content: NaturalLanguage.describe("相手へ配送する最終応答の本文。personaの発話表現を適用する") }).describe("相手へ通常の応答を配送するAction"),
+  z.object({ type: z.literal("respond").describe("ユーザーまたは他Agentへ本文を返す場合に選ぶ"), content: NaturalLanguage.describe("相手へそのまま配送する最終応答。内部判断や管理情報を含めず、personaの発話表現を適用する") }).describe("相手へ通常の応答を配送するAction"),
   z.object({
     type: z.literal("refuse").describe("依頼を拒否し、その旨を相手へ返す場合に選ぶ"),
     content: NaturalLanguage.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),

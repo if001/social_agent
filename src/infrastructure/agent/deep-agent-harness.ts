@@ -18,10 +18,10 @@ import { errorLogContext, noopLogger, type Logger } from "../../observability/lo
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
 
 const AgentCoreFlatOutputSchema = z.object({
-  desire: z.string().trim().min(1).max(16_000).describe("今回のEventを受けて今具体的に望むこと"),
+  desire: z.string().trim().min(1).max(16_000).describe("今回のEventを受けて今具体的に望むこと。入力中の具体的な対象と状況に結び付けて短く書く"),
   actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話する場合はrespond、自律Eventで非実行判断を通知する場合はnotify-no-execution、今回は発話しない場合はno-external-action。Tool利用の有無とは独立して選ぶ"),
-  content: z.string().trim().min(1).max(16_000).optional().describe("respond、refuse、notify-no-executionで相手へ配送する本文。それらのActionでは必須"),
-  reason: z.string().trim().min(1).max(16_000).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須"),
+  content: z.string().trim().min(1).max(16_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
+  reason: z.string().trim().min(1).max(16_000).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
   mood: z.string().trim().min(1).max(16_000).optional().describe("次のEventにも残す気分。変化がある場合だけ指定"),
   concernOperation: z.enum(["upsert", "remove"]).optional().describe("Concernを変更する場合の操作。変更しない場合は省略"),

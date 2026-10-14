@@ -128,7 +128,7 @@ describe("AgentHarness contract", () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現だけへ適用"); expect(agentCoreSystemPrompt).toContain("personaだけをFeelingやDesireの根拠にしません");
+    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現にだけ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを事実、Emotion、Desireの根拠にしません");
   });
 
   it("repairs invalid output once and then stops", async () => {
@@ -213,21 +213,27 @@ describe("AgentHarness contract", () => {
   });
 
   it("describes Interaction decisions without duplicating the output schema", () => {
-    expect(agentCoreSystemPrompt).toContain("目的:");
+    expect(agentCoreSystemPrompt).toContain("役割:");
     expect(agentCoreSystemPrompt).not.toContain("構造化出力専用Tool");
     expect(agentCoreSystemPrompt).not.toContain("最小引数例");
-    expect(agentCoreSystemPrompt).toContain("明示した将来時刻の処理はschedule_task");
+    expect(agentCoreSystemPrompt).toContain("schedule_taskが実際に利用可能な場合だけ");
     expect(agentCoreSystemPrompt).toContain("idle Event");
     expect(agentCoreSystemPrompt).toContain("desire");
-    expect(agentCoreSystemPrompt).toContain("自律Eventではwaitを返しません");
+    expect(agentCoreSystemPrompt).toContain("waitは返しません");
     expect(agentCoreSystemPrompt).toContain("Toolを使うかどうかと、ユーザーへ発話するかどうかは独立");
     expect(agentCoreSystemPrompt).toContain("返信がまだ来ていないこと");
     expect(agentCoreSystemPrompt).toContain("発話を控える理由に絶対にしません");
     expect(agentCoreSystemPrompt).toContain("夜間");
-    expect(agentCoreSystemPrompt).toContain("同一手段を繰り返さず");
+    expect(agentCoreSystemPrompt).toContain("進展しなかった手段を繰り返さず");
     expect(agentCoreSystemPrompt).not.toContain("content-readの文字予算");
     expect(agentCoreSystemPrompt).not.toContain("次のrun開始時");
     expect(agentCoreSystemPrompt).toContain("recentExperiences");
     expect(agentCoreSystemPrompt).not.toContain("recentAttempts");
+    expect(agentCoreSystemPrompt).toContain("内部情報や管理情報を開示しません");
+    expect(agentCoreSystemPrompt).toContain("通常の会話は結論を先にして1〜3文程度");
+    expect(agentCoreSystemPrompt).toContain("調査、比較、手順、詳しい説明を求めた場合");
+    expect(agentCoreSystemPrompt).toContain("抽象的評価だけで終えず");
+    expect(agentCoreSystemPrompt).not.toContain("関連する経験3〜5件");
+    expect(agentCoreSystemPrompt).not.toContain("必要な場合だけ1回使い");
   });
 });
