@@ -34,6 +34,7 @@ pnpm runtime:reset --confirm
 次のRuntime履歴を全件削除する。
 
 - state changes、Tool executions、Agent runs、Events
+- Reflection runs
 - Memory本体、subject、Web evidence
 - Web snapshots / resources
 - Scheduled tasks、autonomous schedules

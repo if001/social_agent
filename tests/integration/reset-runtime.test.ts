@@ -22,6 +22,7 @@ it("resets isolated data, preserves bot config, and refuses a running bot", asyn
     await control.query(`CREATE SCHEMA ${schema}`);
     await migrate(pool);
     await initializeAgent(pool, config);
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,output,completed_at) VALUES ('old-reflection',$1,0,'completed','{}','{}',now())", [config.agent.id]);
     await pool.query("UPDATE agents SET config='{\"persona\":\"keep\"}'");
     await pool.query("UPDATE agent_states SET mood='changed',version=99");
     await pool.query("INSERT INTO agent_lock_keys(agent_id,lock_key) VALUES ($1,765432109)", [config.agent.id]);
@@ -36,6 +37,7 @@ it("resets isolated data, preserves bot config, and refuses a running bot", asyn
     expect((await pool.query("SELECT version,mood FROM agent_states")).rows[0]).toEqual({ version: 0, mood: config.initialState.mood });
     expect((await pool.query<{ config: unknown }>("SELECT config FROM agents")).rows[0]?.config).toEqual({ persona: "keep" });
     expect((await pool.query<{ count: string }>("SELECT count(*) FROM autonomous_schedules")).rows[0]?.count).toBe("2");
+    expect((await pool.query<{ count: string }>("SELECT count(*) FROM reflection_runs")).rows[0]?.count).toBe("0");
     await expect(access(root)).rejects.toThrow();
   } finally {
     await lock.query("SELECT pg_advisory_unlock_all()"); lock.release();
