@@ -68,12 +68,41 @@ describe("ST-01 Terminal round trip", () => {
   });
 
   it("does not publish or mark an outbox record when publish fails", async () => {
+    const lines: string[] = []; const logger = createStdoutLogger({}, (line) => { lines.push(line); });
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
     await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { desire: "finish after tool work", action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().state, changes: [] }, [message]);
     const queue = { publish: () => Promise.reject(new Error("down")), subscribe: () => Promise.resolve() };
-    await expect(new OutboxDispatcher(persistence, queue).dispatch()).rejects.toThrow("down");
+    await expect(new OutboxDispatcher(persistence, queue, logger).dispatch()).rejects.toThrow("down");
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);
+    expect(lines.map((line) => JSON.parse(line) as { step: string; operation?: string })).toEqual(expect.arrayContaining([expect.objectContaining({ step: "outbox.queue_publish_failed", operation: "queue-publish" })]));
+  });
+
+  it("identifies the failing outbox I/O stage in structured logs", async () => {
+    const lines: string[] = [];
+    const logger = createStdoutLogger({}, (line) => { lines.push(line); });
+    const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
+    const readTimeout = Object.assign(new Error("read ETIMEDOUT"), { code: "ETIMEDOUT" });
+    persistence.pendingOutbox = () => Promise.reject(readTimeout);
+    const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
+
+    await expect(new OutboxDispatcher(persistence, queue, logger).dispatch()).rejects.toBe(readTimeout);
+
+    expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ step: "outbox.pending_load_failed", operation: "database-select", errorCode: "ETIMEDOUT", errorMessage: "read ETIMEDOUT" });
+  });
+
+  it("identifies a database update failure after queue publication", async () => {
+    const lines: string[] = []; const logger = createStdoutLogger({}, (line) => { lines.push(line); });
+    const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
+    const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
+    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { desire: "finish", action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().state, changes: [] }, [message]);
+    const updateTimeout = Object.assign(new Error("read ETIMEDOUT"), { code: "ETIMEDOUT" });
+    persistence.markOutboxSent = () => Promise.reject(updateTimeout);
+    const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
+
+    await expect(new OutboxDispatcher(persistence, queue, logger).dispatch()).rejects.toBe(updateTimeout);
+
+    expect(lines.map((line) => JSON.parse(line) as { step: string; operation?: string })).toEqual(expect.arrayContaining([expect.objectContaining({ step: "outbox.sent_mark_failed", operation: "database-update", errorCode: "ETIMEDOUT" })]));
   });
 
   it("accepts External, Time and System Events through the production queue contract", async () => {

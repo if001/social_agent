@@ -127,13 +127,33 @@ export class AgentRuntime {
 export class OutboxDispatcher {
   constructor(private readonly persistence: RuntimePersistence, private readonly queue: MessageQueue, private readonly logger: Logger = noopLogger) {}
   async dispatch(limit = 100): Promise<number> {
+    const loadStartedAt = Date.now();
+    let pending: readonly PendingOutput[];
+    try {
+      pending = await this.persistence.pendingOutbox(limit);
+    } catch (error) {
+      this.logger.log("error", "outbox.pending_load_failed", { operation: "database-select", elapsedMs: Date.now() - loadStartedAt, ...errorLogContext(error) });
+      throw error;
+    }
     let sent = 0;
-    for (const item of await this.persistence.pendingOutbox(limit)) {
+    for (const item of pending) {
       const logger = this.logger.child({ messageId: item.envelope.id, destination: item.envelope.destination, correlationId: item.envelope.correlationId });
       logger.log("info", "outbox.delivery_started");
-      await this.queue.publish(item.envelope);
-      await this.persistence.markOutboxSent(item.envelope.id);
-      logger.log("info", "outbox.delivery_completed");
+      const publishStartedAt = Date.now();
+      try {
+        await this.queue.publish(item.envelope);
+      } catch (error) {
+        logger.log("error", "outbox.queue_publish_failed", { operation: "queue-publish", elapsedMs: Date.now() - publishStartedAt, ...errorLogContext(error) });
+        throw error;
+      }
+      const markStartedAt = Date.now();
+      try {
+        await this.persistence.markOutboxSent(item.envelope.id);
+      } catch (error) {
+        logger.log("error", "outbox.sent_mark_failed", { operation: "database-update", elapsedMs: Date.now() - markStartedAt, ...errorLogContext(error) });
+        throw error;
+      }
+      logger.log("info", "outbox.delivery_completed", { elapsedMs: Date.now() - publishStartedAt });
       sent += 1;
     }
     return sent;
