@@ -47,6 +47,7 @@ export const ReflectionModelOutputSchema = z.object({
 }).strict().describe("永続状態へ実際に適用する最小限の変更。入力の説明や変更のない値は出力しない");
 
 export const ReflectionModelOutputJsonSchema = modelJsonSchema(ReflectionModelOutputSchema);
+export const reflectionStructuredOutputRepairMessage = "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。memories、concernChanges、relationshipChanges、evidenceMemoryIdsは必須の配列で、変更がなければ空配列にしてください。任意fieldは変更がある場合だけ指定してください。";
 type ReflectionResponseFormat = TypedToolStrategy<z.infer<typeof ReflectionModelOutputSchema>>;
 
 export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以降の判断に必要な永続状態へ整理するReflection担当です。
@@ -137,7 +138,7 @@ export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: 
   const model = createOllamaChatModel(config);
   const responseFormat = toolStrategy(ReflectionModelOutputJsonSchema, { handleError: (error) => {
     logger.log("warn", "reflection.structured_output_invalid", errorLogContext(error));
-    return "構造化出力が不正です。通常の本文やMarkdownを返さず、指定Schemaの構造化出力をちょうど1件返してください。検証エラー: " + error.message;
+    return reflectionStructuredOutputRepairMessage;
   } }) as unknown as ReflectionResponseFormat;
   const agent = createDeepAgent({ model, tools: [], systemPrompt: reflectionSystemPrompt, responseFormat });
   return {

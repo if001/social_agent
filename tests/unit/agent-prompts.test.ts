@@ -1,5 +1,5 @@
-import { completeAgentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-harness.js";
-import { reflectionSystemPrompt } from "../../src/infrastructure/agent/reflection-harness.js";
+import { agentCoreStructuredOutputRepairMessage, completeAgentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { reflectionStructuredOutputRepairMessage, reflectionSystemPrompt } from "../../src/infrastructure/agent/reflection-harness.js";
 
 describe("Agent prompts", () => {
   it("gives idle exploration modes concrete and distinct behavior", () => {
@@ -22,5 +22,16 @@ describe("Agent prompts", () => {
     expect(prompt).toContain("進展なしで反復");
     expect(prompt).toContain("satisfied / abandoned / remove");
     expect(prompt).toContain("一律の経過時間だけでは終了させず");
+  });
+
+  it("keeps provider errors and stack traces out of structured-output repair prompts", () => {
+    for (const prompt of [agentCoreStructuredOutputRepairMessage, reflectionStructuredOutputRepairMessage]) {
+      expect(prompt).not.toContain("検証エラー:");
+      expect(prompt).not.toContain("DynamicStructuredTool");
+      expect(prompt).not.toContain("Error:");
+      expect(prompt).toContain("構造化出力専用Toolを1回だけ");
+    }
+    expect(agentCoreStructuredOutputRepairMessage).toContain("actionTypeがrespondならcontent");
+    expect(reflectionStructuredOutputRepairMessage).toContain("変更がなければ空配列");
   });
 });

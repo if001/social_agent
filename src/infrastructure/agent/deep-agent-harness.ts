@@ -33,6 +33,7 @@ export const completeAgentCoreSystemPrompt = `${agentCoreSystemPrompt}${autonomo
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
 
 export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
+export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。actionTypeがrespondならcontent、refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reason、no-external-actionならreasonを指定してください。状態変更がなければmood、relationship系、rememberは省略してください。";
 
 function domainOutputFromFlat(value: unknown): unknown {
   const parsed = AgentCoreFlatOutputSchema.safeParse(value);
@@ -229,7 +230,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   }) as unknown as ReusableDeepAgent);
   const responseFormat = toolStrategy(AgentCoreModelOutputJsonSchema, { handleError: (error) => {
     logger.log("warn", "agent_core.structured_output_invalid", errorLogContext(error));
-    return "構造化出力が不正です。通常Toolは使わず、指定Schemaの全フィールドを含む最終回答を構造化出力専用Toolでちょうど1件だけ返してください。検証エラー: " + error.message;
+    return agentCoreStructuredOutputRepairMessage;
   } }) as unknown as AgentCoreResponseFormat;
   const agent = factory({ model, tools: tools as DeepAgentToolsOption, systemPrompt: completeAgentCoreSystemPrompt, responseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware });
   return {
