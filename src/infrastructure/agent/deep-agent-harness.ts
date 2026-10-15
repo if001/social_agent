@@ -255,12 +255,12 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         runId: options.runId,
         eventId: options.eventId,
         eventKind: options.eventKind,
+        maxModelCalls: options.maxModelCalls,
         maxToolCalls: Math.min(25, options.maxToolCalls),
         signal: options.signal,
         ...(options.recentToolInputs === undefined ? {} : { recentToolInputs: options.recentToolInputs }),
         ...(options.transport === undefined ? {} : { transport: options.transport })
       });
-      context.collector.explorationModelCalls = 1;
       try {
         const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
         return { structuredResponse: domainOutputFromFlat(result.structuredResponse), messages: result.messages, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) };

@@ -63,6 +63,29 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(effects).toBe(0);
   });
 
+  it("keeps concern proposal Tools available after an empty concern list call", async () => {
+    const registry = new ToolRegistry([
+      { name: "concern_list", description: "List concerns", schema: z.object({ limit: z.number().optional() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { count: 0, concerns: [] } }) },
+      { name: "concern_propose", description: "Propose a concern", schema: z.object({ description: z.string() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true }) }
+    ]);
+    let secondCallTools: string[] = [];
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "http://unused", apiKey: "unused", model: "fake", toolRegistry: registry, agentFactory: (options) => {
+      const middleware = options.middleware[0] as { wrapModelCall(request: { tools: { name: string }[]; messages: { type: string; content: string }[]; systemMessage: { content: string }; runtime: { context: ReturnType<typeof context> } }, handler: (request: { tools: { name: string }[] }) => Promise<unknown>): Promise<unknown> };
+      const tools = options.tools as unknown as { name: string }[];
+      return { invoke: async (_input, config) => {
+        const request = { tools, messages: [], systemMessage: { content: "system" }, runtime: { context: config.context } };
+        await middleware.wrapModelCall(request, () => Promise.resolve({ content: "select concern" }));
+        config.context.collector.count = 1;
+        await middleware.wrapModelCall(request, (effective) => { secondCallTools = effective.tools.map(({ name }) => name); return Promise.resolve({ content: "propose concern" }); });
+        return { structuredResponse: { desire: "新しい関心を持つ", actionType: "no-external-action", reason: "Concernを提案した" } };
+      } };
+    } });
+
+    await expect(invoker.invoke({ messages: [{ role: "user", content: "idle" }] }, { signal: new AbortController().signal, recursionLimit: 6, maxModelCalls: 6, agentId: "agent-a", runId: "empty-concern-run", eventId: "empty-concern-event", eventKind: "internal", maxToolCalls: 5 })).resolves.toMatchObject({ structuredResponse: { action: { type: "no-external-action" } } });
+    expect(secondCallTools).toContain("concern_propose");
+    expect(secondCallTools).toContain("concern_list");
+  });
+
   it("returns an identical recent Tool input as a Tool failure without executing it again", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);

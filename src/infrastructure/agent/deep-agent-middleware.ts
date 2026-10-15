@@ -25,8 +25,10 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
       const systemPrompt = serializeMessageContent(request.systemMessage.content);
       const messages = request.messages.map((message) => ({ role: message.type, content: message.content }));
       const serializedMessages = JSON.stringify(messages);
-      const finalizing = modelCall > context.collector.explorationModelCalls || context.collector.structuredOutputFailed;
-      if (modelCall > context.collector.explorationModelCalls + 2) throw new DomainError("VALIDATION", "Final structured output could not be produced within the model call limit");
+      if (modelCall > context.maxModelCalls) throw new DomainError("VALIDATION", "Final structured output could not be produced within the model call limit");
+      const toolLimitReached = context.collector.count >= context.maxToolCalls;
+      const finalizing = context.collector.structuredOutputFailed || toolLimitReached || modelCall === context.maxModelCalls;
+      const finalizingReason = context.collector.structuredOutputFailed ? "structured-output-repair" : toolLimitReached ? "tool-call-limit" : modelCall === context.maxModelCalls ? "model-call-budget" : undefined;
       const phaseTools = request.tools.filter((candidate) => {
         const name = toolName(candidate);
         if (name === undefined || !registeredToolNames.has(name)) return true;
@@ -34,7 +36,7 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
         if (context.collector.focusConcernAcquired && ["concern_list", "concern_get"].includes(name)) return false;
         return true;
       });
-      const effectiveTools = finalizing || context.collector.count >= context.maxToolCalls ? [] : filterModelToolsAfterLimits(phaseTools, operationalToolNames, contentReadToolNames, false, context.collector.contentReadLimitReached);
+      const effectiveTools = finalizing ? [] : filterModelToolsAfterLimits(phaseTools, operationalToolNames, contentReadToolNames, false, context.collector.contentReadLimitReached);
       const effectiveRequest = effectiveTools.length === request.tools.length ? request : { ...request, tools: effectiveTools };
       const toolNames = effectiveTools.map((candidate) => toolName(candidate) ?? "unknown");
       const startedAt = now();
@@ -42,7 +44,7 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
         inputCharacters: systemPrompt.length + serializedMessages.length,
         estimatedInputTokens: Math.ceil((systemPrompt.length + serializedMessages.length) / 4),
         messageCount: messages.length,
-        toolCount: toolNames.length, finalizing
+        toolCount: toolNames.length, finalizing, finalizingReason
       });
       logger.log("debug", "agent_core.model_call_prompt", { systemPrompt, messages: serializedMessages, toolNames: JSON.stringify(toolNames) });
       try {

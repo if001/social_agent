@@ -10,7 +10,6 @@ import { modelJsonSchema } from "./model-json-schema.js";
 export class ToolExecutionCollector {
   count = 0;
   modelCallCount = 0;
-  explorationModelCalls = 3;
   structuredOutputFailed = false;
   contentReadCharacters = 0;
   contentReadReservedCharacters = 0;
@@ -40,6 +39,7 @@ export type DeepAgentToolRunContext = {
   readonly runId: string;
   readonly eventId: string;
   readonly eventKind?: AgentCoreInput["observation"]["kind"];
+  readonly maxModelCalls: number;
   readonly maxToolCalls: number;
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
@@ -52,6 +52,7 @@ export const DeepAgentToolRunContextSchema = z.object({
   runId: z.string().min(1),
   eventId: z.string().min(1),
   eventKind: z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]).optional(),
+  maxModelCalls: z.number().int().positive(),
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
@@ -59,8 +60,8 @@ export const DeepAgentToolRunContextSchema = z.object({
   transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
 });
 
-export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs"> & { readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
-  return { ...options, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
+export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs" | "maxModelCalls"> & { readonly maxModelCalls?: number; readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
+  return { ...options, maxModelCalls: options.maxModelCalls ?? 8, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
 }
 
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };
