@@ -4,8 +4,9 @@ import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 class FakeDiscordGateway implements DiscordGateway {
-  handler?: (message: DiscordInboundMessage) => Promise<void>; readonly sent: { context: DiscordReplyContext; content: string }[] = []; failures = 0;
+  handler?: (message: DiscordInboundMessage) => Promise<void>; readonly sent: { context: DiscordReplyContext; content: string }[] = []; readonly typing: string[] = []; failures = 0;
   start(handler: (message: DiscordInboundMessage) => Promise<void>, signal: AbortSignal): Promise<void> { this.handler = handler; return new Promise((resolve) => { signal.addEventListener("abort", () => { resolve(); }, { once: true }); }); }
+  startTyping(context: DiscordReplyContext): Promise<() => void> { this.typing.push(`start:${context.messageId ?? "none"}`); return Promise.resolve(() => { this.typing.push(`stop:${context.messageId ?? "none"}`); }); }
   send(context: DiscordReplyContext, content: string): Promise<string> { if (this.failures-- > 0) return Promise.reject(new Error("rate limited")); this.sent.push({ context, content }); return Promise.resolve(`discord-output-${String(this.sent.length)}`); }
   receive(message: DiscordInboundMessage): Promise<void> { if (this.handler === undefined) throw new Error("not started"); return this.handler(message); }
 }
@@ -22,8 +23,12 @@ describe("Discord UI adapter contract", () => {
   });
   it("retries outbound failures without ack and preserves thread reply", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { retryDelayMs: () => 0, now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway(); gateway.failures = 1; const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
+    const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal);
+    await gateway.receive({ id: "42", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", threadId: "thread", content: "<@bot-a> hello", createdAt: new Date("2026-01-01T00:00:00Z") });
+    const initial = new AbortController(); await queue.subscribe("agent-a", () => { initial.abort(); return Promise.resolve(); }, initial.signal);
     await queue.publish({ id: "output", destination: "discord", source: "agent-a", correlationId: "conversation", causationId: "run-42", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: { type: "agent-response", text: "reply", action: { id: "run-42", type: "respond" }, replyContext: { channelId: "channel", threadId: "thread", messageId: "42" } } });
-    const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal); const outbound = adapter.startOutbound(controller.signal); await eventually(() => { expect(gateway.sent).toHaveLength(1); }); expect(gateway.sent[0]).toMatchObject({ context: { threadId: "thread", messageId: "42" }, content: "reply" });
+    const outbound = adapter.startOutbound(controller.signal); await eventually(() => { expect(gateway.sent).toHaveLength(1); }); expect(gateway.sent[0]).toMatchObject({ context: { threadId: "thread", messageId: "42" }, content: "reply" });
+    expect(gateway.typing).toEqual(["start:42", "stop:42"]);
     await gateway.receive({ id: "43", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", referencedMessageId: "discord-output-1", content: "<@bot-a> understood", createdAt: new Date("2026-01-01T00:00:01Z") });
     const results: string[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { results.push(message.causationId ?? ""); consume.abort(); return Promise.resolve(); }, consume.signal); expect(results).toEqual(["run-42"]);
     controller.abort(); await Promise.all([inbound, outbound]); await scope.close();

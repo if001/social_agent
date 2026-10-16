@@ -21,4 +21,20 @@ export class DiscordJsGateway implements DiscordGateway {
     const sent = await channel.send({ content, ...(context.messageId === undefined ? {} : { reply: { messageReference: context.messageId, failIfNotExists: false } }), allowedMentions: { repliedUser: false } });
     return sent.id;
   }
+  async startTyping(context: DiscordReplyContext, signal: AbortSignal): Promise<() => void> {
+    if (signal.aborted) throw new Error("Discord typing aborted");
+    const channel = await this.#client.channels.fetch(context.threadId ?? context.channelId);
+    if (channel === null || !channel.isTextBased() || !("sendTyping" in channel) || typeof channel.sendTyping !== "function") throw new Error("Discord typing channel is unavailable");
+    let stopped = false;
+    const tick = async (): Promise<void> => {
+      if (stopped || signal.aborted) return;
+      try { await channel.sendTyping(); }
+      catch (error) { this.logger.log("warn", "discord.typing_refresh_failed", { channelId: context.threadId ?? context.channelId, ...errorLogContext(error) }); }
+    };
+    await tick();
+    const timer = setInterval(() => { void tick(); }, 8_000);
+    const stop = (): void => { if (stopped) return; stopped = true; clearInterval(timer); signal.removeEventListener("abort", stop); };
+    signal.addEventListener("abort", stop, { once: true });
+    return stop;
+  }
 }

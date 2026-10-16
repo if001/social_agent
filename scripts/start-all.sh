@@ -98,8 +98,9 @@ trap on_interrupt INT
 trap on_terminate TERM HUP
 trap shutdown EXIT
 
-start_process ao "$CYAN" pnpm bot:start --env-file .env.ao
+# start_process ao "$CYAN" pnpm bot:start --env-file .env.ao
 start_process aka "$MAGENTA" pnpm bot:start --env-file .env.aka
+start_process shiro "$CYAN" pnpm bot:start --env-file .env.shiro
 start_process debug "$YELLOW" pnpm debug:ui --env-file .env.ao
 start_process ingest "$GREEN" pnpm page-ingest:start --env-file .env.page-ingest
 

@@ -9,6 +9,7 @@ class FakeGateway implements DiscordGateway {
     this.handler = handler;
     return new Promise((resolve) => { signal.addEventListener("abort", () => { resolve(); }, { once: true }); });
   }
+  startTyping(): Promise<() => void> { return Promise.resolve(() => undefined); }
   send(context: DiscordReplyContext, content: string, key: string): Promise<string> {
     this.sent.push({ context, content, key }); return Promise.resolve(`sent-${String(this.sent.length)}`);
   }

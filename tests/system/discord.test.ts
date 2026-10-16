@@ -11,6 +11,7 @@ import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-sc
 class Gateway implements DiscordGateway {
   handler?: (message: DiscordInboundMessage) => Promise<void>; readonly sent: string[] = [];
   start(handler: (message: DiscordInboundMessage) => Promise<void>, signal: AbortSignal): Promise<void> { this.handler = handler; return new Promise((resolve) => { signal.addEventListener("abort", () => { resolve(); }, { once: true }); }); }
+  startTyping(): Promise<() => void> { return Promise.resolve(() => undefined); }
   send(_context: DiscordReplyContext, content: string): Promise<string> { this.sent.push(content); return Promise.resolve(`discord-output-${String(this.sent.length)}`); }
 }
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
