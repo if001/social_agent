@@ -79,6 +79,8 @@ describe("structured Reflection model", () => {
     expect(properties.concernChanges?.description).toContain("未解決事項");
     expect(properties.relationshipChanges?.description).toContain("関係が変わらなければ");
     expect(properties.mood?.description).toContain("次の複数Event");
+    expect(properties.mood).toMatchObject({ maxLength: 160 });
+    expect(properties.mood?.description).toContain("願望、計画は書かない");
     expect(properties.selfDisposition?.description).toContain("意味づけの傾向");
     expect(properties.evidenceMemoryIds?.description).toContain("Runtimeが検証");
     expect(reflectionSystemPrompt).toContain("空のmaintenance結果は正しい");

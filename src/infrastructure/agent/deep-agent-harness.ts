@@ -23,7 +23,7 @@ const AgentCoreFlatOutputSchema = z.object({
   content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
-  mood: z.string().trim().min(1).max(400).optional().describe("次のEventにも残す気分。変化がある場合だけ指定"),
+  mood: z.string().trim().min(1).max(160).optional().describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する"),
   relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
   relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
   relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
@@ -218,7 +218,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   const now = config.now ?? (() => new Date());
   const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
   const assessmentToolName = "submit_event_assessment";
-  const assessmentModel = model.bindTools([{ type: "function" as const, function: { name: assessmentToolName, description: "現在Eventの主観的Meaningと、そのEventに対するEmotionを返す", parameters: z.toJSONSchema(EventAssessmentSchema) } }]);
+  const assessmentModel = model.bindTools([{ type: "function" as const, function: { name: assessmentToolName, description: "現在Eventの主観的Meaningと、そのEventで今生じた短期的なFeelingを簡潔に返す", parameters: z.toJSONSchema(EventAssessmentSchema) } }]);
   const middleware = [createAgentCoreMiddleware(config.toolRegistry, logger, now)];
   const factory: ReusableDeepAgentFactory = config.agentFactory ?? ((options) => createDeepAgent({
     model: options.model,
@@ -236,7 +236,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   return {
     async assess(input, options) {
       if (options.maxModelCalls < 1) throw new DomainError("LIMIT_EXCEEDED", "No model call budget remains for Event assessment");
-      const messages = [new SystemMessage(`現在Eventの主観的Meaningと、そのEventに対するEmotionを先に確定します。最終Actionや通常Tool選択は行わず、${assessmentToolName}をちょうど1件呼び出してください。`), ...input.messages];
+      const messages = [new SystemMessage(`現在Eventの主観的Meaningと、そのEventで今生じた短期的なFeelingを先に確定します。Meaningには感情・願望・計画・Actionを書きません。Feelingは感情語中心の短い1文とし、Eventの説明、理由、願望、計画、Action、持続するMoodを書きません。感情語の例は、嬉しい、期待、不安、落胆、苛立ち、安堵、退屈ですが、このリストから選ぶ必要はありません。最終Actionや通常Tool選択は行わず、${assessmentToolName}をちょうど1件呼び出してください。`), ...input.messages];
       const components = { messages: estimateTokens(messages), tools: 0, outputSchema: estimateTokens(z.toJSONSchema(EventAssessmentSchema)) };
       const estimatedTokens = Object.values(components).reduce((sum, value) => sum + value, 0);
       if (estimatedTokens > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "event_assessment.model_input_budget_exceeded", { agentId: options.agentId, eventId: options.eventId, runId: options.runId, estimatedTokens, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(components) });

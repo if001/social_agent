@@ -6,8 +6,10 @@ const NaturalLanguage = z.string().trim().min(1).max(16_000);
 const AgentDesire = z.string().trim().min(1).max(800);
 const AgentContent = z.string().trim().min(1).max(6_000);
 const AgentReason = z.string().trim().min(1).max(800);
-const AgentMood = z.string().trim().min(1).max(400);
+const AgentMood = z.string().trim().min(1).max(160);
 const AgentStateDescription = z.string().trim().min(1).max(800);
+const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない");
+const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 嬉しい、期待、不安、落胆、苛立ち、安堵、退屈。例から選ぶ必要はない。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない");
 
 export const SelfSchema = z.object({
   identity: NaturalLanguage,
@@ -65,7 +67,10 @@ export const EpisodicMemorySchema = z.object({
 });
 export type EpisodicMemory = z.infer<typeof EpisodicMemorySchema>;
 
-export const EventAssessmentSchema = z.object({ meaning: NaturalLanguage.optional(), feeling: NaturalLanguage.optional() });
+export const EventAssessmentSchema = z.object({
+  meaning: EventMeaning.optional(),
+  feeling: EventFeeling.optional()
+}).strict().describe("今回のEventに対するAction前の主観的評価。Meaningと短期的なFeelingだけを扱う");
 export type EventAssessment = z.infer<typeof EventAssessmentSchema>;
 
 export const RunLimitsSchema = z.object({
@@ -253,7 +258,7 @@ export const AgentTurnSchema = z.object({
   desire: AgentDesire.describe("現在のSelf、状態、Observation、Memory、Event Assessmentから生じた今回の具体的な望み"),
   action: FinalActionSchema,
   patch: z.object({
-    mood: AgentMood.describe("次のEventにも持続させる現在の気分。変化がない場合は省略する").optional(),
+    mood: AgentMood.describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する").optional(),
     relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
     remember: z.string().trim().min(1).max(800).describe("今回直ちに記憶候補として残す内容。長期的価値がなければ省略する").optional()
   }).strict().describe("次のEventにも影響する永続状態の変更提案。変更がなければpatch全体を省略する").optional()

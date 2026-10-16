@@ -37,7 +37,7 @@ export const ReflectionModelOutputSchema = z.object({
   memories: z.array(ReflectionMemorySchema).max(4).describe("Memory DBへ新規保存し、今後のContext検索に使う経験。保存価値がなければ空配列"),
   concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("現在Stateのconcernsへ適用する変更。未解決事項が変わらなければ空配列"),
   relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("現在Stateのrelationshipsへ適用する変更。関係が変わらなければ空配列"),
-  mood: z.string().trim().min(1).max(16_000).optional().describe("次の複数Eventの意味づけや行動へ影響する現在の気分。短期的な感情だけなら省略する"),
+  mood: z.string().trim().min(1).max(160).optional().describe("今回だけのFeelingではなく、次の複数Eventの意味づけや行動へ影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がなければ省略する"),
   selfIdentity: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfDisposition: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、価値を感じやすい対象と意味づけの傾向。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfStory: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
@@ -60,7 +60,7 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
 - Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定だけを行い、新しいConcernは作らない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
-- Mood: 一時的な感情ではなく、次の複数Eventへ残る気分だけを書く
+- Mood: 今回だけのFeelingではなく、次の複数Eventへ残る背景的な気分を短い1文で書く。現在のEvent、返答待ち、理由、願望、計画は含めず、持続する変化がなければ省略する
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
 
 制約:

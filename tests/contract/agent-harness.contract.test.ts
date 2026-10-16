@@ -136,7 +136,7 @@ describe("AgentHarness contract", () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現にだけ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを事実、Emotion、Desireの根拠にしません");
+    expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現にだけ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを事実、Feeling、Desireの根拠にしません");
   });
 
   it("repairs invalid output once and then stops", async () => {
@@ -168,7 +168,7 @@ describe("AgentHarness contract", () => {
     const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
     expect(Object.keys(modelProperties)).toHaveLength(10);
     expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
-    expect(modelProperties).toMatchObject({ desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 }, mood: { maxLength: 400 }, relationshipDescription: { maxLength: 800 }, remember: { maxLength: 800 } });
+    expect(modelProperties).toMatchObject({ desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 }, mood: { maxLength: 160 }, relationshipDescription: { maxLength: 800 }, remember: { maxLength: 800 } });
     expect(modelProperties).not.toHaveProperty("concernOperation");
   });
 

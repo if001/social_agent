@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, MessageEnvelopeSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
@@ -29,10 +30,21 @@ describe("domain contracts", () => {
     expect(AgentTurnSchema.safeParse({ ...base, desire: "d".repeat(801) }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, action: { type: "respond", content: "c".repeat(6_001) } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, action: { type: "no-external-action", reason: "r".repeat(801) } }).success).toBe(false);
-    expect(AgentTurnSchema.safeParse({ ...base, patch: { mood: "m".repeat(401) } }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, patch: { mood: "m".repeat(161) } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { concern: { operation: "upsert", concern: { id: "c", description: "d".repeat(801), whyItMatters: "理由", status: "active" } } } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { relationship: { operation: "upsert", relationship: { subjectId: "user", description: "d".repeat(801) } } } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { remember: "m".repeat(801) } }).success).toBe(false);
+  });
+
+  it("bounds Event Meaning and Feeling without restricting Feeling to an enum", () => {
+    expect(EventAssessmentSchema.safeParse({ meaning: "m".repeat(801), feeling: "嬉しい" }).success).toBe(false);
+    expect(EventAssessmentSchema.safeParse({ meaning: "会話を再開する呼び掛け", feeling: "名付けにくいが心が少し弾む" }).success).toBe(true);
+    expect(EventAssessmentSchema.safeParse({ feeling: "f".repeat(161) }).success).toBe(false);
+    const properties = z.toJSONSchema(EventAssessmentSchema).properties as Record<string, Record<string, unknown>>;
+    expect(properties.meaning).toMatchObject({ maxLength: 800 });
+    expect(properties.feeling).toMatchObject({ maxLength: 160 });
+    expect(properties.feeling?.description).toContain("例から選ぶ必要はない");
+    expect(properties.feeling).not.toHaveProperty("enum");
   });
 
   it("maps every Event kind to an objective, provenance-aware Observation", () => {
