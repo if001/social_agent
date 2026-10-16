@@ -297,7 +297,7 @@ Result
   ↓
 Subjective Meaning / Value
   ↓
-Emotion
+Feeling
   ↓
 Memory
   ↓
@@ -450,11 +450,11 @@ Motiveの種類を固定リストとして定義する必要はない。
 
 ---
 
-## 9. Emotion / Mood
+## 9. Feeling / Mood
 
-### 9.1 Emotion
+### 9.1 Feeling
 
-Emotionは、出来事がAgent自身にとってどのような意味を持ったかによって生じる比較的短期の感情反応である。
+Feelingは、出来事がAgent自身にとってどのような意味を持ったかによって生じる比較的短期の感情反応である。
 
 例えば、
 
@@ -483,7 +483,7 @@ Emotionは、出来事がAgent自身にとってどのような意味を持っ�
 
 ### 9.2 Mood
 
-MoodはEmotionより持続的な現在の気分である。
+MoodはFeelingより持続的な現在の気分である。
 
 例えば、
 
@@ -510,7 +510,7 @@ Motiveは、現在何を求めているかを表す単一の動機である。�
 
 「この技術を調べたい」「疲れたため休みたい」は競合するMotiveとして扱う。独立したDesireやIntentionを心理状態として置かない。SelfのInterestsは長期的に注意を引かれやすい対象、Preferencesは対象・方法への好みであり、現在のMotiveとは区別する。
 
-通常のInteractionでは、保存済みMotiveまたは今回のEvent、Self、Memory、Social Context、Moodから必ず一つのactiveMotiveを選択・形成し、Emotionや実行制約とともに具体的なActionを判断する。保存済みMotiveが空でも行動を止めない。
+通常のInteractionでは、保存済みMotiveまたは今回のEvent、Self、Memory、Social Context、Moodから必ず一つのactiveMotiveを選択・形成し、Feelingや実行制約とともに具体的なActionを判断する。保存済みMotiveが空でも行動を止めない。
 
 探索型Motiveには任意のgoalとprogressを持たせる。goalは対象を知り尽くす条件ではなく、現在の知識に応じた当面の満足点である。進展や充足に応じて維持・更新・統合・resolve・dropを判断し、停滞時は方法や対象を見直す。個数の閾値から機械的に生成しない。
 
@@ -650,7 +650,7 @@ Event / Observation
 Self
 Disposition
 Motive
-Emotion / Mood
+Feeling / Mood
 Relevant Memory
 Social Context
 Expectation
@@ -659,7 +659,7 @@ Agent Coreによる意味解釈
         ↓
 Subjective Meaning / Value
         ↓
-Emotion / State Update / Decision
+Feeling / State Update / Decision
 ```
 
 と考える。
@@ -683,7 +683,7 @@ Role:
 Meaning:
   自分が実際にこのプロジェクトへ貢献できた
 
-Emotion:
+Feeling:
   嬉しい / 誇らしい
 
 Self Narrative:
@@ -844,7 +844,7 @@ Situation
 
 ## 19. 感情と状態の時間変化
 
-Emotion、Mood、Motive、Acquired Dispositionなどは保存されたまま固定されない。
+Feeling、Mood、Motive、Acquired Dispositionなどは保存されたまま固定されない。
 
 ### 時間による変化
 時間経過によって感情の影響が薄れることがある。
@@ -907,7 +907,7 @@ Agent Core
         ├── Self
         ├── Disposition
         ├── Motive
-        ├── Emotion / Mood
+        ├── Feeling / Mood
         ├── Social Context
         └── Relevant Memory
         │
@@ -938,7 +938,7 @@ Agent CoreはLLMを中心とする。
 - Observationの解釈
 - Subjective Meaningの形成
 - Motiveの生成・更新
-- Emotion / Moodの更新
+- Feeling / Moodの更新
 - Social Contextの更新
 - Self Narrativeの更新
 - Acquired Dispositionの更新
@@ -1038,7 +1038,7 @@ Disposition
 +
 Motivation
 +
-Emotion / Mood
+Feeling / Mood
 +
 Motive
 +
@@ -1066,7 +1066,7 @@ Prediction Hierarchy
 Decision Hierarchy
 Appraisal Module
 Attention Module
-Emotion Generator
+Feeling Generator
 Motive Resolver
 Personality Weight Table
 Cognitive Depth Controller
@@ -1172,7 +1172,7 @@ Observation
 - 個体差を固定されたキャラクター設定だけで作ること
 - 巨大なFSMやDecision Treeを構築すること
 - MotiveとActionの固定対応表を作ること
-- EmotionとActionの固定対応表を作ること
+- FeelingとActionの固定対応表を作ること
 - 常にユーザーへ従うこと
 - 常にユーザーを喜ばせること
 - 常に最も効率的な行動を選択すること
@@ -1212,7 +1212,7 @@ Observation
 
 - Shared / Initial / Acquired Dispositionの保持方法
 - Persistent StateとTransient Stateの境界
-- Self / Motivation / Emotion / Social Contextの保持形式
+- Self / Motivation / Feeling / Social Contextの保持形式
 - Self NarrativeとAcquired Dispositionの更新境界
 - Agent Coreの入出力
 - 状態更新のタイミング

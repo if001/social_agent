@@ -26,7 +26,7 @@
 
 > Agentの個性や行動を固定的なPersonality設定や数値Rewardで直接決めない。
 
-> Agentが何に価値を感じ、出来事をどう意味づけたかから、Emotion、Motive、Actionが生じる。
+> Agentが何に価値を感じ、出来事をどう意味づけたかから、Feeling、Motive、Actionが生じる。
 
 > 長期的な個体差は、経験、Memory、Self Narrative、Acquired Dispositionの変化として表現する。
 
@@ -108,7 +108,7 @@ flowchart TD
   E[Event] --> R[Runtime / Observation / Context Builder]
   R --> C[Interaction Deep Agent]
   C <--> T[Tool実行・結果]
-  C --> O[Subjective Meaning / activeMotive / Emotion提案 / 最終Action]
+  C --> O[Subjective Meaning / activeMotive / Feeling提案 / 最終Action]
   O --> V[Runtime検証・RunとTool履歴保存・Outbox登録]
   V --> D[応答配送]
   V --> P[用途別Post-process]
@@ -132,7 +132,7 @@ state-reviewはInteractionとTool loopを通さずContinuityだけを実行す�
 
 ```text
 短期:
-Subjective Meaning / Emotion
+Subjective Meaning / Feeling
 
 中期:
 Mood / Motive / Social Context
@@ -198,7 +198,7 @@ type StableState = {
 
 ```ts
 type DynamicState = {
-  emotion?: string
+  feeling?: string
   mood?: string
 
   motives: Motive[]
@@ -507,12 +507,12 @@ Subjective Meaning
 
 Subjective Meaningは原則として保存しない。
 
-その結果として生成されたEmotion、Memory、Self Narrative Candidateなどを必要に応じて保存する。
+その結果として生成されたFeeling、Memory、Self Narrative Candidateなどを必要に応じて保存する。
 
 これにより、
 
 ```text
-Event -> Emotion
+Event -> Feeling
 Event -> Action
 ```
 
@@ -520,9 +520,9 @@ Event -> Action
 
 ---
 
-## 11. Emotion / Mood
+## 11. Feeling / Mood
 
-### Emotion
+### Feeling
 
 特定のEventへの短期的な感情反応。
 
@@ -534,7 +534,7 @@ Event -> Action
 
 ### Mood
 
-Emotionより持続する現在の気分。
+Feelingより持続する現在の気分。
 
 ```text
 昨日の件にはまだ少し引っかかっている。
@@ -590,7 +590,7 @@ type ActiveMotive = {
 }
 ```
 
-保存済みMotiveを選ぶか、今回のEvent、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成する。今回の意味づけ、Emotion、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。保存済みMotiveが空であることは停止理由にならない。
+保存済みMotiveを選ぶか、今回のEvent、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成する。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。保存済みMotiveが空であることは停止理由にならない。
 
 no-external-actionは、Agentが今回は外部発話を行わないと判断した場合に利用でき、Tool利用の有無とは結合しない。ユーザーからの返信待ちは発話を控える理由にせず、夜間は強制制御ではなく判断材料とする。activeMotiveはEvent内の判断であり、そのまま永続状態へ追加しない。state-reviewとLong-term Reviewは状態再評価であり、このAction契約の対象外とする。
 
@@ -777,7 +777,7 @@ type AgentCoreInput = {
   }
 
   dynamicState: {
-    emotion?: string
+    feeling?: string
     mood?: string
     motives: Motive[]
   }
@@ -805,7 +805,7 @@ type AgentCoreOutput = {
     activeMotive: ActiveMotive
   }
   internalChanges: {
-    immediateStateUpdates: StateUpdateProposal[] // Emotionだけ
+    immediateStateUpdates: StateUpdateProposal[] // Feelingだけ
   }
   action: FinalAction
 }
@@ -841,7 +841,7 @@ State Update
 ```ts
 type StateUpdateProposal = {
   target:
-    | "emotion"
+    | "feeling"
     | "mood"
     | "socialContext"
 
@@ -856,7 +856,7 @@ type StateUpdateProposal = {
 }
 ```
 
-Interactionはemotion、Continuityはmood / socialContextだけを提案する。Motiveはcreate / maintain / update / merge / resolve / dropを持つ専用Proposalとする。Long-term Stateは通常のState Update Proposalとは分ける。
+Interactionはfeeling、Continuityはmood / socialContextだけを提案する。Motiveはcreate / maintain / update / merge / resolve / dropを持つ専用Proposalとする。Long-term Stateは通常のState Update Proposalとは分ける。
 
 これにより、
 
@@ -878,7 +878,7 @@ Interactionはemotion、Continuityはmood / socialContextだけを提案する�
 比較的頻繁に更新可能。
 
 ```text
-Emotion（Interaction）
+Feeling（Interaction）
 Mood / Motive / Working Social Context（Continuity）
 ```
 
@@ -1192,7 +1192,7 @@ Model → Tool call → Tool実行 → Tool Result → Model → 最終構造化
 
 Toolの引数処理とloopはライブラリに任せ、通常コードは権限制約・実行上限・結果の用途別変換・実行記録を担当する。Tool Resultを同じloopへ返した後、RuntimeへTool名・入力・結果・成否・時刻・Event/Runとの関連を渡す。RuntimeはTool Result Eventとして記録するが、それを自動的に別のInteractionとして再投入して二重実行しない。
 
-Tool Resultも新しいEventであり、EmotionやMotiveへ影響してよい。
+Tool Resultも新しいEventであり、FeelingやMotiveへ影響してよい。
 
 ```text
 調査したが答えが見つからない
@@ -1223,7 +1223,7 @@ Individual Agent
 ├── Acquired Disposition
 ├── Self Narrative
 ├── Social Context
-├── Emotion / Mood
+├── Feeling / Mood
 ├── Motive
 └── Memory
 ```
@@ -1282,7 +1282,7 @@ BがAから聞いた
 
 - Eventの意味解釈
 - Subjective Meaning
-- Emotion / Mood更新提案
+- Feeling / Mood更新提案
 - Motive生成
 - Social Context更新提案
 - Memory内容の意味的生成
@@ -1374,7 +1374,7 @@ Long-term Update Candidate
 ### Dynamic
 
 ```text
-Emotion
+Feeling
 Mood
 Motive
 ```
