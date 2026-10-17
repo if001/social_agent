@@ -362,6 +362,20 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(second.authorizeInbound({ ...event, id: "policy-event-3", correlationId: "rate-correlation-1" }, "policy-message-3", 1)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
+  it("loads only the owning Agent's pending Outbox records", async () => {
+    const envelopeA = messageFixture({ id: "outbox-agent-a", destination: "discord:a" });
+    const envelopeB = messageFixture({ id: "outbox-agent-b", destination: "discord:b" });
+    await pool.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,'a',$2),($3,'b',$4)", [envelopeA.id, JSON.stringify(envelopeA), envelopeB.id, JSON.stringify(envelopeB)]);
+    const forA = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), undefined, undefined, "a");
+    const forB = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), undefined, undefined, "b");
+    const pendingA = await forA.pendingOutbox(100);
+    const pendingB = await forB.pendingOutbox(100);
+    expect(pendingA.map(({ envelope }) => envelope.id)).toContain(envelopeA.id);
+    expect(pendingA.map(({ envelope }) => envelope.id)).not.toContain(envelopeB.id);
+    expect(pendingB.map(({ envelope }) => envelope.id)).toContain(envelopeB.id);
+    expect(pendingB.map(({ envelope }) => envelope.id)).not.toContain(envelopeA.id);
+  });
+
   it("materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('proposal-evidence','a','self-related','Repeated follow-through','Relevant',now(),'[]')");
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;

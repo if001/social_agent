@@ -14,7 +14,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, _legacyMemoryEmbedding?: unknown, tools?: ToolRegistry) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, _legacyMemoryEmbedding?: unknown, tools?: ToolRegistry, private readonly agentId?: string) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -59,7 +59,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
 
   async pendingOutbox(limit: number): Promise<readonly PendingOutput[]> {
-    const result = await this.pool.query<OutboxRow>("SELECT id,envelope FROM outbox_messages WHERE status='pending' AND available_at<=now() ORDER BY created_at,id LIMIT $1", [limit]);
+    const result = await this.pool.query<OutboxRow>("SELECT id,envelope FROM outbox_messages WHERE status='pending' AND available_at<=now() AND ($2::text IS NULL OR agent_id=$2) ORDER BY created_at,id LIMIT $1", [limit, this.agentId ?? null]);
     return result.rows.map(({ envelope }) => ({ envelope }));
   }
   async markOutboxSent(id: string): Promise<void> { await this.pool.query("UPDATE outbox_messages SET status='sent',sent_at=now() WHERE id=$1", [id]); }
