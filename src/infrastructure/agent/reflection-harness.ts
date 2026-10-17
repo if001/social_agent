@@ -98,6 +98,10 @@ export interface ReflectionInvoker {
 }
 
 export const MAX_REFLECTION_MODEL_INPUT_TOKENS = 8_000;
+// Reflection has no operational Tool loop, but the structured-output strategy
+// may use several graph nodes while asking the model to repair invalid output.
+// Keep this graph safety limit separate from the outer repair-attempt limit.
+export const REFLECTION_RECURSION_LIMIT = 25;
 
 export class StructuredReflectionModel implements ReflectionModel {
   constructor(private readonly invoker: ReflectionInvoker, private readonly logger: Logger = noopLogger, private readonly maxRepairs = 1) {}
@@ -120,7 +124,7 @@ export class StructuredReflectionModel implements ReflectionModel {
       const inputTokens = estimateTokens([{ role: "system", content: reflectionSystemPrompt }, { role: "user", content }]) + estimateTokens(ReflectionModelOutputJsonSchema);
       if (inputTokens > MAX_REFLECTION_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Reflection model input exceeds estimated ${String(MAX_REFLECTION_MODEL_INPUT_TOKENS)} token budget: ${String(inputTokens)}`);
       try {
-        const result = await this.invoker.invoke([{ role: "user", content }], { signal, recursionLimit: 6 });
+        const result = await this.invoker.invoke([{ role: "user", content }], { signal, recursionLimit: REFLECTION_RECURSION_LIMIT });
         raw = domainOutputFromModel(result.structuredResponse);
       } catch (error) {
         throw providerFailure("Reflection", error, signal);
