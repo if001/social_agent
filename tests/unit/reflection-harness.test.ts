@@ -1,6 +1,7 @@
 import type { ReflectionInput } from "../../src/application/reflection.js";
 import {
   MAX_REFLECTION_MODEL_INPUT_TOKENS,
+  REFLECTION_RECURSION_LIMIT,
   ReflectionModelOutputJsonSchema,
   StructuredReflectionModel,
   reflectionSystemPrompt,
@@ -20,6 +21,7 @@ const input: ReflectionInput = {
 describe("structured Reflection model", () => {
   it("repairs an invalid first output and converts flat changes to the strict Domain output", async () => {
     const prompts: string[] = [];
+    const recursionLimits: number[] = [];
     const outputs: unknown[] = [
       { reflectionId: "reflection-1", agentId: "agent-a", expectedVersion: 2 },
       {
@@ -30,14 +32,16 @@ describe("structured Reflection model", () => {
         evidenceMemoryIds: []
       }
     ];
-    const invoker: ReflectionInvoker = { invoke: (messages) => {
+    const invoker: ReflectionInvoker = { invoke: (messages, options) => {
       prompts.push(messages[0]?.content ?? "");
+      recursionLimits.push(options.recursionLimit);
       return Promise.resolve({ structuredResponse: outputs.shift() });
     } };
 
     const result = await new StructuredReflectionModel(invoker).reflect(input, new AbortController().signal);
 
     expect(prompts).toHaveLength(2);
+    expect(recursionLimits).toEqual([REFLECTION_RECURSION_LIMIT, REFLECTION_RECURSION_LIMIT]);
     expect(prompts[1]).toContain("validationIssues");
     expect(prompts[1]).toContain("invalidOutput");
     expect(result).toMatchObject({
