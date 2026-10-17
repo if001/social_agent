@@ -140,6 +140,18 @@ describe("AgentHarness contract", () => {
     expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現にだけ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを事実、Feeling、Desireの根拠にしません");
   });
 
+  it("reserves graph recursion steps for final structured output after bounded Tool use", async () => {
+    let received: { recursionLimit: number; maxModelCalls: number; maxToolCalls: number } | undefined;
+    const invoker: DeepAgentInvoker = { invoke: (_input, options) => {
+      received = options;
+      return Promise.resolve({ structuredResponse: output });
+    } };
+    const input = agentCoreInputFixture();
+    input.limits = { ...input.limits, maxSteps: 27, maxToolCalls: 15 };
+    await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
+    expect(received).toMatchObject({ maxModelCalls: 27, maxToolCalls: 15, recursionLimit: 44 });
+  });
+
   it("repairs invalid output once and then stops", async () => {
     let calls = 0; const toolCallLimits: number[] = []; const prompts: string[] = [];
     const invoker: DeepAgentInvoker = { invoke: ({ messages }, options) => {
