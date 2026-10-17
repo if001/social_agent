@@ -17,6 +17,15 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("入力とTool結果にない事実を作りません");
   });
 
+  it("treats the user as a person to know without turning conversation into a profile checklist", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("継続して関係を築く具体的な相手");
+    expect(completeAgentCoreSystemPrompt).toContain("回答や共有を行ったうえで具体的な質問を一度に最大1件");
+    expect(completeAgentCoreSystemPrompt).toContain("プロフィール項目を順番に埋める質問");
+    expect(completeAgentCoreSystemPrompt).toContain("memory_searchまたはrelationship_search");
+    expect(completeAgentCoreSystemPrompt).toContain("プロフィール事実ではなく");
+    expect(completeAgentCoreSystemPrompt).toContain("既知のユーザーの好み、仕事、経験、最近の話題");
+  });
+
   it.each([completeAgentCoreSystemPrompt, reflectionSystemPrompt])("closes or changes saturated concerns", (prompt) => {
     expect(prompt).toContain("Concernライフサイクル");
     expect(prompt).toContain("進展なしで反復");

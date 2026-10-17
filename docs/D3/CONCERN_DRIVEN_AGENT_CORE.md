@@ -131,6 +131,8 @@ type ConcernProposal = {
 
 ユーザー入力Eventは応答を主目的とする。必要なContextをToolで取得し、次のEventにも残る具体的な未解決事項が生じた場合だけ`concern_propose`を使う。
 
+ユーザーへの関心は通常、現在EventのDesireとActionとして表す。会話に自然につながる場合は、MemoryとRelationshipを検索して既知情報の聞き直しを避け、現在の話題への応答に具体的な質問を1件まで添えられる。生活、仕事、趣味、経験、好みなどのユーザー事実はMemoryへ、関係の距離感や相互作用の傾向はRelationshipへ保存する。プロフィール収集そのものをConcernにはせず、継続して明らかにする具体的な問いが生じた場合だけConcernとして提案する。
+
 自律Eventは次の順に処理する。
 
 1. 最初に`concern_list`を呼び、Concernの有無とdueを確認する。
