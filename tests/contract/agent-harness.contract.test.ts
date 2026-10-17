@@ -103,16 +103,17 @@ describe("AgentHarness contract", () => {
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: output, modelCalls: 2 }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal)).rejects.toMatchObject({ code: "EXTERNAL", cause: { modelCalls: 2 } });
   });
-  it("passes a finalized current Event assessment into the Action decision and counts both calls", async () => {
+  it("passes the previous Assessment into Agent Core and returns its final Assessment in one call", async () => {
     let decisionInput = "";
     const invoker: DeepAgentInvoker = {
-      assess: () => Promise.resolve({ assessment: { meaning: "批判を改善の手掛かりと受け止めた", feeling: "悔しいが前向き" }, modelCalls: 1 }),
-      invoke: (input) => { decisionInput = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output, modelCalls: 1 }); }
+      invoke: (input) => { decisionInput = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: { ...output, meaning: "改善点を確かめる機会になった", feeling: "悔しいが少し落ち着いた" }, modelCalls: 1 }); }
     };
-    const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal);
-    expect(decisionInput).toContain("currentEventAssessment");
-    expect(decisionInput).toContain("悔しいが前向き");
-    expect(result.budget?.consumed.modelCalls).toBe(2);
+    const input = agentCoreInputFixture(); input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", meaning: "批判された", feeling: "腹が立っている" };
+    const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
+    expect(decisionInput).toContain("previousAssessment");
+    expect(decisionInput).toContain("腹が立っている");
+    expect(result.assessment).toEqual({ meaning: "改善点を確かめる機会になった", feeling: "悔しいが少し落ち着いた" });
+    expect(result.budget?.consumed.modelCalls).toBe(1);
   });
 
   it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
@@ -159,16 +160,16 @@ describe("AgentHarness contract", () => {
     let created = 0;
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", toolRegistry: registry, modelFactory: () => assessmentModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>>, agentFactory: (options) => {
       created += 1; expect(options.tools).toHaveLength(1); expect(options.responseFormat).toBeDefined();
-      return { invoke: (input) => Promise.resolve({ structuredResponse: { desire: output.desire, actionType: "respond", content: "Hello" }, messages: input.messages }) };
+      return { invoke: (input) => Promise.resolve({ structuredResponse: { meaning: "挨拶を受け取った", feeling: "穏やかで嬉しい", desire: output.desire, actionType: "respond", content: "Hello" }, messages: input.messages }) };
     } });
     const input = agentCoreInputFixture(); input.availableTools = [...registry.definitions()];
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ output, toolExecutions: [] });
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ assessment: { meaning: "挨拶を受け取った", feeling: "穏やかで嬉しい" }, output, toolExecutions: [] });
     expect(created).toBe(1);
     expect(JSON.stringify(AgentCoreModelOutputJsonSchema)).not.toContain('"pattern"');
     const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
-    expect(Object.keys(modelProperties)).toHaveLength(10);
+    expect(Object.keys(modelProperties)).toHaveLength(12);
     expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
-    expect(modelProperties).toMatchObject({ desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 }, mood: { maxLength: 160 }, relationshipDescription: { maxLength: 800 }, remember: { maxLength: 800 } });
+    expect(modelProperties).toMatchObject({ meaning: { maxLength: 800 }, feeling: { maxLength: 160 }, desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 }, mood: { maxLength: 160 }, relationshipDescription: { maxLength: 800 }, remember: { maxLength: 800 } });
     expect(modelProperties).not.toHaveProperty("concernOperation");
   });
 

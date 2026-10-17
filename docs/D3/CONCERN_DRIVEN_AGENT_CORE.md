@@ -156,7 +156,7 @@ Reflectionは新規Concernを探索せず、複数Eventを基に次を行う。
 - RuntimeはAgent Core成功後にproposalを状態へ適用し、Event、Action、Outboxと同じtransactionで保存する。失敗runのproposalは適用しない。
 - `derive + replace`は派生元を`satisfied`にして後続Concernをactiveで追加し、`fork`は派生元を残す。
 - 最初のmodel callではEvent種別でToolを絞り、`concern_get`成功後は`concern_list`と`concern_get`を非公開にしてFocusを一件に保つ。
-- 初期promptはEvent、Identity、Persona、直近2件のRecent Experience、制約、Event Assessmentだけを持つ。Concernの件数や本文を含む永続状態はRuntimeのcommit検証用には保持するが、model promptへは渡さない。
+- 初期promptはEvent、Identity、Persona、直近2件のRecent Experience、制約、直近の成功Event終了時のpreviousAssessment 1件だけを持つ。Concernの件数や本文を含む永続状態はRuntimeのcommit検証用には保持するが、model promptへは渡さない。
 - Memoryの事前検索を廃止し、`concern_list`、`concern_get`、`memory_search`、`relationship_search`、`self_get`で必要時に取得する。
 - Schedulerは`idle` Eventを所定時刻に発火し、探索領域カタログからランダムな最大8件を候補として添付するだけとする。Concernの存在確認、Focus選択、`deepen`・`bridge`・`distant`の選択、Concern提案はAgent Coreが行う。
 - Scheduleには探索modeやcursorを永続化しない。候補はEventごとに独立して抽出する。

@@ -799,21 +799,28 @@ Interactionの最終出力と実行記録は分ける。
 
 ```ts
 type AgentCoreOutput = {
-  interpretation: {
-    subjectiveMeaning?: string
-    activeMotive: ActiveMotive
-  }
-  internalChanges: {
-    immediateStateUpdates: StateUpdateProposal[] // Feelingだけ
-  }
+  meaning?: string
+  feeling?: string
+  desire: string
   action: FinalAction
+  patch?: StatePatch
 }
 
 type AgentRunResult = {
-  output: AgentCoreOutput
+  assessment?: {
+    meaning?: string
+    feeling?: string
+  }
+  output: {
+    desire: string
+    action: FinalAction
+    patch?: StatePatch
+  }
   toolExecutions: ToolExecutionRecord[] // 通常コードが観測する実行事実
 }
 ```
+
+モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。RuntimeはMeaningとFeelingを`assessment`へ分離して保存し、残りを`output`として扱う。直近の成功runのAssessmentは時刻付き`previousAssessment`として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
 最終Actionは応答、拒否、Tool実行後の外部配送なしを表す。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。Interactionでは動機に基づく具体的Actionを必須とする（§13）。
 

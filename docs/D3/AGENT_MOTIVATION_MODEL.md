@@ -6,11 +6,11 @@
 
 ```mermaid
 flowchart LR
-    E[Event / Observation] --> A[Event Assessment]
-    ID[Identity / Persona] --> A
+    PA[Previous Assessment] --> C
+    E[Event / Observation] --> C
+    ID[Identity / Persona] --> C
     RX[Recent Experiences] --> C
-    A --> MF[Meaning / Feeling]
-    MF --> C[Agent Core]
+    C[Agent Core] --> MF[Final Meaning / Feeling]
     S[Self] -. Retrieval Tool .-> C
     ST[State] -. Concern / Relationship Tool .-> C
     M[Memory] -. Memory search .-> C
@@ -26,7 +26,7 @@ flowchart LR
     RF --> ST
 ```
 
-通常Interactionは一つのAgent Loopで処理する。その内部で、Event Assessmentが今回の出来事の主観的な`meaning`と`feeling`を先に確定し、Agent Coreがそれを変更せずに`desire`と最終`action`を決める。Toolを使う場合も同じrunを継続し、Tool結果を受けた最終Actionまで完了させる。Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。
+通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`を時刻付きで受け、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。
 
 ## 要素と持続時間
 
@@ -36,8 +36,9 @@ flowchart LR
 | State | 複数Event | Mood、Concerns、Relationshipsを保持する |
 | Memory | 長期・検索可能 | 経験と、その後の判断に必要な根拠を保持する |
 | Recent Experiences | 直近2 Eventの意味投影 | 直前の試行、失敗、進展有無とToolの識別signalを示し、本文を再投入せず同じ手段の反復を避ける |
-| Event Assessment | 今回のEvent | Observationと最小Identity・PersonaからMeaning / Feelingを先に確定する |
-| Desire | 今回のEvent | Assessmentを受けて今回実現したいことを自然言語で表す |
+| Previous Assessment | 直近Eventから一時的に継続 | 直近の成功Event終了時のMeaning / Feelingと時刻を1件だけ渡し、感情の連続性を保つ |
+| Final Assessment | 今回のEvent | Agent CoreがEvent、再解釈、取得Context、Tool結果を踏まえ、終了時のMeaning / Feelingを確定する |
+| Desire | 今回のEvent | 今回実現したいことを自然言語で表す |
 | Action | 今回のEvent | 応答、拒否、非実行通知、または実行済みTool後の配送不要を表す |
 | State Patch | Eventをまたぐ必要がある場合のみ | Mood、Relationship、Memory候補の最小変更を提案する |
 | Concern proposal | Eventをまたぐ未解決事項が生じた場合のみ | `concern_propose`でrun-localに提案し、成功commit時だけ作成・派生する |
@@ -53,10 +54,9 @@ flowchart TD
     CFG[initial-self設定] -->|初期化・明示的上書き| SELF[Self]
     CFG -->|初期化・明示的上書き| STATE[State]
 
-    EVT[現在Event / Observation] --> ASSESS[Event Assessment]
-    ID[Identity / Persona] --> ASSESS
-
-    ASSESS --> CORE[Agent Core]
+    PREV[Previous Assessment] --> CORE[Agent Core]
+    EVT[現在Event / Observation] --> CORE
+    ID[Identity / Persona] --> CORE
     SELF -. self_get .-> CORE
     STATE -. concern / relationship Tool .-> CORE
     MEM[Memory] -. memory_search .-> CORE
@@ -64,6 +64,7 @@ flowchart TD
     CATALOG[idle explorationCandidates] --> CORE
 
     CORE -->|今回だけ| DESIRE[Desire]
+    CORE -->|Event終了時| ASSESS[Final Meaning / Feeling]
     CORE --> ACTION[Action / Tool]
     CORE -->|任意の提案| PATCH[State Patch]
     CORE -->|Toolによる遅延提案| CQ[Concern proposal]
@@ -94,22 +95,19 @@ flowchart TD
 sequenceDiagram
     participant Source as Event Source
     participant Loop as Agent Loop
-    participant Assess as Event Assessment
     participant Core as Agent Core
     participant Store as State / Log / Outbox
 
     Source->>Loop: Event
-    Loop->>Loop: 最小Contextを構築
-    Loop->>Assess: Observation + Identity / Persona
-    Assess-->>Loop: Meaning + Feeling
-    Loop->>Core: 最小Context + Assessment
+    Loop->>Loop: 最小Context + previousAssessmentを構築
+    Loop->>Core: Event + 最小Context
     Core->>Core: 必要な永続ContextをToolで取得
-    Core-->>Loop: Desire + Action + optional Patch / Concern proposal
-    Loop->>Store: Action・Patch・proposal・Tool記録をcommit
+    Core-->>Loop: Final Assessment + Desire + Action + optional Patch / Concern proposal
+    Loop->>Store: Assessment・Action・Patch・proposal・Tool記録をcommit
     Store-->>Source: Outboxで配送
 ```
 
-- Meaning / FeelingはActionより前に決まり、Agent Coreが都合よく後付け変更しない。
+- Meaning / FeelingはActionを正当化するために作らず、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価としてAgent Coreが確定する。
 - 怒りや悲しみは文体だけで表現する必要はないが、Actionの選択、Mood、必要なConcern proposal、Relationshipの少なくとも一つへ意味のある影響を持たせる。
 - 通常EventからSelfを直接変更しない。長期的なDispositionやSelf Storyの変化はReflectionで、複数経験とMemory根拠を用いて行う。
 - Patchは毎回必須ではない。そのEventを越えて残す意味がある変更だけを提案する。
@@ -199,7 +197,7 @@ flowchart LR
     M --> R[Reflection]
     R --> SS[Self Story / Disposition]
     R --> CR[Concern / Relationship]
-    SS --> N[次のEvent Assessment]
+    SS --> N[次のAgent CoreでpreviousAssessmentとして参照]
     CR --> N
     N --> NX[異なるDesire / Action]
 ```
