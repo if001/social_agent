@@ -476,6 +476,8 @@ Feelingは、出来事がAgent自身にとってどのような意味を持っ�
 
 Feelingは感情語を中心とした短い自然言語状態とし、出来事の解釈、理由、願望、計画、Actionを混ぜない。例えば「少し腹が立ち、悔しい」のように表す。出来事が何を意味したかはSubjective Meaning、次に何を望むかはMotiveまたはDesireが担う。
 
+FeelingはEventごとに初期化しない。直近の成功Event終了時のMeaning、Feeling、発生時刻を次のEventへ1件だけ渡し、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響を判断する。Agent Coreは今回の再解釈と行動結果まで踏まえ、Event終了時のMeaningとFeelingを確定する。
+
 ### 9.2 Mood
 
 MoodはFeelingより持続的で、次の複数Eventの意味づけや行動へ影響する背景的な気分である。現在のEventだけへの反応、返答待ち、理由、願望、計画は含めない。持続する変化がない場合は更新しない。

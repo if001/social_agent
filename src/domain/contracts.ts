@@ -70,8 +70,12 @@ export type EpisodicMemory = z.infer<typeof EpisodicMemorySchema>;
 export const EventAssessmentSchema = z.object({
   meaning: EventMeaning.optional(),
   feeling: EventFeeling.optional()
-}).strict().describe("今回のEventに対するAction前の主観的評価。Meaningと短期的なFeelingだけを扱う");
+}).strict().describe("今回のEvent処理終了時の主観的評価。Meaningと短期的なFeelingだけを扱う");
 export type EventAssessment = z.infer<typeof EventAssessmentSchema>;
+export const PreviousAssessmentSchema = EventAssessmentSchema.extend({
+  occurredAt: Instant.describe("このAssessmentが確定したEventの発生時刻")
+}).strict().describe("直近の成功Event終了時のAssessment。経過時間と現在Eventとの関連を踏まえ、残っている影響だけを使う");
+export type PreviousAssessment = z.infer<typeof PreviousAssessmentSchema>;
 
 export const RunLimitsSchema = z.object({
   deadlineMs: z.number().int().positive(),
@@ -255,7 +259,7 @@ export const RelationshipChangeSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("remove").describe("Relationshipを削除する"), subjectId: Id.describe("削除するRelationshipの相手ID") })
 ]).describe("次のEventにも残すRelationshipの変更。変更不要なら出力しない");
 export const AgentTurnSchema = z.object({
-  desire: AgentDesire.describe("現在のSelf、状態、Observation、Memory、Event Assessmentから生じた今回の具体的な望み"),
+  desire: AgentDesire.describe("現在のSelf、状態、Observation、前回Assessment、取得したContextとTool結果から生じた今回の具体的な望み"),
   action: FinalActionSchema,
   patch: z.object({
     mood: AgentMood.describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する").optional(),
@@ -274,6 +278,7 @@ export const AgentCoreInputSchema = z.object({
     transport: z.object({ hop: z.number().int().min(0).max(32), expiresAt: Instant, replyTo: Id.optional() }).optional()
   }),
   observation: ObservationSchema,
+  previousAssessment: PreviousAssessmentSchema.optional(),
   recentExperiences: z.array(RecentExperienceSchema).max(8).default([]),
   persona: BotPersonaSchema.optional(),
   currentSelf: CurrentSelfSchema,
@@ -289,7 +294,7 @@ export const AgentCoreInputSchema = z.object({
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 
-export const AgentCoreOutputSchema = AgentTurnSchema.describe("Event Assessmentを受けて決めたDesire、最終Action、次のEventへ残す任意の状態変化");
+export const AgentCoreOutputSchema = AgentTurnSchema.describe("前回Assessmentと今回の経験を踏まえて決めたDesire、最終Action、次のEventへ残す任意の状態変化");
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
 

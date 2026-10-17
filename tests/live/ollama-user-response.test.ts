@@ -49,7 +49,6 @@ describe("live Ollama user response", () => {
   it("uses real Ollama to repair an invalid first Agent Turn and then commits the response", async () => {
     const config = await loadConfig(); const base = createOllamaDeepAgentInvoker(config.chat); let decisionCalls = 0;
     const invoker: DeepAgentInvoker = {
-      ...(base.assess === undefined ? {} : { assess: (input, options) => base.assess?.(input, options) as ReturnType<NonNullable<typeof base.assess>> }),
       invoke: (input, options) => {
         decisionCalls += 1;
         if (decisionCalls === 1) return Promise.resolve({ structuredResponse: { desire: "回答したい", action: "respond" }, modelCalls: 1 });

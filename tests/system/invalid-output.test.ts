@@ -12,7 +12,6 @@ describe("ST-07 abnormal output", () => {
     const input = agentCoreInputFixture(); let calls = 0; const prompts: string[] = [];
     const harness = new DeepAgentHarness({
       invoker: {
-        assess: () => Promise.resolve({ assessment: { meaning: "ユーザーが応答を求めている", feeling: "応えたい" }, modelCalls: 1 }),
         invoke: ({ messages }) => {
           prompts.push(messages[0]?.content ?? ""); calls += 1;
           return Promise.resolve({ structuredResponse: calls === 1
