@@ -32,7 +32,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
-    const immediateMemories = update.remember === undefined ? [] : [{ id: this.ids.next(), agentId: event.agentId, kind: "episodic" as const, content: update.remember, occurredAt: event.occurredAt, createdAt: this.now().toISOString(), relatedSubjectIds: input.state.relationships.map(({ subjectId }) => subjectId), importance: "Agent Coreが次の判断へ残すと決めた経験", retrievalPriority: "normal" as const, evidenceEventIds: [event.id] }];
+    const actorSubject = input.observation.actor?.type === "human" || input.observation.actor?.type === "agent" ? [input.observation.actor.id] : [];
+    const immediateMemories = update.remember === undefined ? [] : [{ id: this.ids.next(), agentId: event.agentId, kind: "episodic" as const, content: update.remember, occurredAt: event.occurredAt, createdAt: this.now().toISOString(), relatedSubjectIds: actorSubject, importance: "Agent Coreが次の判断へ残すと決めた経験", retrievalPriority: "normal" as const, evidenceEventIds: [event.id] }];
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },

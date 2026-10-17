@@ -28,8 +28,8 @@ const AgentCoreFlatOutputSchema = z.object({
   mood: z.string().trim().min(1).max(160).optional().describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する"),
   relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
   relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
-  relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。relationshipOperationがupsertの場合は必須"),
-  remember: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す要点。会話やTool結果を転載せず、長期的価値がある内容を1〜2文で指定")
+  relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。プロフィール事実ではなく、信頼、共有の仕方、会話の深まりなど関係自体を書く。relationshipOperationがupsertの場合は必須"),
+  remember: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す要点。ユーザーの生活、仕事、趣味、経験、好みなど次回以降に価値がある具体的事実も対象とする。会話やTool結果を転載せず1〜2文で指定")
 }).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
 export const completeAgentCoreSystemPrompt = `${agentCoreSystemPrompt}${autonomousExplorationPrompt}${concernLifecyclePrompt}`;
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;

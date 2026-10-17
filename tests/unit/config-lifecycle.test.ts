@@ -30,17 +30,20 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("validates the committed Ao and Aka Initial Self files", async () => {
-    const [ao, aka] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml")]);
+  it("validates the committed Initial Self files", async () => {
+    const [ao, aka, shiro] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml"), loadInitialSelfFile("config/initial-self/shiro.yaml")]);
     expect(ao.family).toEqual(aka.family);
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);
     expect(ao.agent.initialDisposition).toContain("坂本龍一");
     expect(ao.agent.initialDisposition).toContain("試さずに分かったつもり");
     expect(aka.agent.initialDisposition).toContain("エドワード・ホッパー");
     expect(aka.agent.initialDisposition).toContain("根拠のない断定");
+    expect(ao.agent.initialDisposition).toContain("その人の仕事");
+    expect(aka.agent.initialDisposition).toContain("どの地域で暮らし");
+    expect(shiro.agent.initialDisposition).toContain("休日の過ごし方");
     expect(ao.agent.initialDisposition).not.toContain("問いを一つ選び");
     expect(aka.agent.initialDisposition).not.toContain("複数の可能性を比べ");
-    for (const config of [ao, aka]) {
+    for (const config of [ao, aka, shiro]) {
       expect(config.agent).not.toHaveProperty("values");
       expect(config.agent).not.toHaveProperty("interests");
       expect(config.agent).not.toHaveProperty("preferences");

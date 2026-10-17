@@ -264,7 +264,7 @@ export const AgentTurnSchema = z.object({
   patch: z.object({
     mood: AgentMood.describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する").optional(),
     relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
-    remember: z.string().trim().min(1).max(800).describe("今回直ちに記憶候補として残す内容。長期的価値がなければ省略する").optional()
+    remember: z.string().trim().min(1).max(800).describe("今回直ちに記憶候補として残す内容。ユーザーの生活、仕事、趣味、経験、好みなど次回以降に価値がある具体的事実も対象とする。会話全文ではなく1〜2文にし、長期的価値がなければ省略する").optional()
   }).strict().describe("次のEventにも影響する永続状態の変更提案。変更がなければpatch全体を省略する").optional()
 }).strict();
 export type AgentTurn = z.infer<typeof AgentTurnSchema>;

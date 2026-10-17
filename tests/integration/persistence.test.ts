@@ -367,6 +367,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();
     input.run = { runId: "runtime-run", eventId: "runtime-event", agentId: "a", occurredAt: fixtureInstant };
+    input.observation = { ...input.observation, actor: { id: "user-42", type: "human" } };
     input.currentSelf = { ...input.currentSelf, agentId: "a", version };
     input.state = { ...input.state, agentId: "a" };
     input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
@@ -381,12 +382,13 @@ describeDatabase("PostgreSQL persistence", () => {
       output: { desire: "respond to this event", action: { type: "respond" as const, content: "Hello" } },
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
-    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [] }, [])).resolves.toBe("committed");
+    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [], remember: "A useful exchange" }, [])).resolves.toBe("committed");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
     expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-1");
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
+    expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([{ subject_id: "user-42" }]);
   });
 
   it("commits Reflection state and Memory atomically and deduplicates retries", async () => {
