@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import type { AgentHarness } from "../../application/ports.js";
 import { estimateTokens } from "../../application/context-builder.js";
-import type { ToolRegistry } from "../../application/tool-registry.js";
+import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
 import { AgentCoreOutputSchema, ConcernProposalSchema, DomainError, EventAssessmentSchema, type AgentCoreInput, type AgentRunResult, type ConcernProposal, type EventAssessment, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
@@ -132,6 +132,15 @@ function errorModelCalls(error: unknown): number {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("modelCalls" in error.cause) || typeof error.cause.modelCalls !== "number") return 0;
   return error.cause.modelCalls;
 }
+function repairToolEvidence(executions: readonly ToolExecutionRecord[]): readonly unknown[] {
+  return executions.slice(-8).map((execution) => ({
+    tool: execution.name,
+    ok: execution.ok,
+    ...(execution.ok
+      ? { result: projectToolResult(undefined, execution.result ?? null, "recent-experience") }
+      : { error: execution.error ?? "Tool failed" })
+  }));
+}
 const USER_RESPONSE_FALLBACK = "申し訳ありません。応答の形式を処理できませんでした。もう一度お試しください。";
 function recoverUserStringAction(raw: unknown, input: AgentCoreInput): AgentRunResult["output"] | undefined {
   if (input.observation.kind !== "user-message" || typeof raw !== "object" || raw === null || !("action" in raw) || typeof raw.action !== "string") return undefined;
@@ -175,7 +184,7 @@ export class DeepAgentHarness implements AgentHarness {
         };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v3-ja", input: promptInput })
-          : JSON.stringify({ instruction: "無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。通常Toolは呼ばず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。状態変更がなければ状態フィールドは省略してください。入力Contextを推測せず、許可されたevidence IDだけを使ってください。", allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
+          : JSON.stringify({ instruction: "元の入力Contextと今回のTool結果を根拠に、直前の無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。新しい調査や通常Tool呼び出しは行わず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。状態変更がなければ状態フィールドは省略してください。Contextを推測せず、与えられた内容だけを使ってください。", input: promptInput, toolEvidence: repairToolEvidence(observedToolExecutions), allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
         const modelBudget = modelInputBudget(input, content);
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "agent_core.model_input_budget_exceeded", { estimatedTokens: modelBudget.total, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(modelBudget.components) });
         const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));

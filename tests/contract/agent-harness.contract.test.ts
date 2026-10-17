@@ -7,7 +7,7 @@ import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent
 import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-history.js";
 import { summarizeModelResponse } from "../../src/infrastructure/agent/model-response.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
-import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
+import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 import { AgentCoreOutputSchema, type AgentCoreOutput } from "../../src/domain/contracts.js";
 
 const output: AgentCoreOutput = { desire: "respond to this event", action: { type: "respond", content: "Hello" } };
@@ -156,12 +156,15 @@ describe("AgentHarness contract", () => {
     let calls = 0; const toolCallLimits: number[] = []; const prompts: string[] = [];
     const invoker: DeepAgentInvoker = { invoke: ({ messages }, options) => {
       toolCallLimits.push(options.maxToolCalls); prompts.push(messages[0]?.content ?? "");
-      return Promise.resolve({ structuredResponse: calls++ === 0 ? { invalid: true } : output });
+      const first = calls++ === 0;
+      return Promise.resolve({ structuredResponse: first ? { invalid: true } : output, ...(first ? { toolExecutions: [{ callId: "tool-1", runId: options.runId, eventId: options.eventId, name: "lookup", input: { query: "dots" }, ok: true, result: { finding: "dotsは継続作業を行うエージェント" }, startedAt: fixtureInstant, finishedAt: fixtureInstant }] } : {}) });
     } };
-    const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 });
-    await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject(result); expect(calls).toBe(2);
+    const harness = new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]), maxRepairs: 1 });
+    const input = agentCoreInputFixture(); input.observation.summary = "dotsね、何ができるの？"; input.observation.content = { text: "dotsね、何ができるの？" }; input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
+    const repaired = await harness.run(input, new AbortController().signal); expect(repaired.output).toEqual(output); expect(repaired.toolExecutions).toHaveLength(1); expect(calls).toBe(2);
     expect(toolCallLimits[0]).toBeGreaterThan(0); expect(toolCallLimits[1]).toBe(0);
     expect(prompts[1]).toContain("構造化出力専用Toolを1件だけ"); expect(prompts[1]).toContain("actionType");
+    expect(prompts[1]).toContain("dotsね、何ができるの？"); expect(prompts[1]).toContain("dotsは継続作業を行うエージェント");
     const broken = new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: {} }) }, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(broken.run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
