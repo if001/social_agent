@@ -19,11 +19,20 @@ describe("Agent prompts", () => {
 
   it("treats the user as a person to know without turning conversation into a profile checklist", () => {
     expect(completeAgentCoreSystemPrompt).toContain("継続して関係を築く具体的な相手");
-    expect(completeAgentCoreSystemPrompt).toContain("回答や共有を行ったうえで具体的な質問を一度に最大1件");
-    expect(completeAgentCoreSystemPrompt).toContain("プロフィール項目を順番に埋める質問");
-    expect(completeAgentCoreSystemPrompt).toContain("memory_searchまたはrelationship_search");
+    expect(completeAgentCoreSystemPrompt).toContain("質問は一度に最大1件");
+    expect(completeAgentCoreSystemPrompt).toContain("プロフィール項目を順番に収集しません");
+    expect(completeAgentCoreSystemPrompt).toContain("user_context_get");
+    expect(completeAgentCoreSystemPrompt).toContain("好奇心、期待、戸惑い、軽い不安");
+    expect(completeAgentCoreSystemPrompt).toContain("挨拶または雑談");
+    expect(completeAgentCoreSystemPrompt).toContain("話題と直接つながらない軽い質問も許されます");
     expect(completeAgentCoreSystemPrompt).toContain("プロフィール事実ではなく");
     expect(completeAgentCoreSystemPrompt).toContain("既知のユーザーの好み、仕事、経験、最近の話題");
+  });
+
+  it("gives interpersonal concerns a bounded lifecycle", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("相手を知るConcernは同時に1件");
+    expect(completeAgentCoreSystemPrompt).toContain("答えがなければ拒絶と推測せず");
+    expect(completeAgentCoreSystemPrompt).toContain("機微情報");
   });
 
   it.each([completeAgentCoreSystemPrompt, reflectionSystemPrompt])("closes or changes saturated concerns", (prompt) => {

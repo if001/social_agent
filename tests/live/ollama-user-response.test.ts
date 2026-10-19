@@ -8,7 +8,7 @@ import { agentCoreInputFixture, messageFixture } from "../../src/testing/contrac
 import { InMemoryRuntimePersistence } from "../../src/testing/in-memory-runtime-persistence.js";
 
 describe("live Ollama user response", () => {
-  it("assesses a real user message, creates an Agent response, and dispatches it", async () => {
+  it("answers a cold-start greeting and asks one light question with real Ollama", async () => {
     const config = await loadConfig();
     const harness = new DeepAgentHarness({
       invoker: createOllamaDeepAgentInvoker(config.chat),
@@ -19,8 +19,8 @@ describe("live Ollama user response", () => {
       const input = agentCoreInputFixture();
       const text = typeof event.payload.text === "string" ? event.payload.text : "";
       input.run = { runId: "live-user-run", eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt };
-      input.observation = { eventId: event.id, summary: text, facts: ["ユーザーが短い返答を求めている"], observedAt: event.occurredAt, kind: "user-message" };
-      input.currentSelf = { ...input.currentSelf, agentId: event.agentId, identity: "簡潔で誠実なテストエージェント", disposition: "確認できた内容だけを短く答える" };
+      input.observation = { eventId: event.id, summary: text, facts: ["ユーザーの生活、仕事、趣味、習慣はまだ分からない"], observedAt: event.occurredAt, kind: "user-message", actor: { id: "live-user", type: "human" } };
+      input.currentSelf = { ...input.currentSelf, agentId: event.agentId, identity: "簡潔で誠実なテストエージェント", disposition: "人と話すことが好き。相手をまだよく知らないと少しそわそわし、日常や最近楽しかったことを一つ知りたくなる。" };
       input.state = { ...input.state, agentId: event.agentId, concerns: [] };
       input.limits = { ...input.limits, deadlineMs: Math.max(config.runDeadlineMs, 300_000), maxSteps: 8, maxToolCalls: 0 };
       return input;
@@ -33,7 +33,7 @@ describe("live Ollama user response", () => {
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "live-user", queue, harness, persistence, ids: new SequenceIdGenerator(["live-event", "live-response"]), now: () => new Date("2026-10-12T00:00:00.000Z") });
     await runtime.start(new AbortController().signal);
     try {
-      await receive?.(messageFixture({ id: "live-user-message", destination: "agent-a", source: "live-user", replyTo: "live-user", sentAt: "2026-10-12T00:00:00.000Z", availableAt: "2026-10-12T00:00:00.000Z", expiresAt: "2026-10-13T00:00:00.000Z", payload: { type: "user-message", text: "テストです。日本語で一文だけ返答してください。" } }));
+      await receive?.(messageFixture({ id: "live-user-message", destination: "agent-a", source: "live-user", replyTo: "live-user", sentAt: "2026-10-12T00:00:00.000Z", availableAt: "2026-10-12T00:00:00.000Z", expiresAt: "2026-10-13T00:00:00.000Z", payload: { type: "user-message", text: "こんにちは。今日は少し話したいです。" } }));
     } catch (error) { throw new Error(`Live Agent failed: ${JSON.stringify(errorLogContext(error))}`); }
 
     const pending = await persistence.pendingOutbox(10);
@@ -41,6 +41,9 @@ describe("live Ollama user response", () => {
     expect(pending[0]?.envelope.payload).toMatchObject({ type: "agent-response", agentId: "agent-a" });
     const payload = pending[0]?.envelope.payload;
     expect(payload !== undefined && payload.type === "agent-response" && typeof payload.text === "string" && payload.text.trim().length > 0).toBe(true);
+    if (payload === undefined || payload.type !== "agent-response" || typeof payload.text !== "string") throw new Error("Expected Agent response text");
+    const questionSentences = payload.text.split(/(?<=[。！？?])/u).filter((sentence) => /[?？]|教えて(?:ください)?|聞かせて(?:ください)?/u.test(sentence));
+    if (questionSentences.length !== 1) throw new Error(`Expected one question, received ${String(questionSentences.length)}: ${payload.text}`);
     await expect(new OutboxDispatcher(persistence, queue).dispatch()).resolves.toBe(1);
     expect(published).toHaveLength(1);
     expect(published[0]?.destination).toBe("live-user");

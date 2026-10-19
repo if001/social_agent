@@ -32,6 +32,12 @@ const AgentCoreFlatOutputSchema = z.object({
   remember: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す要点。ユーザーの生活、仕事、趣味、経験、好みなど次回以降に価値がある具体的事実も対象とする。会話やTool結果を転載せず1〜2文で指定")
 }).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
 export const completeAgentCoreSystemPrompt = `${agentCoreSystemPrompt}${autonomousExplorationPrompt}${concernLifecyclePrompt}`;
+
+function dispositionTendency(disposition: string): string {
+  const sentences = disposition.split(/(?<=[。！？])/u).map((value) => value.trim()).filter((value) => value.length > 0);
+  const selected = [sentences[0], ...sentences.filter((value) => /対話相手|相手|人と話/u.test(value))].filter((value, index, values): value is string => value !== undefined && values.indexOf(value) === index);
+  return selected.join(" ").slice(0, 400);
+}
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
 
 export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
@@ -177,6 +183,7 @@ export class DeepAgentHarness implements AgentHarness {
         const promptInput = {
           event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: input.observation },
           identity: input.currentSelf.identity,
+          dispositionTendency: dispositionTendency(input.currentSelf.disposition),
           ...(input.persona === undefined ? {} : { persona: input.persona }),
           recentExperiences: input.recentExperiences.slice(-2),
           runtimeConstraints: input.runtimeConstraints,
