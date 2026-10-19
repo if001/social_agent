@@ -12,6 +12,10 @@ import { messageFixture } from "../../src/testing/contract-fixtures.js";
 
 describe("production-like text UI user response", () => {
   it("loads PostgreSQL context and production Tools, calls Ollama, commits, and dispatches", async () => {
+    const now = new Date();
+    const sentAt = now.toISOString();
+    const expiresAt = new Date(now.getTime() + 86_400_000).toISOString();
+    const idleAt = new Date(now.getTime() + 300_000).toISOString();
     const loaded = await loadConfig(); const databaseUrl = loaded.database.url.replace("postgresql+psycopg://", "postgresql://");
     const schema = `live_e2e_${randomUUID().replaceAll("-", "")}`; const control = new Pool({ connectionString: databaseUrl, max: 1 });
     const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public,ext`, max: 4 });
@@ -30,7 +34,7 @@ describe("production-like text UI user response", () => {
       const composition = createBotComposition({ pool, config, queue, logger, limits: { maxToolCalls: 25, maxSteps: 27 } });
       expect(composition.toolRegistry.definitions().length).toBeGreaterThanOrEqual(10);
       await composition.runtime.start(new AbortController().signal);
-      try { await receive?.(messageFixture({ id: "production-like-user-message", destination: "live-e2e-agent", source: "text-user", replyTo: "text-user", sentAt: "2026-10-12T00:00:00.000Z", availableAt: "2026-10-12T00:00:00.000Z", expiresAt: "2026-10-13T00:00:00.000Z", payload: { type: "user-message", text: "動作確認です。日本語で一文だけ返答してください。", sourceType: "terminal" } })); }
+      try { await receive?.(messageFixture({ id: "production-like-user-message", destination: "live-e2e-agent", source: "text-user", replyTo: "text-user", sentAt, availableAt: sentAt, expiresAt, payload: { type: "user-message", text: "動作確認です。日本語で一文だけ返答してください。", sourceType: "terminal" } })); }
       catch (error) { throw new Error(`Production-like live Agent failed: ${JSON.stringify(errorLogContext(error))}`); }
       expect((await pool.query("SELECT 1 FROM message_receipts WHERE message_id='production-like-user-message'")).rowCount).toBe(1);
       expect((await pool.query("SELECT 1 FROM agent_runs WHERE agent_id='live-e2e-agent' AND finished_at IS NOT NULL")).rowCount).toBe(1);
@@ -42,7 +46,7 @@ describe("production-like text UI user response", () => {
       expect(responsePayload !== undefined && responsePayload.type === "agent-response" && typeof responsePayload.text === "string" && responsePayload.text.trim().length > 0).toBe(true);
       const autonomousAction = await (async () => {
         try {
-          return await composition.runtime.process({ id: "production-like-idle", agentId: "live-e2e-agent", kind: "internal", occurredAt: "2026-10-12T00:05:00.000Z", payload: { targetKind: "idle", schedulerGenerated: true, explorationCandidates: [], reason: "現在の状態から小さな行動を検討する", destination: "text-user" } }, new AbortController().signal);
+          return await composition.runtime.process({ id: "production-like-idle", agentId: "live-e2e-agent", kind: "internal", occurredAt: idleAt, payload: { targetKind: "idle", schedulerGenerated: true, explorationCandidates: [], reason: "現在の状態から小さな行動を検討する", destination: "text-user" } }, new AbortController().signal);
         } catch (error) {
           throw new Error(`Production-like idle Agent failed: ${JSON.stringify(errorLogContext(error))}; diagnostics=${diagnosticLogs.slice(-20).join(" | ")}`);
         }

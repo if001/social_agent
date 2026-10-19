@@ -69,7 +69,7 @@ flowchart TD
 
 - 現在EventのObservationとユーザー入力本文
 - `eventKind`、`targetKind`、発生時刻
-- 最小限のIdentityと発話persona
+- 最小限のIdentity、発話persona、短いDisposition傾向
 - 直近2件程度の簡潔なRecent Experience
 - Dynamic Tool Filtering後のTool
 
@@ -86,8 +86,8 @@ Concern本文、Memory、Relationship、Mood、Disposition全文、Self Story、
 
 | 状況 | 主に公開するTool |
 |---|---|
-| ユーザー入力 | `memory_search`、`relationship_search`、`concern_propose`、利用可能な外部・Scheduled Task Tool |
-| 自律Event開始 | `concern_list`、`concern_get`、`concern_propose`、`memory_search`、`self_get`、利用可能な外部Tool |
+| ユーザー入力 | `user_context_get`、`memory_search`、`relationship_search`、`concern_propose`、利用可能な外部・Scheduled Task Tool |
+| 自律Event開始 | `concern_list`、`concern_get`、`concern_propose`、`user_context_get`、`memory_search`、`self_get`、利用可能な外部Tool |
 | Focus取得後 | Focusを進める取得・調査Toolと`concern_propose` |
 | 最終Action確定 | 通常Toolを隠し、最終構造化出力だけを要求する |
 | Reflection | Agent Core用Toolを公開しない |
@@ -103,11 +103,12 @@ Toolは短い説明、少ない引数、小さい返却値を持ち、検索結�
 | `concern_list` | Focus選択用にID、短いdescription、reconsiderAt、直近進展時刻を返す |
 | `concern_get` | 1件のdescription、whyItMatters、status、reconsiderAt、直近2件程度の進展を返す |
 | `concern_propose` | 新規・派生Concernをrun-local queueへ積み、永続化予定だけを返す |
+| `user_context_get` | 今回または直近の人間の話者を解決し、subject ID、既知事実最大5件、事実件数、関係要約、直近の質問最大3件を返す |
 | `memory_search` | query、subject、limitで検索し、ID、1〜2文の要点、significance、occurredAtを返す |
 | `relationship_search` | subjectId完全一致または自然言語queryで、subjectIdと簡潔なdescriptionを返す |
 | `self_get` | Disposition、Self Story、Commitments、Moodの必要な現在値を返す |
 
-ユーザー入力の送信者は`relationship_search`の既定subjectとしてRuntimeから解決し、Agentに内部IDを推測させない。Schedulerは`idle` Eventに、`config/exploration-domains.yaml`から重複なくランダム抽出した最大8件だけを添付する。Agentは`concern_propose`で`distant`を選ぶときにこの候補を利用できるが、候補の採用は必須ではない。全カタログや永続cursorはmodelへ渡さない。元会話やTool本文をMemory検索結果へ複製しない。
+`user_context_get`はユーザー入力では今回Eventの話者、自律Eventでは直近の人間の話者を既定subjectとしてRuntimeから解決し、Agentに内部IDを推測させない。Schedulerは`idle` Eventに、`config/exploration-domains.yaml`から重複なくランダム抽出した最大8件だけを添付する。Agentは`concern_propose`で`distant`を選ぶときにこの候補を利用できるが、候補の採用は必須ではない。全カタログや永続cursorはmodelへ渡さない。元会話やTool本文をMemory検索結果へ複製しない。
 
 ### `concern_propose`
 
@@ -131,7 +132,9 @@ type ConcernProposal = {
 
 ユーザー入力Eventは応答を主目的とする。必要なContextをToolで取得し、次のEventにも残る具体的な未解決事項が生じた場合だけ`concern_propose`を使う。
 
-ユーザーへの関心は通常、現在EventのDesireとActionとして表す。会話に自然につながる場合は、MemoryとRelationshipを検索して既知情報の聞き直しを避け、現在の話題への応答に具体的な質問を1件まで添えられる。生活、仕事、趣味、経験、好みなどのユーザー事実はMemoryへ、関係の距離感や相互作用の傾向はRelationshipへ保存する。プロフィール収集そのものをConcernにはせず、継続して明らかにする具体的な問いが生じた場合だけConcernとして提案する。
+ユーザーへの関心は現在EventのFeeling、Desire、Actionをつなぐ動機として扱う。相手を知らないことは好奇心、期待、戸惑い、軽い不安を生み得る。`user_context_get`で既知情報と直近の質問を確認し、現在の話題への応答を先に行ったうえで具体的な質問を1件まで添える。既知情報が乏しく関係形成の動機が具体的なら、現在の話題と直接つながらない軽い質問も許容する。生活、仕事、趣味、経験、好みなどのユーザー事実はMemoryへ、関係の距離感や相互作用の傾向はRelationshipへ保存する。
+
+相手を知るConcernは同時に1件を目安とし、「次にその人の何を一つ知りたいか」に限定する。質問後は反復せず、回答があれば満足または自然な次の問いへreplaceし、回答がなければ拒絶と推測せず減衰・終了する。明示的な拒否は境界として扱う。
 
 自律Eventは次の順に処理する。
 
@@ -158,8 +161,8 @@ Reflectionは新規Concernを探索せず、複数Eventを基に次を行う。
 - RuntimeはAgent Core成功後にproposalを状態へ適用し、Event、Action、Outboxと同じtransactionで保存する。失敗runのproposalは適用しない。
 - `derive + replace`は派生元を`satisfied`にして後続Concernをactiveで追加し、`fork`は派生元を残す。
 - 最初のmodel callではEvent種別でToolを絞り、`concern_get`成功後は`concern_list`と`concern_get`を非公開にしてFocusを一件に保つ。
-- 初期promptはEvent、Identity、Persona、直近2件のRecent Experience、制約、直近の成功Event終了時のpreviousAssessment 1件だけを持つ。Concernの件数や本文を含む永続状態はRuntimeのcommit検証用には保持するが、model promptへは渡さない。
-- Memoryの事前検索を廃止し、`concern_list`、`concern_get`、`memory_search`、`relationship_search`、`self_get`で必要時に取得する。
+- 初期promptはEvent、Identity、Persona、短いDisposition傾向、直近2件のRecent Experience、制約、直近の成功Event終了時のpreviousAssessment 1件だけを持つ。Concernの件数や本文を含む永続状態はRuntimeのcommit検証用には保持するが、model promptへは渡さない。
+- Memoryの事前検索を廃止し、`concern_list`、`concern_get`、`user_context_get`、`memory_search`、`relationship_search`、`self_get`で必要時に取得する。
 - Schedulerは`idle` Eventを所定時刻に発火し、探索領域カタログからランダムな最大8件を候補として添付するだけとする。Concernの存在確認、Focus選択、`deepen`・`bridge`・`distant`の選択、Concern提案はAgent Coreが行う。
 - Scheduleには探索modeやcursorを永続化しない。候補はEventごとに独立して抽出する。
 
