@@ -7,7 +7,7 @@ import { migrate } from "../../src/infrastructure/persistence/postgres.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 import { resetRuntime } from "../../src/operations/reset-runtime.js";
 
-it("resets isolated data, preserves bot config, and refuses a running bot", async () => {
+it("NFR-11: resets isolated data, preserves bot config, and refuses a running bot", async () => {
   const url = process.env.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
   if (!url) throw new Error("POSTGRES_URL is required");
   const schema = `test_reset_${randomUUID().replaceAll("-", "")}`;

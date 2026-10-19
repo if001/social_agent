@@ -6,6 +6,60 @@
       "sourceType": "github",
       "skillPath": "SKILL.md",
       "computedHash": "82d0ebc32ef78ecc1032e5a0f3ac3ab97dcaee43fa92249e96f6d05edd39aab0"
+    },
+    "create-local-issue": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "create-local-issue/SKILL.md",
+      "computedHash": "70df3ce0a528f399debe7665de4246536edaf1f71c9302e7565716782358a1b2"
+    },
+    "discovery-interview": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "discovery-interview/SKILL.md",
+      "computedHash": "cbae525a34bab519efa646a52432f1586942658c7698b46dafab8746f8de77ce"
+    },
+    "document-interview": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "document-interview/SKILL.md",
+      "computedHash": "6dc679e47fe8c0c178e4b4012b3daec6955ae2466947496482c0c3ff4f2ad0ee"
+    },
+    "documentation-planning": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "documentation-planning/SKILL.md",
+      "computedHash": "65bbc525aa7ba3ab5ab4bf49495c944981281db3312c7f90a25dd7f95c0a2d87"
+    },
+    "grill-me-with-goal": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "grill-me-with-goal/SKILL.md",
+      "computedHash": "a95cd581bbb021fc9de087b2016aa644135431a3ea7184057ed0bd64b9b1b59c"
+    },
+    "implement-issue": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "implement-issue/SKILL.md",
+      "computedHash": "4e44afa2ee872a5dd4ea64583f51cea4f8491595c5cdf83b49e35e6667d9b099"
+    },
+    "implementation-planning": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "implementation-planning/SKILL.md",
+      "computedHash": "c9a167802ee524cce0ebf0d899be6e2b35e72ba21a92b4bfbff9ad963a367e85"
+    },
+    "issue-planning": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "issue-planning/SKILL.md",
+      "computedHash": "341514336d79cc6b310daa8860887c81067339c30a9ec75f96b304e50196df90"
+    },
+    "spec-analyze": {
+      "source": "if001/base_skill",
+      "sourceType": "github",
+      "skillPath": "spec-analyze/SKILL.md",
+      "computedHash": "0a1fe9581bbac974975247fb11b9454be1fada65599170f8d1d01e1295810bb7"
     }
   }
 }

@@ -13,7 +13,7 @@ import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-sc
 const required = `BOT_ID=sample\nPOSTGRES_URL=postgres://sample\nADMIN_POSTGRES_URL=postgres://admin\nSIMPLE_CLIENT_BASE_URL=http://web\nOLLAMA_BASE_URL=https://chat\nOLLAMA_API_KEY=sample-key\nOLLAMA_CHAT_MODEL=chat\nOLLAMA_EMBEDDING_BASE_URL=http://embedding\nOLLAMA_EMBEDDING_MODEL=embed\nOLLAMA_EMBEDDING_DIMENSION=768\n`;
 
 describe("configuration and lifecycle", () => {
-  it("validates versioned Initial Self YAML separately from Persona", async () => {
+  it("FR-6: validates versioned Initial Self YAML separately from Persona", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
     const valid = `${cwd}/initial-self.yaml`;
     await writeFile(valid, `version: 1\nfamily:\n  id: family\n  name: Family\n  sharedDisposition: 共通の傾向\nagent:\n  id: ao\n  identity: アオ\n  initialDisposition: 技術を試すことが好きで、根拠のない断定は嫌い\n  selfNarrative: 経験を始めた\n  selfContinuity: 経験をつなぐ\n`);
@@ -30,7 +30,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("validates the committed Initial Self files", async () => {
+  it("FR-6, FR-7: validates the committed Initial Self files", async () => {
     const [ao, aka, shiro] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml"), loadInitialSelfFile("config/initial-self/shiro.yaml")]);
     expect(ao.family).toEqual(aka.family);
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);
@@ -54,7 +54,7 @@ describe("configuration and lifecycle", () => {
     expect(aka.agent).not.toHaveProperty("tone");
   });
 
-  it("loads a broad and duplicate-free exploration domain catalog", async () => {
+  it("FR-28: loads a broad and duplicate-free exploration domain catalog", async () => {
     const catalog = await loadExplorationDomainCatalog("config/exploration-domains.yaml");
     expect(catalog.topics.length).toBeGreaterThanOrEqual(100);
     expect(catalog.topics.length).toBeLessThanOrEqual(200);
@@ -62,7 +62,7 @@ describe("configuration and lifecycle", () => {
     expect(catalog.topics).toEqual(expect.arrayContaining(["古代メソポタミアの都市と粘土板記録", "人工知能の評価と限界", "発酵食品と微生物文化", "詩の韻律と声"]));
   });
 
-  it("loads sample, then .env, then process overrides", async () => {
+  it("NFR-13: loads sample, then .env, then process overrides", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
     await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");
     const config = await loadConfig({ cwd, environment: { BOT_ID: "process" } });
@@ -71,7 +71,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("loads every autonomous schedule timing from environment", async () => {
+  it("FR-39, NFR-6: loads every autonomous schedule timing from environment", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
     const config = await loadConfig({ cwd, environment: { SCHEDULER_INTERVAL_MS: "1000", AUTONOMY_REVIEW_INTERVAL_MS: "2000", STATE_REVIEW_INTERVAL_MS: "3000", MEMORY_RECALL_INTERVAL_MS: "4000", SCHEDULER_RETRY_DELAY_MS: "7000", SCHEDULER_LEASE_MS: "8000", FILE_READ_ROOTS: "./read-a,./read-b", FILE_WRITE_ROOTS: "./write" } });
     expect(config.schedulerTimings).toEqual({ scanIntervalMs: 1000, autonomyReviewIntervalMs: 2000, stateReviewIntervalMs: 3000, memoryRecallIntervalMs: 4000, retryDelayMs: 7000, leaseMs: 8000 });
@@ -79,7 +79,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("loads process-specific bot files after .env and keeps bot destinations distinct", async () => {
+  it("NFR-1, NFR-10: loads process-specific bot files after .env and keeps bot destinations distinct", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
     await writeFile(`${cwd}/.env.sample`, required);
     await mkdir(`${cwd}/config`, { recursive: true });
@@ -100,7 +100,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("loads a bot persona without adding experiential state or a user address", async () => {
+  it("FR-6: loads a bot persona without adding experiential state or a user address", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, `${required}BOT_PERSONA_FILE=persona.yaml\n`);
     await writeFile(`${cwd}/persona.yaml`, `version: 1\nidentity:\n  displayName: アオ\ncommunication:\n  language: ja\n  firstPerson: 僕\n  tone: [明るい]\n  responseStyle: [簡潔に話す]\n  avoid: []\n`);
     const config = await loadConfig({ cwd, environment: {} });
@@ -109,7 +109,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("uses the conventional persona path and rejects an invalid configured persona", async () => {
+  it("FR-6: uses the conventional persona path and rejects an invalid configured persona", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required); await mkdir(`${cwd}/config/personas`, { recursive: true });
     await writeFile(`${cwd}/config/personas/sample.yaml`, `version: 1\nidentity: { displayName: Sample }\ncommunication: { firstPerson: I, tone: [calm] }\n`);
     await expect(loadConfig({ cwd, environment: {} })).resolves.toMatchObject({ persona: { identity: { displayName: "Sample" } } });
@@ -118,7 +118,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("validates the bot:start argument and required Discord allowlist contract", async () => {
+  it("NFR-10: validates the bot:start argument and required Discord allowlist contract", async () => {
     expect(parseBotStartArguments([])).toEqual({});
     expect(() => parseBotStartArguments(["--unknown"])).toThrow("Usage");
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
@@ -127,7 +127,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("loads page-ingest:start configuration from a process-specific file", async () => {
+  it("NFR-10: loads page-ingest:start configuration from a process-specific file", async () => {
     expect(parsePageIngestStartArguments([])).toEqual({});
     expect(() => parsePageIngestStartArguments(["--unknown"])).toThrow("Usage");
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
@@ -136,7 +136,7 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("rejects invalid URLs, dimensions, mixed endpoints and partial Discord settings", async () => {
+  it("NFR-10: rejects invalid URLs, dimensions, mixed endpoints and partial Discord settings", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
     await expect(loadConfig({ cwd, environment: { SIMPLE_CLIENT_BASE_URL: "file:///tmp", OLLAMA_EMBEDDING_DIMENSION: "0" } })).rejects.toThrow();
     await expect(loadConfig({ cwd, environment: { OLLAMA_EMBEDDING_BASE_URL: "https://chat" } })).rejects.toThrow();
@@ -144,17 +144,17 @@ describe("configuration and lifecycle", () => {
     await scope.close();
   });
 
-  it("redacts secrets recursively", () => {
+  it("NFR-13: redacts secrets recursively", () => {
     expect(redactSecrets({ OLLAMA_API_KEY: "key", nested: { discordToken: "token", safe: "yes" } })).toEqual({ OLLAMA_API_KEY: "[REDACTED]", nested: { discordToken: "[REDACTED]", safe: "yes" } });
   });
 
-  it("provides deterministic clock and IDs", () => {
+  it("NFR-9: provides deterministic clock and IDs", () => {
     const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); clock.advance(1_000);
     expect(clock.now().toISOString()).toBe("2026-01-01T00:00:01.000Z");
     const ids = new SequenceIdGenerator(["one"]); expect(ids.next()).toBe("one"); expect(() => { ids.next(); }).toThrow("exhausted");
   });
 
-  it("enforces lifecycle transitions and refuses new work while stopping", () => {
+  it("NFR-6: enforces lifecycle transitions and refuses new work while stopping", () => {
     const lifecycle = new ProcessLifecycle(); expect(() => { lifecycle.assertAccepting(); }).toThrow();
     lifecycle.transition("ready"); lifecycle.assertAccepting(); lifecycle.transition("degraded"); lifecycle.transition("stopping");
     expect(lifecycle.signal.aborted).toBe(true); expect(() => { lifecycle.assertAccepting(); }).toThrow(); lifecycle.transition("stopped");

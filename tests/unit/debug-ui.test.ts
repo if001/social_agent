@@ -15,7 +15,7 @@ async function request(server: Server, url: string): Promise<{ readonly status: 
 }
 
 describe("Agent Debug UI", () => {
-  it("uses only bounded SELECT queries and keeps Agent ownership filters", async () => {
+  it("NFR-12: uses only bounded SELECT queries and keeps Agent ownership filters", async () => {
     const calls: { sql: string; values: readonly unknown[] }[] = [];
     const query: SqlQuery = <T>(sql: string, values: readonly unknown[] = []) => {
       calls.push({ sql, values });
@@ -38,7 +38,7 @@ describe("Agent Debug UI", () => {
     expect(calls.find(({ sql }) => sql.includes("FROM memories"))?.values).toEqual(["ao", 1]);
   });
 
-  it("serves overview and returns 404 for an unknown Run", async () => {
+  it("NFR-12: serves overview and returns 404 for an unknown Run", async () => {
     const repository = {
       listAgents: () => Promise.resolve([{ id: "ao", identity: "アオ", familyId: "social-agents", active: true, stateUpdatedAt: null }]),
       getOverview: () => Promise.resolve({ agent: { id: "ao" }, state: {}, scheduledTasks: [], schedules: [], reflections: [] }),
@@ -51,9 +51,9 @@ describe("Agent Debug UI", () => {
     server.close();
   });
 
-  it("ships browser-side HTML escaping before rendering database values", async () => {
+  it("NFR-12: ships browser-side HTML escaping before rendering database values", async () => {
     const repository = { listAgents: () => Promise.resolve([]), getOverview: () => Promise.resolve(undefined), listRuns: () => Promise.resolve([]), getRun: () => Promise.resolve(undefined), listMemories: () => Promise.resolve([]) } as unknown as DebugUiRepository;
     const server = createDebugUiServer(repository); const page = (await request(server, "/")).body;
-    expect(page).toContain("function escapeHtml"); expect(page).toContain("function eventOf(run)"); expect(page).toContain("run.eventKind+' / '+run.internalKind"); expect(page).toContain("Concern"); expect(page).toContain("overview.state"); expect(page).toContain("overview.reflections"); expect(page).toContain("Event Assessment / Desire / Action / Patch"); expect(page).toContain("String(value??'—').replace"); expect(page).toContain("JSON.stringify(value,null,2)??'—'"); expect(page).toContain("'&lt;'"); expect(page).not.toContain("setInterval"); server.close();
+    expect(page).toContain("function escapeHtml"); expect(page).toContain("function eventOf(run)"); expect(page).toContain("run.eventKind+' / '+run.internalKind"); expect(page).toContain("Concern"); expect(page).toContain("overview.state"); expect(page).toContain("overview.reflections"); expect(page).toContain("Final Meaning / Feeling / Desire / Action / Patch"); expect(page).toContain("String(value??'—').replace"); expect(page).toContain("JSON.stringify(value,null,2)??'—'"); expect(page).toContain("'&lt;'"); expect(page).not.toContain("setInterval"); server.close();
   });
 });

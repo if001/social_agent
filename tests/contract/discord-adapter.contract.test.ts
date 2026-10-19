@@ -13,7 +13,7 @@ class FakeDiscordGateway implements DiscordGateway {
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
 describe("Discord UI adapter contract", () => {
-  it("filters allowlists and publishes a stable message once", async () => {
+  it("FR-1, FR-17: filters allowlists and publishes a stable message once", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway(); const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) }); const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal);
     const base = { id: "42", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", threadId: "thread", content: "<@bot-a> hello", createdAt: new Date("2026-01-01T00:00:00Z") };
     await gateway.receive({ ...base, id: "ignored-owner", authorId: "other" }); await gateway.receive({ ...base, id: "ignored-no-mention", content: "hello" }); await gateway.receive({ ...base, id: "ignored-other-mention", content: "<@bot-b> hello" }); await gateway.receive({ ...base, id: "ignored-self", authorId: "bot-a", isBot: true }); await gateway.receive(base); await gateway.receive(base);
@@ -21,7 +21,7 @@ describe("Discord UI adapter contract", () => {
     const messages: Array<{ payload: Record<string, unknown> }> = []; const consumeController = new AbortController(); const consuming = queue.subscribe("agent-a", (message) => { messages.push(message); if (messages.length === 2) consumeController.abort(); return Promise.resolve(); }, consumeController.signal); await consuming;
     expect(messages).toMatchObject([{ id: "discord:42", replyTo: "discord", payload: { text: "hello", replyContext: { channelId: "channel", threadId: "thread", messageId: "42" } } }, { id: "discord:43", payload: { text: "from peer" } }]); controller.abort(); await inbound; await scope.close();
   });
-  it("retries outbound failures without ack and preserves thread reply", async () => {
+  it("NFR-9: retries outbound failures without ack and preserves thread reply", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { retryDelayMs: () => 0, now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway(); gateway.failures = 1; const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
     const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal);
     await gateway.receive({ id: "42", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", threadId: "thread", content: "<@bot-a> hello", createdAt: new Date("2026-01-01T00:00:00Z") });
@@ -33,7 +33,7 @@ describe("Discord UI adapter contract", () => {
     const results: string[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { results.push(message.causationId ?? ""); consume.abort(); return Promise.resolve(); }, consume.signal); expect(results).toEqual(["run-42"]);
     controller.abort(); await Promise.all([inbound, outbound]); await scope.close();
   });
-  it("posts an autonomous response to a configured channel without requiring a source message", async () => {
+  it("FR-19: posts an autonomous response to a configured channel without requiring a source message", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway(); const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
     await queue.publish({ id: "autonomous-output", destination: "discord", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: { type: "agent-response", text: "autonomous update", autonomous: true, replyContext: { channelId: "channel" } } });
     const controller = new AbortController(); const outbound = adapter.startOutbound(controller.signal); await eventually(() => { expect(gateway.sent).toEqual([{ context: { channelId: "channel" }, content: "autonomous update" }]); }); controller.abort(); await outbound; await scope.close();

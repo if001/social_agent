@@ -31,14 +31,14 @@ function archive(summary = "短い要約です。"): WebArchive {
 const baseMessage: DiscordInboundMessage = { id: "message-1", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", content: "https://example.com/article", createdAt: new Date("2026-01-01T00:00:00Z") };
 
 describe("Discord page ingestor", () => {
-  it("accepts exactly one HTTP(S) URL including Discord link wrappers", () => {
+  it("FR-33: accepts exactly one HTTP(S) URL including Discord link wrappers", () => {
     expect(parseUrlOnlyMessage("https://example.com/a?q=1")).toBe("https://example.com/a?q=1");
     expect(parseUrlOnlyMessage(" <https://example.com/a> ")).toBe("https://example.com/a");
     expect(parseUrlOnlyMessage("see https://example.com")).toBeUndefined();
     expect(parseUrlOnlyMessage("file:///tmp/page")).toBeUndefined();
   });
 
-  it("fetches, archives and replies with only the summary once", async () => {
+  it("FR-37: fetches, archives and replies with only the summary once", async () => {
     const gateway = new FakeGateway(); const fetched: string[] = []; const controller = new AbortController();
     const ingestor = new DiscordPageIngestor({ gateway, archive: archive(), fetchPage: (url) => { fetched.push(url); return Promise.resolve({ docs: [{ url, title: "Example", markdown: "# body" }] }); }, agentId: "ao", botUserId: "bot", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
     const running = ingestor.start(controller.signal);
@@ -48,7 +48,7 @@ describe("Discord page ingestor", () => {
     controller.abort(); await running;
   });
 
-  it("ignores other input and returns a short failure message", async () => {
+  it("FR-37: ignores other input and returns a short failure message", async () => {
     const gateway = new FakeGateway(); const controller = new AbortController();
     const ingestor = new DiscordPageIngestor({ gateway, archive: archive(), fetchPage: () => Promise.reject(new Error("offline")), agentId: "ao", botUserId: "bot", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
     const running = ingestor.start(controller.signal);

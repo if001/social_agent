@@ -11,3 +11,5 @@ var/
 
 .DS_Store
 *.tsbuildinfo
+.agents/
+.social_agent_v2-tabspaces-session.el

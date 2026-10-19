@@ -17,7 +17,7 @@ const finalOutput: AgentCoreOutput = {
 const context = (signal: AbortSignal, maxToolCalls = 2, runId = "run-1", eventId = "event-1") => createDeepAgentToolRunContext({ agentId: "agent-a", runId, eventId, maxToolCalls, signal });
 
 describe("ST-03 Deep Agent internal Tool Loop", () => {
-  it("returns a hallucinated Tool name as a recoverable Tool failure", async () => {
+  it("FR-32: returns a hallucinated Tool name as a recoverable Tool failure", async () => {
     const logs: { level: string; step: string }[] = [];
     const logger = { child: () => logger, log: (level: string, step: string) => { logs.push({ level, step }); } };
     const middleware = createAgentCoreMiddleware(new ToolRegistry([]), logger, () => new Date(fixtureInstant)) as unknown as { wrapToolCall(request: { toolCall: { id: string; name: string; args: Record<string, unknown> }; runtime: { context: ReturnType<typeof context> } }, handler: () => Promise<unknown>): Promise<unknown> };
@@ -30,7 +30,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(logs).toContainEqual({ level: "warn", step: "tool.completed" });
   });
 
-  it("removes exhausted operational Tools while preserving the structured output Tool", () => {
+  it("FR-35, NFR-5: removes exhausted operational Tools while preserving the structured output Tool", () => {
     const tools = [{ name: "file_read" }, { name: "web_archive_read" }, { name: "web_list" }, { name: "extract-1" }];
     const operational = new Set(["file_read", "web_archive_read", "web_list"]);
     const contentRead = new Set(["file_read", "web_archive_read"]);
@@ -38,7 +38,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
   });
 
-  it("dynamically hides autonomous retrieval Tools from user-message calls and after Focus acquisition", async () => {
+  it("FR-33, FR-35, FR-39: dynamically hides autonomous retrieval Tools from user-message calls and after Focus acquisition", async () => {
     const definitions = ["concern_list", "concern_get", "concern_propose", "user_context_get", "memory_search", "relationship_search", "self_get", "web_page"].map((name) => ({ name, description: name, schema: z.object({}), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true as const }) }));
     const registry = new ToolRegistry(definitions);
     const middleware = createAgentCoreMiddleware(registry, noopLogger, () => new Date(fixtureInstant)) as unknown as { wrapModelCall(request: { tools: { name: string }[]; messages: { type: string; content: string }[]; systemMessage: { content: string }; runtime: { context: ReturnType<typeof context> } }, handler: (request: { tools: { name: string }[] }) => Promise<unknown>): Promise<unknown> };
@@ -52,7 +52,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(visible).not.toContain("concern_list"); expect(visible).not.toContain("concern_get"); expect(visible).toContain("self_get");
   });
 
-  it("configures the compatibility adapter with the requested bounded Tool budget", async () => {
+  it("FR-11, FR-33, NFR-5: configures the compatibility adapter with the requested bounded Tool budget", async () => {
     let effects = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "lookup", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { effects += 1; return Promise.resolve({ ok: true, value: { answer: 42 } }); } }]);
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "http://unused", apiKey: "unused", model: "fake", toolRegistry: registry, agentFactory: (options) => {
@@ -63,7 +63,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(effects).toBe(0);
   });
 
-  it("keeps concern proposal Tools available after an empty concern list call", async () => {
+  it("FR-24: keeps concern proposal Tools available after an empty concern list call", async () => {
     const registry = new ToolRegistry([
       { name: "concern_list", description: "List concerns", schema: z.object({ limit: z.number().optional() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { count: 0, concerns: [] } }) },
       { name: "concern_propose", description: "Propose a concern", schema: z.object({ description: z.string() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true }) }
@@ -86,7 +86,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(secondCallTools).toContain("concern_list");
   });
 
-  it("returns an identical recent Tool input as a Tool failure without executing it again", async () => {
+  it("FR-32, FR-35: returns an identical recent Tool input as a Tool failure without executing it again", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
     const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
@@ -96,7 +96,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions).toMatchObject([{ ok: false, error: "Recent identical Tool input must not be repeated" }]);
   });
 
-  it("rejects an identical Tool input repeated within the same run", async () => {
+  it("FR-32: rejects an identical Tool input repeated within the same run", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
     const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
@@ -107,7 +107,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Recent identical Tool input must not be repeated" });
   });
 
-  it("can choose a Tool on autonomy review from Self, Concern, and Memory", async () => {
+  it("FR-4, FR-39: can choose a Tool on autonomy review from Self, Concern, and Memory", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
       const prompt = modelInput.messages[0]?.content ?? "";
@@ -122,7 +122,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(result.toolExecutions).toHaveLength(1);
   });
 
-  it("returns Tool results to reasoning and exposes the observed execution with the final Action", async () => {
+  it("FR-4, FR-36: returns Tool results to reasoning and exposes the observed execution with the final Action", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Look up a value", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: (_input, executionContext) => Promise.resolve({ ok: true, value: { answer: 42, idempotencyKey: executionContext.idempotencyKey } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (_input, options) => {
       const runContext = context(options.signal, options.maxToolCalls, options.runId, options.eventId);
@@ -137,14 +137,14 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(result.toolExecutions).toEqual([{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: { query: "answer" }, ok: true, result: { answer: 42, idempotencyKey: "run-1:tool-1" }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]);
   });
 
-  it("returns Tool failures to reasoning and records them", async () => {
+  it("FR-36: returns Tool failures to reasoning and records them", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Fails", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => Promise.reject(new Error("service unavailable")) }]);
     const runContext = context(new AbortController().signal); const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     await expect(lookup?.invoke({}, { context: runContext })).resolves.toContain("service unavailable");
     expect(runContext.collector.executions[0]).toMatchObject({ ok: false, error: "service unavailable", runId: "run-1", eventId: "event-1" });
   });
 
-  it("returns an actionable Tool failure at the call limit before another side effect", async () => {
+  it("FR-32, NFR-5: returns an actionable Tool failure at the call limit before another side effect", async () => {
     let sideEffects = 0;
     const registry = new ToolRegistry([{ name: "write", description: "Writes", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { sideEffects += 1; return Promise.resolve({ ok: true }); } }]);
     const runContext = context(new AbortController().signal, 1); const [write] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
@@ -154,7 +154,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Tool call limit reached. No more Tools can be used for this task." });
   });
 
-  it("bounds cumulative content-read text within one Deep Agent run", async () => {
+  it("FR-37, NFR-5: bounds cumulative content-read text within one Deep Agent run", async () => {
     let reads = 0;
     const contentPolicy = { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 };
     const registry = new ToolRegistry([
@@ -171,7 +171,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(reads).toBe(3); expect(runContext.collector.contentReadCharacters).toBe(6_000); expect(runContext.collector.contentReadReservedCharacters).toBe(6_000); expect(runContext.collector.executions.some(({ ok }) => !ok)).toBe(true);
   });
 
-  it("does not start a Tool after cancellation", async () => {
+  it("NFR-5: does not start a Tool after cancellation", async () => {
     let called = false;
     const controller = new AbortController(); controller.abort();
     const registry = new ToolRegistry([{ name: "write", description: "Writes", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { called = true; return Promise.resolve({ ok: true }); } }]);
@@ -181,7 +181,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions[0]).toMatchObject({ ok: false, error: "Tool execution aborted" });
   });
 
-  it("keeps Tool execution context isolated across concurrent runs on one Agent", async () => {
+  it("NFR-1: keeps Tool execution context isolated across concurrent runs on one Agent", async () => {
     let creations = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: async ({ query }: { query: string }, executionContext) => {
       await Promise.resolve(); return { ok: true, value: { query, runId: executionContext.runId, eventId: executionContext.eventId } };

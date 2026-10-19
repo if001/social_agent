@@ -11,7 +11,7 @@ import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-sc
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
 describe("ST-05 bot communication", () => {
-  it("delivers a stopped bot's message after restart as reported external information", async () => {
+  it("NFR-1, FR-39: delivers a stopped bot's message after restart as reported external information", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const registry = new ToolRegistry([createAgentSendTool({ queue, clock, maxHops: 4, provenance: () => ({ parentHop: 0, expiresAt: "2026-01-02T00:00:00Z", replyTo: "terminal" }) })]);
     await registry.execute("agent_send", { destinationAgentId: "agent-b", content: "The library opens at nine" }, { agentId: "agent-a", runId: "run-a", idempotencyKey: "run-a:call-1" }, new AbortController().signal);
@@ -23,7 +23,7 @@ describe("ST-05 bot communication", () => {
     expect(terminal).toEqual(["I heard that from agent A"]); controller.abort(); await running; await scope.close();
   });
 
-  it("does not route a reply-less agent message to the default UI destination", async () => {
+  it("NFR-1: does not route a reply-less agent message to the default UI destination", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.agentId = event.agentId; input.currentSelf.agentId = event.agentId; input.state.agentId = event.agentId; return input; });
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "discord:agent-a", queue, harness: new ScriptedAgentHarness([{ desire: "respond to this event", action: { type: "respond", content: "No further reply is needed" } }]), persistence, ids: new SequenceIdGenerator(["event-a"]), now: () => clock.now() });

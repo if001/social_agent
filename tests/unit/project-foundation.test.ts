@@ -3,7 +3,7 @@ import { access } from "node:fs/promises";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 describe("project foundation", () => {
-  it("cleans resources in reverse registration order", async () => {
+  it("NFR-9: cleans resources in reverse registration order", async () => {
     const order: string[] = [];
     const scope = new ResourceScope();
     scope.add("first", () => { order.push("first"); });
@@ -15,14 +15,14 @@ describe("project foundation", () => {
     scope.assertEmpty();
   });
 
-  it("reports resources that a test has not cleaned", () => {
+  it("NFR-9: reports resources that a test has not cleaned", () => {
     const scope = new ResourceScope();
     scope.add("open file handle", () => { /* detected before cleanup */ });
 
     expect(() => { scope.assertEmpty(); }).toThrow("open file handle");
   });
 
-  it("removes temporary directories with the scope", async () => {
+  it("NFR-9: removes temporary directories with the scope", async () => {
     const scope = new ResourceScope();
     const directory = await temporaryDirectory(scope);
     await access(directory);
@@ -32,7 +32,7 @@ describe("project foundation", () => {
     await expect(access(directory)).rejects.toThrow();
   });
 
-  it("clears tracked timers", async () => {
+  it("NFR-9: clears tracked timers", async () => {
     const scope = new ResourceScope();
     let fired = false;
     scope.trackTimer(setTimeout(() => { fired = true; }, 5));

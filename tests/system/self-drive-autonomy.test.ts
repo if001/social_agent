@@ -10,7 +10,7 @@ import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
 describe("Initial disposition → autonomous action", () => {
-  it("starts one bounded Tool exploration without a persisted Concern", async () => {
+  it("FR-26, FR-27, FR-39: starts one bounded Tool exploration without a persisted Concern", async () => {
     const [ao, aka] = await Promise.all([loadInitialSelfFile("config/initial-self/ao.yaml"), loadInitialSelfFile("config/initial-self/aka.yaml")]);
     expect(ao.family.sharedDisposition).toBe(aka.family.sharedDisposition);
     expect(ao.agent.initialDisposition).not.toBe(aka.agent.initialDisposition);

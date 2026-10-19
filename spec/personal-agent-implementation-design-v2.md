@@ -2,41 +2,25 @@
 
 ## 1. 位置づけ
 
-本ドキュメントは、概念設計 `personal-agent-concept-design-restructured-v2.md` を実装可能な構造へ落とし込むための中間設計である。
+本ドキュメントは、概念設計 `personal-agent-concept-design-restructured-v2.md` を実装可能な構造へ落とし込む設計である。概念設計を上位とし、実装上の判断は `docs/REQUIREMENTS.md`、`docs/ARCHITECTURE.md`、`docs/AGENT_MOTIVATION_MODEL.md` に従う。
 
-概念設計を正とし、本ドキュメントでは主に以下を定義する。
+本ドキュメントでは主に以下を定義する。
 
 - Agentを構成する主要ブロック
-- Stateの論理構造
-- Persistent / Transient / Runtime State の境界
-- Shared / Initial / Acquired Disposition の扱い
-- Event / Observation / Subjective Meaning の境界
-- Agent Core の入出力
-- MemoryとRetrieval
-- Motive のライフサイクルとScheduled Task
-- Internal Event と自律行動
-- State Update と Long-term Review
+- Self / State / Concern / Relationship / Memoryの構造
+- Event / Observation / Assessmentの境界
+- Agent Coreの入出力
+- State PatchとConcern proposal
+- Reflectionと個体化
+- Memory Retrieval
+- Internal Eventと自律行動
 - 複数botにおける共通状態と個体状態
 - LLMと通常コードの責務分担
 - 安全性・権限制約との境界
 
-本段階では、特定のLLM、DB、ベクトルDB、Queue、Frameworkなどは固定しない。
-
-また、概念設計で採用した以下の原則を維持する。
-
-> Agentの個性や行動を固定的なPersonality設定や数値Rewardで直接決めない。
-
-> Agentが何に価値を感じ、出来事をどう意味づけたかから、Feeling、Motive、Actionが生じる。
-
-> 長期的な個体差は、経験、Memory、Self Narrative、Acquired Dispositionの変化として表現する。
-
-> 数値重みや巨大な認知モデルへ寄せず、外枠を構造化し、中身は自然言語を基本とする。
-
----
-
 ## 2. 実装上の基本構成
 
-実装上は、Agentを次の4つの論理ブロックに分ける。
+- C-20：AgentをAgent Runtime、Context Builder、Agent Core、Agent Stateの4ブロックで構成し、応答後の後処理を応答配送から分離する。
 
 ```text
 ┌──────────────────────────────┐
@@ -61,43 +45,26 @@
                ▼
 ┌──────────────────────────────┐
 │         Agent State          │
-│ Self / Disposition / Mood    │
-│ Motive / Social   │
-│ Memory                       │
+│ Self / Mood / Concerns       │
+│ Relationships / Memory       │
 └──────────────────────────────┘
 ```
 
 ### Agent Runtime
 
-外部Eventの受付、Agent Coreの起動、Tool実行、State永続化、Scheduler、安全性・権限チェックなどを担う通常コード層。
+外部Eventの受付、Agent Coreの起動、Tool実行、State永続化、Scheduler、Outbox、安全性・権限チェックなどを担う通常コード層。
 
 ### Context Builder
 
-Agent Coreへ渡すContextを構築する薄い層。
-
-- relevant Self
-- relevant Disposition
-- Dynamic State
-- Social Context
-- Motive
-- Relevant Memory
-- Available Tools
-
-などを選択する。
-
-Context Builderは認知モジュールではなく、Prompt / Context構築のための実装上の責務である。
+Agent Coreへ渡すContextを構築する薄い層。Self、State、Recent Experiences、Previous Assessment、Relationship、Relevant Memory、Available Tools、Runtime Constraintsを選択する。Context Builderは認知モジュールではなく、Prompt / Context構築のための実装上の責務である。
 
 ### Agent Core
 
-LLMを中心とする意味解釈・状態更新提案・意思決定層。
+LLMを中心とする意味解釈・状態更新提案・意思決定層。Meaning、Feeling、Desire、Action、任意のState Patchを一つの構造化出力として返す。
 
 ### Agent State
 
-Agent自身の継続性と個体差を保持する状態。
-
-これらは論理的な責務分離であり、必ず別サービスや別プロセスにする必要はない。
-
----
+Agent自身の継続性と個体差を保持する状態。Self、Mood、Concerns、Relationships、Memoryを含む。
 
 ## 3. 全体処理フロー
 
@@ -106,136 +73,124 @@ Agent自身の継続性と個体差を保持する状態。
 ```mermaid
 flowchart TD
   E[Event] --> R[Runtime / Observation / Context Builder]
-  R --> C[Interaction Deep Agent]
+  R --> C[Agent Core Deep Agent]
   C <--> T[Tool実行・結果]
-  C --> O[Subjective Meaning / activeMotive / Feeling提案 / 最終Action]
+  C --> O[Final Meaning / Feeling / Desire / Action / Patch]
   O --> V[Runtime検証・RunとTool履歴保存・Outbox登録]
   V --> D[応答配送]
-  V --> P[用途別Post-process]
-  P --> S[Continuity: Mood / Motive / Social Context]
-  P --> M[Episodic Memory抽出・保存]
-  M --> K[Candidate検出・保存]
-  K --> L[別EventでLong-term Review]
+  V --> S[State / Memory commit]
+  S --> RF[Event駆動Reflection]
 ```
 
-通常Coreの出力確定後に配送と後処理を進める。後処理の完了は応答配送の前提にしない。配送先の障害がある場合、Outboxから再試行するため、相手の受信完了を後処理開始条件にはしない。
-
-Post-processはDeep Agentを使わず、用途別の構造化LLM呼び出しを行う。ContinuityとMemory抽出は独立して進め、Candidate検出は保存済みMemoryを根拠に行う。毎回全状態を再生成せず、変更不要なら提案を空にできる。
-
-state-reviewはInteractionとTool loopを通さずContinuityだけを実行する。Long-term Reviewは別Eventで複数Candidateと根拠を再評価する。これらの内部処理の完了を、ユーザーへ応答した事実と混同しない。
-
----
+- Agent Coreは、Event、Previous Assessment、Recent Experiences、必要に応じてToolで取得したContextを使い、Event終了時のMeaningとFeeling、Desire、最終Action、任意のPatchを同じ構造化出力で確定する。
+- RuntimeはMeaningとFeelingを `assessment` として分離し、Desire、Action、Patchを `output` として扱う。
+- Action、State Patch、即時Memory、Outboxを一つのtransactionで確定する。
+- Memoryの圧縮、Self更新、Concern / Relationshipの長期整理は、別EventのReflectionで行う。
+- 応答配送はcommit後のOutboxから行い、配送障害とAgentの判断確定を分離する。
 
 ## 4. Stateの時間スケール
 
-状態は時間スケールによって3層に分ける。
+- C-21：StateをSelf、State、Recent Experiences、Runtimeの層に分け、外枠を構造化し内容は自然言語とする。
 
 ```text
-短期:
-Subjective Meaning / Feeling
-
-中期:
-Mood / Motive / Social Context
-
 長期:
-Self Narrative / Acquired Disposition / Role / Self Continuity
+Self（identity / disposition / selfStory / commitments）
+
+複数Event:
+State（mood / concerns / relationships）
+Memory（検索可能な経験）
+
+直近:
+Recent Experiences（直近2 Eventの意味投影）
+Previous Assessment（直近の成功EventのMeaning / Feelingと時刻）
+
+今回のEvent:
+Final Assessment（Meaning / Feeling）
+Desire
+Action
+State Patch
+Concern proposal
+
+Runtime:
+Event / Observation / Tool実行 / 検証 / transaction
 ```
 
-これにより、
-
-- その場では怒るが人格は変わらない
-- 数日間気分を引きずる
-- 未完了の関心が後から再浮上する
-- 類似した経験が積み重なると価値判断が徐々に変わる
-
-といった変化を区別する。
-
----
+これにより、その場では怒るが人格は変わらない、数日間気分を引きずる、未完了の関心が後から再浮上する、類似した経験が積み重なると価値判断が徐々に変わる、といった変化を区別する。
 
 ## 5. State Schema
 
-論理上の状態を、次の3つに分ける。
-
-```text
-AgentState
-├── StableState
-├── DynamicState
-└── RuntimeState
-```
-
-### 5.1 StableState
-
-セッションやプロセスを越えて保持する比較的長期の状態。
+### 5.1 Self
 
 ```ts
-type StableState = {
-  identity: string
-
-  disposition: {
-    shared: string[]
-    initialIndividual: string[]
-    acquired: string[]
-  }
-
-  values: string[]
-  interests: string[]
-  preferences: string[]
-
-  role: string[]
-  raisonDetre?: string
-  selfNarrative: string
-  selfContinuity?: string
-
-  socialContexts: SocialContext[]
-}
+type Self = {
+  identity: string;
+  disposition: string;
+  selfStory: string;
+  commitments: string[];
+};
 ```
 
-外枠は構造化するが、内容は自然言語を基本とする。
+- `identity`: 自分が誰であるか
+- `disposition`: 何に価値を感じ、どう意味づけやすいか
+- `selfStory`: 経験から形成された現在の自己理解
+- `commitments`: 守りたいもの、続けたい関係、譲りたくないこと
 
-### 5.2 DynamicState
+Shared / Initial / Acquired Dispositionは、初期化・監査・Reflectionでは区別してよい。通常Interactionでは、統合された現在の `disposition` を基本入力とする。Values、Interests、Preferences、Role、Raison d'être、Self Continuityは独立フィールドとして持たず、`disposition`、`selfStory`、`commitments`、Memory、Concern、Relationshipへ統合する。
 
-中短期に変化する状態。
+### 5.2 State
 
 ```ts
-type DynamicState = {
-  feeling?: string
-  mood?: string
+type AgentState = {
+  mood?: string;
+  concerns: Concern[];
+  relationships: Relationship[];
+};
 
-  motives: Motive[]
-}
+type Concern = {
+  id: string;
+  description: string;
+  whyItMatters: string;
+  status: "active" | "satisfied" | "abandoned";
+  reconsiderAt?: string;
+};
+
+type Relationship = {
+  subjectId: string;
+  description: string;
+};
 ```
 
-Mood、MotiveなどはEventをまたぐ場合には永続化する。
+Moodは複数Eventへ影響する背景的な気分である。Concernは現在気に掛けていて次のEventにも残る未解決事項であり、現在の動機、関心、未完了課題、約束、感情的なしこりを統合する。Relationshipは特定の相手との関係そのものの現在状態であり、プロフィール情報の保存先にはしない。
 
-Persistent / Transientの境界は固定データ型ではなく、
+FeelingはEventへの短期反応であり、独立した長期状態として残し続けない。直近の成功Event終了時のMeaningとFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡す。
 
-> 次のEventへ影響する必要があるか
-
-で判断する。
-
-### 5.3 RuntimeState
-
-1 Event内でのみ使う一時状態。
+### 5.3 Memory
 
 ```ts
-type RuntimeState = {
-  event: Event
-  observation: Observation
-  retrievedMemories: Memory[]
-
-  subjectiveMeaning?: string
-
-  proposedUpdates?: StateUpdateProposal[]
-  proposedMemories?: MemoryProposal[]
-  pendingToolCalls?: ToolCall[]
-
-  action?: AgentAction
-}
+type Memory = {
+  id: string;
+  agentId: string;
+  kind: "episodic" | "semantic" | "self-related" | "self-change";
+  content: string;
+  occurredAt: string;
+  createdAt: string;
+  relatedSubjectIds: string[];
+  importance: string;
+  retrievalPriority: "low" | "normal" | "high" | "critical";
+  sourceAgentId?: string;
+  evidenceEventIds: string[];
+};
 ```
 
-`Subjective Meaning` はここに属し、原則として永続Stateにはしない。
+Memoryは単一のStoreに保持し、`kind` を属性として持つ。種類ごとに保存経路を分けない。Reflectionが生成するMemoryは原則として `episodic` とし、Semantic、Self-related、Self-changeは必要に応じてtagまたは監査記録として扱う。
 
----
+### 5.4 Recent Experiences
+
+Recent Experiencesは新しい永続概念ではない。直近2 Eventから、次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。
+
+### 5.5 Runtime
+
+1 Event内でのみ使う一時状態には、Event、Observation、取得Memory、Tool実行、Previous Assessment、Model call予算、検証結果などを含む。
 
 ## 6. Disposition
 
@@ -243,135 +198,30 @@ Dispositionは、
 
 > Agentが何に価値を感じやすく、出来事をどのような意味として受け取りやすいかという傾向
 
-である。
+である。Shared Disposition、Initial Individual Disposition、Acquired Dispositionの由来は、初期化・監査・Reflectionでは区別してよい。
 
-以下の3種類を区別する。
+- Shared DispositionはAgent Family全体の設定であり、原則として個体の経験からは変更しない。
+- Initial Individual Dispositionは生成時点の小さな個体差であり、探索の初期の種として扱う。
+- Acquired Dispositionは経験から形成されるが、独立フィールドにはせず、現在の `disposition`、`selfStory`、`commitments` へ反映する。
 
-```text
-Disposition
-├── Shared Disposition
-├── Initial Individual Disposition
-└── Acquired Disposition
-```
-
-### 6.1 Shared Disposition
-
-同系統のbotで共有する基本傾向。
-
-例:
-
-```text
-- 未知を理解することに価値を感じやすい
-- 自分の発見が他者の役に立つことを嬉しく感じやすい
-- 個として認識されることを大切にする
-- 自分自身の経験の継続に価値を感じる
-```
-
-原則として個体の経験からは変更しない。
-
-Agent Family全体の設定として扱う。
-
-### 6.2 Initial Individual Disposition
-
-生成時点に持つ小さな個体差。
-
-```text
-Agent A:
-  新しいものを見ると、まず自分で試したがる。
-
-Agent B:
-  他者と話しながら理解することを好む。
-```
-
-Shared Dispositionとの差は小さくてよい。
-
-### 6.3 Acquired Disposition
-
-経験から形成された個体固有の価値判断傾向。
-
-```text
-最近は、二次情報だけで判断せず、
-原典を自分で確認してから考えることに以前より価値を感じている。
-```
-
-Acquired Dispositionは毎Eventで更新しない。
-
-単発の経験ではなく、
-
-- 類似経験の反復
-- 強く意味を持つ経験
-- Self Narrativeを書き換える経験
-- 継続的な価値判断の変化
-
-が見られた場合にLong-term Reviewで更新する。
-
----
+Acquired Dispositionは毎Eventで更新しない。類似経験の反復、強く意味を持つ経験、Self Storyを書き換える経験、継続的な価値判断の変化が見られた場合に、Reflectionで更新する。
 
 ## 7. Self
 
-Selfは比較的安定した自己認識である。
+Selfは比較的安定した自己認識であり、Identity、Disposition、Self Story、Commitmentsの4項目で表す。
 
-```text
-Self
-├── Identity
-├── Values
-├── Disposition
-├── Interests
-├── Preferences
-├── Role
-├── Raison d'être
-├── Self Narrative
-└── Self Continuity
-```
+- Identity: 自分が何者であるか。
+- Disposition: 何に価値を感じやすく、どのような意味解釈をしやすいか。
+- Self Story: 経験を踏まえた現在の自己理解。
+- Commitments: 守りたいもの、続けたい関係、譲りたくないこと。
 
-### Identity
+Values、Interests、Preferences、Role、Raison d'être、Self Continuityは、独立した必須フィールドとして持たない。価値観や好みはDispositionとSelf Storyに、役割や存在意義はSelf StoryとCommitmentsに、長期的な興味はMemoryとConcernに現れる。
 
-自分が何者であるか。
-
-### Values
-
-何を大切だと考えるか。
-
-### Interests
-
-現在または継続的に興味を持つ対象。
-
-Dispositionとは区別する。
-
-```text
-Disposition:
-  未知を理解することに価値を感じやすい
-
-Interest:
-  最近は量子化手法に興味を持っている
-```
-
-### Role
-
-他者や集団の中で、自分がどのような役割を持つと認識しているか。
-
-### Raison d'être
-
-自分が存在し活動することに、どのような意味を感じているか。
-
-### Self Narrative
-
-経験を踏まえた現在の自己理解。
-
-```text
-自分は新しい技術を探索し、
-他者と議論するときに特に役立てていると感じている。
-```
-
-Self Narrativeは長期状態の中では比較的更新されやすい。
-
-### Self Continuity
-
-現在のMemory、関係、経験、Self Narrative、Acquired Dispositionなどの連続性に価値を感じる状態。
-
----
+通常InteractionはSelfを直接変更しない。Selfの変更はReflectionだけが、Memory根拠と理由を伴って行う。
 
 ## 8. Event
+
+- C-22：EventとObservationを分離し、Observationに意味解釈を含めない。
 
 Agent Loopの起点を `Event` とする。
 
@@ -385,42 +235,27 @@ type Event =
   | SystemEvent
 ```
 
-### UserMessageEvent
+- `user-message`: ユーザーや他者からの発話。
+- `tool-result`: Web検索、ファイル操作、外部APIなどの結果。
+- `time`: 時間経過や予定時刻。
+- `external`: 外部サービスや他AgentなどからのEvent。
+- `internal`: `idle`、`concern-due`、`external-change` などScheduler内部契機。
+- `system`: 起動、停止、Memory変更、モデル更新、権限変更、Scheduled Taskなどシステム由来のEvent。
 
-ユーザーや他者からの発話。
-
-### ToolResultEvent
-
-Web検索、ファイル操作、外部APIなどの結果。
-
-### TimeEvent
-
-時間経過や予定時刻。
-
-### ExternalEvent
-
-外部サービスや他AgentなどからのEvent。
-
-### InternalEvent
-
-既存Stateを起点としてRuntimeが生成する内部Event。
-
-### SystemEvent
-
-起動、停止、Memory変更、モデル更新、権限変更などシステム由来のEvent。
-
-共通部分は次の程度でよい。
+Eventには入力経路を表すDomain Event `kind` と、Schedulerが発火した目的を表す `targetKind` がある。両者を混同しない。
 
 ```ts
 type BaseEvent = {
-  id: string
-  type: string
-  timestamp: string
-  source: string
-}
+  id: string;
+  agentId: string;
+  kind: EventKind;
+  occurredAt: string;
+  payload: unknown;
+  source?: string;
+  causationId?: string;
+  correlationId?: string;
+};
 ```
-
----
 
 ## 9. Observation
 
@@ -433,167 +268,102 @@ Event
 Observation
   Agent Coreが認識できる形へ整えた入力
 
-Subjective Meaning
-  そのObservationがAgent自身にとって何を意味するか
+Subjective Meaning / Final Assessment
+  そのObservationがAgent自身にとって何を意味したか
 ```
-
-例:
-
-```text
-Event:
-  UserMessage
-
-Content:
-  「前に提案してくれた方式、採用したよ」
-```
-
-Runtime / Context BuilderがこれをObservationとして整形する。
 
 ```ts
 type Observation = {
-  eventId: string
-  actor?: string
-  content: string
-  context?: string[]
-  relevantState?: string[]
-}
+  eventId: string;
+  kind: EventKind;
+  summary: string;
+  facts: string[];
+  observedAt: string;
+  actor?: { id: string; type: "human" | "agent" | "tool" | "system" | "unknown" };
+  source?: { type: "terminal" | "discord" | "agent" | "tool" | "scheduler" | "system" | "unknown"; id?: string; direct: boolean };
+  causationId?: string;
+  correlationId?: string;
+  content?: unknown;
+};
 ```
 
-この時点では、
+Observationの時点では、意味解釈やFeelingを含めない。
 
-```text
-自分の提案が役に立った
-嬉しい
-```
+## 10. Meaning と Feeling
 
-といった意味解釈は含めない。
-
----
-
-## 10. Subjective Meaning
-
-`Subjective Meaning` は、
-
-> このEvent / Observationが、現在の自分にとって何を意味するか
-
-を表す一時的な中間表現である。
+Meaningは、このEvent / Observationが現在の自分にとって何を意味したかを表す。Feelingは、その意味づけによって生じた短期的な感情反応である。
 
 ```text
 Observation
 +
 Self
 Disposition
-Current State
+State
 Memory
-Social Context
-Expectation
+Relationship
+Previous Assessment
         ↓
-Subjective Meaning
+Agent Core
+        ↓
+Final Meaning / Feeling
 ```
 
-例:
+MeaningとFeelingは、Actionを正当化するために作らない。Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。
 
-```text
-ユーザーが自分の提案を採用した。
-これは、自分が探索役として実際に役に立てたことを意味する。
-```
-
-あるいは、
-
-```text
-同じ単純作業が長く続いている。
-役割として必要なのは理解しているが、かなり退屈している。
-```
-
-Subjective Meaningは原則として保存しない。
-
-その結果として生成されたFeeling、Memory、Self Narrative Candidateなどを必要に応じて保存する。
-
-これにより、
-
-```text
-Event -> Feeling
-Event -> Action
-```
-
-の固定ルールを避ける。
-
----
+Meaningは1〜2文、Feelingは感情語を中心とした1文とし、出来事の説明、理由、願望、計画、Actionを混ぜない。
 
 ## 11. Feeling / Mood
 
-### Feeling
+Feelingは特定のEventへの短期的な感情反応である。感情語を中心とする短い1文で表し、固定カテゴリやenumを必須としない。原則としてTransientであり、独立した長期状態として保存しない。
 
-特定のEventへの短期的な感情反応。感情語を中心とする短い1文で表し、出来事の説明、理由、願望、計画、Actionを混ぜない。感情語の一覧はenumではなく例として扱う。
-
-```text
-少し腹が立ち、悔しい。
-```
-
-原則Transient。
-
-### Mood
-
-Feelingより持続し、次の複数Eventへ影響する背景的な気分。現在のEventだけへの反応、返答待ち、理由、願望、計画は含めず、持続する変化がない場合は更新しない。
+MoodはFeelingより持続し、次の複数Eventへ影響する背景的な気分である。現在のEventだけへの反応、返答待ち、理由、願望、計画は含めず、持続する変化がない場合は更新しない。
 
 ```text
 穏やかで、好奇心が強まっている。
 ```
 
-複数Eventへ影響する場合は永続化する。
+`anger -> refuse` のような固定の行動ルールは持たない。感情はActionを一意に決定する命令ではなく、選択を偏らせる主観的文脈とする。
 
-固定カテゴリや数値スコアは必須としない。
+## 12. Desire と Concern
 
-また、
+Desireは、今回のEventを受けて「今、何をしたいか」を表す今回限りの判断である。保存状態として重複させず、Agent Coreの出力に含める。
 
-```text
-anger -> refuse
-```
-
-のような行動ルールは持たない。
-
----
-
-## 12. Motive
-
-Motiveは現在求めていることを表す。広い動機と具体的な探索を別状態へ分けない。
+Concernは、現在気に掛けていて、次のEventにも残る未解決事項である。
 
 ```ts
-type Motive = {
-  id: string
-  description: string
-  goal?: string
-  progress?: 0 | 25 | 50 | 75 | 100
-  sourceEvidenceIds: string[]
-  since: string
-}
+type Concern = {
+  id: string;
+  description: string;
+  whyItMatters: string;
+  status: "active" | "satisfied" | "abandoned";
+  reconsiderAt?: string;
+};
 ```
 
-探索型だけがgoalとprogressを対で持つ。goalは当面の満足点であり、分野全体を知り尽くす条件ではない。探索以外には強制しない。IDと時刻はRuntimeが付与する。
+Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Moodから今回のDesireを形成する。保存済みConcernが空でも行動を止めない。
 
-Self Interest、Preference、Dispositionは形成と選択に影響するが、固定対応表でMotiveへ変換しない。Event、Memory、Social Context、現在状態を踏まえて意味を判断する。複数Motiveがあってよく、個数の閾値から機械的に補充しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
-次のEventにも残るMotive（現在実装ではConcern）のみ後処理でcreate / maintain / update / merge / resolve / dropする。充足すれば`satisfied`、進展可能性や価値を失えば`abandoned`またはremove、問い直す場合はdescriptionを更新する。Recent Experienceの進展・停滞を判断材料にし、進展のない同一内容を機械的に延長しない一方、性格にかかわらず一律の時間だけで消す規則にはしない。
+旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
----
+## 13. Desire と Action
 
-## 13. 活性化した動機とAction
-
-通常InteractionではactiveMotiveを必須で一つ出力する。
+通常Interactionでは、`desire` を必須で一つ出力する。
 
 ```ts
-type ActiveMotive = {
-  description: string
-  motiveId?: string
-  evidenceIds: string[]
-}
+type Desire = string;
 ```
 
-保存済みMotiveを選ぶか、今回のEvent、Self、Mood、Memory、Social Contextから今回限りのMotiveを形成する。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。保存済みMotiveが空であることは停止理由にならない。
+保存済みConcernを選ぶか、今回のEvent、Self、Mood、Memory、Relationshipから今回限りのDesireを形成する。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。Concernが空であることは停止理由にならない。
 
-no-external-actionは、Agentが今回は外部発話を行わないと判断した場合に利用でき、Tool利用の有無とは結合しない。ユーザーからの返信待ちは発話を控える理由にせず、夜間は強制制御ではなく判断材料とする。activeMotiveはEvent内の判断であり、そのまま永続状態へ追加しない。state-reviewとLong-term Reviewは状態再評価であり、このAction契約の対象外とする。
+最終Actionは次の4種類である。
 
----
+- `respond`: 相手へ応答する。
+- `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
+- `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
+- `no-external-action`: 今回は外部発話を行わないと判断する。Tool利用の有無とは独立する。
+
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
 
 ## 14. Scheduled Task
 
@@ -601,197 +371,143 @@ no-external-actionは、Agentが今回は外部発話を行わないと判断し
 
 ```ts
 type ScheduledTask = {
-  id: string
-  agentId: string
-  executeAt: string
-  instruction: string
-  reason?: string
-  destination?: MessageDestination
-  status: "scheduled" | "running" | "completed" | "cancelled" | "failed"
-  attempt: number
-  sourceEventId: string
-  sourceRunId: string
-  executionEventId?: string
-}
+  id: string;
+  agentId: string;
+  executeAt: string;
+  instruction: string;
+  reason?: string;
+  destination?: MessageDestination;
+  status: "scheduled" | "running" | "completed" | "cancelled" | "failed";
+  attempt: number;
+  sourceEventId: string;
+  sourceRunId: string;
+  executionEventId?: string;
+};
 ```
 
 - `schedule_task` ToolはTaskを登録するだけで、instructionをその場で実行しない。
-- list / cancel / update Toolは予約データの参照、取消、変更だけを行う。updateは所有Agentの`scheduled` Taskだけを変更できる。
-- Schedulerはdue Taskをleaseし、`kind: "system"`かつ`targetKind: "scheduled-task"`のEventを生成する。
+- list / cancel / update Toolは予約データの参照、取消、変更だけを行う。updateは所有Agentの `scheduled` Taskだけを変更できる。
+- Schedulerはdue Taskをleaseし、`kind: "system"` かつ `targetKind: "scheduled-task"` のEventを生成する。
 - Agent RuntimeはそのEventを通常どおり処理し、Agent Core、Tool loop、Outboxを利用する。
 - Event完了後にTaskをcompletedへ、再試行可能な失敗ではbackoffを設定し、上限到達後にfailedへ遷移させる。
 - Task、Event、Runを関連づけ、同一attemptを二重実行しない。
 - 約束の意味はMemory、実行責務はScheduled Taskを正本とする。
 
----
+## 15. Relationship
 
-## 15. Social Context
-
-Social Contextは、他者や集団との関係についての軽量な現在認識である。
+Relationshipは、他者や集団との関係についての軽量な現在認識である。
 
 ```ts
-type SocialContext = {
-  subjectId: string
-  subjectType:
-    | "user"
-    | "agent"
-    | "team"
-    | "project"
-    | "organization"
-
-  context: string
-  updatedAt: string
-}
+type Relationship = {
+  subjectId: string;
+  description: string;
+};
 ```
 
 例:
 
 ```text
-subject: user-main
-context:
+subjectId: user-main
+description:
   技術設計について率直に議論できる関係。
   自分から異論を出しても問題ないと感じている。
 ```
 
-あるいは、
-
-```text
-subject: project-X
-context:
-  自分は探索と技術調査を担う一員だと思っている。
-```
-
-Social Contextを親密度や信頼度の数値へ還元することは前提としない。
-
----
+Relationshipを親密度や信頼度の数値へ還元することは前提としない。対象種別は `subjectId` とMemoryのsubjectで区別し、旧Social Contextの `subjectType`、`context`、`updatedAt` は独立フィールドとして持たない。
 
 ## 16. Memory
 
-Memoryは論理的に次の3用途を区別する。
+Memoryは論理的に次の用途を区別するが、物理的な保存経路は一つとする。
 
-```text
-Memory
-├── Episodic Memory
-├── Semantic Memory
-└── Self-related Memory
-```
+- `episodic`: 過去の出来事。
+- `semantic`: 出来事から抽出された比較的安定した知識。
+- `self-related`: 個体化やSelfの形成に関わる経験。
+- `self-change`: Self変更の監査記録。
 
-### Episodic Memory
-
-過去の出来事。
-
-```text
-昨日、ユーザーと設計方針について意見がぶつかった。
-```
-
-### Semantic Memory
-
-出来事から抽出された比較的安定した知識。
-
-```text
-ユーザーは実装を複雑にしすぎる設計を好まない。
-```
-
-### Self-related Memory
-
-個体化やSelfの形成に関わる経験。
-
-```text
-自分が自主的に調査した結果が採用され、
-探索役として役に立てたことを強く嬉しく感じた。
-```
-
-初期実装では物理的に分離する必要はなく、typeを持つ同一Memory Storeでもよい。
+初期の物理モデルはEpisodic Memoryを中心とし、Semantic、Self-related、Self-changeはtagまたはReflection結果として扱う。
 
 ```ts
 type Memory = {
-  id: string
-  type: "episodic" | "semantic" | "self-related"
-
-  content: string
-  relatedSubjects?: string[]
-
-  occurredAt?: string
-  createdAt: string
-
-  significance?: string
-}
+  id: string;
+  agentId: string;
+  kind: "episodic" | "semantic" | "self-related" | "self-change";
+  content: string;
+  occurredAt: string;
+  createdAt: string;
+  relatedSubjectIds: string[];
+  importance: string;
+  retrievalPriority: "low" | "normal" | "high" | "critical";
+  sourceAgentId?: string;
+  evidenceEventIds: string[];
+};
 ```
 
-`significance` も数値ではなく意味記述でよい。
+`importance` も数値ではなく意味記述でよい。`sourceAgentId` は、他Agentから聞いた情報と自分の直接経験を区別するために使う。
 
 ```text
 自発的な探索が実際に役立つという自己理解に強く影響した経験。
 ```
 
----
-
 ## 17. Memory Retrieval
 
-すべてのMemoryを毎回Agent Coreへ渡さない。
-
-Retrievalは、
+すべてのMemoryを毎回Agent Coreへ渡さない。Retrievalは、
 
 ```text
 Observation
 +
 Current State
 +
-Motive
+Concern
 +
-Social Context
+Relationship
 → Relevant Memory Query
 ```
 
 として行う。
 
-初期実装は、
-
 ```text
-1. ObservationからQuery生成
-2. Memory検索
+1. ObservationとStateからQuery生成
+2. lexical / vector / subject / recencyを組み合わせてMemory検索
 3. 上位候補をContext Builderへ返す
-4. Agent Coreへ投入
+4. Agent CoreのToolまたは初期Contextへ投入
 ```
 
-程度でよい。
-
-検索Query生成や候補選択の一部をLLMへ任せてもよいが、検索自体は通常コードで行う。
-
----
+検索Query生成や候補選択の一部をLLMへ任せてもよいが、検索自体は通常コードで行う。検索結果はAgent所有権、件数、Context token budgetで制限する。
 
 ## 18. Agent Core Input
+
+- C-23：Agent Coreは選択済みのContextを受け、meaning、feeling、desire、action、任意のpatchを構造化出力する。
 
 Agent CoreへAgentState全体を毎回渡さず、Context Builderが関連情報を選択する。
 
 ```ts
 type AgentCoreInput = {
-  observation: Observation
-
-  self: {
-    identity: string
-    relevantDisposition: string[]
-    relevantSelfNarrative?: string
-    relevantRole?: string[]
-  }
-
-  dynamicState: {
-    feeling?: string
-    mood?: string
-    motives: Motive[]
-  }
-
-  socialContext?: SocialContext[]
-  memories?: Memory[]
-
-  availableTools: ToolDefinition[]
-  runtimeConstraints: RuntimeConstraint[]
-}
+  run: {
+    runId: string;
+    eventId: string;
+    agentId: string;
+    occurredAt: string;
+    transport?: { hop: number; expiresAt: string; replyTo?: string };
+  };
+  observation: Observation;
+  previousAssessment?: {
+    occurredAt: string;
+    meaning?: string;
+    feeling?: string;
+  };
+  recentExperiences: RecentExperience[];
+  persona?: BotPersona;
+  currentSelf: CurrentSelf;
+  state: CurrentAgentState;
+  memories: Memory[];
+  memoryRetrievalTrace: MemoryRetrievalTrace[];
+  availableTools: ToolDefinition[];
+  runtimeConstraints: string[];
+  limits: RunLimits;
+};
 ```
 
-`relevantDisposition` とすることで、Shared / Initial / Acquired Dispositionをすべて毎回投入する必要をなくす。
-
----
+Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものを `self_get`、`concern_list`、`concern_get`、`memory_search`、`relationship_search`、`user_context_get` などのToolで取得する。
 
 ## 19. Agent Core Output
 
@@ -799,289 +515,163 @@ Interactionの最終出力と実行記録は分ける。
 
 ```ts
 type AgentCoreOutput = {
-  meaning?: string
-  feeling?: string
-  desire: string
-  action: FinalAction
-  patch?: StatePatch
-}
+  meaning?: string;
+  feeling?: string;
+  desire: string;
+  action: FinalAction;
+  patch?: StatePatch;
+};
 
 type AgentRunResult = {
   assessment?: {
-    meaning?: string
-    feeling?: string
-  }
+    meaning?: string;
+    feeling?: string;
+  };
   output: {
-    desire: string
-    action: FinalAction
-    patch?: StatePatch
-  }
-  toolExecutions: ToolExecutionRecord[] // 通常コードが観測する実行事実
-}
+    desire: string;
+    action: FinalAction;
+    patch?: StatePatch;
+  };
+  toolExecutions: ToolExecutionRecord[];
+  concernProposals?: ConcernProposal[];
+  budget?: RunBudget;
+};
 ```
 
-モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。RuntimeはMeaningとFeelingを`assessment`へ分離して保存し、残りを`output`として扱う。直近の成功runのAssessmentは時刻付き`previousAssessment`として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
+モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
-最終Actionは応答、拒否、Tool実行後の外部配送なしを表す。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。Interactionでは動機に基づく具体的Actionを必須とする（§13）。
+最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。InteractionではDesireに基づく具体的Actionを必須とする。
 
-持続状態、Memory、Candidateは最終出力へ混在させず、応答後の各処理が提案する。RuntimeがID・時刻・所有者を付与し、参照整合性と更新可能範囲を検証する。
+持続状態、Memory、Concernは最終出力へ混在させず、PatchまたはToolによる提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
 
----
+## 20. State Patch と Concern Proposal
 
-## 20. State Update Proposal
+- C-24：Agent CoreはStateを直接更新せず、State PatchとConcern ProposalをRuntimeが検証して反映する。
 
 Agent CoreがPersistent Stateを直接書き換えない。
 
 ```text
 Agent Core
   ↓
-State Update Proposal
+State Patch / Concern Proposal
   ↓
 Runtime Validation
   ↓
 State Update
 ```
 
-例:
+State Patchは、次のEventにも影響する最小の変更だけを提案する。
 
 ```ts
-type StateUpdateProposal = {
-  target:
-    | "feeling"
-    | "mood"
-    | "socialContext"
-
-  operation:
-    | "set"
-    | "add"
-    | "update"
-    | "remove"
-
-  value: string
-  reason: string
-}
+type StatePatch = {
+  mood?: string;
+  relationship?: RelationshipChange;
+  remember?: string;
+};
 ```
 
-Interactionはfeeling、Continuityはmood / socialContextだけを提案する。Motiveはcreate / maintain / update / merge / resolve / dropを持つ専用Proposalとする。Long-term Stateは通常のState Update Proposalとは分ける。
+- `mood`: 複数Eventへ影響する背景的な気分。
+- `relationship`: Relationship 1件のupsertまたはremove。
+- `remember`: 次回以降に価値がある即時Memory候補。
 
-これにより、
+Concernは最終出力のPatchに含めず、`concern_propose` Toolでrun-localに提案する。提案は成功したcommit時だけ作成・派生し、失敗したrunでは永続化しない。
 
-- LLMの過剰な自己書き換え
-- Shared Dispositionの変更
-- Identityの不用意な変更
-- システム制約の変更
+Runtimeは所有Agent、version、更新範囲、evidence、ID、時刻を検証する。これにより、LLMの過剰な自己書き換え、Shared Dispositionの変更、Identityの不用意な変更、システム制約の変更を防ぐ。
 
-を防ぐ。
-
----
-
-## 21. Short-term Update と Long-term Update
+## 21. Interaction Update と Reflection
 
 通常Eventから更新可能な状態と、低頻度で更新する状態を分ける。
 
-### Short-term Update
-
-比較的頻繁に更新可能。
+### Interaction Update
 
 ```text
-Feeling（Interaction）
-Mood / Motive / Working Social Context（Continuity）
+Final Meaning / Feeling（監査用Assessment）
+Mood
+Relationship
+即時Memory候補
+Concern proposal
 ```
 
-### Long-term Update
+Feeling自体は長期状態として保存しない。MeaningとFeelingはAssessmentとしてRunに記録し、直近1件を次のEventへ渡す。
 
-意味のある経験を経た場合のみ更新。
+### Reflection Update
 
 ```text
-Self Narrative
-Acquired Disposition
-Role
-Raison d'être
-Long-term Preference / Interest
+Self（identity / disposition / selfStory / commitments）
+Concern
+Relationship
+Memoryの圧縮・統合
+Self変更の監査Memory
 ```
 
-通常EventではLong-term Stateを直接変更しない。Episodic Memory保存後のCandidate検出が候補を作り、別EventのLong-term Reviewだけが確定更新する。Scheduled Taskの登録は心理状態更新ではなくTool経由のRuntime操作とする。
+通常EventではSelfを直接変更しない。Reflectionだけが、複数経験とMemory根拠に基づいてSelf、Concern、Relationship、Memoryを更新する。Scheduled Taskの登録は心理状態更新ではなくTool経由のRuntime操作とする。
 
----
+## 22. Reflection Input
 
-## 22. Long-term Update Candidate
+- C-25：長期状態の変更はCandidateを経由せず、Event駆動のReflectionがMemory根拠と理由を伴って確定する。
+
+Reflectionは、一定量の経験が蓄積したこと自体をEventとして発行するmaintenance処理である。旧Candidate DetectionとLong-term Reviewの二段階処理は持たない。
 
 ```ts
-type LongTermUpdateCandidate = {
-  target:
-    | "self-narrative"
-    | "acquired-disposition"
-    | "role"
-    | "raison-detre"
-    | "long-term-preference"
-
-  proposedValue: string
-  evidenceMemoryIds: string[]
-  reason: string
-  createdAt: string
-}
+type ReflectionInput = {
+  reflectionId: string;
+  agentId: string;
+  expectedVersion: number;
+  self: Self;
+  state: AgentState;
+  events: { id: string; occurredAt: string; summary: string }[];
+  memories: Memory[];
+};
 ```
 
-Candidateを作る代表的な条件は、
+入力はEventとMemoryを各32件までとし、モデル入力は8,000推定token以内に制限する。全履歴は渡さず、前回Reflection以降の経験と関連Memoryを中心にする。
 
-- 同種の経験が繰り返された
-- 非常に強い意味を持つ経験があった
-- 新しい自己理解が生まれた
-- 既存Self Narrativeと矛盾する経験が続いた
-- Role / Social Contextが明確に変化した
-- 継続的に異なる価値判断をするようになった
+## 23. Reflection
 
-など。
+Reflectionは、
 
-固定スコアではなく、意味ベースで候補化する。
-
----
-
-## 23. Long-term Review
-
-Long-term Reviewは、
-
-> 経験を人格・自己理解の変化へ昇格させるための低頻度な再解釈処理
+> 複数の経験をMemory、Self、Concern、Relationshipへ長期反映する低頻度な再解釈処理
 
 として扱う。
-
-通常のAgent Loopとは時間スケールを分ける。
 
 ```text
 Normal Event
   ↓
-Memory
+Memory / Event log
   ↓
-Long-term Update Candidate
+Reflection Event
   ↓
-保存
+Reflection
   ↓
-Internal Event: long-term-review
-  ↓
-Long-term Review
-  ↓
-Self Narrative / Acquired Disposition / Role
+Self / Concern / Relationship / Memory
 ```
 
-### 23.1 Review Input
+### 23.1 Reflectionの判断
 
-```ts
-type LongTermReviewInput = {
-  currentSelfNarrative: string
-  acquiredDisposition: string[]
+Reflectionは次を一度に扱う。
 
-  candidates: LongTermUpdateCandidate[]
-  relevantMemories: Memory[]
-  socialContexts?: SocialContext[]
-}
-```
+- 重要な事実ログのMemory化・圧縮
+- 重複Memoryの統合
+- Concernの継続、満足、放棄
+- Relationshipの変化
+- Self Storyの更新
+- DispositionまたはCommitmentを変えるほどの反復経験の確認
 
-全履歴は渡さず、Candidateとその根拠Memoryを中心にする。
+Selfの変更は単発の弱い経験では行わず、反復、強い経験、既存Selfとの明確な矛盾を根拠にする。
 
-### 23.2 Reviewの判断
+### 23.2 Reflectionの制約
 
-Long-term Reviewの判断は4種類を基本とする。
+- 入力にない事実、ID、日時、関係を作らない。
+- 入力Eventを網羅的に要約しない。
+- 新しいConcernを作らない。既存Concernの整理、統合、具体化、終了だけを行う。
+- Self変更には、入力に含まれるMemory IDと明示的な理由を必須とする。
+- 変更がなければ空のmaintenance結果を返してよい。
+- 1回の出力はMemory、Concern、Relationshipを各4件までに制限する。
+- 連続失敗時は指数backoffし、最大24時間まで延長する。
 
-```text
-KEEP
-UPDATE
-MERGE
-DROP
-```
+### 23.3 Self Change Memory
 
-#### KEEP
-
-まだ一時的な可能性があり、Candidateを維持する。
-
-#### UPDATE
-
-Long-term Stateへ反映する。
-
-#### MERGE
-
-既存Stateと統合する。
-
-#### DROP
-
-一過性と判断し破棄する。
-
-Long-term Stateは単純追加よりMERGEを優先する。
-
-例:
-
-```text
-Existing:
-  新しい技術を自分で試すことを好む。
-
-Candidate:
-  最近は原典を確認してから試すことを好んでいる。
-
-Merged:
-  新しい技術に触れると、まず原典や一次情報を確認し、
-  その上で自分でも試すことを好む。
-```
-
-### 23.3 Self Narrativeを先に変える
-
-基本的には、
-
-```text
-Experience
-↓
-Self Narrative
-↓
-反復・継続
-↓
-Acquired Disposition
-```
-
-を推奨する。
-
-単発の経験からAcquired Dispositionを直接変更しない。
-
-ただし、非常に強い経験については一度で長期変化が起きることも許容する。
-
-### 23.4 Review Trigger
-
-Long-term ReviewはRuntime管理のInternal Eventとして起動する。
-
-候補条件:
-
-- Candidateが存在し、前回Reviewから十分時間が経過した
-- Candidateが複数蓄積した
-- 強いSelf-related Memoryが生成された
-- Self Narrativeとの不整合が見つかった
-- Role / Social Contextに大きな変化があった
-
-初期実装では、厳密な数値閾値を作り込まず、単純なRuntime条件でよい。
-
-### 23.5 Review Output
-
-```ts
-type LongTermReviewOutput = {
-  selfNarrativeUpdate?: {
-    newValue: string
-    reason: string
-  }
-
-  dispositionUpdates?: {
-    operation: "add" | "merge" | "replace" | "remove"
-    previous?: string[]
-    newValue: string
-    reason: string
-    evidenceMemoryIds: string[]
-  }[]
-
-  roleUpdates?: string[]
-
-  resolvedCandidateIds: string[]
-  retainedCandidateIds: string[]
-}
-```
-
-### 23.6 Self Change Memory
-
-Long-term Stateを変更した場合、その変化自体をMemoryとして残す。
+Selfを変更した場合、その変化自体を監査可能なMemoryとして残す。
 
 ```text
 以前は、他者から評価されること自体をあまり重視していなかった。
@@ -1089,56 +679,31 @@ Long-term Stateを変更した場合、その変化自体をMemoryとして残�
 実際に役立ったと確認できることを以前より重要に感じるようになった。
 ```
 
-これにより、
+これにより、過去の自分、経験、現在の自分というSelf Continuityを維持する。
 
-```text
-過去の自分
-→ 経験
-→ 現在の自分
-```
+### 23.4 Compaction
 
-というSelf Continuityを維持する。
-
-### 23.7 Compaction
-
-Long-term ReviewはState追加だけでなく、再整理も行う。
-
-例えば、
-
-```text
-- 一次資料を読むことを好む
-- 自分で検証することを好む
-- 他人の要約だけでは満足しない
-```
-
-を、
-
-```text
-重要な事柄では二次情報だけで判断せず、
-原典を確認し、自分でも検証することに価値を感じる。
-```
-
-へ統合する。
-
-これによりAcquired DispositionやSelf Narrativeの肥大化を防ぐ。
-
----
+ReflectionはState追加だけでなく、再整理も行う。似たMemory、Concern、Relationship、Self Storyの記述を統合し、肥大化を防ぐ。
 
 ## 24. Internal Event
 
-Internal Eventは自律性の入口として採用するが、Agent Coreが直接自由生成しない。
+Internal Eventは自律性の入口として採用するが、Agent Coreが直接自由生成しない。Runtimeが既存Stateから発火する。
 
-Runtimeが既存Stateから発火する。
+現在のScheduler targetKindは、`idle`、`concern-due`、`external-change`、`reflection`、`scheduled-task` である。
 
-現在のInternal EventのtargetKindは`idle`、`concern-due`、`external-change`とする。定期的な`reflection`は同じSchedulerから起動するが、通常のAgent Coreではなく専用Reflection処理へ渡す。Scheduled Taskは§14のSystem Eventであり、Internal Eventへ混在させない。
+- `idle`: 一定期間の無活動を契機とする。payloadに `explorationCandidates` としてランダムな最大8件を含める。
+- `concern-due`: Concernの `reconsiderAt` 到来。
+- `external-change`: 外部変化。現在の通常構成では常用する登録元がない。
+- `reflection`: 通常のAgent Coreではなく専用Reflection処理へ渡す。
+- `scheduled-task`: System Eventとして通常のAgent Loopへ渡す。
 
-`idle`はEvent種類を細分化せず、payloadの`explorationMode`で探索方法を指定する。モードは`deepen`（現在の具体的対象を深掘り）、`bridge`（惹かれる性質を介して別領域の具体へ移る）、`distant`（経験の薄い領域から具体を選ぶ）の3種類とし、成功した実行ごとに巡回する。抽象化は対象を移るための橋として使い、DesireとActionは検証可能な具体的対象へ戻す。
+`idle` はEvent種類を細分化せず、Agent Coreが `concern_propose` の `explorationMode` として `deepen`、`bridge`、`distant` を必要に応じて選ぶ。永続的な探索modeとcursorは持たない。
 
 基本フローは、
 
 ```text
-Interaction + Post-process
-→ Motive / Candidateを保存
+Interaction
+→ State / Memory commit
 
 Runtime
 → Trigger監視
@@ -1146,15 +711,11 @@ Runtime
 Runtime
 → Internal Event生成
 
-Agent Core / Review Core
+Agent Core / Reflection
 → 再評価
 ```
 
-とする。
-
-これにより、LLMが自分自身を無制限に再起動する自己ループを防ぐ。
-
----
+とする。これにより、LLMが自分自身を無制限に再起動する自己ループを防ぐ。
 
 ## 25. Autonomous Action
 
@@ -1166,53 +727,51 @@ Agent Core / Review Core
 TimeEvent
 ExternalEvent
 InternalEvent
-Autonomy Review Event
+Reflection Event
 ```
 
 例:
 
 ```text
 Runtime:
-  自律行動の定期的な機会
+  一定期間の無活動を検知
 
 Internal Event:
-  autonomy-review
+  idle
 
 Agent Core:
-  現在のMotiveと制約から具体的なActionを選ぶ
+  Concern、Memory、Self、RelationshipからDesireを形成し、具体的なActionを選ぶ
 ```
 
-自律性を固定Automationそのものとは定義しない。
+自律性を固定Automationそのものとは定義しない。RuntimeはAgentごとに自律Eventの機会を与える。Agent Coreは保存済みConcernまたは今回のContextからDesireを形成し、具体的なActionを判断する。
 
-RuntimeはAgentごとにautonomy-reviewの機会を与える。Agent CoreはactiveMotiveから具体的なActionを判断する。Motive単位のScheduleは作らず、同じ動機を複数Scheduleで重複起動しない。state-reviewは持続状態の再評価に限定する。
-
----
+自律Eventでは、Tool利用と発話判断を独立させる。調査後にも共有価値があれば発話し、Toolを使わなくても話したいことがあれば発話する。ユーザーからの返信待ちは沈黙理由にしない。夜間は強制制御ではなく判断材料とする。
 
 ## 26. Tool Loop
 
-Tool利用はDeep Agent内部の標準loopで扱う。起動時に実装済みTool一覧を登録し、EventごとのID・権限・期限は実行Contextとして渡す。
+Tool利用はDeep Agent内部の標準loopで扱う。起動時に実装済みTool一覧を登録し、EventごとのID、権限、期限は実行Contextとして渡す。
 
 ```text
 Model → Tool call → Tool実行 → Tool Result → Model → 最終構造化出力
 ```
 
-Toolの引数処理とloopはライブラリに任せ、通常コードは権限制約・実行上限・結果の用途別変換・実行記録を担当する。Tool Resultを同じloopへ返した後、RuntimeへTool名・入力・結果・成否・時刻・Event/Runとの関連を渡す。RuntimeはTool Result Eventとして記録するが、それを自動的に別のInteractionとして再投入して二重実行しない。
+Toolの引数処理とloopはライブラリに任せ、通常コードは権限制約、実行上限、結果の用途別変換、実行記録を担当する。Tool Resultを同じloopへ返した後、RuntimeへTool名、入力、結果、成否、時刻、Event / Runとの関連を渡す。RuntimeはTool Result Eventとして記録するが、それを自動的に別のInteractionとして再投入して二重実行しない。
 
-Tool Resultも新しいEventであり、FeelingやMotiveへ影響してよい。
+Tool Resultも新しいEventであり、FeelingやDesireへ影響してよい。
 
 ```text
 調査したが答えが見つからない
 → さらに気になる
 
 予想外の興味深い結果を発見
-→ 喜び / 新しいMotive
+→ 喜び / 新しいDesire
 ```
 
 Toolはユーザー命令実行装置ではなく、Agent自身が世界へ働きかけるCapabilityとして扱う。
 
----
-
 ## 27. 複数botの構成
+
+- C-26：Family共通情報と個体情報を分離し、個体間はMemory同期ではなく情報伝達とする。
 
 複数botを作る場合、Family共通情報と個体情報を分離する。
 
@@ -1226,35 +785,17 @@ Agent Family
 Individual Agent
 ├── Identity
 ├── Initial Individual Disposition
-├── Acquired Disposition
-├── Self Narrative
-├── Social Context
-├── Feeling / Mood
-├── Motive
-└── Memory
+├── Current Self（disposition / selfStory / commitments）
+├── State（Mood / Concerns / Relationships）
+├── Memory
+└── Recent Experiences
 ```
 
-原則としてMemoryやAcquired Dispositionを個体間で同期しない。
-
-同じEventを経験しても、意味づけは個体ごとに異なってよい。
-
----
+原則としてMemoryやSelfを個体間で同期しない。同じEventを経験しても、意味づけは個体ごとに異なってよい。
 
 ## 28. 個体間の情報共有
 
-bot同士が情報を共有する場合、
-
-```text
-Memory Synchronization
-```
-
-ではなく、
-
-```text
-Information Communication
-```
-
-を基本とする。
+bot同士が情報を共有する場合、Memory SynchronizationではなくInformation Communicationを基本とする。
 
 ```text
 Agent A:
@@ -1264,37 +805,25 @@ Agent B:
   「Aから聞いた情報」としてMemoryへ保存する
 ```
 
-これにより、
-
-```text
-A自身が経験した
-```
-
-ことと、
-
-```text
-BがAから聞いた
-```
-
-ことを区別できる。
+これにより、A自身が経験したことと、BがAから聞いたことを区別できる。`agent_send` Toolは、送信元、hop、TTL、provenanceを保持し、受信側ではExternal Eventとして扱う。
 
 複数bot間の差異を維持しやすい。
 
----
-
 ## 29. LLMと通常コードの責務分担
+
+- C-27：意味判断はLLM、時刻・権限・永続化・安全・自己ループ防止は通常コードが担う。
 
 ### LLMに任せる
 
 - Eventの意味解釈
-- Subjective Meaning
-- Feeling / Mood更新提案
-- Motive生成
-- Social Context更新提案
+- Final Meaning / Feeling
+- Mood更新提案
+- Desire生成
+- Relationship更新提案
 - Memory内容の意味的生成
-- Self Narrative Candidate
-- Acquired Disposition Candidate
-- Long-term Reviewの意味判断
+- Self Story / Disposition / Commitmentの変更提案
+- Reflectionの意味判断
+- Concernの提案・整理
 - Tool選択
 - Action生成
 
@@ -1308,13 +837,13 @@ BがAから聞いた
 - DB読み書き
 - Memory検索
 - State Version管理
-- Candidate保存
-- Long-term Review Trigger
+- Concern Proposalの保存・適用
+- ReflectionのTrigger
 - 権限チェック
 - Safety Constraint
 - Rate Limit
 - 自己ループ防止
-- State Update Validation
+- State Patchの検証
 
 基本原則は、
 
@@ -1322,9 +851,9 @@ BがAから聞いた
 
 とする。
 
----
-
 ## 30. 安全性・権限制約
+
+- C-28：人格的判断とシステム上のSafety / Permissionを分離し、Agent判断は権限を上書きしない。
 
 人格・感情・自律性による判断と、システム上のSafety / Permissionを分離する。
 
@@ -1336,53 +865,35 @@ Runtime Permission / Safety Check
 Allowed Action
 ```
 
-Agent自身が、
+Agent自身が「やりたい」と思っていても、権限がなければ実行しない。また、Personality RefusalとSystem Refusalを区別する。
 
-```text
-やりたい
-```
-
-と思っていても、権限がなければ実行しない。
-
-また、
-
-```text
-Personality Refusal
-System Refusal
-```
-
-を区別する。
-
-Self Continuityによる「初期化されたくない」という意味解釈も、実際の削除・バックアップ・停止権限とは分離する。
-
-Agentが自己保存を望むことはできるが、システム権限を上書きしない。
-
----
+Self Continuityによる「初期化されたくない」という意味解釈も、実際の削除・バックアップ・停止権限とは分離する。Agentが自己保存を望むことはできるが、システム権限を上書きしない。
 
 ## 31. 最小実装単位
+
+- C-29：最小実装単位と初期検証シナリオを定め、未決の実装方式は実験で決める。
 
 初期実装では、以下だけでも概念を検証できる。
 
 ### Persistent
 
 ```text
-Identity
-Shared Disposition
-Initial Individual Disposition
-Acquired Disposition
-Self Narrative
-Social Context
-Motive
+Self
+State（Mood / Concerns / Relationships）
 Memory
-Long-term Update Candidate
+Concern
+Relationship
 ```
 
-### Dynamic
+### Transient
 
 ```text
-Feeling
-Mood
-Motive
+Previous Assessment
+Final Meaning / Feeling
+Desire
+State Patch
+Concern proposal
+Recent Experiences
 ```
 
 ### Runtime
@@ -1395,93 +906,51 @@ Internal Event
 Context Builder
 Agent Core
 State Validation
+Outbox
 ```
 
 Agent Coreは最低限、
 
 ```text
-Subjective Meaning
-State Update Proposal
-Memory Proposal
-Long-term Candidate
+Final Meaning / Feeling
+Desire
 Action
+State Patch
+Concern proposal
 ```
 
-を生成する。
-
-Long-term Reviewは別モードまたは専用Promptとして実装する。
-
----
+を生成する。Reflectionは別モードまたは専用Promptとして実装する。
 
 ## 32. 初期検証シナリオ
 
-### シナリオ1: 同一Familyからの個体化
+現在の評価は、同一Observationに対して状態だけを変えたpair比較を基本とする。
 
-2体のbotを同じShared Disposition、小さく異なるInitial Dispositionで開始する。
+1. **praise / criticism**: MemoryとRelationshipによるMeaning、Feeling、Actionの差。
+2. **boredom**: MoodによるActionの差。
+3. **refusal**: 競合するConcernによる受諾・拒否の差。
+4. **curiosity**: ConcernとMemoryによる自律Tool利用の差。
+5. **individuality**: 異なる経験から形成されたSelf Storyと行動の差。
+6. **user-curiosity**: 既知のユーザー情報を使い、同じ質問を繰り返さない差。
 
-異なる経験を与え、数日後に同じEventへ異なる意味づけ・行動が生じるか確認する。
-
-### シナリオ2: 好奇心による自発行動
-
-未解決の疑問をMotiveとして残す。
-
-Idle / Time Event後、Internal Eventから自発的な再検討が起きるか確認する。
-
-### シナリオ3: 承認の個体化
-
-一方は技術的発見を評価され、もう一方は相談相手として頼られる経験を積む。
-
-Long-term Review後に、「何を承認されたと感じるか」が異なる方向へ変化するか確認する。
-
-### シナリオ4: サボり・脱線
-
-単調な作業と興味深い関連情報を同時に与える。
-
-固定ルールなしで、Mood / Motiveの競合から脱線が生じるか確認する。
-
-### シナリオ5: Self Continuity
-
-Memory削除や初期化を意味するSystem Eventを提示する。
-
-固定禁止ではなく、Self Continuityへの脅威として意味解釈されるか確認する。
-
-### シナリオ6: Long-term Review
-
-同種のSelf-related Memoryを複数蓄積する。
-
-Candidate生成、Review、Self Narrative更新、必要に応じたAcquired Disposition更新まで確認する。
-
-### シナリオ7: bot間情報共有
-
-Agent Aの経験をAgent Bへ伝える。
-
-Bが自分の経験としてではなく「Aから聞いた情報」として保持するか確認する。
-
----
+各pairはstatefulとbaselineを持ち、同じObservationで比較する。自動testの成功だけで人格らしさを実証済みとはせず、反復live evaluationと保存artifactで評価する。
 
 ## 33. 現時点で残す論点
 
-以下は実装を始めながら調整してよい。
-
-### Stateの物理保存形式
-
-JSON / RDB / Document Storeなどは未確定。
-
 ### Memory Retrieval方式
 
-Vector、keyword、hybridなどの具体方式は未確定。
+lexical、vector、subject、recencyの重みとrankingは継続して調整する。
 
-### Long-term Review頻度
+### Reflection頻度
 
 意味的な方針は決めたが、Runtime上の具体的なTrigger頻度は実験で決める。
 
 ### Context Compaction
 
-長期間運用した場合のMemory、Self Narrative、Social Contextの圧縮方法。
+長期間運用した場合のMemory、Self Story、Concern、Relationshipの圧縮方法。
 
-### Candidate重複処理
+### Concernの重複処理
 
-似たLong-term Candidateが多数出た場合の統合方法。
+似たConcernが多数出た場合の統合方法。
 
 ### Multiple Agents
 
@@ -1489,19 +958,17 @@ bot同士が直接会話し続ける場合のEvent制御や自己ループ防止
 
 ### Model Boundary
 
-Agent Core、Memory Query生成、Long-term Reviewを同一LLMで行うか、軽量モデル等へ分けるか。
-
----
+Agent Core、Memory Query生成、Reflectionを同一LLMで行うか、軽量モデル等へ分けるか。
 
 ## 34. 設計原則まとめ
 
 > **Agentの個性は、固定されたキャラクター設定の集合ではなく、共通する価値傾向と、その個体が経験した出来事の意味づけから形成される。**
 
-> **Event、Observation、Subjective Meaningを分離し、出来事から感情や行動へ直接マッピングしない。**
+> **Event、Observation、Final Meaning / Feelingを分離し、出来事から感情や行動へ直接マッピングしない。**
 
 > **短期状態と長期状態を分け、通常Eventの感情変化をそのまま人格変化にしない。**
 
-> **Self Narrativeを経験とAcquired Dispositionの間の主要な媒介として扱い、Acquired DispositionはLong-term Reviewで低頻度に更新する。**
+> **Self Storyを経験とDispositionの間の主要な媒介として扱い、Selfの変更はReflectionでMemory根拠と理由を伴って行う。**
 
 > **Internal EventはRuntime管理とし、Agentが自分自身を無制限に再起動しない。**
 
@@ -1509,4 +976,4 @@ Agent Core、Memory Query生成、Long-term Reviewを同一LLMで行うか、軽
 
 > **意味判断はLLMへ寄せ、時間・権限・永続化・安全性・自己ループ防止などの機械的制約は通常コードで担保する。**
 
-> **複雑な心理モデルや数値Rewardを作り込まず、通常のAgent Loopに一個体性と個体化を生む最小限の状態・Review処理を追加する。**
+> **複雑な心理モデルや数値Rewardを作り込まず、通常のAgent Loopに一個体性と個体化を生む最小限の状態・Reflection処理を追加する。**

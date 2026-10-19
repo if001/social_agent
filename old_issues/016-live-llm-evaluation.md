@@ -20,7 +20,7 @@ Live評価基盤を実装し、代表Scenarioを1回実行して、実際のAgen
 
 - `docs/IMPLEMENTATION_PLAN.md` IP-16
 - `docs/TEST_STRATEGY.md` 11、14、16、19章
-- `docs/REQUIREMENTS.md` AC-01〜AC-07
+- `docs/REQUIREMENTS.md` AC-1, AC-2, AC-3, AC-4
 
 ## Acceptance criteria
 

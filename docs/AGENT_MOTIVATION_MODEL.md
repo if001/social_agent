@@ -227,6 +227,6 @@ Memoryは元会話やTool結果の保管場所ではない。後の検索で状�
 
 ## 関連文書
 
-- [Requirements](../REQUIREMENTS.md)
-- [Architecture](../ARCHITECTURE.md)
-- [再設計方針](../../note/agent-architecture-redesign-policy.md)
+- [Requirements](REQUIREMENTS.md)
+- [Architecture](ARCHITECTURE.md)
+- [Test Strategy](TEST_STRATEGY.md)

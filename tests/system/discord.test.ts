@@ -17,7 +17,7 @@ class Gateway implements DiscordGateway {
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
 describe("ST-02 Discord round trip", () => {
-  it("uses the same agent state for Terminal and Discord", async () => {
+  it("FR-1: uses the same agent state for Terminal and Discord", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() }); const gateway = new Gateway();
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; return input; }); const harness = new ScriptedAgentHarness([{ desire: "respond to this event", action: { type: "respond", content: "terminal reply" } }, { desire: "respond to this event", action: { type: "respond", content: "discord reply" } }]);
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, harness, persistence, ids: new SequenceIdGenerator(["event-1", "output-1", "event-2", "output-2"]), now: () => clock.now() }); const terminal = new TerminalAdapter(queue, clock, new SequenceIdGenerator(["terminal-input"])); const discord = new DiscordAdapter({ gateway, queue, clock, ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
@@ -27,7 +27,7 @@ describe("ST-02 Discord round trip", () => {
     expect(persistence.events.map(({ agentId }) => agentId)).toEqual(["agent-a", "agent-a"]); controller.abort(); await Promise.all([running, inbound, outbound]); await scope.close();
   });
 
-  it("routes human and bot messages only to the mentioned bot", async () => {
+  it("FR-1: routes human and bot messages only to the mentioned bot", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const gatewayA = new Gateway(); const gatewayB = new Gateway();
     const common = { queue, clock, ids: new SequenceIdGenerator([]), ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) };

@@ -13,7 +13,7 @@ import { createStdoutLogger } from "../../src/observability/logger.js";
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
 describe("ST-01 Terminal round trip", () => {
-  it("routes time and memory review through the normal autonomous decision", async () => {
+  it("FR-19, FR-39: routes time and memory review through the normal autonomous decision", async () => {
     const clock = new FixedClock(new Date("2026-01-02T03:04:05Z"));
     const persistence = new InMemoryRuntimePersistence((event) => {
       const input = agentCoreInputFixture();
@@ -37,14 +37,14 @@ describe("ST-01 Terminal round trip", () => {
     expect(persistence.events).toHaveLength(1);
   });
 
-  it("does not mark an autonomous Event successful without a destination", async () => {
+  it("FR-19, FR-21: does not mark an autonomous Event successful without a destination", async () => {
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "", queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() }, harness: new ScriptedAgentHarness([]), persistence, ids: new SequenceIdGenerator([]), now: () => new Date("2026-01-01T00:00:00Z") });
     await expect(runtime.process({ id: "autonomous-event", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind: "idle" } }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(persistence.events).toHaveLength(0);
   });
 
-  it("continues a conversation, commits once, dispatches outbox, and drains", async () => {
+  it("FR-1, FR-2, FR-17, NFR-9: continues a conversation, commits once, dispatches outbox, and drains", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z"));
     const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const terminal = new TerminalAdapter(queue, clock, new SequenceIdGenerator(["input-1", "input-2"]));
@@ -67,7 +67,7 @@ describe("ST-01 Terminal round trip", () => {
     controller.abort(); await Promise.all([running, receiving]); await runtime.drain(); await scope.close();
   });
 
-  it("does not publish or mark an outbox record when publish fails", async () => {
+  it("NFR-9: does not publish or mark an outbox record when publish fails", async () => {
     const lines: string[] = []; const logger = createStdoutLogger({}, (line) => { lines.push(line); });
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
@@ -78,7 +78,7 @@ describe("ST-01 Terminal round trip", () => {
     expect(lines.map((line) => JSON.parse(line) as { step: string; operation?: string })).toEqual(expect.arrayContaining([expect.objectContaining({ step: "outbox.queue_publish_failed", operation: "queue-publish" })]));
   });
 
-  it("identifies the failing outbox I/O stage in structured logs", async () => {
+  it("NFR-7, NFR-9: identifies the failing outbox I/O stage in structured logs", async () => {
     const lines: string[] = [];
     const logger = createStdoutLogger({}, (line) => { lines.push(line); });
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
@@ -91,7 +91,7 @@ describe("ST-01 Terminal round trip", () => {
     expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ step: "outbox.pending_load_failed", operation: "database-select", errorCode: "ETIMEDOUT", errorMessage: "read ETIMEDOUT" });
   });
 
-  it("identifies a database update failure after queue publication", async () => {
+  it("NFR-7, NFR-9: identifies a database update failure after queue publication", async () => {
     const lines: string[] = []; const logger = createStdoutLogger({}, (line) => { lines.push(line); });
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
@@ -105,7 +105,7 @@ describe("ST-01 Terminal round trip", () => {
     expect(lines.map((line) => JSON.parse(line) as { step: string; operation?: string })).toEqual(expect.arrayContaining([expect.objectContaining({ step: "outbox.sent_mark_failed", operation: "database-update", errorCode: "ETIMEDOUT" })]));
   });
 
-  it("accepts External, Time and System Events through the production queue contract", async () => {
+  it("FR-1: accepts External, Time and System Events through the production queue contract", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.observation.eventId = event.id; return input; });
     const noAction = { desire: "respond to this event", action: { type: "no-external-action" as const, reason: "Observed" } };
@@ -125,7 +125,7 @@ describe("ST-01 Terminal round trip", () => {
 });
 
 describe("autonomous response outbox", () => {
-  it("commits an autonomous decision not to speak without requiring a Tool", async () => {
+  it("FR-20, FR-21: commits an autonomous decision not to speak without requiring a Tool", async () => {
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
     const action = { desire: "今は静かにしていたい", action: { type: "no-external-action" as const, reason: "夜間で緊急性がない" } };
@@ -135,7 +135,7 @@ describe("autonomous response outbox", () => {
     expect(await persistence.pendingOutbox(10)).toHaveLength(0);
   });
 
-  it("retains an autonomous response across delivery failure with its routing context", async () => {
+  it("FR-17, NFR-9: retains an autonomous response across delivery failure with its routing context", async () => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
@@ -153,7 +153,7 @@ describe("autonomous response outbox", () => {
   it.each([
     ["autonomy-review", "internal"],
     ["scheduled-task", "system"]
-  ] as const)("delivers a refusal for %s without exposing its internal reason", async (targetKind, kind) => {
+  ] as const)("FR-18: delivers a refusal for %s without exposing its internal reason", async (targetKind, kind) => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };

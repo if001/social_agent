@@ -14,15 +14,15 @@ const output: AgentCoreOutput = { desire: "respond to this event", action: { typ
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
-  it("rejects the removed legacy output shape", () => {
+  it("FR-5, FR-12: rejects the removed legacy output shape", () => {
     expect(() => AgentCoreOutputSchema.parse({ interpretation: { activeMotive: { description: "legacy" } }, action: output.action })).toThrow();
   });
-  it("removes regex constraints without removing a Tool field named pattern", () => {
+  it("FR-13: removes regex constraints without removing a Tool field named pattern", () => {
     const schema = modelJsonSchema(z.object({ executeAt: z.iso.datetime({ offset: true }), pattern: z.string().min(1) }));
     expect(JSON.stringify(schema.properties)).toContain('"pattern"');
     expect(JSON.stringify((schema.properties as Record<string, unknown>).executeAt)).not.toContain('"pattern":');
   });
-  it("compacts prior Tool results while preserving the latest Tool batch", () => {
+  it("FR-37: compacts prior Tool results while preserving the latest Tool batch", () => {
     const registry = new ToolRegistry([{ name: "web_archive_read", description: "read", schema: z.object({}), resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
     const prior = new ToolMessage({ name: "web_archive_read", tool_call_id: "old", content: JSON.stringify({ ok: true, value: { snapshotId: "s1", offset: 0, text: "x".repeat(2_000), truncated: true } }) });
     const latest = new ToolMessage({ name: "web_page", tool_call_id: "new", content: JSON.stringify({ ok: true, value: { documents: [{ snapshotId: "s2", summary: "summary" }] } }) });
@@ -30,17 +30,17 @@ describe("AgentHarness contract", () => {
     const content = (compacted[0] as ToolMessage).content; if (typeof content !== "string") throw new Error("Expected compacted string content");
     expect(content).not.toContain("x".repeat(100)); expect(content).toContain('"textCharacters":2000'); expect(compacted[2]).toBe(latest);
   });
-  it("summarizes model output type and provider finish reason for tracing", () => {
+  it("NFR-7: summarizes model output type and provider finish reason for tracing", () => {
     expect(summarizeModelResponse({ content: "done", tool_calls: [{ name: "submit" }], response_metadata: { done_reason: "stop" } })).toEqual({ outputType: "tool-calls", outputCharacters: 4, toolCallCount: 1, toolNames: '["submit"]', finishReason: "stop" });
     expect(summarizeModelResponse({ content: "plain", response_metadata: {} })).toMatchObject({ outputType: "text", finishReason: "not-reported" });
     expect(summarizeModelResponse({ tool_calls: [{ name: "submit" }] })).toMatchObject({ outputType: "tool-calls", outputCharacters: 0, toolCallCount: 1 });
   });
-  it("returns domain output from the scripted harness", async () => {
+  it("FR-11: returns domain output from the scripted harness", async () => {
     const harness = new ScriptedAgentHarness([output]);
     await expect(harness.run(agentCoreInputFixture(), new AbortController().signal)).resolves.toEqual(result);
   });
 
-  it("parses structured Deep Agent output", async () => {
+  it("FR-12, FR-30: parses structured Deep Agent output", async () => {
     let prompt = "";
     let recentToolInputs: readonly string[] | undefined;
     const invoker: DeepAgentInvoker = { invoke: (input, options) => { prompt = input.messages[0]?.content ?? ""; recentToolInputs = options.recentToolInputs; return Promise.resolve({ structuredResponse: output }); } };
@@ -52,7 +52,7 @@ describe("AgentHarness contract", () => {
     expect(recentToolInputs).toEqual(['{"tool":"lookup","input":{"query":"same"}}']);
   });
 
-  it("collects successful concern_propose results outside the final output schema", async () => {
+  it("FR-24, FR-12: collects successful concern_propose results outside the final output schema", async () => {
     const proposal = { operation: "create" as const, description: "復元音声の検証方法を確認する", whyItMatters: "紹介できる確度を判断するため", explorationMode: "distant" as const };
     const execution = { callId: "tool-1", runId: "run-1", eventId: "event-1", name: "concern_propose", input: proposal, ok: true, result: { queued: true, proposal }, startedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:00Z" };
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: output, toolExecutions: [execution] }) };
@@ -60,14 +60,14 @@ describe("AgentHarness contract", () => {
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["concern_propose"]) }).run(input, new AbortController().signal)).resolves.toMatchObject({ concernProposals: [proposal] });
   });
 
-  it("does not duplicate registered Tools in the Agent input prompt", async () => {
+  it("FR-33: does not duplicate registered Tools in the Agent input prompt", async () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.availableTools = [{ name: "lookup", description: "Search", inputSchema: { type: "object", properties: { secretSchemaMarker: { type: "string" } } } }];
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
     expect(prompt).not.toContain('"name":"lookup"'); expect(prompt).not.toContain("secretSchemaMarker");
   });
 
-  it("warns but still invokes the provider when the estimated input exceeds the internal threshold", async () => {
+  it("NFR-4: warns but still invokes the provider when the estimated input exceeds the internal threshold", async () => {
     const warnings: string[] = []; let invoked = false;
     const logger = { child: () => logger, log: (level: string, step: string) => { if (level === "warn") warnings.push(step); } };
     const invoker: DeepAgentInvoker = { invoke: () => { invoked = true; return Promise.resolve({ structuredResponse: output }); } };
@@ -76,7 +76,7 @@ describe("AgentHarness contract", () => {
     expect(invoked).toBe(true); expect(warnings).toContain("agent_core.model_input_budget_exceeded");
   });
 
-  it("counts the system prompt, messages, Tool schemas, and output schema in the final input gate", () => {
+  it("NFR-4: counts the system prompt, messages, Tool schemas, and output schema in the final input gate", () => {
     const input = agentCoreInputFixture();
     input.availableTools = [{ name: "lookup", description: "Search", inputSchema: { type: "object", properties: { query: { type: "string" } } } }];
     const budget = modelInputBudget(input, JSON.stringify({ input }));
@@ -84,12 +84,12 @@ describe("AgentHarness contract", () => {
     expect(Object.keys(budget.components)).toEqual(["systemPrompt", "messages", "tools", "outputSchema"]);
     expect(modelInputBudget(input, "x".repeat(MAX_MODEL_INPUT_TOKENS * 4)).total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
-  it("keeps the model gate large enough for the configured 4,500-token context budget plus contracts", () => {
+  it("NFR-4: keeps the model gate large enough for the configured 4,500-token context budget plus contracts", () => {
     expect(MAX_MODEL_INPUT_TOKENS).toBe(8_000);
     const reportedProductionInput = { systemPrompt: 418, messages: 2_722, tools: 2_009, outputSchema: 890 };
     expect(Object.values(reportedProductionInput).reduce((sum, value) => sum + value, 0)).toBeLessThanOrEqual(MAX_MODEL_INPUT_TOKENS);
   });
-  it("budgets every concrete model call including accumulated Tool results", () => {
+  it("NFR-5: budgets every concrete model call including accumulated Tool results", () => {
     const finalActionTool = { type: "function", function: { name: "submit_agent_action", parameters: z.toJSONSchema(AgentCoreOutputSchema) } };
     const small = modelCallInputBudget([{ role: "user", content: "hello" }], [finalActionTool]);
     const continuation = modelCallInputBudget([{ role: "user", content: "hello" }, { role: "tool", content: "あ".repeat(MAX_MODEL_INPUT_TOKENS * 5) }], []);
@@ -98,12 +98,12 @@ describe("AgentHarness contract", () => {
     expect(small.components.tools).toBeGreaterThan(0);
     expect(continuation.total).toBeGreaterThan(MAX_MODEL_INPUT_TOKENS);
   });
-  it("rejects an invoker that exceeds the remaining model call budget", async () => {
+  it("NFR-5: rejects an invoker that exceeds the remaining model call budget", async () => {
     const input = agentCoreInputFixture(); input.limits.maxSteps = 1;
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: output, modelCalls: 2 }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal)).rejects.toMatchObject({ code: "EXTERNAL", cause: { modelCalls: 2 } });
   });
-  it("passes the previous Assessment into Agent Core and returns its final Assessment in one call", async () => {
+  it("FR-3, FR-9: passes the previous Assessment into Agent Core and returns its final Assessment in one call", async () => {
     let decisionInput = "";
     const invoker: DeepAgentInvoker = {
       invoke: (input) => { decisionInput = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: { ...output, meaning: "改善点を確かめる機会になった", feeling: "悔しいが少し落ち着いた" }, modelCalls: 1 }); }
@@ -116,7 +116,7 @@ describe("AgentHarness contract", () => {
     expect(result.budget?.consumed.modelCalls).toBe(1);
   });
 
-  it("creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
+  it("FR-11, NFR-1: creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
     let creations = 0; const calls: { messages: unknown; context: { runId: string; eventId: string } }[] = [];
     const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答を求められた", feeling: "応えたい" } }] }) }) };
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", agentFactory: (options) => {
@@ -133,14 +133,14 @@ describe("AgentHarness contract", () => {
     expect(JSON.stringify(calls[1]?.messages)).toContain("second-only"); expect(JSON.stringify(calls[1]?.messages)).not.toContain("first-only");
   });
 
-  it("passes presentation persona separately from experiential Self", async () => {
+  it("FR-6: passes presentation persona separately from experiential Self", async () => {
     let prompt = ""; const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.persona = { version: 1, identity: { displayName: "アオ" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
     expect(prompt).toContain('"firstPerson":"僕"'); expect(agentCoreSystemPrompt).toContain("発話表現にだけ適用"); expect(agentCoreSystemPrompt).toContain("personaだけを事実、Feeling、Desireの根拠にしません");
   });
 
-  it("reserves graph recursion steps for final structured output after bounded Tool use", async () => {
+  it("NFR-5: reserves graph recursion steps for final structured output after bounded Tool use", async () => {
     let received: { recursionLimit: number; maxModelCalls: number; maxToolCalls: number } | undefined;
     const invoker: DeepAgentInvoker = { invoke: (_input, options) => {
       received = options;
@@ -152,7 +152,18 @@ describe("AgentHarness contract", () => {
     expect(received).toMatchObject({ maxModelCalls: 27, maxToolCalls: 15, recursionLimit: 44 });
   });
 
-  it("repairs invalid output once and then stops", async () => {
+  it("FR-16: does not recover a string action for an autonomous Event", async () => {
+    const input = agentCoreInputFixture();
+    input.observation = { ...input.observation, kind: "internal", content: { targetKind: "idle", schedulerGenerated: true } };
+    const harness = new DeepAgentHarness({
+      invoker: { invoke: () => Promise.resolve({ structuredResponse: { desire: "応答したい", action: "respond" }, modelCalls: 1 }) },
+      registeredToolNames: new Set(),
+      maxRepairs: 0
+    });
+    await expect(harness.run(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("FR-14, FR-15: repairs invalid output once and then stops", async () => {
     let calls = 0; const toolCallLimits: number[] = []; const prompts: string[] = [];
     const invoker: DeepAgentInvoker = { invoke: ({ messages }, options) => {
       toolCallLimits.push(options.maxToolCalls); prompts.push(messages[0]?.content ?? "");
@@ -169,7 +180,7 @@ describe("AgentHarness contract", () => {
     await expect(broken.run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("registers operational Tools and the structured response format with one Deep Agent", async () => {
+  it("FR-11, FR-12, FR-33, FR-34: registers operational Tools and the structured response format with one Deep Agent", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: {} }) }]);
     const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答が必要", feeling: "応えたい" } }] }) }) };
     let created = 0;
@@ -188,14 +199,14 @@ describe("AgentHarness contract", () => {
     expect(modelProperties).not.toHaveProperty("concernOperation");
   });
 
-  it("rejects unknown tools before invoking the model", async () => {
+  it("FR-35: rejects unknown tools before invoking the model", async () => {
     let called = false; const invoker: DeepAgentInvoker = { invoke: () => { called = true; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.availableTools.push({ name: "unknown", description: "Unknown tool", inputSchema: {} });
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(called).toBe(false);
   });
 
-  it.each([false, true])("repairs unsupported wait for schedulerGenerated=%s", async (schedulerGenerated) => {
+  it.each([false, true])("FR-14, FR-21: repairs unsupported wait for schedulerGenerated=%s", async (schedulerGenerated) => {
     const input = agentCoreInputFixture();
     input.observation.content = { schedulerGenerated, targetKind: "autonomy-review" };
     let calls = 0;
@@ -204,7 +215,7 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(2);
   });
 
-  it("accepts an Agent decision not to speak without coupling it to Tool use", async () => {
+  it("FR-20, FR-21: accepts an Agent decision not to speak without coupling it to Tool use", async () => {
     const input = agentCoreInputFixture();
     input.observation.content = { schedulerGenerated: true, targetKind: "autonomy-review" };
     let calls = 0;
@@ -214,13 +225,13 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(1);
   });
 
-  it("accepts a user-facing response regardless of whether a Tool failed", async () => {
+  it("FR-20, FR-38: accepts a user-facing response regardless of whether a Tool failed", async () => {
     const respond = { ...output, action: { type: "respond" as const, content: "調査できなかったことも含めて共有する" } };
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: respond, toolExecutions: [{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: {}, ok: false, error: "unavailable", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] }) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal)).resolves.toMatchObject({ output: respond });
   });
 
-  it("normalizes provider errors, abort and timeout", async () => {
+  it("NFR-5: normalizes provider errors, abort and timeout", async () => {
     const failure: DeepAgentInvoker = { invoke: () => Promise.reject(new Error("provider secret-key failed")) };
     await expect(new DeepAgentHarness({ invoker: failure, registeredToolNames: new Set() }).run(agentCoreInputFixture(), new AbortController().signal)).rejects.toMatchObject({ code: "EXTERNAL", message: "Agent provider failed" });
     const controller = new AbortController(); controller.abort();
@@ -230,7 +241,7 @@ describe("AgentHarness contract", () => {
     await expect(new DeepAgentHarness({ invoker: pending, registeredToolNames: new Set() }).run(input, new AbortController().signal)).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 
-  it("checks the configured cloud model without exposing authentication", async () => {
+  it("NFR-13: checks the configured cloud model without exposing authentication", async () => {
     const requests: string[] = [];
     const fetcher: typeof fetch = (input) => { requests.push(typeof input === "string" ? input : input instanceof URL ? input.href : input.url); return Promise.resolve(new Response(JSON.stringify({ models: [{ name: "cloud-model" }] }), { status: 200 })); };
     await expect(checkOllamaChatCapability({ baseUrl: "https://ollama.example", apiKey: "secret", model: "cloud-model" }, fetcher)).resolves.toBeUndefined();
@@ -238,7 +249,7 @@ describe("AgentHarness contract", () => {
     await expect(checkOllamaChatCapability({ baseUrl: "https://ollama.example", apiKey: "secret", model: "missing" }, fetcher)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("describes Interaction decisions without duplicating the output schema", () => {
+  it("FR-12, FR-22: describes Interaction decisions without duplicating the output schema", () => {
     expect(agentCoreSystemPrompt).toContain("役割:");
     expect(agentCoreSystemPrompt).not.toContain("構造化出力専用Tool");
     expect(agentCoreSystemPrompt).not.toContain("最小引数例");

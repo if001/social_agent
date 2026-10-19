@@ -4,7 +4,7 @@ import { OllamaReflectionModel } from "../../src/infrastructure/agent/reflection
 import { errorLogContext } from "../../src/observability/logger.js";
 
 describe("live Ollama Reflection", () => {
-  it("returns a valid maintenance result through the production structured-output path", async () => {
+  it("FR-42, NFR-4: returns a valid maintenance result through the production structured-output path", async () => {
     const config = await loadConfig();
     const input: ReflectionInput = {
       reflectionId: "live-reflection",

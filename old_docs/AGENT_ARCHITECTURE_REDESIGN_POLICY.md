@@ -5,6 +5,8 @@
 
 一次情報は [概念設計](../spec/personal-agent-concept-design-restructured-v2.md) と [実装設計](../spec/personal-agent-implementation-design-v2.md) とする。ただし本書は、概念設計の目的を現在より単純で実効的な構造によって達成するための再設計方針である。現行実装との互換性や差分の小ささは制約としない。目的達成に必要であれば、Domain Schema、DB、Prompt、Runtime flow、module構成、test、運用方法を大きく変更する。
 
+> 現行実装との対応: Event AssessmentはAgent Core内の論理的責務として同じ構造化出力で確定する。最終Actionは`respond`、`refuse`、`notify-no-execution`、`no-external-action`の4種である。現行モデルの詳細は[AGENT_MOTIVATION_MODEL.md](AGENT_MOTIVATION_MODEL.md)を正とする。
+
 ## 1. 目的
 
 目標は、Agentを人格的な口調を持つAssistantではなく、次の性質を持つ一個体として知覚できるようにすることである。

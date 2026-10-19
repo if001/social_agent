@@ -19,7 +19,7 @@ const input: ReflectionInput = {
 };
 
 describe("structured Reflection model", () => {
-  it("repairs an invalid first output and converts flat changes to the strict Domain output", async () => {
+  it("FR-42: repairs an invalid first output and converts flat changes to the strict Domain output", async () => {
     const prompts: string[] = [];
     const recursionLimits: number[] = [];
     const outputs: unknown[] = [
@@ -51,7 +51,7 @@ describe("structured Reflection model", () => {
     });
   });
 
-  it("fails without a valid commit value after the configured repair", async () => {
+  it("FR-42: fails without a valid commit value after the configured repair", async () => {
     let calls = 0;
     const model = new StructuredReflectionModel({ invoke: () => {
       calls += 1;
@@ -61,7 +61,7 @@ describe("structured Reflection model", () => {
     expect(calls).toBe(2);
   });
 
-  it("describes every model-facing property and removes provider-only regex constraints", () => {
+  it("FR-42: describes every model-facing property and removes provider-only regex constraints", () => {
     const missing: string[] = [];
     const visit = (value: unknown, path: string): void => {
       if (typeof value !== "object" || value === null) return;
@@ -91,7 +91,7 @@ describe("structured Reflection model", () => {
     expect(reflectionSystemPrompt).toContain("入力Eventを網羅的に要約しない");
   });
 
-  it("rejects an oversized Reflection prompt before invoking the model", async () => {
+  it("FR-42, NFR-4: rejects an oversized Reflection prompt before invoking the model", async () => {
     let invoked = false;
     const model = new StructuredReflectionModel({ invoke: () => { invoked = true; return Promise.resolve({}); } });
     const oversized: ReflectionInput = {

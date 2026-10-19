@@ -60,4 +60,4 @@ Issue 095で、Event間の生Message履歴、`recentObservations`、`recentAttem
 
 - [Issue 095](./095-review-agent-history-and-recent-attempts.md)
 - [Architecture §5.5.1](../docs/ARCHITECTURE.md)
-- [Requirements FR-ME-04](../docs/REQUIREMENTS.md)
+- [Requirements FR-30, FR-37](../docs/REQUIREMENTS.md)

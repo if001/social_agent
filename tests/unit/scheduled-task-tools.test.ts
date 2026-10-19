@@ -5,7 +5,7 @@ import { createScheduledTaskTools } from "../../src/infrastructure/tools/schedul
 import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
 
 describe("Scheduled Task tools", () => {
-  it("creates a reservation without executing its instruction and reuses the idempotency key", async () => {
+  it("FR-40: creates a reservation without executing its instruction and reuses the idempotency key", async () => {
     const queries: { text: string; values: readonly unknown[] }[] = [];
     const pool = { query: (text: string, values: readonly unknown[]) => { queries.push({ text, values }); return Promise.resolve({ rows: [{ id: "task-1", execute_at: new Date("2026-01-02T00:00:00Z"), instruction: "結果を知らせる", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }] }); } } as unknown as Pool;
     const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator(["task-1", "unused"]), () => new Date("2026-01-01T00:00:00Z")));
@@ -18,13 +18,13 @@ describe("Scheduled Task tools", () => {
     expect(queries[0]?.values).toContain("結果を知らせる");
   });
 
-  it("rejects a past execution time", async () => {
+  it("FR-40: rejects a past execution time", async () => {
     const pool = { query: () => { throw new Error("must not query"); } } as unknown as Pool;
     const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-02T00:00:00Z")));
     await expect(registry.execute("schedule_task", { executeAt: "2026-01-01T00:00:00Z", instruction: "old" }, { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "key" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("updates only an owned scheduled Task and validates the requested change", async () => {
+  it("FR-40: updates only an owned scheduled Task and validates the requested change", async () => {
     const queries: { text: string; values: readonly unknown[] }[] = [];
     const pool = { query: (text: string, values: readonly unknown[]) => { queries.push({ text, values }); return Promise.resolve({ rows: [{ id: "task-1", execute_at: new Date("2026-01-03T00:00:00Z"), instruction: "更新後の指示", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }] }); } } as unknown as Pool;
     const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));

@@ -11,7 +11,7 @@ import { initializeAgent } from "../../src/operations/operations.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
 
 describe("production-like text UI user response", () => {
-  it("loads PostgreSQL context and production Tools, calls Ollama, commits, and dispatches", async () => {
+  it("FR-2, FR-33, NFR-8, AC-3: loads PostgreSQL context and production Tools, calls Ollama, commits, and dispatches", async () => {
     const now = new Date();
     const sentAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + 86_400_000).toISOString();

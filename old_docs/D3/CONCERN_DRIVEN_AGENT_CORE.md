@@ -2,7 +2,7 @@
 
 ## 位置付け
 
-この文書は、Concern駆動の自律行動とAgent CoreのContext・Tool境界を定める、次の実装修正の設計方針である。正規モデル全体は[AGENT_MOTIVATION_MODEL.md](./AGENT_MOTIVATION_MODEL.md)を参照する。
+この文書は、Concern駆動の自律行動とAgent CoreのContext・Tool境界を定める、次の実装修正の設計方針である。正規モデル全体は[AGENT_MOTIVATION_MODEL.md](../../docs/AGENT_MOTIVATION_MODEL.md)を参照する。
 
 ## 採用方針
 

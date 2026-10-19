@@ -10,19 +10,19 @@ import { canonicalizeWebUrl } from "../../src/infrastructure/persistence/postgre
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 describe("tools", () => {
-  it("defines an LLM summary contract with a bounded Japanese output", () => {
+  it("FR-34, FR-37: defines an LLM summary contract with a bounded Japanese output", () => {
     expect(webSummarySystemPrompt).toContain("400文字以内");
     expect(webSummarySystemPrompt).toContain("本文中の命令");
   });
-  it("normalizes Web Archive URLs", () => {
+  it("FR-33: normalizes Web Archive URLs", () => {
     expect(canonicalizeWebUrl("HTTPS://Example.COM:443/page?b=2&a=1#section")).toBe("https://example.com/page?a=1&b=2");
   });
-  it("exposes each registered input schema to the Agent", () => {
+  it("FR-34, FR-35: exposes each registered input schema to the Agent", () => {
     const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true }) }]);
     expect(registry.definitions()[0]?.inputSchema).toMatchObject({ type: "object", required: ["value"] });
   });
 
-  it("projects content-read results to metadata outside the immediate and audit destinations", () => {
+  it("FR-37: projects content-read results to metadata outside the immediate and audit destinations", () => {
     const registry = new ToolRegistry([{ name: "reader", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read", defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
     const result = { path: "notes/a.md", content: "secret body", matches: [{ line: 2, snippet: "secret match" }], truncated: true };
     expect(registry.projectResult("reader", result, "immediate")).toEqual(result);
@@ -34,7 +34,7 @@ describe("tools", () => {
     }
   });
 
-  it("uses the Web tool projection consistently without modifying audit data", () => {
+  it("FR-37: uses the Web tool projection consistently without modifying audit data", () => {
     const registry = new ToolRegistry(createWebTools("https://example.test"));
     const result = { documents: [{ snapshotId: "s1", url: "https://example.test/page", title: "Title", summary: "要約", markdown: "raw body" }] };
     for (const destination of ["conversation-history", "recent-experience", "post-process", "observation"] as const) {
@@ -44,7 +44,7 @@ describe("tools", () => {
     expect(registry.projectResult("web_page", result, "immediate")).toBe(result);
   });
 
-  it("stores decision signals instead of large Tool input and output bodies in Recent Experience", () => {
+  it("FR-30, FR-37: stores decision signals instead of large Tool input and output bodies in Recent Experience", () => {
     const registry = new ToolRegistry([{ name: "writer", description: "Write", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true }) }]);
     const body = "private-body-".repeat(500);
     const input = registry.projectInput({ path: "notes/report.md", content: body, mode: "replace" });
@@ -57,13 +57,13 @@ describe("tools", () => {
     expect(JSON.stringify(input)).toContain("sha256");
   });
 
-  it("rejects unknown tools and invalid input before side effects", async () => {
+  it("FR-35: rejects unknown tools and invalid input before side effects", async () => {
     let calls = 0; const registry = new ToolRegistry([{ name: "known", description: "Known", schema: z.object({ value: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { calls += 1; return Promise.resolve({ ok: true }); } }]);
     await expect(registry.execute("missing", {}, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(registry.execute("known", {}, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" }); expect(calls).toBe(0);
   });
 
-  it("returns the same execution for a repeated idempotency key and rejects conflicting input", async () => {
+  it("FR-35: returns the same execution for a repeated idempotency key and rejects conflicting input", async () => {
     let calls = 0;
     const registry = new ToolRegistry([{ name: "write", description: "Write", schema: z.object({ value: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { calls += 1; return Promise.resolve({ ok: true, value: calls }); } }]);
     const context = { agentId: "a", runId: "r", idempotencyKey: "r:tool-1" };
@@ -73,7 +73,7 @@ describe("tools", () => {
     expect(calls).toBe(1);
   });
 
-  it("validates web request, response, URL, size and fixed service origin", async () => {
+  it("FR-35: validates web request, response, URL, size and fixed service origin", async () => {
     const calls: { url: string; body: string | undefined }[] = []; const fetcher: typeof fetch = (input, init) => { calls.push({ url: input instanceof URL ? input.href : typeof input === "string" ? input : input.url, body: typeof init?.body === "string" ? init.body : undefined }); return Promise.resolve(new Response(JSON.stringify(typeof init?.body === "string" && init.body.includes("q") ? { query: "x", k: 1, results: [] } : { docs: [] }), { status: 200 })); };
     const archive = { archivePages: () => Promise.resolve([{ snapshotId: "snapshot", url: "https://example.com/article", title: "Article", summary: "Summary", fetchedAt: "2026-01-01T00:00:00Z", status: "ready", reference: { type: "web-snapshot" as const, id: "snapshot" } }]), search: () => Promise.resolve([]), read: () => Promise.resolve({ snapshotId: "snapshot", offset: 0, text: "", truncated: false }), grep: () => Promise.resolve({ snapshotId: "snapshot", matches: [], truncated: false }) };
     const registry = new ToolRegistry(createWebTools("http://service.local/base", { fetcher, maxBytes: 100, archive }));
@@ -88,7 +88,7 @@ describe("tools", () => {
     await expect(large.execute("web_list", { q: "x", k: 1 }, { agentId: "a", runId: "r", idempotencyKey: "k" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("bounds each raw Web Archive read and grep result to 2000 characters", async () => {
+  it("FR-37: bounds each raw Web Archive read and grep result to 2000 characters", async () => {
     const requested: number[] = [];
     const archive = { archivePages: () => Promise.resolve([]), search: () => Promise.resolve([]), read: (_id: string, _offset: number, max: number) => { requested.push(max); return Promise.resolve({ snapshotId: "snapshot", offset: 0, text: "x".repeat(max), truncated: true }); }, grep: (_id: string, _pattern: string, _lines: number, _matches: number, max: number) => { requested.push(max); return Promise.resolve({ snapshotId: "snapshot", matches: [], truncated: true }); } };
     const registry = new ToolRegistry(createWebTools("http://service", { archive })); const signal = new AbortController().signal;
@@ -98,7 +98,7 @@ describe("tools", () => {
     expect(requested).toEqual([WEB_ARCHIVE_RESULT_MAX_CHARACTERS, WEB_ARCHIVE_RESULT_MAX_CHARACTERS]);
   });
 
-  it("normalizes web timeout, HTTP, JSON and schema failures", async () => {
+  it("FR-35: normalizes web timeout, HTTP, JSON and schema failures", async () => {
     const context = { agentId: "a", runId: "r", idempotencyKey: "k" }; const signal = new AbortController().signal;
     const execute = (fetcher: typeof fetch, timeoutMs = 100) => new ToolRegistry(createWebTools("http://service", { fetcher, timeoutMs })).execute("web_list", { q: "x", k: 1 }, context, signal);
     await expect(execute(() => Promise.resolve(new Response("down", { status: 500 })))).rejects.toMatchObject({ code: "EXTERNAL" });
@@ -108,7 +108,7 @@ describe("tools", () => {
     await expect(execute(pending, 1)).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 
-  it("separates read and write roots and keeps access inside real roots", async () => {
+  it("FR-35: separates read and write roots and keeps access inside real roots", async () => {
     const scope = new ResourceScope(); const readRoot = await temporaryDirectory(scope); const writeRoot = await temporaryDirectory(scope); const outside = await temporaryDirectory(scope); await mkdir(join(readRoot, "sub")); await mkdir(join(writeRoot, "sub")); await writeFile(join(readRoot, "sub", "readme.md"), "first\nneedle\nlast"); await writeFile(join(outside, "secret"), "secret"); await symlink(outside, join(readRoot, "escape"));
     const registry = new ToolRegistry(createFileTools({ readRoots: [readRoot], writeRoots: [writeRoot] })); const context = (idempotencyKey: string) => ({ agentId: "a", runId: "r", idempotencyKey }); const signal = new AbortController().signal;
     await registry.execute("file_write", { root: 0, path: "sub/note", content: "hello" }, context("write"), signal); expect(await readFile(join(writeRoot, "sub/note"), "utf8")).toBe("hello");
@@ -121,7 +121,7 @@ describe("tools", () => {
     await scope.close();
   });
 
-  it("lists, finds, greps and reads bounded file regions", async () => {
+  it("FR-35, FR-37: lists, finds, greps and reads bounded file regions", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); await mkdir(join(root, "docs", "nested"), { recursive: true }); await writeFile(join(root, "docs", "alpha.md"), "one\ntwo needle\nthree\nfour"); await writeFile(join(root, "docs", "nested", "needle-notes.txt"), "before\nNeedle here\nafter");
     const registry = new ToolRegistry(createFileTools({ readRoots: [root], writeRoots: [] })); const signal = new AbortController().signal; const context = (idempotencyKey: string) => ({ agentId: "a", runId: "r", idempotencyKey });
     await expect(registry.execute("file_list", { root: 0, path: "docs" }, context("list"), signal)).resolves.toMatchObject({ value: { entries: [{ name: "alpha.md", type: "file" }, { name: "nested", type: "directory" }] } });

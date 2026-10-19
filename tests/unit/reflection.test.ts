@@ -9,7 +9,7 @@ const input: ReflectionInput = {
 };
 
 describe("Reflection", () => {
-  it("commits one maintenance result and treats a duplicate commit as success", async () => {
+  it("FR-41: commits one maintenance result and treats a duplicate commit as success", async () => {
     const output: ReflectionOutput = { memories: [], concernChanges: [], relationshipChanges: [], evidenceMemoryIds: [] };
     const commits: ReflectionOutput[] = [];
     const reflection = new Reflection({ load: () => Promise.resolve(input), commit: (_input, value) => { commits.push(value); return Promise.resolve("duplicate"); }, fail: () => Promise.resolve() }, { reflect: () => Promise.resolve(output) });
@@ -17,19 +17,19 @@ describe("Reflection", () => {
     expect(commits).toEqual([output]);
   });
 
-  it("requires grounded evidence for a Self change", () => {
+  it("FR-41, NFR-2: requires grounded evidence for a Self change", () => {
     expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [], relationshipChanges: [], self: input.self, selfChangeReason: "一度の経験", evidenceMemoryIds: [] }).success).toBe(false);
     expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [], relationshipChanges: [], self: { ...input.self, selfStory: "約束を重ねて信頼を育てている" }, selfChangeReason: "反復した経験", evidenceMemoryIds: ["memory-1"] }).success).toBe(true);
   });
 
-  it("rejects evidence outside the loaded Agent context and records failure", async () => {
+  it("NFR-1, NFR-2: rejects evidence outside the loaded Agent context and records failure", async () => {
     const failures: unknown[] = [];
     const reflection = new Reflection({ load: () => Promise.resolve(input), commit: () => Promise.resolve("committed"), fail: (_input, error) => { failures.push(error); return Promise.resolve(); } }, { reflect: () => Promise.resolve({ memories: [], concernChanges: [], relationshipChanges: [], self: input.self, selfChangeReason: "反復した経験", evidenceMemoryIds: ["foreign-memory"] }) });
     await expect(reflection.process("reflection-1", "agent-a", new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(failures).toHaveLength(1);
   });
 
-  it("rejects creation of a new Concern during Reflection", async () => {
+  it("FR-25, FR-41: rejects creation of a new Concern during Reflection", async () => {
     const reflection = new Reflection({ load: () => Promise.resolve(input), commit: () => Promise.resolve("committed"), fail: () => Promise.resolve() }, { reflect: () => Promise.resolve({ memories: [], concernChanges: [{ operation: "upsert", concern: { id: "new-concern", description: "新しい対象を調べる", whyItMatters: "知りたいため", status: "active" } }], relationshipChanges: [], evidenceMemoryIds: [] }) });
     await expect(reflection.process("reflection-1", "agent-a", new AbortController().signal)).rejects.toThrow("cannot create a new Concern");
   });

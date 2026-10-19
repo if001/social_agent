@@ -8,7 +8,7 @@ import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import type { MessageEnvelope } from "../../src/domain/contracts.js";
 
 describe("ST-07 abnormal output", () => {
-  it("repairs an invalid Agent Turn and delivers a response to the user", async () => {
+  it("FR-14: repairs an invalid Agent Turn and delivers a response to the user", async () => {
     const input = agentCoreInputFixture(); let calls = 0; const prompts: string[] = [];
     const harness = new DeepAgentHarness({
       invoker: {
@@ -31,7 +31,7 @@ describe("ST-07 abnormal output", () => {
     await expect(new OutboxDispatcher(persistence, queue).dispatch()).resolves.toBe(1);
   });
 
-  it("leaves no state side effects for invalid output, forbidden state, unknown tools, or foreign context", async () => {
+  it("FR-15, FR-32, NFR-1: leaves no state side effects for invalid output, forbidden state, unknown tools, or foreign context", async () => {
     const input = agentCoreInputFixture(); const before = structuredClone(input.state); const harness = new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: { invalid: true } }) }, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(harness.run(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(() => new AgentStatePatchService().apply("agent-b", input.state, undefined, input.run.eventId)).toThrow();
@@ -39,7 +39,7 @@ describe("ST-07 abnormal output", () => {
     expect(input.state).toEqual(before);
   });
 
-  it("hands observed Tool executions to failure persistence when final output is invalid", async () => {
+  it("FR-15, FR-37: hands observed Tool executions to failure persistence when final output is invalid", async () => {
     const input = agentCoreInputFixture(); input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
     const toolExecution = { callId: "tool-1", runId: input.run.runId, eventId: input.run.eventId, name: "lookup", input: {}, ok: true as const, startedAt: input.run.occurredAt, finishedAt: input.run.occurredAt };
     const harness = new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: { invalid: true }, toolExecutions: [toolExecution] }) }, registeredToolNames: new Set(["lookup"]), maxRepairs: 0 });
@@ -52,7 +52,7 @@ describe("ST-07 abnormal output", () => {
     expect(persistence.failures[0]?.toolExecutions).toEqual([toolExecution]);
   });
 
-  it("does not commit or enqueue a response when both initial output and repair are invalid", async () => {
+  it("FR-15, AC-1: does not commit or enqueue a response when both initial output and repair are invalid", async () => {
     const input = agentCoreInputFixture(); let calls = 0;
     const harness = new DeepAgentHarness({ invoker: { invoke: () => { calls += 1; return Promise.resolve({ structuredResponse: { desire: "答えたい", action: 42 }, modelCalls: 1 }); } }, registeredToolNames: new Set(), maxRepairs: 1 });
     const persistence = new InMemoryRuntimePersistence(() => input); let handler: ((message: MessageEnvelope) => Promise<void>) | undefined;
@@ -63,7 +63,7 @@ describe("ST-07 abnormal output", () => {
     expect(calls).toBe(2); expect(persistence.events).toHaveLength(0); expect(persistence.receipts.size).toBe(0); expect(await persistence.pendingOutbox(10)).toHaveLength(0); expect(persistence.failures).toHaveLength(1);
   });
 
-  it("delivers a non-empty fallback when every model attempt returns a string action for user input", async () => {
+  it("FR-16: delivers a non-empty fallback when every model attempt returns a string action for user input", async () => {
     const input = agentCoreInputFixture(); input.observation = { ...input.observation, kind: "user-message" }; let calls = 0;
     const harness = new DeepAgentHarness({ invoker: { invoke: () => { calls += 1; return Promise.resolve({ structuredResponse: { desire: "答えたい", action: "respond" }, modelCalls: 1 }); } }, registeredToolNames: new Set(), maxRepairs: 2 });
     const persistence = new InMemoryRuntimePersistence(() => input); let handler: ((message: MessageEnvelope) => Promise<void>) | undefined;

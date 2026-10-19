@@ -8,7 +8,7 @@ import { agentCoreInputFixture, messageFixture } from "../../src/testing/contrac
 import { InMemoryRuntimePersistence } from "../../src/testing/in-memory-runtime-persistence.js";
 
 describe("live Ollama user response", () => {
-  it("answers a cold-start greeting and asks one light question with real Ollama", async () => {
+  it("FR-11, FR-17: answers a cold-start greeting and asks one light question with real Ollama", async () => {
     const config = await loadConfig();
     const harness = new DeepAgentHarness({
       invoker: createOllamaDeepAgentInvoker(config.chat),
@@ -49,7 +49,7 @@ describe("live Ollama user response", () => {
     expect(published[0]?.destination).toBe("live-user");
   });
 
-  it("uses real Ollama to repair an invalid first Agent Turn and then commits the response", async () => {
+  it("FR-14, AC-2: uses real Ollama to repair an invalid first Agent Turn and then commits the response", async () => {
     const config = await loadConfig(); const base = createOllamaDeepAgentInvoker(config.chat); let decisionCalls = 0;
     const invoker: DeepAgentInvoker = {
       invoke: (input, options) => {

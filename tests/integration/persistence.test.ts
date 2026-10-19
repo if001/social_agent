@@ -51,7 +51,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await control.end();
   });
 
-  it("round-trips isolated agent state and rejects stale versions", async () => {
+  it("FR-6, NFR-10: round-trips isolated agent state and rejects stale versions", async () => {
     const repository = new AgentStateRepository(pool);
     expect((await repository.find<{ agent_id: string }>("a"))?.agent_id).toBe("a");
     expect(await repository.find("missing")).toBeUndefined();
@@ -61,7 +61,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await repository.find<{ commitments: string[]; concerns: unknown[] }>("a"))).toMatchObject({ commitments: ["Care"], concerns: [] });
   });
 
-  it("initializes configured Self and preserves acquired experience on reapply", async () => {
+  it("FR-6, FR-7: initializes configured Self and preserves acquired experience on reapply", async () => {
     const config = {
       version: 1 as const,
       family: { id: "configured-family", name: "Configured", sharedDisposition: "共通傾向", baseInstruction: "根拠を区別する" },
@@ -85,7 +85,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(overwritten.rows[0]?.disposition).toContain("映像史とAI技術が好き");
   });
 
-  it("rolls back event and outbox as one unit", async () => {
+  it("NFR-8: rolls back event and outbox as one unit", async () => {
     const unit = new PostgresUnitOfWork(pool);
     await expect(unit.transaction(async (client) => {
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('event-rollback','a','internal','{}','test','processing',now())");
@@ -96,7 +96,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT id FROM outbox_messages WHERE id='outbox-rollback'")).rowCount).toBe(0);
   });
 
-  it("serializes an agent advisory lock and releases it", async () => {
+  it("NFR-10: serializes an agent advisory lock and releases it", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     const first = withAgentLock(pool, 4242, () => held);
@@ -106,7 +106,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(withAgentLock(pool, 4242, () => Promise.resolve("ok"))).resolves.toBe("ok");
   });
 
-  it("commits receipt, event, state trace and outbox atomically and deduplicates", async () => {
+  it("NFR-8: commits receipt, event, state trace and outbox atomically and deduplicates", async () => {
     const transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
     const input = {
       destination: "agent:a", messageId: "incoming-1",
@@ -123,7 +123,33 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT id FROM outbox_messages WHERE id='outbox-1'")).rowCount).toBe(1);
   });
 
-  it("leaves no partial records after a version conflict", async () => {
+  it("FR-24: synchronizes reconsiderAt schedules with Concern changes", async () => {
+    const transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const concern = { id: "concern-schedule", description: "次回の確認方法を決める", whyItMatters: "約束の履行を確認するため", status: "active" as const, reconsiderAt: "2026-01-05T00:00:00.000Z" };
+    await expect(transaction.commit({
+      destination: "agent:a", messageId: "incoming-concern-schedule",
+      event: { id: "event-concern-schedule", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date() },
+      run: { id: "run-concern-schedule", inputStateVersion: version, startedAt: new Date(), result: {} },
+      stateValues: { concerns: [concern] }, changes: [], outbox: []
+    })).resolves.toBe("committed");
+    const scheduled = await pool.query<{ id: string; reason: string; next_due_at: Date }>("SELECT id,reason,next_due_at FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'");
+    expect(scheduled.rows).toHaveLength(1);
+    expect(scheduled.rows[0]).toMatchObject({ id: "concern:concern-schedule", reason: "約束の履行を確認するため" });
+    expect(scheduled.rows[0]?.next_due_at.toISOString()).toBe("2026-01-05T00:00:00.000Z");
+
+    const nextVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    await expect(transaction.commit({
+      destination: "agent:a", messageId: "incoming-concern-clear",
+      event: { id: "event-concern-clear", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date() },
+      run: { id: "run-concern-clear", inputStateVersion: nextVersion, startedAt: new Date(), result: {} },
+      stateValues: { concerns: [{ ...concern, status: "satisfied" as const, reconsiderAt: undefined }] }, changes: [], outbox: []
+    })).resolves.toBe("committed");
+    expect((await pool.query("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rowCount).toBe(0);
+    await pool.query("UPDATE agent_states SET concerns='[]' WHERE agent_id='a'");
+  });
+
+  it("NFR-8: leaves no partial records after a version conflict", async () => {
     const transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
     await expect(transaction.commit({
       destination: "agent:a", messageId: "incoming-conflict",
@@ -134,7 +160,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT 1 FROM events WHERE id='event-conflict'")).rowCount).toBe(0);
   });
 
-  it("combines lexical and vector retrieval with filters and agent isolation", async () => {
+  it("FR-10, NFR-1: combines lexical and vector retrieval with filters and agent isolation", async () => {
     const unit = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const opposite = Array.from({ length: 768 }, (_, index) => index === 1 ? 1 : 0);
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding,embedding_model,embedding_status) VALUES ('memory-a1','a','semantic','typescript architecture','Relevant','2026-01-02',$1::vector,'test','ready'),('memory-a2','a','episodic','unrelated note','Relevant','2026-01-01',$2::vector,'test','ready'),('memory-b1','b','semantic','typescript secret','Relevant','2026-01-03',$1::vector,'test','ready')", [`[${unit.join(",")}]`, `[${opposite.join(",")}]`]);
@@ -144,7 +170,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(found.memories.every(({ agentId }) => agentId === "a")).toBe(true);
   });
 
-  it("ranks Japanese keyword, subject, priority and category candidates with a stable fallback", async () => {
+  it("FR-10, FR-31: ranks Japanese keyword, subject, priority and category candidates with a stable fallback", async () => {
     await pool.query(`INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,embedding_status) VALUES
       ('rank-episodic','a','episodic','来週の研究発表について相談した','予定','normal','2026-02-01','failed'),
       ('rank-semantic','a','semantic','発表では結論を先に伝えることを好む','明示された好み','normal','2026-01-20','pending'),
@@ -167,7 +193,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(priority.memories.findIndex(({ id }) => id === "priority-high")).toBeLessThan(priority.memories.findIndex(({ id }) => id === "priority-normal"));
   });
 
-  it("embeds pending Memory after persistence and backfills failures without crossing Agent ownership", async () => {
+  it("FR-10, NFR-1: embeds pending Memory after persistence and backfills failures without crossing Agent ownership", async () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('embedding-a','family','Embedding A','Calm'),('embedding-b','family','Embedding B','Calm')");
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('embedding-memory-a','embedding-a','episodic','remember a','Relevant',now(),'pending'),('embedding-memory-b','embedding-b','episodic','remember b','Relevant',now(),'pending')");
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
@@ -183,7 +209,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(lifecycle.backfill({ agentId: "embedding-b" })).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
   });
 
-  it("archives fetched pages as shared files and supports cross-Bot search and bounded reads", async () => {
+  it("FR-37: archives fetched pages as shared files and supports cross-Bot search and bounded reads", async () => {
     const markdown = "# Vector indexes\n\nHNSW provides fast approximate search."; const changed = `${markdown}\n\nIVFFlat requires training.`;
     const summary = "HNSWによる高速な近似ベクトル検索を説明する記事。"; const changedSummary = "HNSWと、学習を必要とするIVFFlatを比較する記事。";
     const vector = Array.from({ length: 768 }, (_, index) => index === 3 ? 1 : 0);
@@ -213,7 +239,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("loads a minimal Agent Core context and retrieval Tools without crossing Agent ownership", async () => {
+  it("FR-1, FR-7, FR-10, FR-29, FR-30, NFR-1, NFR-3: loads a minimal Agent Core context and retrieval Tools without crossing Agent ownership", async () => {
     await pool.query("UPDATE agent_families SET base_instruction='' WHERE id='family'");
     await pool.query("UPDATE agent_states SET relationships=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ subjectId: "owner", description: "Trusted" }])]);
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
@@ -287,7 +313,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   });
 
-  it("holds one process lock per Agent and drains loops during shutdown", async () => {
+  it("NFR-10: holds one process lock per Agent and drains loops during shutdown", async () => {
     const blocked = (signal: AbortSignal): Promise<void> => new Promise((resolve) => { signal.addEventListener("abort", () => { resolve(); }, { once: true }); });
     let drained = 0;
     const createHost = (lifecycle: ProcessLifecycle): BotHost => new BotHost({
@@ -308,7 +334,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(restartedLifecycle.state).toBe("stopped");
   });
 
-  it("claims a due Scheduled Task once and records its execution Event", async () => {
+  it("FR-40, NFR-6: claims a due Scheduled Task once and records its execution Event", async () => {
     await pool.query("INSERT INTO scheduled_tasks(id,agent_id,execute_at,instruction,status,idempotency_key,source_event_id,source_run_id) VALUES ('task-due','a','2026-01-01','結果を知らせる','scheduled','task-key','source-event','source-run')");
     const first = new PostgresScheduleRepository(pool); const second = new PostgresScheduleRepository(pool);
     const claims = (await Promise.all([first.claimDue(new Date("2026-01-02T00:00:00Z"), 10), second.claimDue(new Date("2026-01-02T00:00:00Z"), 10)])).flat().filter(({ id }) => id === "task-due");
@@ -318,7 +344,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT status,attempt,execution_event_id FROM scheduled_tasks WHERE id='task-due'")).rows[0]).toMatchObject({ status: "completed", attempt: 1, execution_event_id: "execution-event" });
   });
 
-  it("updates only an owned pending Scheduled Task", async () => {
+  it("FR-40: updates only an owned pending Scheduled Task", async () => {
     await pool.query("INSERT INTO scheduled_tasks(id,agent_id,execute_at,instruction,status,idempotency_key,source_event_id,source_run_id) VALUES ('task-update-a','a','2026-01-02','元の指示','scheduled','update-key-a','source-event','source-run'),('task-update-b','b','2026-01-02','他Agentの指示','scheduled','update-key-b','source-event','source-run')");
     const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));
     const signal = new AbortController().signal;
@@ -327,7 +353,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ instruction: string }>("SELECT instruction FROM scheduled_tasks WHERE id='task-update-b'")).rows[0]?.instruction).toBe("他Agentの指示");
   });
 
-  it("never claims a legacy or unknown autonomous schedule kind", async () => {
+  it("NFR-11: never claims a legacy or unknown autonomous schedule kind", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','autonomy-review','legacy','2026-01-01'),('idle-due','a','idle','idle','2026-01-01')");
     const repository = new PostgresScheduleRepository(pool);
     const claims = await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10);
@@ -336,7 +362,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM autonomous_schedules WHERE id='legacy-drive'")).rows[0]?.lease_until).toBeNull();
   });
 
-  it("reschedules idle without persisted exploration state", async () => {
+  it("FR-26, FR-28: reschedules idle without persisted exploration state", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('idle-mode:b','b','idle','explore','2026-01-01')");
     const repository = new PostgresScheduleRepository(pool, 60_000, "b");
     const first = (await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ id }) => id === "idle-mode:b");
@@ -351,7 +377,20 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ next_due_at: Date }>("SELECT next_due_at FROM autonomous_schedules WHERE id='idle-mode:b'")).rows[0]?.next_due_at.toISOString()).toBe("2026-01-03T00:00:00.000Z");
   });
 
-  it("backs off repeated Reflection failures instead of retrying at a fixed interval", async () => {
+  it("FR-42: caps Reflection backoff at 24 hours", async () => {
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('reflection:cap','a','reflection','maintenance',now())");
+    for (let index = 0; index < 9; index += 1) {
+      await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,failure_reason) VALUES ($1,'a',0,'failed','{}','invalid output')", [`reflection-cap-${String(index)}`]);
+    }
+    const repository = new PostgresScheduleRepository(pool, 60_000, "a", 400_000);
+    await repository.release({ id: "reflection:cap", agentId: "a", kind: "reflection", reason: "maintenance" });
+    const row = (await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='reflection:cap'")).rows[0];
+    expect(row?.delay_ms).toBe(86_400_000);
+    await pool.query("DELETE FROM reflection_runs WHERE id LIKE 'reflection-cap-%'");
+    await pool.query("DELETE FROM autonomous_schedules WHERE id='reflection:cap'");
+  });
+
+  it("FR-42: backs off repeated Reflection failures instead of retrying at a fixed interval", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('reflection:a','a','reflection','maintenance',now())");
     for (const id of ["reflection-failed-1", "reflection-failed-2", "reflection-failed-3"]) {
       await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,failure_reason) VALUES ($1,'a',0,'failed','{}','invalid output')", [id]);
@@ -362,7 +401,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(row?.delay_ms).toBe(4_000);
   });
 
-  it("shares correlation-loop and rate limits across Runtime instances", async () => {
+  it("NFR-10: shares correlation-loop and rate limits across Runtime instances", async () => {
     const first = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const second = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const event = { id: "policy-event-1", agentId: "a", kind: "external" as const, occurredAt: fixtureInstant, payload: {}, correlationId: "shared-correlation" };
@@ -371,7 +410,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(second.authorizeInbound({ ...event, id: "policy-event-3", correlationId: "rate-correlation-1" }, "policy-message-3", 1)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("loads only the owning Agent's pending Outbox records", async () => {
+  it("NFR-1, NFR-9: loads only the owning Agent's pending Outbox records", async () => {
     const envelopeA = messageFixture({ id: "outbox-agent-a", destination: "discord:a" });
     const envelopeB = messageFixture({ id: "outbox-agent-b", destination: "discord:b" });
     await pool.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,'a',$2),($3,'b',$4)", [envelopeA.id, JSON.stringify(envelopeA), envelopeB.id, JSON.stringify(envelopeB)]);
@@ -385,7 +424,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(pendingB.map(({ envelope }) => envelope.id)).not.toContain(envelopeA.id);
   });
 
-  it("materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
+  it("FR-31, NFR-7: materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('proposal-evidence','a','self-related','Repeated follow-through','Relevant',now(),'[]')");
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();
@@ -414,7 +453,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([{ subject_id: "user-42" }]);
   });
 
-  it("commits Reflection state and Memory atomically and deduplicates retries", async () => {
+  it("FR-31, FR-41: commits Reflection state and Memory atomically and deduplicates retries", async () => {
     await pool.query("UPDATE agent_states SET concerns=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ id: "concern-1", description: "信頼を守る方法を確認する", whyItMatters: "約束を重視している", status: "active" }])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
@@ -427,7 +466,37 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ status: string }>("SELECT status FROM reflection_runs WHERE id='reflection-1'")).rows[0]?.status).toBe("completed");
   });
 
-  it("records Tool side effects when final Agent output fails without marking the message complete", async () => {
+  it("FR-25: applies satisfied and abandoned Concern changes through Reflection", async () => {
+    await pool.query("UPDATE agent_states SET concerns=$1 WHERE agent_id='a'", [JSON.stringify([
+      { id: "concern-satisfied", description: "確認を終える", whyItMatters: "次の判断に進むため", status: "active" },
+      { id: "concern-abandoned", description: "追跡をやめる", whyItMatters: "価値が下がったため", status: "active" },
+      { id: "concern-removed", description: "重複を消す", whyItMatters: "重複しているため", status: "active" }
+    ])]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-lifecycle-event','a','internal',$1,'test','completed',now())", [{ summary: "Concernを整理する経験" }]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
+    const input = await repository.load("reflection-lifecycle", "a");
+    if (input === undefined) throw new Error("Reflection input was not created");
+    await expect(repository.commit(input, {
+      memories: [],
+      concernChanges: [
+        { operation: "upsert", concern: { id: "concern-satisfied", description: "確認を終える", whyItMatters: "次の判断に進むため", status: "satisfied" } },
+        { operation: "upsert", concern: { id: "concern-abandoned", description: "追跡をやめる", whyItMatters: "価値が下がったため", status: "abandoned" } },
+        { operation: "remove", id: "concern-removed" }
+      ],
+      relationshipChanges: [],
+      evidenceMemoryIds: []
+    })).resolves.toBe("committed");
+    const state = await pool.query<{ concerns: { id: string; status: string }[] }>("SELECT concerns FROM agent_states WHERE agent_id='a'");
+    expect(state.rows[0]?.concerns).toMatchObject([
+      { id: "concern-satisfied", status: "satisfied" },
+      { id: "concern-abandoned", status: "abandoned" }
+    ]);
+    expect(state.rows[0]?.concerns.some(({ id }) => id === "concern-removed")).toBe(false);
+    await pool.query("UPDATE agent_states SET concerns='[]' WHERE agent_id='a'");
+    await pool.query("DELETE FROM reflection_runs WHERE id='reflection-lifecycle'");
+  });
+
+  it("FR-15, NFR-8: records Tool side effects when final Agent output fails without marking the message complete", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();
     input.run = { runId: "failed-run", eventId: "failed-event", agentId: "a", occurredAt: fixtureInstant };
