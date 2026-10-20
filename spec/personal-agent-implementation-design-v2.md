@@ -340,9 +340,9 @@ type Concern = {
 };
 ```
 
-Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Moodから今回のDesireを形成する。保存済みConcernが空でも行動を止めない。
+Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Moodから今回のDesireを形成する。保存済みConcernが空でも行動を止めない。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、MoodからDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用せず、Concernの作成はidle、concern-dueなどの自律Eventで行う。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -354,7 +354,7 @@ ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` 
 type Desire = string;
 ```
 
-保存済みConcernを選ぶか、今回のEvent、Self、Mood、Memory、Relationshipから今回限りのDesireを形成する。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。Concernが空であることは停止理由にならない。
+保存済みConcernを選ぶか、今回のEvent、Self、Mood、Memory、Relationshipから今回限りのDesireを形成する。ただしuser-messageでは保存済みConcernを選ばず、今回のEvent、Self、Mood、Memory、RelationshipからDesireを形成する。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。Concernが空であることは停止理由にならない。
 
 最終Actionは次の4種類である。
 
@@ -507,7 +507,7 @@ type AgentCoreInput = {
 };
 ```
 
-Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものを `self_get`、`concern_list`、`concern_get`、`memory_search`、`relationship_search`、`user_context_get` などのToolで取得する。
+Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものを `self_get`、`concern_list`、`concern_get`、`memory_search`、`relationship_search`、`user_context_get` などのToolで取得する。ただしuser-messageでは`concern_list`、`concern_get`、`concern_propose`を公開せず、`self_get`、`memory_search`、`relationship_search`、`user_context_get`などを使う。
 
 ## 19. Agent Core Output
 

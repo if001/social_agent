@@ -62,7 +62,7 @@ UI層はEventの送受信だけを担い、認知・状態更新・永続化を�
 ## 正規Agent Loop
 
 1. Runtimeが受信EnvelopeをEventへ正規化し、重複受信、TTL、hop、rate limit、Agent単位lockを検査する。
-2. Context BuilderがCurrent Self、Current State、Recent Experience、関連Memory、利用可能Tool、実行制約を読み込む。
+2. Context BuilderがCurrent Self、Current State、Recent Experience、関連Memory、利用可能Tool、実行制約を読み込む。middlewareはEvent種別に応じて公開Toolを制限し、user-messageではself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。
 3. Agent CoreがContextからFinal Meaning、Feeling、`desire`、最終`action`、任意の`patch`を一つの構造化出力で決める。Toolを使う場合も同じDeep Agent内でTool resultを受けて続行する。
 4. RuntimeがMeaningとFeelingをAssessmentへ分離し、出力、参照、ActionとTool実績の整合性、Patchの更新範囲を検証する。
 5. Event、Run、Tool execution、State change、即時Memory、Receipt、Outboxを一つのtransactionで確定する。

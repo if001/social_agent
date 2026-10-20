@@ -30,6 +30,19 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(logs).toContainEqual({ level: "warn", step: "tool.completed" });
   });
 
+  it.each(["concern_list", "concern_get", "concern_propose"])("FR-33, AC-5: refuses hidden %s in user-message even if the model calls it", async (toolName) => {
+    let dispatched = 0;
+    const registry = new ToolRegistry(["concern_list", "concern_get", "concern_propose"].map((name) => ({ name, description: name, schema: z.object({}), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true as const }) })));
+    const middleware = createAgentCoreMiddleware(registry, noopLogger, () => new Date(fixtureInstant)) as unknown as { wrapToolCall(request: { toolCall: { id: string; name: string; args: Record<string, unknown> }; runtime: { context: ReturnType<typeof context> } }, handler: () => Promise<unknown>): Promise<unknown> };
+    const userContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "hidden-run", eventId: "hidden-event", eventKind: "user-message", maxToolCalls: 2, signal: new AbortController().signal });
+    const result = await middleware.wrapToolCall({ toolCall: { id: "hidden-call", name: toolName, args: {} }, runtime: { context: userContext } }, () => { dispatched += 1; return Promise.resolve({ ok: true as const }); });
+    expect(result).toBeInstanceOf(ToolMessage);
+    const content = (result as ToolMessage).content; if (typeof content !== "string") throw new Error("Expected string Tool failure content");
+    expect(content).toContain('"errorCode":"TOOL_NOT_AVAILABLE"');
+    expect(dispatched).toBe(0);
+    expect(userContext.collector.executions).toMatchObject([{ name: toolName, ok: false }]);
+  });
+
   it("FR-35, NFR-5: removes exhausted operational Tools while preserving the structured output Tool", () => {
     const tools = [{ name: "file_read" }, { name: "web_archive_read" }, { name: "web_list" }, { name: "extract-1" }];
     const operational = new Set(["file_read", "web_archive_read", "web_list"]);
@@ -38,15 +51,17 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(filterModelToolsAfterLimits(tools, operational, contentRead, true, false).map(({ name }) => name)).toEqual(["extract-1"]);
   });
 
-  it("FR-33, FR-35, FR-39: dynamically hides autonomous retrieval Tools from user-message calls and after Focus acquisition", async () => {
+  it("FR-33, AC-5, FR-35, FR-39: limits user-message Tools to self_get and hides Concern Tools", async () => {
     const definitions = ["concern_list", "concern_get", "concern_propose", "user_context_get", "memory_search", "relationship_search", "self_get", "web_page"].map((name) => ({ name, description: name, schema: z.object({}), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true as const }) }));
     const registry = new ToolRegistry(definitions);
     const middleware = createAgentCoreMiddleware(registry, noopLogger, () => new Date(fixtureInstant)) as unknown as { wrapModelCall(request: { tools: { name: string }[]; messages: { type: string; content: string }[]; systemMessage: { content: string }; runtime: { context: ReturnType<typeof context> } }, handler: (request: { tools: { name: string }[] }) => Promise<unknown>): Promise<unknown> };
     const userContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "user-run", eventId: "user-event", eventKind: "user-message", maxToolCalls: 10, signal: new AbortController().signal });
     let visible: string[] = [];
     await middleware.wrapModelCall({ tools: definitions.map(({ name }) => ({ name })), messages: [], systemMessage: { content: "system" }, runtime: { context: userContext } }, (request) => { visible = request.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
-    expect(visible).toEqual(["concern_propose", "user_context_get", "memory_search", "relationship_search", "web_page"]);
+    expect(visible).toEqual(["user_context_get", "memory_search", "relationship_search", "self_get", "web_page"]);
     const autonomous = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "auto-run", eventId: "auto-event", eventKind: "internal", maxToolCalls: 10, signal: new AbortController().signal });
+    await middleware.wrapModelCall({ tools: definitions.map(({ name }) => ({ name })), messages: [], systemMessage: { content: "system" }, runtime: { context: autonomous } }, (request) => { visible = request.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
+    expect(visible).toEqual(["concern_list", "concern_get", "concern_propose", "user_context_get", "memory_search", "relationship_search", "self_get", "web_page"]);
     autonomous.collector.focusConcernAcquired = true;
     await middleware.wrapModelCall({ tools: definitions.map(({ name }) => ({ name })), messages: [], systemMessage: { content: "system" }, runtime: { context: autonomous } }, (request) => { visible = request.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
     expect(visible).not.toContain("concern_list"); expect(visible).not.toContain("concern_get"); expect(visible).toContain("self_get");

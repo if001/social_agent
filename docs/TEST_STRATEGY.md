@@ -112,7 +112,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-30 | Unit, Contract | `tests/unit/memory-context.test.ts`, `tests/contract/agent-harness.contract.test.ts` | Recent Experience の内容 |
 | FR-31 | Integration | `tests/integration/persistence.test.ts` | Memory の生成・保存 |
 | FR-32 | System | `tests/system/tool-loop.test.ts`, `tests/system/invalid-output.test.ts` | 予算・schema・権限・反復の拒否 |
-| FR-33 | Contract, Unit, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/tools.test.ts`, `tests/live/production-context-user-response.test.ts` | Tool 登録と実行 context |
+| FR-33 | Contract, System, Unit, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/system/tool-loop.test.ts`, `tests/unit/tools.test.ts`, `tests/live/production-context-user-response.test.ts` | Tool 登録、Event種別ごとの公開、実行 context |
 | FR-34 | Contract, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/tools.test.ts` | Tool 説明と入力 schema |
 | FR-35 | Unit, System | `tests/unit/tools.test.ts`, `tests/system/tool-loop.test.ts` | 入力・権限・回数・冪等性・記録 |
 | FR-36 | System | `tests/system/tool-loop.test.ts` | Tool Result の同一 loop 返却 |
@@ -149,6 +149,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-2 | Live | `tests/live/ollama-user-response.test.ts`, `tests/live/ollama-reflection.test.ts` | 実 Ollama の応答と repair |
 | AC-3 | Live | `tests/live/production-context-user-response.test.ts` | production-like E2E |
 | AC-4 | Evaluation | `tests/evaluation/evaluation-runner.test.ts` | paired live evaluation |
+| AC-5 | System, Unit | `tests/system/tool-loop.test.ts`, `tests/unit/agent-prompts.test.ts` | Event種別ごとのTool公開と実行拒否 |
 
 ## Standard verification
 

@@ -26,7 +26,7 @@ flowchart LR
     RF --> ST
 ```
 
-通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`を時刻付きで受け、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。
+通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`を時刻付きで受け、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。user-messageではself_getを公開し、concern_list、concern_get、concern_proposeは公開しない。Concernの取得・作成はidle、concern-dueなどの自律Eventで行う。
 
 ## 要素と持続時間
 
@@ -55,7 +55,7 @@ Agentはまず現在の話題へ応答したうえで、生活、仕事、趣味
 
 ユーザーについて得た具体的な事実は、送信者をsubjectとするMemoryとして保持する。Relationshipは「気安く話せる」「この話題では慎重さが必要」といった関係そのものの現在状態を保持し、プロフィール情報の保存先にはしない。質問前には必要に応じてMemoryとRelationshipを検索し、既知の事実から一段深い問いへ進む。自律探索で得た情報も、既知のユーザーの好み、仕事、経験、最近の話題と自然につながる場合は共有できる。
 
-対人的な好奇心、関係形成、相手が分からないことによる具体的な不確かさはConcernの正当な動機とする。ただし網羅的なプロフィール収集にはせず、同時に1件を目安として「次にその人の何を一つ知りたいか」へ具体化する。質問後は同じ問いを繰り返さず、回答があればMemoryへ残して終了または自然な次の問いへ遷移し、回答がなければ拒絶と推測せず減衰させる。明示的な拒否は境界として記憶し、機微情報は関係形成だけを理由に尋ねない。
+対人的な好奇心、関係形成、相手が分からないことによる具体的な不確かさは、idle / concern-dueでConcernを形成する正当な動機とする。ただし網羅的なプロフィール収集にはせず、同時に1件を目安として「次にその人の何を一つ知りたいか」へ具体化する。質問後は同じ問いを繰り返さず、回答があればMemoryへ残して終了または自然な次の問いへ遷移し、回答がなければ拒絶と推測せず減衰させる。明示的な拒否は境界として記憶し、機微情報は関係形成だけを理由に尋ねない。
 
 ## 依存関係と変更権限
 
