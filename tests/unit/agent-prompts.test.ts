@@ -29,6 +29,12 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("既知のユーザーの好み、仕事、経験、最近の話題");
   });
 
+  it("FR-33, AC-5: limits user-message retrieval to self_get and keeps Concern Tools for autonomous Events", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("user-messageでは、必要に応じてself_get");
+    expect(completeAgentCoreSystemPrompt).toContain("Concernの取得・作成は行いません");
+    expect(completeAgentCoreSystemPrompt).toContain("自律Eventでは最初にconcern_listを使います");
+  });
+
   it("FR-25: gives interpersonal concerns a bounded lifecycle", () => {
     expect(completeAgentCoreSystemPrompt).toContain("相手を知るConcernは同時に1件");
     expect(completeAgentCoreSystemPrompt).toContain("答えがなければ拒絶と推測せず");

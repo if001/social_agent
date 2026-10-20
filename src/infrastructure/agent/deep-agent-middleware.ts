@@ -10,6 +10,7 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
   const builtInToolNames = new Set(["read_file"]);
   const operationalToolNames = new Set([...registeredToolNames, ...builtInToolNames]);
   const contentReadToolNames = new Set(registry?.registered().filter(({ name }) => registry.resultPolicy(name)?.kind === "content-read").map(({ name }) => name) ?? []);
+  const userMessageHiddenToolNames = new Set(["concern_list", "concern_get", "concern_propose"]);
   return createMiddleware({
     name: "AgentCoreRuntimeMiddleware",
     contextSchema: DeepAgentToolRunContextSchema,
@@ -32,7 +33,7 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
       const phaseTools = request.tools.filter((candidate) => {
         const name = toolName(candidate);
         if (name === undefined || !registeredToolNames.has(name)) return true;
-        if (context.eventKind === "user-message" && ["concern_list", "concern_get", "self_get"].includes(name)) return false;
+        if (context.eventKind === "user-message" && userMessageHiddenToolNames.has(name)) return false;
         if (context.collector.focusConcernAcquired && ["concern_list", "concern_get"].includes(name)) return false;
         return true;
       });
@@ -61,6 +62,15 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
     },
     wrapToolCall: async (request, handler) => {
       const context = DeepAgentToolRunContextSchema.parse(request.runtime.context);
+      if (context.eventKind === "user-message" && userMessageHiddenToolNames.has(request.toolCall.name)) {
+        context.collector.count += 1;
+        const callId = `tool-${String(context.collector.count)}`;
+        const occurredAt = now().toISOString();
+        const error = `Tool is not available for user-message: ${request.toolCall.name}`;
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name: request.toolCall.name, input: request.toolCall.args, ok: false, error, startedAt: occurredAt, finishedAt: occurredAt });
+        baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, toolCallId: callId, toolName: request.toolCall.name }).log("warn", "tool.completed", { ok: false, errorCode: "TOOL_NOT_AVAILABLE" });
+        return new ToolMessage({ content: JSON.stringify({ ok: false, errorCode: "TOOL_NOT_AVAILABLE", error, requiredNextStep: "Use only a currently available Tool, or return the final Action." }), tool_call_id: request.toolCall.id ?? callId, name: request.toolCall.name, status: "error" });
+      }
       if (registeredToolNames.has(request.toolCall.name)) return handler(request);
       if (!builtInToolNames.has(request.toolCall.name)) {
         context.collector.count += 1;

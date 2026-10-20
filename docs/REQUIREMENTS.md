@@ -140,7 +140,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ## R6. Tool
 
-- FR-33：実装済みToolをRegistryからDeep Agentへ複数登録し、Eventごとの実行contextをmiddleware経由で渡す。（C-16, C-27）
+- FR-33：実装済みToolをRegistryからDeep Agentへ複数登録し、Eventごとの実行contextをmiddleware経由で渡す。Event種別に応じて公開するToolを制限し、user-messageではself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。非表示Toolが直接呼ばれても実行せず、Tool failureとして返す。（C-06, C-16, C-27）
 - FR-34：Tool説明と全入力fieldへ、モデルが用途と値を判断できる具体的な説明を付ける。（C-16、追加：説明の具体度は実装判断）
 - FR-35：RuntimeはTool入力、権限、最大call数、冪等性、結果サイズ、実行記録を管理する。（C-16, C-27, C-28）
 - FR-36：Tool Resultは同じAgent loopへ返すが、別Interactionとして自動再投入して二重実行しない。（C-16）
@@ -171,6 +171,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-2：実Ollama試験はモデルが応答・repairできることを確認する。（FR-14, FR-16）
 - AC-3：隔離PostgreSQLを使うproduction-like E2EはUIに依存せずContext、Tool binding、commit、Outbox配送まで通ることを確認する。（FR-2, FR-4, NFR-8, NFR-9）
 - AC-4：人格・状態差が行動差を生むという概念上の主張は、自動test合格だけでは完了としない。同一ObservationでSelf、Mood、Concern、Relationship、Memoryだけを変えた反復paired live evaluationと保存artifactで評価する。（C-03, C-13, C-14, C-29, FR-3, FR-41）
+- AC-5：Event種別に応じたTool公開と実行拒否を自動testで確認する。user-messageではself_getが公開され、concern_list、concern_get、concern_proposeは公開されず、直接呼ばれても実行されない。（FR-33）
 
 ### 方針の完了条件との対応
 

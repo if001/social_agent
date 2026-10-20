@@ -254,9 +254,9 @@ type Concern = {
 - `status`: 継続、満足、放棄
 - `reconsiderAt`: 次に判断できる具体的な時機がある場合だけ設定する
 
-Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Moodから、今回のDesireを形成する。保存済みConcernが空でも行動を止めない。
+Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Moodから、今回のDesireを形成する。保存済みConcernが空でも行動を止めない。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、MoodからDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用せず、Concernの作成はidle、concern-dueなどの自律Eventで行う。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
