@@ -158,6 +158,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-6 | Unit, Contract, Integration, System, Evaluation | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | previousDesire（満足済み含む）と Reflection 新規Concern |
 | AC-7 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts` | idle の沈黙・通知後の再開と通常経路 |
 | AC-8 | Unit | `tests/unit/agent-prompts.test.ts` | 共通の社会基盤と質問しない選択 |
+| AC-9 | Unit | `tests/unit/agent-prompts.test.ts` | system promptの文字数上限 |
 
 ## Standard verification
 

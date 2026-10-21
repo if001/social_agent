@@ -179,6 +179,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-6：`previousDesire`の即時引き継ぎ、時間経過、満足済みDesire、Reflectionの新規Concern作成を自動testで確認する。（FR-43, FR-44）
 - AC-7：`idle`の沈黙・通知後の再開間隔と、promptが通知を通常会話の代替にしないことをUnit testで確認する。（FR-45）
 - AC-8：共通の社会基盤を満たしつつ、質問しない選択とDispositionによる個体差を許容することをUnit testで確認する。（FR-46）
+- AC-9：Agent Coreのsystem prompt合計は4,500文字以下を保つ。（NFR-4）
 
 ### 方針の完了条件との対応
 
