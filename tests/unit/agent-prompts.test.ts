@@ -43,6 +43,12 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("既存Concernの言い換えにしません");
   });
 
+  it("FR-45: treats respond/refuse as the normal idle path and notification as operational", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("respondまたはrefuseを通常経路");
+    expect(completeAgentCoreSystemPrompt).toContain("notify-no-executionを発話を避ける代替にしません");
+    expect(completeAgentCoreSystemPrompt).toContain("no-external-actionを既定にしません");
+  });
+
   it("FR-25, FR-44: gives concerns a bounded lifecycle and does not force creation on empty", () => {
     expect(completeAgentCoreSystemPrompt).toContain("相手を知るConcernは同時に1件");
     expect(completeAgentCoreSystemPrompt).toContain("答えがなければ拒絶と推測せず");

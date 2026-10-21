@@ -145,7 +145,7 @@ Schedulerの`targetKind`は`idle`、`concern-due`、`external-change`、`reflect
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
 - `no-external-action`: Agentが今回は外部発話を行わないと判断した場合に使用する。Tool利用の有無とは独立する。
 
-自律EventではTool利用と発話判断を独立させる。調査後にも共有価値があれば発話し、Toolを使わなくても話したいことがあれば発話する。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
+自律EventではTool利用と発話判断を独立させる。調査後にも共有価値があれば発話し、Toolを使わなくても話したいことがあれば発話する。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。`idle`と`concern-due`では`respond`または`refuse`を通常経路とし、`notify-no-execution`を発話を避ける代替にしない。`no-external-action`は具体的な理由がある場合だけ使い、既定にしない。`idle`の次回時刻はActionに依存せず、通知や沈黙の後も通常間隔で再開する。
 
 ## 自律性とScheduled Task
 

@@ -118,9 +118,9 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 - FR-17：`respond`は空でないcontentを配送する。（C-23）
 - FR-18：`refuse`は空でないcontent、内部reason、`personality | system`のbasisを持つ。内部reasonは利用者向けpayloadへ露出しない。（C-23, C-28）
-- FR-19：`notify-no-execution`は自律Eventで実行しない判断と理由を配送可能にする。（C-17, C-23）
+- FR-19：`notify-no-execution`は自律Eventで実行しない判断と理由を配送可能にする。通常の会話経路ではなく、実行対象を選ばなかった場合の運用通知として扱い、発話を避ける代替にしない。（C-17, C-23）
 - FR-20：Tool利用とユーザーへの発話判断を独立させる。Toolの利用・成功・失敗を`respond`または`no-external-action`の前提条件にしない。（C-16, C-17）
-- FR-21：`no-external-action`は今回は発話しない具体的理由を持つ。ユーザーからの返信待ちはその理由として認めない。（C-17, C-23）
+- FR-21：`no-external-action`は今回は発話しない具体的理由を持つ。ユーザーからの返信待ちはその理由として認めず、`idle`の既定Actionにしない。（C-17, C-23）
 - FR-22：夜間はRuntimeで配送禁止にせず、Agentが緊急性と合わせて発話を控える判断材料にできる。（C-17）
 - FR-23：Patchはmood、Relationship 1件、即時Memory意図に限定する。Concernは`concern_propose`で提案する。（C-24）
 - FR-24：Concernのupsert/removeと`reconsiderAt` scheduleを同期する。（C-06, C-08, C-24）
@@ -150,12 +150,13 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ## R7. Event-driven autonomyとReflection
 
-- FR-39：自律性は`idle`、`concern-due`等のEvent sourceで起動し、常時polling型の認知loopに依存しない。（C-06, C-17）
+- FR-39：自律性は`idle`、`concern-due`等のEvent sourceで起動し、常時polling型の認知loopに依存しない。`idle`の再開間隔はActionに依存しない。（C-06, C-17）
 - FR-40：明示的Scheduled Taskは利用者との約束としてConcernやMemoryと分離する。（C-08）
 - NFR-6：Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。（C-08, C-27）
 - FR-41：ReflectionはEvent logをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理とする。（C-03, C-25）
 - FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与する。（C-25）
 - FR-42：Reflectionは説明付きのモデル向け構造化出力、厳密なDomain検証、repair、入力上限を持ち、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
+- FR-45：`idle`の再開間隔はActionに依存せず、`no-external-action`や`notify-no-execution`の後も通常間隔で再開する。promptは通知を通常会話の代替にせず、respondまたはrefuseを通常経路として案内する。（C-17）
 
 ## R8. 永続化、配送、運用
 
@@ -175,6 +176,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-4：人格・状態差が行動差を生むという概念上の主張は、自動test合格だけでは完了としない。同一ObservationでSelf、Mood、Concern、Relationship、Memoryだけを変えた反復paired live evaluationと保存artifactで評価する。（C-03, C-13, C-14, C-29, FR-3, FR-41）
 - AC-5：Event種別に応じたTool公開と実行拒否を自動testで確認する。user-messageではself_getが公開され、concern_list、concern_get、concern_proposeは公開されず、直接呼ばれても実行されない。（FR-33）
 - AC-6：`previousDesire`の即時引き継ぎ、時間経過、満足済みDesire、Reflectionの新規Concern作成を自動testで確認する。（FR-43, FR-44）
+- AC-7：`idle`の沈黙・通知後の再開間隔と、promptが通知を通常会話の代替にしないことをUnit testで確認する。（FR-45）
 
 ### 方針の完了条件との対応
 
