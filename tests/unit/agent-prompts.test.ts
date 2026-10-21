@@ -1,4 +1,7 @@
 import { agentCoreStructuredOutputRepairMessage, completeAgentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
+import { autonomousExplorationPrompt } from "../../src/infrastructure/agent/autonomous-exploration-prompt.js";
+import { concernLifecyclePrompt } from "../../src/infrastructure/agent/concern-lifecycle-prompt.js";
 import { reflectionStructuredOutputRepairMessage, reflectionSystemPrompt } from "../../src/infrastructure/agent/reflection-harness.js";
 
 describe("Agent prompts", () => {
@@ -34,6 +37,10 @@ describe("Agent prompts", () => {
     for (const text of ["共通の社会基盤", "直前の発話内容へ触れて", "1段だけ深く", "共通点は、現在の話題", "0件も選びます", "Relationship / Memoryに関係の根拠がある場合だけ触れます", "返答を要求せず", "Memoryにない共有体験を作りません", "現在の話題、共有している文脈、自分の小さな開示", "相手を理解することに価値を感じやすいDisposition", "1 Eventで尋ねる質問も最大1件", "相手の反応次第で0件も選べる", "同じ問いを繰り返さない"]) expect(completeAgentCoreSystemPrompt).toContain(text);
     expect(completeAgentCoreSystemPrompt).not.toContain("住む地域、仕事、趣味");
     expect(completeAgentCoreSystemPrompt).not.toContain("通常の返答に軽い質問を1件添えます");
+  });
+
+  it("AC-9: keeps the combined Agent Core prompt compact", () => {
+    expect(agentCoreSystemPrompt.length + autonomousExplorationPrompt.length + concernLifecyclePrompt.length).toBeLessThanOrEqual(4_500);
   });
 
   it("FR-33, AC-5: limits user-message retrieval to self_get and keeps Concern Tools for autonomous Events", () => {
