@@ -109,10 +109,10 @@ Agent Coreのsystem promptが、入力fieldの説明、判断規則、Tool呼び
 
 ## 実装メモ
 
-- prompt合計を5,753文字から3,886文字（JavaScript string length）へ圧縮した（約32%減）。
-  - `deep-agent-prompt.ts`: 4,643 → 3,047文字
-  - `autonomous-exploration-prompt.ts`: 427 → 301文字
-  - `concern-lifecycle-prompt.ts`: 683 → 538文字
+- prompt合計を5,753文字から4,015文字（JavaScript string length）へ圧縮した（約30%減）。
+  - `deep-agent-prompt.ts`: 4,643 → 3,087文字
+  - `autonomous-exploration-prompt.ts`: 427 → 348文字
+  - `concern-lifecycle-prompt.ts`: 683 → 580文字
 - 入力fieldの詳細列挙、判断規則、Tool呼び出し、社会基盤、返答規則の重複を統合した。
 - user-messageは`self_get`のみ、自律Eventは`concern_list` → `concern_get` → 必要時`concern_propose`、質問前は`user_context_get`、明示時刻は`schedule_task`というFlowを維持した。
 - 質問最大1件/0件、深さ+1段、機微話題のRelationship / Memory根拠、通知を通常会話の代替にしない境界を維持した。
