@@ -27,6 +27,9 @@ export const ReflectionOutputSchema = z.object({
 }).superRefine((value, context) => {
   if ((value.self === undefined) !== (value.selfChangeReason === undefined)) context.addIssue({ code: "custom", path: ["selfChangeReason"], message: "Self changes require an explicit reason" });
   if (value.self !== undefined && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "Self changes require Memory evidence" });
+  const createdConcerns = value.concernChanges.filter((change) => change.operation === "create");
+  if (createdConcerns.length > 3) context.addIssue({ code: "custom", path: ["concernChanges"], message: "Reflection can create at most three Concerns at once" });
+  if (createdConcerns.length > 0 && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "New Concerns require Memory evidence" });
 });
 export type ReflectionOutput = z.infer<typeof ReflectionOutputSchema>;
 
@@ -49,7 +52,11 @@ export class Reflection {
       const knownMemories = new Set(input.memories.map(({ id }) => id));
       if (output.evidenceMemoryIds.some((id) => !knownMemories.has(id))) throw new DomainError("VALIDATION", "Reflection referenced Memory outside its input");
       const knownConcerns = new Set(input.state.concerns.map(({ id }) => id));
-      if (output.concernChanges.some((change) => !knownConcerns.has(change.operation === "remove" ? change.id : change.concern.id))) throw new DomainError("VALIDATION", "Reflection cannot create a new Concern");
+      for (const change of output.concernChanges) {
+        if (change.operation === "create") continue;
+        const id = change.operation === "remove" ? change.id : change.concern.id;
+        if (!knownConcerns.has(id)) throw new DomainError("VALIDATION", `Reflection referenced an unknown Concern: ${id}`);
+      }
       await this.repository.commit(input, output);
       return output;
     } catch (error) {

@@ -239,14 +239,14 @@ describeDatabase("PostgreSQL persistence", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("FR-1, FR-7, FR-10, FR-29, FR-30, NFR-1, NFR-3: loads a minimal Agent Core context and retrieval Tools without crossing Agent ownership", async () => {
+  it("FR-1, FR-7, FR-10, FR-29, FR-30, FR-43, NFR-1, NFR-3: loads a minimal Agent Core context and retrieval Tools without crossing Agent ownership", async () => {
     await pool.query("UPDATE agent_families SET base_instruction='' WHERE id='family'");
     await pool.query("UPDATE agent_states SET relationships=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ subjectId: "owner", description: "Trusted" }])]);
     await pool.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ('memory-a1','owner') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('recent-a','a','user-message',$1,'test','completed','2026-01-01'),('recent-b','b','user-message',$2,'test','completed','2026-01-01')", [JSON.stringify({ eventId: "recent-a", summary: "previous exchange", facts: ["prior context"], observedAt: fixtureInstant, actor: { id: "owner", type: "human" } }), JSON.stringify({ eventId: "recent-b", summary: "private exchange", facts: ["other agent"], observedAt: fixtureInstant, actor: { id: "other-owner", type: "human" } })]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('large-tool-result','a','tool-result',$1,'web_page','completed',now())", [JSON.stringify({ eventId: "large-tool-result", summary: "web_page result", facts: ["tool result"], observedAt: fixtureInstant, content: { markdown: "x".repeat(100_000) } })]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('attempt-event-a','a','internal',$1,'scheduler','completed',now()),('attempt-event-b','b','internal',$2,'scheduler','completed',now())", [JSON.stringify({ eventId: "attempt-event-a", summary: "recent attempt", facts: [], observedAt: new Date().toISOString(), actor: { id: "owner", type: "human" } }), JSON.stringify({ eventId: "attempt-event-b", summary: "foreign attempt", facts: [], observedAt: new Date().toISOString(), actor: { id: "other-owner", type: "human" } })]);
-    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('attempt-run-a','a','attempt-event-a',0,$1,now(),now()),('attempt-run-b','b','attempt-event-b',0,$2,now(),now())", [JSON.stringify({ assessment: { meaning: "探索方法を変える機会になった", feeling: "少し悔しい" }, output: { action: { type: "respond", content: "最近、何に関心がありますか？" } } }), JSON.stringify({ assessment: { meaning: "他Agentだけの経験", feeling: "嬉しい" }, output: { action: { type: "respond", content: "private" } } })]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('attempt-run-a','a','attempt-event-a',0,$1,now(),now()),('attempt-run-b','b','attempt-event-b',0,$2,now(),now())", [JSON.stringify({ assessment: { meaning: "探索方法を変える機会になった", feeling: "少し悔しい" }, output: { desire: "探索方法を変えたい", action: { type: "respond", content: "最近、何に関心がありますか？" } } }), JSON.stringify({ assessment: { meaning: "他Agentだけの経験", feeling: "嬉しい" }, output: { action: { type: "respond", content: "private" } } })]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('failed-experience-a','a','internal',$1,'scheduler','failed',now())", [JSON.stringify({ eventId: "failed-experience-a", summary: "failed exploration", facts: [], observedAt: new Date().toISOString(), kind: "internal" })]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,failure_reason,started_at,finished_at) VALUES ('failed-run-a','a','failed-experience-a',0,NULL,'provider timeout',now(),now())");
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-tool-a','failed-run-a','failed-experience-a','call-1','web_list',$1,$2,NULL,now(),now())", [JSON.stringify({ q: "agent memory" }), JSON.stringify({ results: [] })]);
@@ -268,6 +268,8 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.persona).toMatchObject({ identity: { displayName: "Agent A" }, communication: { firstPerson: "僕" } });
     expect(input.previousAssessment).toMatchObject({ meaning: "探索方法を変える機会になった", feeling: "少し悔しい" });
     expect(typeof input.previousAssessment?.occurredAt).toBe("string");
+    expect(input.previousDesire).toMatchObject({ desire: "探索方法を変えたい" });
+    expect(typeof input.previousDesire?.occurredAt).toBe("string");
     expect(input.memories).toEqual([]);
     expect(input.memoryRetrievalTrace).toEqual([]);
     expect(input.recentExperiences).toHaveLength(2);
@@ -305,6 +307,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(allowed.availableTools.map(({ name }) => name)).toEqual(input.availableTools.map(({ name }) => name));
     const other = await loader.load({ id: "context-event-b", agentId: "b", kind: "user-message", occurredAt: fixtureInstant, payload: { text: "hello" } });
     expect(other.currentSelf.disposition).toBe("Careful learner");
+    expect(other.previousDesire).toBeUndefined();
     const saved = await pool.query<{ concerns: unknown }>("SELECT concerns FROM agent_states WHERE agent_id='a'");
     await pool.query("UPDATE agent_states SET concerns='[{}]' WHERE agent_id='a'");
     try {
@@ -453,16 +456,18 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([{ subject_id: "user-42" }]);
   });
 
-  it("FR-31, FR-41: commits Reflection state and Memory atomically and deduplicates retries", async () => {
+  it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {
     await pool.query("UPDATE agent_states SET concerns=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ id: "concern-1", description: "信頼を守る方法を確認する", whyItMatters: "約束を重視している", status: "active" }])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('reflection-evidence','a','episodic','約束を果たした経験','信頼が深まった',now(),'pending') ON CONFLICT DO NOTHING");
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-concern", "reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");
-    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: [] };
+    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "create" as const, concern: { description: "次の約束の進め方を確かめる", whyItMatters: "信頼を続けるため", status: "active" as const, reconsiderAt: "2026-01-03T00:00:00Z" } }, { operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: ["reflection-evidence"] };
     await expect(repository.commit(input, output)).resolves.toBe("committed");
     await expect(repository.commit(input, output)).resolves.toBe("duplicate");
-    expect((await pool.query<{ concerns: { id: string }[]; relationships: { subjectId: string }[] }>("SELECT concerns,relationships FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ concerns: [{ id: "concern-1" }], relationships: [{ subjectId: "owner" }] });
+    expect((await pool.query<{ concerns: { id: string }[]; relationships: { subjectId: string }[] }>("SELECT concerns,relationships FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ concerns: [{ id: "concern-1" }, { id: "reflection-concern" }], relationships: [{ subjectId: "owner" }] });
     expect((await pool.query<{ content: string; importance: string }>("SELECT content,importance FROM memories WHERE id='reflection-memory'")).rows[0]).toEqual({ content: "約束を果たした", importance: "信頼が深まった" });
+    expect((await pool.query<{ id: string; next_due_at: Date }>("SELECT id,next_due_at FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rows[0]).toMatchObject({ id: "concern:reflection-concern" });
     expect((await pool.query<{ status: string }>("SELECT status FROM reflection_runs WHERE id='reflection-1'")).rows[0]?.status).toBe("completed");
   });
 

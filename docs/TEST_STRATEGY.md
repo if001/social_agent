@@ -69,6 +69,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 - refusal: 競合Concernによる受諾・拒否差
 - curiosity: ConcernとMemoryによる自律Tool利用差
 - individuality: 異なる経験から形成されたSelf Storyと行動差
+- desire-handoff / desire-stale / desire-satisfied: previousDesireの直近性・満足性によるDesire採用差
 
 欠測、schema failure、timeout、期待方向に届かない効果量を成功へ含めない。自動testや単発live応答の成功だけで、人格らしさや状態差による行動差を実証済みとはしない。
 
@@ -88,6 +89,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-6 | Unit, Integration | `tests/unit/domain-contracts.test.ts`, `tests/unit/config-lifecycle.test.ts`, `tests/integration/persistence.test.ts` | Self の契約と初期化 |
 | FR-7 | Unit, Integration | `tests/unit/domain-contracts.test.ts`, `tests/integration/persistence.test.ts` | State の契約と永続化 |
 | FR-8 | Unit | `tests/unit/memory-context.test.ts`, `tests/unit/domain-contracts.test.ts` | Concern の契約と上限 |
+| FR-43 | Unit, Contract, Integration, Evaluation | `tests/unit/memory-context.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | previousDesire の引き継ぎ、上限、時間差scenario |
 | FR-9 | Contract, Unit, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/memory-context.test.ts`, `tests/live/ollama-user-response.test.ts` | Feeling の短期性と Assessment 引継ぎ |
 | FR-10 | Unit, Integration | `tests/unit/domain-contracts.test.ts`, `tests/integration/persistence.test.ts` | Memory の契約と検索 |
 | FR-11 | Contract, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/live/ollama-user-response.test.ts` | Deep Agents 本番経路 |
@@ -105,6 +107,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-23 | Unit, System, Evaluation | `tests/unit/agent-state-patch.test.ts`, `tests/unit/domain-contracts.test.ts`, `tests/system/invalid-output.test.ts` | Patch 対象の限定 |
 | FR-24 | Unit, Integration, System | `tests/unit/agent-state-patch.test.ts`, `tests/integration/persistence.test.ts`, `tests/unit/scheduler.test.ts`, `tests/system/tool-loop.test.ts` | Concern 更新と schedule 同期 |
 | FR-25 | Unit, Integration, System | `tests/unit/agent-prompts.test.ts`, `tests/unit/scheduler.test.ts`, `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | Concern ライフサイクルと状態遷移 |
+| FR-44 | Unit, Integration, System | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts` | Reflection の新規Concern作成、根拠、上限、空一覧で非作成 |
 | FR-26 | Unit, System | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts`, `tests/system/self-drive-autonomy.test.ts` | idle 探索モード |
 | FR-27 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/self-drive-autonomy.test.ts` | 具体対象への着地 |
 | FR-28 | Unit | `tests/unit/config-lifecycle.test.ts`, `tests/unit/scheduler.test.ts` | カタログ件数・重複・抽出 |
@@ -150,6 +153,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-3 | Live | `tests/live/production-context-user-response.test.ts` | production-like E2E |
 | AC-4 | Evaluation | `tests/evaluation/evaluation-runner.test.ts` | paired live evaluation |
 | AC-5 | System, Unit | `tests/system/tool-loop.test.ts`, `tests/unit/agent-prompts.test.ts` | Event種別ごとのTool公開と実行拒否 |
+| AC-6 | Unit, Contract, Integration, System, Evaluation | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | previousDesire（満足済み含む）と Reflection 新規Concern |
 
 ## Standard verification
 

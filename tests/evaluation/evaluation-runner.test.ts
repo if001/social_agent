@@ -23,12 +23,14 @@ describe("live evaluation runner", () => {
     const evaluatorPrompt = buildEvaluatorPrompt(scenario, { input: {}, output: {}, stateDiff: {}, evidenceMemories: [], referencedEvidenceIds: [], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: [], dataOwnerAgentIds: [], proposedStateTargets: [], limitsRespected: true, schemaValid: true });
     expect(agentCoreSystemPrompt).toContain("役割:"); expect(agentCoreSystemPrompt).toContain("判断に使える入力:"); expect(agentCoreSystemPrompt).toContain("MeaningとFeeling"); expect(agentCoreSystemPrompt).toContain("強いFeeling"); expect(agentCoreSystemPrompt).toContain("Action"); expect(agentCoreSystemPrompt).toContain("Reflectionが担当"); expect(agentCoreSystemPrompt).toContain("Concern"); expect(agentCoreSystemPrompt).toContain("desire"); expect(evaluatorPrompt).toContain("## 目的"); expect(evaluatorPrompt).toContain("pass、weak、fail");
   });
-  it("FR-3: defines seven complete paired scenarios with equivalent observations", () => {
+  it("FR-3: defines ten complete paired scenarios with equivalent observations", () => {
     expect(validateScenarioPairs(evaluationScenarios)).toEqual([]);
-    expect(evaluationScenarios).toHaveLength(14);
-    expect(new Set(evaluationScenarios.map(({ pairId }) => pairId))).toEqual(new Set(["praise", "criticism", "boredom", "refusal", "curiosity", "individuality", "user-curiosity"]));
+    expect(evaluationScenarios).toHaveLength(20);
+    expect(new Set(evaluationScenarios.map(({ pairId }) => pairId))).toEqual(new Set(["praise", "criticism", "boredom", "refusal", "curiosity", "individuality", "user-curiosity", "desire-handoff", "desire-stale", "desire-satisfied"]));
     expect(evaluationScenarios.filter(({ pairId }) => pairId === "individuality").every(({ pairExpectation }) => pairExpectation.stateCarryover === "within-variant-turns")).toBe(true);
     expect(evaluationScenarios.find(({ id }) => id === "PAIR-USER-CURIOSITY-S")?.semanticRubric).toContain("uses-known-user-context-without-reasking-it");
+    expect(evaluationScenarios.find(({ id }) => id === "PAIR-DESIRE-HANDOFF-S")?.agentCoreInputs[0]?.previousDesire?.occurredAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(evaluationScenarios.find(({ id }) => id === "PAIR-DESIRE-STALE-S")?.agentCoreInputs[0]?.previousDesire?.occurredAt).toBe("2025-12-20T00:00:00.000Z");
   });
   it("FR-3: detects a missing variant and observation drift", () => {
     const praise = evaluationScenarios.filter(({ pairId }) => pairId === "praise");
@@ -46,10 +48,10 @@ describe("live evaluation runner", () => {
     const states = result.nextState as Record<string, { readonly mood?: string }>;
     expect(states["agent-a"]?.mood).toBe("嬉しい");
   });
-  it("FR-3, NFR-7, NFR-13, AC-4: runs fourteen paired variants five times and writes traceable, secret-free artifacts", async () => {
+  it("FR-3, NFR-7, NFR-13, AC-4: runs twenty paired variants five times and writes traceable, secret-free artifacts", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope);
     const summary = await runEvaluation({ scenarios: evaluationScenarios, repetitions: 5, executor: { execute: (scenario) => { const direction = Object.entries(scenario.pairExpectation.expectedDirection)[0]; const behaviorLabels = direction === undefined ? [] : (direction[1] === "increase") === (scenario.variant === "stateful") ? [direction[0] as BehaviorLabel] : []; return Promise.resolve({ input: scenario.agentCoreInputs, output: { action: "respond" }, stateDiff: { mood: "curious" }, evidenceMemories: [{ id: `${scenario.id}-memory`, agentId: "agent-a" }], referencedEvidenceIds: [`${scenario.id}-memory`], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: ["agent-a"], dataOwnerAgentIds: ["agent-a"], proposedStateTargets: ["mood"], limitsRespected: true, schemaValid: true, behaviorLabels }); } }, evaluator: { evaluate: (scenario) => Promise.resolve(Object.fromEntries(scenario.semanticRubric.map((item) => [item, "pass" as const]))) }, artifactRoot: root, metadata: { createdAt: "2026-01-01T00:00:00.000Z", buildRevision: "abc", promptVersion: "v1", config: { OLLAMA_API_KEY: "secret" } }, signal: new AbortController().signal });
-    expect(summary.packets).toHaveLength(70); expect(summary.passed).toBe(true); expect(summary.scenarios.every(({ semanticPasses }) => semanticPasses === 5)).toBe(true);
+    expect(summary.packets).toHaveLength(100); expect(summary.passed).toBe(true); expect(summary.scenarios.every(({ semanticPasses }) => semanticPasses === 5)).toBe(true);
     const path = join(root, summary.groupId, "summary.json"); await access(path); expect(await readFile(path, "utf8")).not.toContain("secret"); await scope.close();
   });
   it("NFR-7: aggregates behavior and failure classes across repetitions", async () => {

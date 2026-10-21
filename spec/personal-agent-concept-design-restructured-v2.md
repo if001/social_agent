@@ -233,11 +233,11 @@ Selfは通常Interactionから直接変更しない。長期的な変化は、Me
 
 ## 8. Desire と Concern
 
-- C-06：今回の望みをDesire、次のEventにも残る未解決事項をConcernとして扱い、両者を混同しない。
+- C-06：今回の望みをDesire、次のEventにも残る「気に掛けていること」をConcernとして扱い、両者を混同しない。
 
-Desireは、今回のEventを受けて「今、何をしたいか」を表す今回限りの判断である。Desireは保存状態として重複させず、Agent Coreの出力に含める。
+Desireは、今回のEventを受けて「今、何をしたいか」を表す今回の現在のコミットメントである。Desireは保存状態として重複させず、Agent Coreの出力に含める。直前stepのDesireを`occurredAt`付きで次の判断へ1件渡してよい。これは独立したDesire状態ではなく、前回の意図がまだ現在かを判断する入力である。
 
-Concernは、現在気に掛けていて、次のEventにも影響する未解決事項である。現在の動機、継続中の関心、未完了課題、約束、感情的なしこりを統合して表す。
+Concernは、現在気に掛けていて、次のEventにも影響する事柄である。感情、価値、関係、未完了課題、約束、継続中の関心を統合して表す。未解決課題だけに限らない。
 
 ```ts
 type Concern = {
@@ -249,14 +249,14 @@ type Concern = {
 };
 ```
 
-- `description`: 何が未解決か
+- `description`: 何を気に掛けているか
 - `whyItMatters`: 現在のSelfにとってなぜ重要か
 - `status`: 継続、満足、放棄
 - `reconsiderAt`: 次に判断できる具体的な時機がある場合だけ設定する
 
-Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Moodから、今回のDesireを形成する。保存済みConcernが空でも行動を止めない。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、MoodからDesireを形成する。
+Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`から、今回のDesireを形成する。保存済みConcernが空でも行動を止めない。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`からDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用せず、Concernの作成はidle、concern-dueなどの自律Eventで行う。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用せず、Concernの作成はidle、concern-due、Reflectionで行う。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -562,6 +562,7 @@ Agent Core
         ├── Disposition
         ├── Current State
         ├── Previous Assessment
+        ├── Previous Desire
         ├── Recent Experiences
         ├── Relationship
         └── Relevant Memory

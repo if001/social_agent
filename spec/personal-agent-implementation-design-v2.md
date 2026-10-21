@@ -56,7 +56,7 @@
 
 ### Context Builder
 
-Agent Coreへ渡すContextを構築する薄い層。Self、State、Recent Experiences、Previous Assessment、Relationship、Relevant Memory、Available Tools、Runtime Constraintsを選択する。Context Builderは認知モジュールではなく、Prompt / Context構築のための実装上の責務である。
+Agent Coreへ渡すContextを構築する薄い層。Self、State、Recent Experiences、Previous Assessment、Previous Desire、Relationship、Relevant Memory、Available Tools、Runtime Constraintsを選択する。Context Builderは認知モジュールではなく、Prompt / Context構築のための実装上の責務である。
 
 ### Agent Core
 
@@ -103,6 +103,7 @@ Memory（検索可能な経験）
 直近:
 Recent Experiences（直近2 Eventの意味投影）
 Previous Assessment（直近の成功EventのMeaning / Feelingと時刻）
+Previous Desire（直近の成功EventのDesireと時刻）
 
 今回のEvent:
 Final Assessment（Meaning / Feeling）
@@ -160,7 +161,7 @@ type Relationship = {
 };
 ```
 
-Moodは複数Eventへ影響する背景的な気分である。Concernは現在気に掛けていて次のEventにも残る未解決事項であり、現在の動機、関心、未完了課題、約束、感情的なしこりを統合する。Relationshipは特定の相手との関係そのものの現在状態であり、プロフィール情報の保存先にはしない。
+Moodは複数Eventへ影響する背景的な気分である。Concernは現在気に掛けていて次のEventにも残る事柄であり、感情、価値、関係、現在の動機、関心、未完了課題、約束、感情的なしこりを統合する。未解決課題だけに限らない。Relationshipは特定の相手との関係そのものの現在状態であり、プロフィール情報の保存先にはしない。
 
 FeelingはEventへの短期反応であり、独立した長期状態として残し続けない。直近の成功Event終了時のMeaningとFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡す。
 
@@ -328,7 +329,7 @@ MoodはFeelingより持続し、次の複数Eventへ影響する背景的な気�
 
 Desireは、今回のEventを受けて「今、何をしたいか」を表す今回限りの判断である。保存状態として重複させず、Agent Coreの出力に含める。
 
-Concernは、現在気に掛けていて、次のEventにも残る未解決事項である。
+Concernは、現在気に掛けていて、次のEventにも残る事柄である。感情、価値、関係、未完了課題、約束、継続中の関心を含む。
 
 ```ts
 type Concern = {
@@ -340,9 +341,9 @@ type Concern = {
 };
 ```
 
-Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Moodから今回のDesireを形成する。保存済みConcernが空でも行動を止めない。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、MoodからDesireを形成する。
+Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`から今回のDesireを形成する。保存済みConcernが空でも行動を止めない。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`からDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用せず、Concernの作成はidle、concern-dueなどの自律Eventで行う。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用せず、Concernの作成はidle、concern-due、Reflectionで行う。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -354,7 +355,7 @@ ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` 
 type Desire = string;
 ```
 
-保存済みConcernを選ぶか、今回のEvent、Self、Mood、Memory、Relationshipから今回限りのDesireを形成する。ただしuser-messageでは保存済みConcernを選ばず、今回のEvent、Self、Mood、Memory、RelationshipからDesireを形成する。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。Concernが空であることは停止理由にならない。
+保存済みConcernを選ぶか、今回のEvent、Self、Mood、Memory、Relationship、`previousDesire`から今回限りのDesireを形成する。ただしuser-messageでは保存済みConcernを選ばず、今回のEvent、Self、Mood、Memory、Relationship、`previousDesire`からDesireを形成する。`previousDesire`は経過時間、前回Actionの結果、現在Eventとの関連から、まだ現在の意図か判断する。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。Concernが空であることは停止理由にならない。
 
 最終Actionは次の4種類である。
 
@@ -495,6 +496,10 @@ type AgentCoreInput = {
     meaning?: string;
     feeling?: string;
   };
+  previousDesire?: {
+    occurredAt: string;
+    desire: string;
+  };
   recentExperiences: RecentExperience[];
   persona?: BotPersona;
   currentSelf: CurrentSelf;
@@ -538,7 +543,7 @@ type AgentRunResult = {
 };
 ```
 
-モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
+モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
 最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。InteractionではDesireに基づく具体的Actionを必須とする。
 
@@ -652,6 +657,7 @@ Reflectionは次を一度に扱う。
 
 - 重要な事実ログのMemory化・圧縮
 - 重複Memoryの統合
+- 新規Concernの作成
 - Concernの継続、満足、放棄
 - Relationshipの変化
 - Self Storyの更新
@@ -663,7 +669,7 @@ Selfの変更は単発の弱い経験では行わず、反復、強い経験、�
 
 - 入力にない事実、ID、日時、関係を作らない。
 - 入力Eventを網羅的に要約しない。
-- 新しいConcernを作らない。既存Concernの整理、統合、具体化、終了だけを行う。
+- 新しいConcernを作成できる。Memory根拠と`whyItMatters`を必須とし、1回1〜3件までに制限する。既存Concernの整理、統合、具体化、終了も行う。
 - Self変更には、入力に含まれるMemory IDと明示的な理由を必須とする。
 - 変更がなければ空のmaintenance結果を返してよい。
 - 1回の出力はMemory、Concern、Relationshipを各4件までに制限する。
@@ -889,6 +895,7 @@ Relationship
 
 ```text
 Previous Assessment
+Previous Desire
 Final Meaning / Feeling
 Desire
 State Patch

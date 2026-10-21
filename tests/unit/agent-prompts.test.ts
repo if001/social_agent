@@ -35,10 +35,21 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("自律Eventでは最初にconcern_listを使います");
   });
 
-  it("FR-25: gives interpersonal concerns a bounded lifecycle", () => {
+  it("FR-3, FR-43: carries previous Desire as a non-binding prior with elapsed time", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("previousDesire");
+    expect(completeAgentCoreSystemPrompt).toContain("前回の意図");
+    expect(completeAgentCoreSystemPrompt).toContain("義務ではありません");
+    expect(completeAgentCoreSystemPrompt).toContain("古い、満たされた、無関係なDesire");
+    expect(completeAgentCoreSystemPrompt).toContain("既存Concernの言い換えにしません");
+  });
+
+  it("FR-25, FR-44: gives concerns a bounded lifecycle and does not force creation on empty", () => {
     expect(completeAgentCoreSystemPrompt).toContain("相手を知るConcernは同時に1件");
     expect(completeAgentCoreSystemPrompt).toContain("答えがなければ拒絶と推測せず");
     expect(completeAgentCoreSystemPrompt).toContain("機微情報");
+    expect(completeAgentCoreSystemPrompt).toContain("未解決課題だけに限らず");
+    expect(completeAgentCoreSystemPrompt).toContain("直ちにConcernを作る必要はありません");
+    expect(completeAgentCoreSystemPrompt).not.toContain("原則1件作ります");
   });
 
   it.each([completeAgentCoreSystemPrompt, reflectionSystemPrompt])("FR-25: closes or changes saturated concerns", (prompt) => {

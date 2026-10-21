@@ -77,6 +77,12 @@ export const PreviousAssessmentSchema = EventAssessmentSchema.extend({
 }).strict().describe("直近の成功Event終了時のAssessment。経過時間と現在Eventとの関連を踏まえ、残っている影響だけを使う");
 export type PreviousAssessment = z.infer<typeof PreviousAssessmentSchema>;
 
+export const PreviousDesireSchema = z.object({
+  desire: AgentDesire.describe("直近の成功Eventで確定したDesire"),
+  occurredAt: Instant.describe("このDesireが確定したEventの発生時刻")
+}).strict().describe("直近の成功Eventで確定したDesire。経過時間と現在Eventとの関連を踏まえ、まだ現在の意図か判断する");
+export type PreviousDesire = z.infer<typeof PreviousDesireSchema>;
+
 export const RunLimitsSchema = z.object({
   deadlineMs: z.number().int().positive(),
   maxSteps: z.number().int().min(1).max(100),
@@ -249,8 +255,15 @@ export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
 
 const ProposedConcernSchema = ConcernSchema.extend({ description: AgentStateDescription, whyItMatters: AgentStateDescription });
+const NewConcernSchema = z.object({
+  description: AgentStateDescription.describe("新しく気に掛けること。未解決課題だけでなく、知りたい、確かめたい、共有したい、守りたいことを含む"),
+  whyItMatters: AgentStateDescription.describe("現在のSelfや関係にとって、このConcernを残す理由"),
+  status: z.literal("active").describe("新規Concernはactiveで作成する"),
+  reconsiderAt: Instant.describe("再検討するISO 8601日時。明確な時刻がある場合だけ指定する").optional()
+}).strict();
 const ProposedRelationshipSchema = RelationshipSchema.extend({ description: AgentStateDescription });
 export const ConcernChangeSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("create").describe("Reflectionで新しいConcernを作成する"), concern: NewConcernSchema.describe("作成するConcern。IDはRuntimeが付与する") }),
   z.object({ operation: z.literal("upsert").describe("Concernを追加または更新する"), concern: ProposedConcernSchema.describe("追加または更新するConcernの完全な値") }),
   z.object({ operation: z.literal("remove").describe("Concernを削除する"), id: Id.describe("削除するConcernのID") })
 ]).describe("次のEventにも残すConcernの変更。変更不要なら出力しない");
@@ -259,7 +272,7 @@ export const RelationshipChangeSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("remove").describe("Relationshipを削除する"), subjectId: Id.describe("削除するRelationshipの相手ID") })
 ]).describe("次のEventにも残すRelationshipの変更。変更不要なら出力しない");
 export const AgentTurnSchema = z.object({
-  desire: AgentDesire.describe("現在のSelf、状態、Observation、前回Assessment、取得したContextとTool結果から生じた今回の具体的な望み"),
+  desire: AgentDesire.describe("現在のSelf、状態、Observation、前回Assessment、previousDesire、取得したContextとTool結果から生じた今回の具体的な現在のコミットメント。Concernの言い換えにしない"),
   action: FinalActionSchema,
   patch: z.object({
     mood: AgentMood.describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する").optional(),
@@ -279,6 +292,7 @@ export const AgentCoreInputSchema = z.object({
   }),
   observation: ObservationSchema,
   previousAssessment: PreviousAssessmentSchema.optional(),
+  previousDesire: PreviousDesireSchema.optional(),
   recentExperiences: z.array(RecentExperienceSchema).max(8).default([]),
   persona: BotPersonaSchema.optional(),
   currentSelf: CurrentSelfSchema,

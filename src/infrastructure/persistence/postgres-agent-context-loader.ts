@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
-import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, ObservationSchema, PreviousAssessmentSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, ObservationSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
 
@@ -14,6 +14,7 @@ type AgentRow = QueryResultRow & {
 };
 type RecentExperienceRow = QueryResultRow & { event_id: string; agent_id: string; event_kind: DomainEvent["kind"]; observation: unknown; occurred_at: Date; run_id: string | null; result: unknown; failure_reason: string | null; tools: unknown; progress_changed: boolean };
 type PreviousAssessmentRow = QueryResultRow & { occurred_at: Date; result: unknown };
+type PreviousDesireRow = QueryResultRow & { occurred_at: Date; result: unknown };
 
 export type PostgresAgentContextLoaderOptions = {
   readonly pool: Pool;
@@ -62,6 +63,14 @@ function previousAssessment(row: PreviousAssessmentRow | undefined): PreviousAss
   if (assessment.success) return PreviousAssessmentSchema.parse({ occurredAt: row.occurred_at.toISOString(), ...assessment.data });
   return undefined;
 }
+
+function previousDesire(row: PreviousDesireRow | undefined): PreviousDesire | undefined {
+  if (row === undefined || typeof row.result !== "object" || row.result === null) return undefined;
+  const result = row.result as Record<string, unknown>;
+  const output = typeof result.output === "object" && result.output !== null ? result.output as Record<string, unknown> : undefined;
+  if (output === undefined || typeof output.desire !== "string" || output.desire.trim() === "") return undefined;
+  return PreviousDesireSchema.parse({ desire: output.desire, occurredAt: row.occurred_at.toISOString() });
+}
 function transport(event: DomainEvent): AgentCoreInput["run"]["transport"] {
   const value = event.payload.transport;
   if (typeof value !== "object" || value === null) return undefined;
@@ -109,8 +118,13 @@ export class PostgresAgentContextLoader {
         FROM agent_runs r JOIN events e ON e.id=r.event_id AND e.agent_id=r.agent_id
         WHERE r.agent_id=$1 AND r.finished_at IS NOT NULL AND r.failure_reason IS NULL AND r.result ? 'assessment'
         ORDER BY e.occurred_at DESC,e.id DESC,r.started_at DESC,r.id DESC LIMIT 1`, [event.agentId]);
+    const previousDesireResult = await this.options.pool.query<PreviousDesireRow>(`SELECT e.occurred_at,r.result
+        FROM agent_runs r JOIN events e ON e.id=r.event_id AND e.agent_id=r.agent_id
+        WHERE r.agent_id=$1 AND r.finished_at IS NOT NULL AND r.failure_reason IS NULL AND r.result #>> '{output,desire}' IS NOT NULL
+        ORDER BY e.occurred_at DESC,e.id DESC,r.started_at DESC,r.id DESC LIMIT 1`, [event.agentId]);
     const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row, this.options.tools, this.options.logger ?? noopLogger); return value === undefined ? [] : [value]; });
     const priorAssessment = previousAssessment(previousAssessmentResult.rows[0]);
+    const priorDesire = previousDesire(previousDesireResult.rows[0]);
     const state = { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: agent.concerns, relationships: agent.relationships }) };
     const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);
@@ -118,6 +132,7 @@ export class PostgresAgentContextLoader {
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
       observation, recentExperiences,
       ...(priorAssessment === undefined ? {} : { previousAssessment: priorAssessment }),
+      ...(priorDesire === undefined ? {} : { previousDesire: priorDesire }),
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
       currentSelf: { agentId: agent.id, version: agent.version, ...SelfSchema.parse({ identity: agent.identity, disposition: agent.disposition, selfStory: agent.self_story, commitments: agent.commitments }) },
       state,

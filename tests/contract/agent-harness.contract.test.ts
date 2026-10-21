@@ -116,6 +116,16 @@ describe("AgentHarness contract", () => {
     expect(result.budget?.consumed.modelCalls).toBe(1);
   });
 
+  it("FR-3, FR-43, AC-6: passes previous Desire with its occurredAt into Agent Core", async () => {
+    let decisionInput = "";
+    const invoker: DeepAgentInvoker = { invoke: (input) => { decisionInput = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output, modelCalls: 1 }); } };
+    const input = agentCoreInputFixture(); input.previousDesire = { occurredAt: "2026-01-02T02:54:05.000Z", desire: "探索方法を変えたい" };
+    await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
+    expect(decisionInput).toContain("previousDesire");
+    expect(decisionInput).toContain("探索方法を変えたい");
+    expect(decisionInput).toContain("2026-01-02T02:54:05.000Z");
+  });
+
   it("FR-11, NFR-1: creates one Deep Agent and keeps consecutive run inputs and contexts isolated", async () => {
     let creations = 0; const calls: { messages: unknown; context: { runId: string; eventId: string } }[] = [];
     const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答を求められた", feeling: "応えたい" } }] }) }) };
