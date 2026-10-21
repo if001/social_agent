@@ -101,6 +101,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-8：Concernは感情、価値、関係、継続中の関心、約束、未完了課題、感情的なしこりを統合した「気に掛けていること」であり、未解決課題だけに限らず、任意の再検討時刻を持つ。（C-06）
 - FR-9：FeelingはEvent内の短期反応とし、原則として保存しない。直近のAssessmentを`previousAssessment`として次のEventへ1件渡し、持続する変化だけStateまたはMemoryへ保存する。（C-07, C-15）
 - FR-10：Memoryはepisodic / semantic / self-related / self-change、内容、重要度、時刻、subject、根拠Event / Memoryを保持する。（C-10）
+- FR-46：共通の社会基盤として、応答優先、相手の開示より1段だけ深い話題、現在の話題・共有文脈・Memoryからの共通点、質問最大1件/0件、機微話題の関係根拠、低圧な非同期、Memoryにない共有体験の不在を守る。個体差はDispositionで表現し、数値パラメータを持たない。（C-01, C-02, C-11, C-12）
 - FR-43：直前の成功runのDesireを`occurredAt`付きで`previousDesire`として1件受け、経過時間、前回Actionの結果、現在Eventとの関連から、現在のDesireとして使うか判断する。新しい永続fieldやtableを持たない。（C-06）
 - NFR-1：Contextと更新対象へ別Agent所有のSelf、State、Recent Experience、Memoryを混入させない。（C-26, C-28）
 - NFR-2：通常InteractionはSelfを直接変更しない。ReflectionによるSelf変更にはMemory根拠と理由を要求する。（C-24, C-25）
@@ -177,6 +178,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-5：Event種別に応じたTool公開と実行拒否を自動testで確認する。user-messageではself_getが公開され、concern_list、concern_get、concern_proposeは公開されず、直接呼ばれても実行されない。（FR-33）
 - AC-6：`previousDesire`の即時引き継ぎ、時間経過、満足済みDesire、Reflectionの新規Concern作成を自動testで確認する。（FR-43, FR-44）
 - AC-7：`idle`の沈黙・通知後の再開間隔と、promptが通知を通常会話の代替にしないことをUnit testで確認する。（FR-45）
+- AC-8：共通の社会基盤を満たしつつ、質問しない選択とDispositionによる個体差を許容することをUnit testで確認する。（FR-46）
 
 ### 方針の完了条件との対応
 
