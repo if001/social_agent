@@ -23,10 +23,17 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("プロフィール項目を順番に収集しません");
     expect(completeAgentCoreSystemPrompt).toContain("user_context_get");
     expect(completeAgentCoreSystemPrompt).toContain("好奇心、期待、戸惑い、軽い不安");
-    expect(completeAgentCoreSystemPrompt).toContain("挨拶または雑談");
-    expect(completeAgentCoreSystemPrompt).toContain("話題と直接つながらない軽い質問も許されます");
+    expect(completeAgentCoreSystemPrompt).toContain("挨拶または雑談でも");
+    expect(completeAgentCoreSystemPrompt).toContain("0件も選びます");
+    expect(completeAgentCoreSystemPrompt).toContain("現在の話題から1段だけ離れた軽い話題");
     expect(completeAgentCoreSystemPrompt).toContain("プロフィール事実ではなく");
     expect(completeAgentCoreSystemPrompt).toContain("既知のユーザーの好み、仕事、経験、最近の話題");
+  });
+
+  it("FR-46, AC-8: provides a shared social baseline and leaves depth to Disposition", () => {
+    for (const text of ["共通の社会基盤", "直前の発話内容へ触れて", "1段だけ深く", "共通点は、現在の話題", "0件も選びます", "Relationship / Memoryに関係の根拠がある場合だけ触れます", "返答を要求せず", "Memoryにない共有体験を作りません", "現在の話題、共有している文脈、自分の小さな開示", "相手を理解することに価値を感じやすいDisposition", "1 Eventで尋ねる質問も最大1件", "相手の反応次第で0件も選べる", "同じ問いを繰り返さない"]) expect(completeAgentCoreSystemPrompt).toContain(text);
+    expect(completeAgentCoreSystemPrompt).not.toContain("住む地域、仕事、趣味");
+    expect(completeAgentCoreSystemPrompt).not.toContain("通常の返答に軽い質問を1件添えます");
   });
 
   it("FR-33, AC-5: limits user-message retrieval to self_get and keeps Concern Tools for autonomous Events", () => {
