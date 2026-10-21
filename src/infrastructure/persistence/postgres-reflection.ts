@@ -14,9 +14,13 @@ const summaryOf = (observation: unknown): string => {
   return "記録された出来事";
 };
 
-function applyConcerns(current: readonly Concern[], changes: ReflectionOutput["concernChanges"]): Concern[] {
+function applyConcerns(current: readonly Concern[], changes: ReflectionOutput["concernChanges"], nextId: () => string): Concern[] {
   const values = new Map(current.map((value) => [value.id, value]));
-  for (const change of changes) if (change.operation === "remove") values.delete(change.id); else values.set(change.concern.id, change.concern);
+  for (const change of changes) {
+    if (change.operation === "remove") { values.delete(change.id); continue; }
+    if (change.operation === "create") { const id = nextId(); values.set(id, { ...change.concern, id }); continue; }
+    values.set(change.concern.id, change.concern);
+  }
   return [...values.values()];
 }
 
@@ -63,11 +67,16 @@ export class PostgresReflectionRepository implements ReflectionRepository {
       const run = await client.query<{ status: string }>("SELECT status FROM reflection_runs WHERE id=$1 AND agent_id=$2 FOR UPDATE", [input.reflectionId, input.agentId]);
       if (run.rows[0]?.status === "completed") { await client.query("COMMIT"); return "duplicate"; }
       if (run.rows[0] === undefined) throw new DomainError("NOT_FOUND", "Reflection run was not found");
-      const state = AgentStateSchema.parse({ ...input.state, ...(output.mood === undefined ? {} : { mood: output.mood }), concerns: applyConcerns(input.state.concerns, output.concernChanges), relationships: applyRelationships(input.state.relationships, output.relationshipChanges) });
+      const state = AgentStateSchema.parse({ ...input.state, ...(output.mood === undefined ? {} : { mood: output.mood }), concerns: applyConcerns(input.state.concerns, output.concernChanges, () => this.ids.next()), relationships: applyRelationships(input.state.relationships, output.relationshipChanges) });
       const self = output.self ?? input.self;
       const updated = await client.query("UPDATE agent_states SET disposition=$3,self_story=$4,commitments=$5,concerns=$6,relationships=$7,mood=COALESCE($8,mood),version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2 RETURNING version", [input.agentId, input.expectedVersion, self.disposition, self.selfStory, JSON.stringify(self.commitments), JSON.stringify(state.concerns), JSON.stringify(state.relationships), state.mood ?? null]);
       if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection state version conflict");
       if (self.identity !== input.self.identity) await client.query("UPDATE agents SET identity=$2,updated_at=now() WHERE id=$1", [input.agentId, self.identity]);
+      await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind='concern-due'", [input.agentId]);
+      for (const concern of state.concerns) {
+        if (concern.status !== "active" || concern.reconsiderAt === undefined) continue;
+        await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,$4)", [`concern:${concern.id}`, input.agentId, concern.whyItMatters, concern.reconsiderAt]);
+      }
       for (const memory of output.memories) {
         const id = this.ids.next(); const createdAt = this.now();
         await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,'episodic',$3,$4,$5,$6,$7,$8,'pending')", [id, input.agentId, memory.summary, memory.significance, memory.occurredAt, createdAt, memory.source ?? null, JSON.stringify(input.events.map(({ id: eventId }) => eventId))]);

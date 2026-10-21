@@ -101,6 +101,27 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(secondCallTools).toContain("concern_list");
   });
 
+  it("FR-24, FR-44: reads an empty concern list and proceeds without proposing a Concern", async () => {
+    let observedExecutions: readonly { name: string }[] = [];
+    const registry = new ToolRegistry([
+      { name: "concern_list", description: "List concerns", schema: z.object({ limit: z.number().optional() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { count: 0, concerns: [] } }) },
+      { name: "concern_propose", description: "Propose a concern", schema: z.object({ description: z.string() }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true }) }
+    ]);
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "http://unused", apiKey: "unused", model: "fake", toolRegistry: registry, agentFactory: (options) => {
+      const listTool = (options.tools as unknown as { name: string; invoke(input: Record<string, unknown>, config: { context: ReturnType<typeof context> }): Promise<unknown> }[]).find(({ name }) => name === "concern_list");
+      return { invoke: async (_input, config) => {
+        if (listTool === undefined) throw new Error("concern_list Tool is missing");
+        await listTool.invoke({ limit: 8 }, { context: config.context });
+        observedExecutions = config.context.collector.executions;
+        return { structuredResponse: { desire: "今は新しいConcernを提案せず応答したい", actionType: "no-external-action", reason: "空のConcern一覧だけでは提案を強制しない" } };
+      } };
+    } });
+    const result = await invoker.invoke({ messages: [{ role: "user", content: "idle" }] }, { signal: new AbortController().signal, recursionLimit: 6, maxModelCalls: 6, agentId: "agent-a", runId: "empty-concern-no-proposal", eventId: "empty-concern-no-proposal-event", eventKind: "internal", maxToolCalls: 5 });
+    expect(result.structuredResponse).toMatchObject({ action: { type: "no-external-action" } });
+    expect(observedExecutions).toEqual(expect.arrayContaining([expect.objectContaining({ name: "concern_list" })]));
+    expect(observedExecutions).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "concern_propose" })]));
+  });
+
   it("FR-32, FR-35: returns an identical recent Tool input as a Tool failure without executing it again", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);

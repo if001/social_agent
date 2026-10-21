@@ -62,7 +62,7 @@ UI層はEventの送受信だけを担い、認知・状態更新・永続化を�
 ## 正規Agent Loop
 
 1. Runtimeが受信EnvelopeをEventへ正規化し、重複受信、TTL、hop、rate limit、Agent単位lockを検査する。
-2. Context BuilderがCurrent Self、Current State、Recent Experience、関連Memory、利用可能Tool、実行制約を読み込む。middlewareはEvent種別に応じて公開Toolを制限し、user-messageではself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。
+2. Context BuilderがCurrent Self、Current State、Recent Experience、関連Memory、`previousDesire`、利用可能Tool、実行制約を読み込む。middlewareはEvent種別に応じて公開Toolを制限し、user-messageではself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。
 3. Agent CoreがContextからFinal Meaning、Feeling、`desire`、最終`action`、任意の`patch`を一つの構造化出力で決める。Toolを使う場合も同じDeep Agent内でTool resultを受けて続行する。
 4. RuntimeがMeaningとFeelingをAssessmentへ分離し、出力、参照、ActionとTool実績の整合性、Patchの更新範囲を検証する。
 5. Event、Run、Tool execution、State change、即時Memory、Receipt、Outboxを一つのtransactionで確定する。
@@ -77,6 +77,7 @@ ContextへAgentState全体を無制限に渡さず、現在の判断に必要な
 - Current Self: `identity`、`disposition`、`selfStory`、`commitments`
 - Current State: 任意の`mood`、`concerns`、`relationships`
 - Concern: 内容、重要な理由、状態、任意の再検討時刻
+- Previous Desire: 直前の成功runのDesireと発生時刻。現在のEventにふさわしい場合だけ現在の意図として使う
 - Memory: episodic / semantic / self-related / self-change、重要度、subject、EventまたはMemoryの根拠
 - Recent Experience: 直近Eventの再判断に必要なObservation要点、Action、Tool実績、進展有無。Event IDと時刻は外側に一度だけ保持し、監査用provenanceや元入力本文は含めない
 
@@ -119,7 +120,7 @@ Patchは任意のmood、Relationship 1件、即時Memory意図に限定する。
 
 常時思考loopは持たない。Schedulerは`idle`、`concern-due`、`external-change`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。`idle`などの自律Eventは通常Agent Loopへ入り、Concernの`reconsiderAt`はscheduleと同期する。Schedulerは`idle` Eventごとに`config/exploration-domains.yaml`からランダムな最大8件を候補として渡すが、探索方法は指定しない。Agent Coreは`concern_list`で状態を取得し、Focus ConcernまたはConcern不在を判断したうえで、`concern_propose`の`explorationMode`として`deepen`、`bridge`、`distant`を必要に応じて選ぶ。永続的な探索modeとcursorは持たない。モードの成功・失敗による巡回状態も保存しない。
 
-Reflectionは蓄積EventをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理である。Memoryは会話やTool結果の保存場所ではなく、後の検索と判断で再利用する具体的な要点を1〜2文で生成する。通常Action選択とは分離し、Self変更にはMemory根拠と明示的理由を要求する。ReflectionもDeep Agentsの`toolStrategy`による説明付き構造化出力を使い、モデル向けの単純な変更recordを厳密なDomain outputへ変換する。入力はEvent / Memory各32件と8,000推定token、1回の出力はMemory / Concern / Relationship各4件までに制限する。連続失敗時のscheduleは5分を起点に指数backoffし、最大24時間まで延長する。
+Reflectionは蓄積EventをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理である。既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。Memoryは会話やTool結果の保存場所ではなく、後の検索と判断で再利用する具体的な要点を1〜2文で生成する。通常Action選択とは分離し、Self変更にはMemory根拠と明示的理由を要求する。ReflectionもDeep Agentsの`toolStrategy`による説明付き構造化出力を使い、モデル向けの単純な変更recordを厳密なDomain outputへ変換する。入力はEvent / Memory各32件と8,000推定token、1回の出力はMemory / Concern / Relationship各4件までに制限する。連続失敗時のscheduleは5分を起点に指数backoffし、最大24時間まで延長する。
 
 Agent Coreの8,000推定tokenはproviderのcontext上限ではなく観測用の警告閾値とする。超過時も呼び出しを継続し、実際の受付可否はproviderへ委ねる。ToolのJSON SchemaはDeep AgentのTool定義だけに保持し、Agent Coreのuser messageへTool名・説明・Schemaを重複して埋め込まない。
 
@@ -134,7 +135,7 @@ Selfは`identity`、`disposition`、`selfStory`、`commitments`を持つ。State
 | Self | 直接変更しない | Memory根拠と理由を伴って変更する | 初期化、version、所有権を検証する |
 | Mood | Patchで提案する | 変更してよい | 所有権とversionを検証してcommitする |
 | Relationship | Patchで1件提案する | 整理・変更してよい | 所有権とversionを検証してcommitする |
-| Concern | `concern_propose`で提案する | 継続・満足・放棄・整理する | 成功commit時だけ作成・派生する |
+| Concern | `concern_propose`で提案する | 継続・満足・放棄・整理し、Memory根拠付きで新規作成する（1回1〜3件） | 成功commit時だけ作成・派生し、新規IDを付与する |
 | Memory | `remember`またはReflectionで提案する | 圧縮・統合・生成する | ID、時刻、根拠、所有権を付与する |
 | Scheduled Task | Toolで登録・参照・取消する | 変更しない | 期限到来時にSystem Eventを生成する |
 | Scheduler | 状態を変更しない | 状態を変更しない | Event生成、claim、lease、retryを行う |

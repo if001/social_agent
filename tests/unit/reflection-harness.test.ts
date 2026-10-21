@@ -51,6 +51,16 @@ describe("structured Reflection model", () => {
     });
   });
 
+  it("FR-25, FR-44: converts a create Concern and defaults it to active", async () => {
+    const result = await new StructuredReflectionModel({ invoke: () => Promise.resolve({ structuredResponse: {
+      memories: [],
+      concernChanges: [{ operation: "create", description: "新しい設計意図を確かめる", whyItMatters: "探索役としての役割に関わる" }],
+      relationshipChanges: [],
+      evidenceMemoryIds: ["memory-1"]
+    } }) }).reflect(input, new AbortController().signal);
+    expect(result.concernChanges).toEqual([{ operation: "create", concern: { description: "新しい設計意図を確かめる", whyItMatters: "探索役としての役割に関わる", status: "active" } }]);
+  });
+
   it("FR-42: fails without a valid commit value after the configured repair", async () => {
     let calls = 0;
     const model = new StructuredReflectionModel({ invoke: () => {
@@ -80,7 +90,7 @@ describe("structured Reflection model", () => {
     expect(JSON.stringify(ReflectionModelOutputJsonSchema)).not.toContain('"pattern":');
     const properties = ReflectionModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
     expect(properties.memories?.description).toContain("Context検索");
-    expect(properties.concernChanges?.description).toContain("未解決事項");
+    expect(properties.concernChanges?.description).toContain("気に掛けていること");
     expect(properties.relationshipChanges?.description).toContain("関係が変わらなければ");
     expect(properties.mood?.description).toContain("次の複数Event");
     expect(properties.mood).toMatchObject({ maxLength: 160 });
@@ -88,6 +98,7 @@ describe("structured Reflection model", () => {
     expect(properties.selfDisposition?.description).toContain("意味づけの傾向");
     expect(properties.evidenceMemoryIds?.description).toContain("Runtimeが検証");
     expect(reflectionSystemPrompt).toContain("空のmaintenance結果は正しい");
+    expect(reflectionSystemPrompt).toContain("新しいConcern");
     expect(reflectionSystemPrompt).toContain("入力Eventを網羅的に要約しない");
   });
 

@@ -44,6 +44,13 @@ describe("embedding and context", () => {
     expect(result.currentSelf.commitments).toHaveLength(12);
   });
 
+  it("FR-3, FR-43: passes previous Desire with occurredAt and bounds its text", () => {
+    const input = agentCoreInputFixture();
+    input.previousDesire = { occurredAt: "2026-01-02T02:54:05.000Z", desire: "d".repeat(900) };
+    const result = new ContextBuilder().build(input, { maxTokens: 4_000, maxMemories: 1, maxSocialContexts: 1 });
+    expect(result.previousDesire).toEqual({ occurredAt: input.previousDesire.occurredAt, desire: "d".repeat(800) });
+  });
+
   it("FR-9: keeps only the explicit previous Assessment as minimal affective context", () => {
     const input = agentCoreInputFixture();
     input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", meaning: "検索結果が期待と違った", feeling: "少し苛立っている" };

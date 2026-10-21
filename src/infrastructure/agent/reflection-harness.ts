@@ -19,13 +19,27 @@ const ReflectionMemorySchema = z.object({
 }).strict().describe("今後の判断に再利用する価値がある経験。入力Eventの単なる要約は保存しない");
 
 const ReflectionConcernChangeSchema = z.object({
-  operation: z.enum(["upsert", "remove"]).describe("既存Concernを整理・終了状態へ更新するならupsert、重複や不要な既存Concernを消すならremove"),
-  id: z.string().min(1).describe("入力state.concernsに存在するConcern ID。新しいIDは作らない"),
-  description: z.string().trim().min(1).max(16_000).optional().describe("まだ気に掛ける未解決事項。作業手順ではなく、何が未解決かを一文で書く。upsertだけに指定する"),
-  whyItMatters: z.string().trim().min(1).max(16_000).optional().describe("この未解決事項を次回以降の判断へ残す理由。現在のSelfや関係との結び付きを具体的に書く。upsertだけに指定する"),
-  status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。upsertだけに指定する"),
+  operation: z.enum(["create", "upsert", "remove"]).describe("新しいConcernを作るならcreate、既存Concernを更新するならupsert、重複や不要な既存Concernを消すならremove"),
+  id: z.string().min(1).optional().describe("入力state.concernsに存在するConcern ID。upsertとremoveでは必須。createでは指定しない"),
+  description: z.string().trim().min(1).max(16_000).optional().describe("気に掛けること。未解決課題だけでなく、知りたい、確かめたい、共有したい、守りたいことを一文で書く。createとupsertで必須"),
+  whyItMatters: z.string().trim().min(1).max(16_000).optional().describe("このConcernを次回以降の判断へ残す理由。現在のSelfや関係との結び付きを具体的に書く。createとupsertで必須"),
+  status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。createではactiveだけ、upsertでは必須"),
   reconsiderAt: z.string().optional().describe("Schedulerが再検討Eventを起こす日時。入力から明確な将来時刻を決められる場合だけ指定する")
-}).strict().describe("複数Eventにわたり判断へ影響する未解決事項の変更。今回だけの感想や実行手順は入れない");
+}).strict().superRefine((value, context) => {
+  if (value.operation === "create") {
+    if (value.id !== undefined) context.addIssue({ code: "custom", path: ["id"], message: "create must not specify id" });
+    if (value.description === undefined) context.addIssue({ code: "custom", path: ["description"], message: "create requires description" });
+    if (value.whyItMatters === undefined) context.addIssue({ code: "custom", path: ["whyItMatters"], message: "create requires whyItMatters" });
+    if (value.status !== undefined && value.status !== "active") context.addIssue({ code: "custom", path: ["status"], message: "create requires active status" });
+    return;
+  }
+  if (value.id === undefined) context.addIssue({ code: "custom", path: ["id"], message: "upsert and remove require id" });
+  if (value.operation === "upsert") {
+    if (value.description === undefined) context.addIssue({ code: "custom", path: ["description"], message: "upsert requires description" });
+    if (value.whyItMatters === undefined) context.addIssue({ code: "custom", path: ["whyItMatters"], message: "upsert requires whyItMatters" });
+    if (value.status === undefined) context.addIssue({ code: "custom", path: ["status"], message: "upsert requires status" });
+  }
+}).describe("複数Eventにわたり判断へ影響するConcernの変更。今回だけの感想や実行手順は入れない");
 
 const ReflectionRelationshipChangeSchema = z.object({
   operation: z.enum(["upsert", "remove"]).describe("今後の対人Contextへ残すならupsert、既存Relationshipを消すならremove"),
@@ -35,7 +49,7 @@ const ReflectionRelationshipChangeSchema = z.object({
 
 export const ReflectionModelOutputSchema = z.object({
   memories: z.array(ReflectionMemorySchema).max(4).describe("Memory DBへ新規保存し、今後のContext検索に使う経験。保存価値がなければ空配列"),
-  concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("現在Stateのconcernsへ適用する変更。未解決事項が変わらなければ空配列"),
+  concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("現在Stateのconcernsへ適用する変更。新規作成は最大3件。気に掛けていることが変わらなければ空配列"),
   relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("現在Stateのrelationshipsへ適用する変更。関係が変わらなければ空配列"),
   mood: z.string().trim().min(1).max(160).optional().describe("今回だけのFeelingではなく、次の複数Eventの意味づけや行動へ影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がなければ省略する"),
   selfIdentity: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
@@ -43,8 +57,11 @@ export const ReflectionModelOutputSchema = z.object({
   selfStory: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfCommitments: z.array(z.string().trim().min(1).max(16_000)).max(12).optional().describe("全Eventで守るもの、続ける関係、譲らないこと。十分なMemory根拠で変化した場合だけ、完全な配列を指定する"),
   selfChangeReason: z.string().trim().min(1).max(16_000).optional().describe("どの反復経験または強い経験によりSelfがどう変わったか。Selfの全fieldと一緒にだけ指定する"),
-  evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更をRuntimeが検証するための根拠Memory ID。Selfを変更しない場合は空配列")
-}).strict().describe("永続状態へ実際に適用する最小限の変更。入力の説明や変更のない値は出力しない");
+  evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更または新規ConcernをRuntimeが検証するための根拠Memory ID。どちらも変更しない場合は空配列")
+}).strict().superRefine((value, context) => {
+  if (value.concernChanges.filter((change) => change.operation === "create").length > 3) context.addIssue({ code: "custom", path: ["concernChanges"], message: "create at most three Concerns per reflection" });
+  if (value.concernChanges.some((change) => change.operation === "create") && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "new Concerns require Memory evidence" });
+}).describe("永続状態へ実際に適用する最小限の変更。入力の説明や変更のない値は出力しない");
 
 export const ReflectionModelOutputJsonSchema = modelJsonSchema(ReflectionModelOutputSchema);
 export const reflectionStructuredOutputRepairMessage = "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。memories、concernChanges、relationshipChanges、evidenceMemoryIdsは必須の配列で、変更がなければ空配列にしてください。任意fieldは変更がある場合だけ指定してください。";
@@ -53,19 +70,19 @@ type ReflectionResponseFormat = TypedToolStrategy<z.infer<typeof ReflectionModel
 export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以降の判断に必要な永続状態へ整理するReflection担当です。
 
 目的:
-- Eventの再説明ではなく、今後も使うMemory、未解決Concern、関係の変化、持続するMoodだけを残す
+- Eventの再説明ではなく、今後も使うMemory、気に掛けるConcern、関係の変化、持続するMoodだけを残す
 - Selfは、反復した経験、強い経験、または既存Selfとの明確な矛盾があるときだけ更新する
 
 出力基準:
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
-- Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定だけを行い、新しいConcernは作らない
+- Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定に加え、Memory根拠とwhyItMattersがある場合だけ新しいConcernを1回1〜3件まで作成できる。createではidを指定しない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
 - Mood: 今回だけのFeelingではなく、次の複数Eventへ残る背景的な気分を短い1文で書く。現在のEvent、返答待ち、理由、願望、計画は含めず、持続する変化がなければ省略する
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
 
 制約:
 - 入力にない事実、ID、日時、関係を作らない
-- 入力Eventを網羅的に要約しない。同じ内容のMemoryを重複して作らない
+- 新しいConcernには、入力Memory IDをevidenceMemoryIdsへ含める。入力Eventを網羅的に要約しない。同じ内容のMemoryを重複して作らない
 - 変更がなければ配列は空、任意fieldは省略する。空のmaintenance結果は正しい
 - reflectionId、agentId、expectedVersion、入力Selfを出力へ複製しない
 - Action、ユーザー向け応答、Markdown、説明文は返さず、指定された構造化出力だけを返す${concernLifecyclePrompt}`;
@@ -74,9 +91,11 @@ function domainOutputFromModel(raw: unknown): unknown {
   const parsed = ReflectionModelOutputSchema.safeParse(raw);
   if (!parsed.success) return raw;
   const value = parsed.data;
-  const concernChanges = value.concernChanges.map((change) => change.operation === "remove"
-    ? { operation: change.operation, id: change.id }
-    : { operation: change.operation, concern: { id: change.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } });
+  const concernChanges = value.concernChanges.map((change) => {
+    if (change.operation === "remove") return { operation: change.operation, id: change.id };
+    if (change.operation === "create") return { operation: change.operation, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } };
+    return { operation: change.operation, concern: { id: change.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } };
+  });
   const relationshipChanges = value.relationshipChanges.map((change) => change.operation === "remove"
     ? { operation: change.operation, subjectId: change.subjectId }
     : { operation: change.operation, relationship: { subjectId: change.subjectId, description: change.description } });

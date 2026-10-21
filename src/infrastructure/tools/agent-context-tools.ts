@@ -63,7 +63,7 @@ export function createAgentContextTools(pool: Pool): readonly RegisteredTool[] {
     },
     {
       name: "concern_propose",
-      description: "次回以降も追う具体的な未解決事項を提案する。実行中は保存せず、Event成功時だけ確定する。通常1件、明確に独立する場合でも合計3件程度まで。",
+      description: "次回以降も気に掛けることを提案する。知りたい、確かめたい、共有したい、守りたい、感情的なしこり、関係の継続を含み、未解決課題だけに限らない。実行中は保存せず、Event成功時だけ確定する。通常1件、明確に独立する場合でも合計3件程度まで。",
       schema: ConcernProposalSchema,
       resultPolicy: { kind: "standard", project: (value) => value },
       execute: (proposal) => success({ queued: true, proposal })
