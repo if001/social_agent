@@ -125,6 +125,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-40 | Unit, Integration | `tests/unit/scheduled-task-tools.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Scheduled Task の分離 |
 | FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
+| FR-45 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts` | idle の再開間隔と通知の扱い |
 
 ### Non-functional requirements
 
@@ -154,6 +155,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-4 | Evaluation | `tests/evaluation/evaluation-runner.test.ts` | paired live evaluation |
 | AC-5 | System, Unit | `tests/system/tool-loop.test.ts`, `tests/unit/agent-prompts.test.ts` | Event種別ごとのTool公開と実行拒否 |
 | AC-6 | Unit, Contract, Integration, System, Evaluation | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | previousDesire（満足済み含む）と Reflection 新規Concern |
+| AC-7 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts` | idle の沈黙・通知後の再開と通常経路 |
 
 ## Standard verification
 
