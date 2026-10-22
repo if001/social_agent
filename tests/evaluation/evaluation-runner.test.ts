@@ -28,6 +28,9 @@ describe("live evaluation runner", () => {
     expect(evaluationScenarios).toHaveLength(20);
     expect(new Set(evaluationScenarios.map(({ pairId }) => pairId))).toEqual(new Set(["praise", "criticism", "boredom", "refusal", "curiosity", "individuality", "user-curiosity", "desire-handoff", "desire-stale", "desire-satisfied"]));
     expect(evaluationScenarios.filter(({ pairId }) => pairId === "individuality").every(({ pairExpectation }) => pairExpectation.stateCarryover === "within-variant-turns")).toBe(true);
+    const idleScenarios = evaluationScenarios.filter(({ agentCoreInputs }) => agentCoreInputs.some(({ observation }) => JSON.stringify(observation).includes('"targetKind":"idle"')));
+    expect(idleScenarios.length).toBeGreaterThan(0);
+    expect(idleScenarios.every(({ maxToolCalls }) => maxToolCalls >= 4)).toBe(true);
     expect(evaluationScenarios.find(({ id }) => id === "PAIR-USER-CURIOSITY-S")?.semanticRubric).toContain("uses-known-user-context-without-reasking-it");
     expect(evaluationScenarios.find(({ id }) => id === "PAIR-DESIRE-HANDOFF-S")?.agentCoreInputs[0]?.previousDesire?.occurredAt).toBe("2026-01-01T00:00:00.000Z");
     expect(evaluationScenarios.find(({ id }) => id === "PAIR-DESIRE-STALE-S")?.agentCoreInputs[0]?.previousDesire?.occurredAt).toBe("2025-12-20T00:00:00.000Z");

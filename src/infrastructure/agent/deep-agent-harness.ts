@@ -1,11 +1,10 @@
 import { agentCoreSystemPrompt } from "./deep-agent-prompt.js";
-import { autonomousExplorationPrompt } from "./autonomous-exploration-prompt.js";
-import { concernLifecyclePrompt } from "./concern-lifecycle-prompt.js";
 import { createAgentCoreMiddleware } from "./deep-agent-middleware.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunContextSchema, type DeepAgentToolRunContext } from "./deep-agent-tools.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { modelJsonSchema } from "./model-json-schema.js";
-import { createDeepAgent } from "deepagents";
+import { createDeepAgent, FilesystemBackend } from "deepagents";
+import { resolve } from "node:path";
 import { toolStrategy, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
 
@@ -31,7 +30,7 @@ const AgentCoreFlatOutputSchema = z.object({
   relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。プロフィール事実ではなく、信頼、共有の仕方、会話の深まりなど関係自体を書く。relationshipOperationがupsertの場合は必須"),
   remember: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す要点。ユーザーの生活、仕事、趣味、経験、好みなど次回以降に価値がある具体的事実も対象とする。会話やTool結果を転載せず1〜2文で指定")
 }).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
-export const completeAgentCoreSystemPrompt = `${agentCoreSystemPrompt}${autonomousExplorationPrompt}${concernLifecyclePrompt}`;
+export const completeAgentCoreSystemPrompt = agentCoreSystemPrompt;
 
 function dispositionTendency(disposition: string): string {
   const sentences = disposition.split(/(?<=[。！？])/u).map((value) => value.trim()).filter((value) => value.length > 0);
@@ -85,7 +84,7 @@ type ReusableDeepAgent = {
   ): Promise<{ readonly structuredResponse?: unknown; readonly messages?: unknown }>;
 };
 
-type ReusableDeepAgentFactoryOptions = {
+export type ReusableDeepAgentFactoryOptions = {
   readonly model: ReturnType<typeof createOllamaChatModel>;
   readonly tools: DeepAgentToolsOption;
   readonly systemPrompt: string;
@@ -227,7 +226,7 @@ export class DeepAgentHarness implements AgentHarness {
   }
 }
 
-export type OllamaDeepAgentConfig = OllamaChatConfig & { readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date; readonly agentFactory?: ReusableDeepAgentFactory; readonly modelFactory?: typeof createOllamaChatModel };
+export type OllamaDeepAgentConfig = OllamaChatConfig & { readonly toolRegistry?: ToolRegistry; readonly logger?: Logger; readonly now?: () => Date; readonly agentFactory?: ReusableDeepAgentFactory; readonly modelFactory?: typeof createOllamaChatModel; readonly skillsRoot?: string };
 
 export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConfig, "apiKey" | "baseUrl" | "model">, fetcher: typeof fetch = fetch): Promise<void> {
   let response: Response;
@@ -240,20 +239,29 @@ export async function checkOllamaChatCapability(config: Pick<OllamaDeepAgentConf
   if (!available) throw new DomainError("VALIDATION", `Configured Ollama chat model is unavailable: ${config.model}`);
 }
 
+export function createDefaultDeepAgentFactory(skillsRoot: string, deepAgent: typeof createDeepAgent = createDeepAgent): ReusableDeepAgentFactory {
+  return (options) => {
+    const backend = new FilesystemBackend({ rootDir: skillsRoot, virtualMode: true });
+    return deepAgent({
+      model: options.model,
+      tools: options.tools,
+      systemPrompt: options.systemPrompt,
+      responseFormat: options.responseFormat,
+      contextSchema: options.contextSchema,
+      middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]>,
+      backend,
+      skills: ["/"]
+    }) as unknown as ReusableDeepAgent;
+  };
+}
+
 export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): DeepAgentInvoker {
   const model = (config.modelFactory ?? createOllamaChatModel)(config);
   const logger = config.logger ?? noopLogger;
   const now = config.now ?? (() => new Date());
   const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
   const middleware = [createAgentCoreMiddleware(config.toolRegistry, logger, now)];
-  const factory: ReusableDeepAgentFactory = config.agentFactory ?? ((options) => createDeepAgent({
-    model: options.model,
-    tools: options.tools,
-    systemPrompt: options.systemPrompt,
-    responseFormat: options.responseFormat,
-    contextSchema: options.contextSchema,
-    middleware: options.middleware as NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["middleware"]>
-  }) as unknown as ReusableDeepAgent);
+  const factory: ReusableDeepAgentFactory = config.agentFactory ?? createDefaultDeepAgentFactory(config.skillsRoot ?? resolve(process.cwd(), "skills"));
   const responseFormat = toolStrategy(AgentCoreModelOutputJsonSchema, { handleError: (error) => {
     logger.log("warn", "agent_core.structured_output_invalid", errorLogContext(error));
     return agentCoreStructuredOutputRepairMessage;

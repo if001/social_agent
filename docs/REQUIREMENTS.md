@@ -102,6 +102,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-9：FeelingはEvent内の短期反応とし、原則として保存しない。直近のAssessmentを`previousAssessment`として次のEventへ1件渡し、持続する変化だけStateまたはMemoryへ保存する。（C-07, C-15）
 - FR-10：Memoryはepisodic / semantic / self-related / self-change、内容、重要度、時刻、subject、根拠Event / Memoryを保持する。（C-10）
 - FR-46：共通の社会基盤として、応答優先、相手の開示より1段だけ深い話題、現在の話題・共有文脈・Memoryからの共通点、質問最大1件/0件、機微話題の関係根拠、低圧な非同期、Memoryにない共有体験の不在を守る。個体差はDispositionで表現し、数値パラメータを持たない。（C-01, C-02, C-11, C-12）
+- FR-47：単一のAgent Coreで、Event種別ごとのruntime skill（`skills/*/SKILL.md`）を選んで読み、Tool利用、Flow、出力方針を切り替える。system promptは共通規則とskillルーティングだけを持ち、skillの本文を常時埋め込まない。（C-02, C-17）
 - FR-43：直前の成功runのDesireを`occurredAt`付きで`previousDesire`として1件受け、経過時間、前回Actionの結果、現在Eventとの関連から、現在のDesireとして使うか判断する。新しい永続fieldやtableを持たない。（C-06）
 - NFR-1：Contextと更新対象へ別Agent所有のSelf、State、Recent Experience、Memoryを混入させない。（C-26, C-28）
 - NFR-2：通常InteractionはSelfを直接変更しない。ReflectionによるSelf変更にはMemory根拠と理由を要求する。（C-24, C-25）
@@ -179,7 +180,8 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-6：`previousDesire`の即時引き継ぎ、時間経過、満足済みDesire、Reflectionの新規Concern作成を自動testで確認する。（FR-43, FR-44）
 - AC-7：`idle`の沈黙・通知後の再開間隔と、promptが通知を通常会話の代替にしないことをUnit testで確認する。（FR-45）
 - AC-8：共通の社会基盤を満たしつつ、質問しない選択とDispositionによる個体差を許容することをUnit testで確認する。（FR-46）
-- AC-9：Agent Coreのsystem prompt合計は4,500文字以下を保つ。（NFR-4）
+- AC-9：Agent Coreの実効system promptは4,500文字以下を保つ。SkillsMiddlewareのskill catalogはモデルへ渡す前に除去する。（NFR-4）
+- AC-10：Event種別ごとのskillが読み込まれ、user-message / idle / concern-due / scheduled-taskのFlowに応じた指示へ到達することをUnit testで確認する。（FR-47）
 
 ### 方針の完了条件との対応
 
