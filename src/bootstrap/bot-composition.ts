@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 
+import { resolve } from "node:path";
 import { AgentEventRouter } from "../application/agent-event-router.js";
 import { AgentRuntime, OutboxDispatcher } from "../application/agent-runtime.js";
 import { Reflection } from "../application/reflection.js";
@@ -21,6 +22,7 @@ import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
 import { noopLogger, type Logger } from "../observability/logger.js";
 import { createAgentSendTool } from "../infrastructure/tools/agent-send-tool.js";
 import { createFileTools } from "../infrastructure/tools/file-tools.js";
+import { createSkillTools } from "../infrastructure/tools/skill-tools.js";
 import { createWebTools } from "../infrastructure/tools/web-tools.js";
 import { createScheduledTaskTools } from "../infrastructure/tools/scheduled-task-tools.js";
 import { createAgentContextTools } from "../infrastructure/tools/agent-context-tools.js";
@@ -47,6 +49,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     ...createAgentContextTools(pool),
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
+    ...createSkillTools({ skillsRoot: resolve(process.cwd(), "skills") }),
     ...createScheduledTaskTools(pool, ids, () => clock.now()),
     createAgentSendTool({ queue, clock, maxHops: limits.maxHops, provenance: (context) => ({
       parentHop: context.transport?.hop ?? 0,

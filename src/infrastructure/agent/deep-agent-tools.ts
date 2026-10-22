@@ -13,6 +13,7 @@ export class ToolExecutionCollector {
   structuredOutputFailed = false;
   contentReadCharacters = 0;
   contentReadReservedCharacters = 0;
+  skillReadReservedCharacters = 0;
   contentReadLimitReached = false;
   focusConcernAcquired = false;
   readonly executions: ToolExecutionRecord[] = [];
@@ -86,14 +87,25 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
     const policy = registry.resultPolicy(name);
     const requestedContentCharacters = policy?.kind === "content-read" ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : policy.defaultRequestCharacters) : 0;
-    if (policy?.kind === "content-read" && context.collector.contentReadReservedCharacters + requestedContentCharacters > policy.runCharacterBudget) {
-      context.collector.contentReadLimitReached = true;
-      const finishedAt = now().toISOString(); const error = "Content read limit reached. No more content can be read for this task.";
-      context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
-      logger.log("warn", "tool.completed", { ok: false, errorCode: "CONTEXT_BUDGET", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
-      return JSON.stringify({ ok: false, errorCode: "CONTENT_READ_LIMIT_REACHED", error, requiredNextStep: "Use the information already obtained and return the final Action now." });
+    const skillRead = name === "skill_read";
+    if (policy?.kind === "content-read" && skillRead) {
+      if (context.collector.skillReadReservedCharacters + requestedContentCharacters > policy.runCharacterBudget) {
+        const finishedAt = now().toISOString(); const error = "Skill read limit reached. No more skills can be read for this task.";
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
+        logger.log("warn", "tool.completed", { ok: false, errorCode: "CONTEXT_BUDGET", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+        return JSON.stringify({ ok: false, errorCode: "CONTENT_READ_LIMIT_REACHED", error, requiredNextStep: "Use the information already obtained and return the final Action now." });
+      }
+      context.collector.skillReadReservedCharacters += requestedContentCharacters;
+    } else if (policy?.kind === "content-read") {
+      if (context.collector.contentReadReservedCharacters + requestedContentCharacters > policy.runCharacterBudget) {
+        context.collector.contentReadLimitReached = true;
+        const finishedAt = now().toISOString(); const error = "Content read limit reached. No more content can be read for this task.";
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
+        logger.log("warn", "tool.completed", { ok: false, errorCode: "CONTEXT_BUDGET", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+        return JSON.stringify({ ok: false, errorCode: "CONTENT_READ_LIMIT_REACHED", error, requiredNextStep: "Use the information already obtained and return the final Action now." });
+      }
+      context.collector.contentReadReservedCharacters += requestedContentCharacters;
     }
-    context.collector.contentReadReservedCharacters += requestedContentCharacters;
     const signature = JSON.stringify({ tool: name, input: projectToolInput(rawInput) });
     const repeatedInRun = context.collector.executions.some((execution) => JSON.stringify({ tool: execution.name, input: projectToolInput(execution.input) }) === signature);
     if (context.recentToolInputs.includes(signature) || repeatedInRun) {

@@ -1,13 +1,17 @@
-import { createMiddleware, ToolMessage } from "langchain";
+import { createMiddleware, SystemMessage, ToolMessage } from "langchain";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { DomainError } from "../../domain/contracts.js";
 import { errorLogContext, type Logger } from "../../observability/logger.js";
 import { DeepAgentToolRunContextSchema, filterModelToolsAfterLimits } from "./deep-agent-tools.js";
 import { serializeMessageContent, summarizeModelResponse, toolName } from "./model-response.js";
 
+export function stripSkillsSystemPrompt(prompt: string): string {
+  return prompt.replace(/## Skills System[\s\S]*?(?=\n## |$)/u, "").trim();
+}
+
 export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogger: Logger, now: () => Date): ReturnType<typeof createMiddleware> {
   const registeredToolNames = new Set(registry?.registered().map(({ name }) => name) ?? []);
-  const builtInToolNames = new Set(["read_file"]);
+  const builtInToolNames = new Set<string>();
   const operationalToolNames = new Set([...registeredToolNames, ...builtInToolNames]);
   const contentReadToolNames = new Set(registry?.registered().filter(({ name }) => registry.resultPolicy(name)?.kind === "content-read").map(({ name }) => name) ?? []);
   const userMessageHiddenToolNames = new Set(["concern_list", "concern_get", "concern_propose"]);
@@ -23,7 +27,8 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
       context.collector.modelCallCount += 1;
       const modelCall = context.collector.modelCallCount;
       const logger = baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, modelCall });
-      const systemPrompt = serializeMessageContent(request.systemMessage.content);
+      const rawSystemPrompt = serializeMessageContent(request.systemMessage.content);
+      const systemPrompt = stripSkillsSystemPrompt(rawSystemPrompt);
       const messages = request.messages.map((message) => ({ role: message.type, content: message.content }));
       const serializedMessages = JSON.stringify(messages);
       if (modelCall > context.maxModelCalls) throw new DomainError("VALIDATION", "Final structured output could not be produced within the model call limit");
@@ -32,13 +37,18 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
       const finalizingReason = context.collector.structuredOutputFailed ? "structured-output-repair" : toolLimitReached ? "tool-call-limit" : modelCall === context.maxModelCalls ? "model-call-budget" : undefined;
       const phaseTools = request.tools.filter((candidate) => {
         const name = toolName(candidate);
+        if (name === "read_file") return false;
         if (name === undefined || !registeredToolNames.has(name)) return true;
         if (context.eventKind === "user-message" && userMessageHiddenToolNames.has(name)) return false;
         if (context.collector.focusConcernAcquired && ["concern_list", "concern_get"].includes(name)) return false;
         return true;
       });
       const effectiveTools = finalizing ? [] : filterModelToolsAfterLimits(phaseTools, operationalToolNames, contentReadToolNames, false, context.collector.contentReadLimitReached);
-      const effectiveRequest = effectiveTools.length === request.tools.length ? request : { ...request, tools: effectiveTools };
+      const effectiveRequest = {
+        ...request,
+        ...(systemPrompt === rawSystemPrompt ? {} : { systemMessage: new SystemMessage(systemPrompt) }),
+        ...(effectiveTools.length === request.tools.length ? {} : { tools: effectiveTools })
+      };
       const toolNames = effectiveTools.map((candidate) => toolName(candidate) ?? "unknown");
       const startedAt = now();
       logger.log("info", "agent_core.model_call_started", {

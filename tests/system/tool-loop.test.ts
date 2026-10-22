@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 
@@ -7,6 +8,7 @@ import { createAgentCoreMiddleware } from "../../src/infrastructure/agent/deep-a
 import { createDeepAgentTools, createDeepAgentToolRunContext, filterModelToolsAfterLimits, type DeepAgentRunTool } from "../../src/infrastructure/agent/deep-agent-tools.js";
 import type { AgentCoreOutput } from "../../src/domain/contracts.js";
 import { noopLogger } from "../../src/observability/logger.js";
+import { createSkillTools } from "../../src/infrastructure/tools/skill-tools.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 
 const finalOutput: AgentCoreOutput = {
@@ -205,6 +207,23 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(results.at(-1)).not.toContain("run");
     expect(results.at(-1)).not.toContain("6000");
     expect(reads).toBe(3); expect(runContext.collector.contentReadCharacters).toBe(6_000); expect(runContext.collector.contentReadReservedCharacters).toBe(6_000); expect(runContext.collector.executions.some(({ ok }) => !ok)).toBe(true);
+  });
+
+  it("FR-37, NFR-5: isolates skill reads from the content-read budget", async () => {
+    const contentPolicy = { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 };
+    const registry = new ToolRegistry([
+      ...createSkillTools({ skillsRoot: join(process.cwd(), "skills") }),
+      { name: "file_read", description: "Read file", schema: z.object({ path: z.string() }), resultPolicy: contentPolicy, execute: () => Promise.resolve({ ok: true, value: { content: "x".repeat(2_000) } }) }
+    ]);
+    const runContext = context(new AbortController().signal, 8); const [skillRead, fileRead] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    if (skillRead === undefined || fileRead === undefined) throw new Error("tools were not registered");
+    await skillRead.invoke({ name: "user-message" }, { context: runContext });
+    await skillRead.invoke({ name: "idle" }, { context: runContext });
+    const result = await fileRead.invoke({ path: "note" }, { context: runContext });
+    expect(result).not.toContain("CONTENT_READ_LIMIT_REACHED");
+    expect(runContext.collector.skillReadReservedCharacters).toBe(2_400);
+    expect(runContext.collector.contentReadReservedCharacters).toBe(2_000);
+    expect(runContext.collector.contentReadLimitReached).toBe(false);
   });
 
   it("NFR-5: does not start a Tool after cancellation", async () => {

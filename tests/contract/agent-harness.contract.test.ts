@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
@@ -9,6 +11,7 @@ import { summarizeModelResponse } from "../../src/infrastructure/agent/model-res
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
 import { AgentCoreOutputSchema, type AgentCoreOutput } from "../../src/domain/contracts.js";
+const idleSkill = readFileSync(join(process.cwd(), "skills", "idle", "SKILL.md"), "utf8");
 
 const output: AgentCoreOutput = { desire: "respond to this event", action: { type: "respond", content: "Hello" } };
 const result = { output, toolExecutions: [] };
@@ -264,18 +267,18 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).not.toContain("構造化出力専用Tool");
     expect(agentCoreSystemPrompt).not.toContain("最小引数例");
     expect(agentCoreSystemPrompt).toContain("schedule_taskが実際に利用可能な場合だけ");
-    expect(agentCoreSystemPrompt).toContain("idle Event");
+    expect(idleSkill).toContain("idle Event");
     expect(agentCoreSystemPrompt).toContain("desire");
     expect(agentCoreSystemPrompt).not.toContain("waitは返しません");
     expect(agentCoreSystemPrompt).not.toContain("Toolを使うかどうかと、ユーザーへ発話するかどうかは独立");
     expect(agentCoreSystemPrompt).not.toContain("Toolは必要な最小回数だけ");
-    expect(agentCoreSystemPrompt).toContain("返信がまだ来ていないこと");
-    expect(agentCoreSystemPrompt).toContain("発話を控える理由に絶対にしません");
-    expect(agentCoreSystemPrompt).toContain("夜間");
-    expect(agentCoreSystemPrompt).toContain("進展しなかった手段を繰り返さず");
+    expect(idleSkill).toContain("返信がまだ来ていないこと");
+    expect(idleSkill).toContain("発話を控える理由に絶対にしません");
+    expect(idleSkill).toContain("夜間");
+    expect(idleSkill).toContain("進展しなかった手段を繰り返さず");
     expect(agentCoreSystemPrompt).not.toContain("content-readの文字予算");
     expect(agentCoreSystemPrompt).not.toContain("次のrun開始時");
-    expect(agentCoreSystemPrompt).toContain("recentExperiences");
+    expect(idleSkill).toContain("recentExperiences");
     expect(agentCoreSystemPrompt).not.toContain("recentAttempts");
     expect(agentCoreSystemPrompt).toContain("内部情報や管理情報を開示しません");
     expect(agentCoreSystemPrompt).toContain("通常の会話は結論を先にして1〜3文程度");

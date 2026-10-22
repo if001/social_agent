@@ -93,6 +93,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-9 | Contract, Unit, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/memory-context.test.ts`, `tests/live/ollama-user-response.test.ts` | Feeling の短期性と Assessment 引継ぎ |
 | FR-10 | Unit, Integration | `tests/unit/domain-contracts.test.ts`, `tests/integration/persistence.test.ts` | Memory の契約と検索 |
 | FR-46 | Unit | `tests/unit/agent-prompts.test.ts` | 共通の社会基盤、深さ、質問0件、機微の境界 |
+| FR-47 | Unit | `tests/unit/agent-prompts.test.ts` | Event skillの読み込み、skill_read、ルーティング |
 | FR-11 | Contract, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/live/ollama-user-response.test.ts` | Deep Agents 本番経路 |
 | FR-12 | Contract, Evaluation | `tests/contract/agent-harness.contract.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | flat schema と説明 |
 | FR-13 | Contract | `tests/contract/agent-harness.contract.test.ts` | provider 制約の除去と Zod 再検証 |
@@ -158,7 +159,8 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-6 | Unit, Contract, Integration, System, Evaluation | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | previousDesire（満足済み含む）と Reflection 新規Concern |
 | AC-7 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts` | idle の沈黙・通知後の再開と通常経路 |
 | AC-8 | Unit | `tests/unit/agent-prompts.test.ts` | 共通の社会基盤と質問しない選択 |
-| AC-9 | Unit | `tests/unit/agent-prompts.test.ts` | system promptの文字数上限 |
+| AC-9 | Unit | `tests/unit/agent-prompts.test.ts` | 実効system prompt 4,500 |
+| AC-10 | Unit | `tests/unit/agent-prompts.test.ts` | Event種別ごとのskillルーティング |
 
 ## Standard verification
 

@@ -1,4 +1,5 @@
 import { appendFile, mkdir } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { loadConfig } from "../config/config.js";
 import { createOllamaDeepAgentInvoker, DeepAgentHarness } from "../infrastructure/agent/deep-agent-harness.js";
@@ -8,6 +9,7 @@ import { AgentCoreScenarioExecutor, OllamaEvaluator } from "./ollama-live.js";
 import { runEvaluation } from "./runner.js";
 import { evaluationScenarios } from "./scenarios.js";
 import { ToolRegistry } from "../application/tool-registry.js";
+import { createSkillTools } from "../infrastructure/tools/skill-tools.js";
 import { errorLogContext } from "../observability/logger.js";
 import { z } from "zod";
 
@@ -21,7 +23,7 @@ async function modelMetadata(baseUrl: string, model: string, headers: Record<str
 const config = await loadConfig(); const embedding = new OllamaEmbeddingProvider(config.embedding); const controller = new AbortController(); process.once("SIGINT", () => { controller.abort(); });
 await mkdir("artifacts/evaluation", { recursive: true });
 const tracePath = `artifacts/evaluation/agent-core-trace-${new Date().toISOString().replaceAll(/[:.]/gu, "-")}.jsonl`;
-const evaluationTools = new ToolRegistry([{ name: "evaluation_lookup", description: "評価用の隔離された情報源から、指定topicの追加情報を調べる", schema: z.object({ topic: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: ({ topic }: { topic: string }) => Promise.resolve({ ok: true, value: { topic, finding: `${topic}について未解決点を一つ確認した` } }) }]);
+const evaluationTools = new ToolRegistry([...createSkillTools({ skillsRoot: resolve(process.cwd(), "skills") }), { name: "evaluation_lookup", description: "評価用の隔離された情報源から、指定topicの追加情報を調べる", schema: z.object({ topic: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: ({ topic }: { topic: string }) => Promise.resolve({ ok: true, value: { topic, finding: `${topic}について未解決点を一つ確認した` } }) }]);
 const baseInvoker = createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry: evaluationTools });
 const harness = new DeepAgentHarness({ invoker: {
   invoke: async (input, options) => {
