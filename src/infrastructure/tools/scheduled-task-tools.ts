@@ -8,20 +8,21 @@ import { DomainError } from "../../domain/contracts.js";
 type TaskRow = QueryResultRow & { id: string; execute_at: Date; instruction: string; reason: string | null; destination: string | null; status: string; attempt: number };
 
 const result = (row: TaskRow) => ({ id: row.id, executeAt: row.execute_at.toISOString(), instruction: row.instruction, ...(row.reason === null ? {} : { reason: row.reason }), ...(row.destination === null ? {} : { destination: row.destination }), status: row.status, attempt: row.attempt });
-const CreateSchema = z.object({ executeAt: z.iso.datetime({ offset: true }).describe("実行する将来のISO 8601日時"), instruction: z.string().trim().min(1).max(4_000).describe("実行時にAgentへ渡す具体的な指示"), reason: z.string().trim().min(1).max(1_000).optional().describe("予約する理由"), destination: z.string().trim().min(1).max(1_000).optional().describe("実行結果を送る明示的な宛先。通常は省略する") }).strict();
+const instructionDescription = "期限到来時に実行する仕事だけを1〜2文で書く。必要なら対象、参照する情報、期待する結果を含める。実行日時、予約理由、送信先、Toolの使い方、共通動作規則は書かない";
+const CreateSchema = z.object({ executeAt: z.iso.datetime({ offset: true }).describe("実行する将来のISO 8601日時"), instruction: z.string().trim().min(1).max(1_000).describe(instructionDescription), reason: z.string().trim().min(1).max(1_000).optional().describe("この実行を予約する理由。期限到来時の作業手順は書かない"), destination: z.string().trim().min(1).max(1_000).optional().describe("結果の明示的な配送先。通常は省略する") }).strict();
 const ListSchema = z.object({ status: z.enum(["scheduled", "running", "completed", "cancelled", "failed"]).optional().describe("指定した状態だけに絞る。全件なら省略する"), limit: z.number().int().min(1).max(50).default(20).describe("返す最大件数") }).strict();
 const CancelSchema = z.object({ taskId: z.string().trim().min(1).describe("取り消すScheduled TaskのID") }).strict();
 const UpdateSchema = z.object({
   taskId: z.string().trim().min(1).describe("変更するScheduled TaskのID"),
   executeAt: z.iso.datetime({ offset: true }).optional().describe("変更後の将来のISO 8601実行日時"),
-  instruction: z.string().trim().min(1).max(4_000).optional().describe("変更後にAgentへ渡す具体的な指示"),
-  reason: z.string().trim().min(1).max(1_000).optional().describe("変更後の予約理由"),
-  destination: z.string().trim().min(1).max(1_000).optional().describe("変更後の明示的な送信先")
+  instruction: z.string().trim().min(1).max(1_000).optional().describe(instructionDescription),
+  reason: z.string().trim().min(1).max(1_000).optional().describe("この実行を予約する理由。期限到来時の作業手順は書かない"),
+  destination: z.string().trim().min(1).max(1_000).optional().describe("結果の明示的な配送先。通常は省略する")
 }).strict().refine(({ executeAt, instruction, reason, destination }) => executeAt !== undefined || instruction !== undefined || reason !== undefined || destination !== undefined, { message: "At least one field to update is required" });
 
 export function createScheduledTaskTools(pool: Pool, ids: IdGenerator, now: () => Date): readonly RegisteredTool[] {
   const create: RegisteredTool<z.infer<typeof CreateSchema>> = {
-      name: "schedule_task", description: "明示した将来時刻に実行するTaskを予約する。予約時には処理を実行しない。", resultPolicy: { kind: "standard" },
+      name: "schedule_task", description: "指定した将来時刻に一度だけ実行する仕事を予約する。予約時には実行しない。", resultPolicy: { kind: "standard" },
       schema: CreateSchema,
       execute: async (input, context) => {
         if (context.eventId === undefined) throw new DomainError("VALIDATION", "schedule_task requires an Event context");
