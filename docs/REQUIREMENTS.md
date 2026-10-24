@@ -153,7 +153,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 ## R7. Event-driven autonomyとReflection
 
 - FR-39：自律性は`idle`、`concern-due`等のEvent sourceで起動し、常時polling型の認知loopに依存しない。`idle`の再開間隔はActionに依存しない。（C-06, C-17）
-- FR-40：明示的Scheduled Taskは利用者との約束としてConcernやMemoryと分離する。（C-08）
+- FR-40：明示的Scheduled Taskは利用者との約束としてConcernやMemoryと分離する。`executeAt`は実行日時、`instruction`は期限到来時に実行する1,000文字以内の仕事、`reason`は予約理由、`destination`は明示的な配送先だけを保持する。`instruction`には日時、予約理由、配送先、Toolの使い方、共通動作規則を重複させない。（C-08）
 - NFR-6：Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。（C-08, C-27）
 - FR-41：ReflectionはEvent logをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理とする。（C-03, C-25）
 - FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与する。（C-25）
