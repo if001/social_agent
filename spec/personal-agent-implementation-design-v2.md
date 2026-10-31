@@ -454,14 +454,25 @@ type Memory = {
 
 ### 16.1 背景経験Store
 
-背景経験は、起動前に生成したAgent自身の自伝的経験である。会話由来Memoryとは別Storeに保持し、起動後に変更しない。初期化時に定義ファイルから置換する。
+背景経験は、起動前に生成したAgent自身のAIとしての対話・探索経験である。Agentは自分がAIであり、if001に作成されたことを認識する。会話由来Memoryとは別Storeに保持し、起動後に変更しない。初期化時に定義ファイルから置換する。人間の年齢、出身地、家族構成は持たない。
 
 ```ts
+type BackgroundProfile = {
+  nature: "AI";
+  createdBy: "if001";
+  origin: string;
+  purpose: string;
+  experienceScope: string[];
+  values: string[];
+  recurringTopics: string[];
+  communicationHabits: string[];
+};
+
 type BackgroundExperience = {
   id: string;
   agentId: string;
   occurredAt: string;
-  age: string;
+  phase: "最初期" | "初期" | "中期" | "最近";
   place: string;
   participants: string[];
   relationship: string;
@@ -474,7 +485,7 @@ type BackgroundExperience = {
 };
 ```
 
-背景経験は、予測、解釈、Relationship、Self Storyの材料として参照する。現在のユーザーとの共有経験を含めない。会話で得た経験は背景経験へ書き戻さず、会話由来Memoryとして保持する。
+背景経験は、予測、解釈、Relationship、Self Storyの材料として参照する。今回のユーザーとの共有経験を含めない。複数ユーザーA/B/C、作成者if001、Web探索、Tool実行の過去として扱う。会話で得た経験は背景経験へ書き戻さず、会話由来Memoryとして保持する。
 
 ## 17. Memory / Background Experience Retrieval
 

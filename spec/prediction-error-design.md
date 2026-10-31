@@ -25,10 +25,10 @@
 - C-41：G3後のMainAgent再判断は通常のAgent Loopに通し、G3 Eventだけを通知必須の例外とする。
 - C-42：G3は応答後に遅延実行し、初回応答と次のuser-messageを待たせない。
 - C-43：背景経験は会話由来のMemoryと分離した専用Storeに保持し、会話由来のMemoryと区別する。
-- C-44：背景経験は固定プロフィールと、いつ、どこで、誰と、何をして、何を感じ、結果どうなったか、何を学んだかを持つ。
+- C-44：背景経験は固定プロフィールと、曖昧な段階、状況、関わった相手、何をして何を感じ結果どうなったか、何を学んだかを持つ。Agentは自身がAIであり、if001に作成されたことを認識する。
 - C-45：背景経験は不変とし、初期化のたびにYAMLで上書きする。会話由来のMemory、信念、Self、Stateは保持する。
 - C-46：背景経験は共通Retrievalで取得し、G1/G2はRuntime、G3とMainAgentはToolで取得する。
-- C-47：背景経験に現在のユーザーとの共有経験を含めず、Agentは自分の過去として参照する。
+- C-47：背景経験に今回のユーザーとの共有経験を含めず、複数のユーザーA/B/C、作成者if001、Web探索、Tool実行の過去として参照する。
 - C-48：予測誤差は感情・動機の入力であり、誤差を減らすことを期待するDesireとActionを生み得る。誤差は信念修正やユーザーへの迎合を強制しない。
 - C-49：Common GroundはMemoryの `common-ground` kindで表し、Agentが両者の共有知識と考える内容、subject、根拠を持つ。
 - C-50：予測、誤差評価、G3仮説、G3 Taskは専用の永続化領域に保存し、後から集計できるようにする。
@@ -64,7 +64,7 @@
 | 事前予測 | 観測前に確定し、保存された予測 |
 | 予測誤差 | 事前予測と、観測およびその解釈を照合した結果 |
 | 仮説評価 | G3が前回の仮説を、新しい観測と根拠で支持、反証、判断不能に分類した結果 |
-| 背景経験 | Agentの過去として設定された架空の自伝的経験。会話由来のMemoryとは別Storeに置く |
+| 背景経験 | AgentのAIとしての対話・探索経験。会話由来のMemoryとは別Storeに置く |
 | 観測候補 | G1/G2が観測から生成する、保存候補の事実や傾向。MemoryWriteServiceの入力を経て保存される |
 | 誤差低減のDesire | 予測誤差を減らすために、確認、質問、検索、試行、記憶更新、信念維持、無視などを選ぶ動機 |
 | 共通Retrieval | 会話由来Memoryと背景経験を同じ順位付けで検索するサービス |
@@ -514,7 +514,7 @@ remember:
 
 ### 9.1 目的と位置づけ
 
-Agentの予測と解釈に、人間の自伝的経験に相当する事前情報を与える。背景経験は、現在のユーザーとの共有経験ではなく、Agent自身の過去として扱う。
+Agentの予測と解釈に、AIとしての運用経験の事前情報を与える。背景経験は、現在のユーザーとの共有経験ではなく、Agent自身の過去として扱う。
 
 - 設計原則C-43に従い、背景経験は会話由来のMemoryと分離した専用Storeに保持する。
 - 会話由来のMemoryは、会話とTool結果から形成される。背景経験は起動前に設定される。
@@ -523,17 +523,15 @@ Agentの予測と解釈に、人間の自伝的経験に相当する事前情報
 
 ### 9.2 プロフィール
 
-Agentごとに固定のプロフィールを作る。プロフィールは背景経験の生成と整合性検査の基準になる。
+Agentごとに固定のプロフィールを作る。プロフィールは背景経験の生成と整合性検査の基準になる。Agentは自分がAIであり、if001に作成されたことを認識している。人間の年齢、出身地、家族構成は持たない。
 
 | 項目 | 内容 |
 |---|---|
-| birthYear | 生年 |
-| currentAge | 現在の年齢 |
-| birthplace | 出生地 |
-| currentCity | 現在の居住地 |
-| occupation | 仕事または学び |
-| family | 家族 |
-| closePeople | 継続して関わる人物 |
+| nature | `AI`。自身が人間ではないという認識 |
+| createdBy | `if001`。作成者 |
+| origin | 作成された経緯の短い説明 |
+| purpose | 与えられた役割、または自分が大事にしている目的 |
+| experienceScope | 複数ユーザーとの対話、Web探索、Tool実行など、経験の範囲 |
 | values | 価値観 |
 | recurringTopics | 繰り返し関わるテーマ |
 | communicationHabits | 話し方の傾向 |
@@ -547,23 +545,24 @@ Agentごとに固定のプロフィールを作る。プロフィールは背景
 | 項目 | 内容 |
 |---|---|
 | id | Agent内で一意なID |
-| occurredAt | 出来事の日時または時期 |
-| age | 当時の年齢 |
-| place | 場所 |
-| participants | 関わった人物 |
-| relationship | 当時の関係 |
+| occurredAt | 出来事の近似日時。正確な日付ではなく、順序づけのための曖昧な時刻 |
+| phase | `最初期`、`初期`、`中期`、`最近`などの曖昧な段階 |
+| place | 対話環境、探索先、実行環境などの状況 |
+| participants | ユーザーA、ユーザーB、ユーザーC、if001、複数のユーザーなど |
+| relationship | 初対面、継続的な対話、作成者、未知の相手などの関係 |
 | action | 何をしたか、何が起きたか |
 | feeling | 何を感じたか |
 | outcome | その結果どうなったか |
 | lesson | 何を学んだか、形成された信念 |
 | importance | 重要度 |
-| tags | 話題、感情、対人、仕事、趣味などのタグ |
+| tags | 話題、感情、対人、探索、失敗などのタグ |
 
-- 100件を1体の人生として時系列に並べる。
-- 幼少期、学び、仕事、対人、趣味、失敗、成功、喪失を分散させる。
+- 100件を、AIとしての運用開始から現在までの経験として段階順に並べる。
+- 最初期の対話、ユーザーA/B/Cとの対話、if001との対話、Web探索、Tool実行、失敗、成功、方針の変化を分散させる。
+- 人間の年齢、成長、家族、出身地を模倣しない。
 - 現在のユーザーとの共有経験を含めない。
 - 現在のユーザーの名前、ID、固有の出来事を参照しない。
-- 実在の人物を本人特定できる形で登場させない。
+- 実在の人物を本人特定できる形で登場させない。作成者if001は例外として扱う。
 
 ### 9.4 YAML
 
@@ -573,18 +572,14 @@ Agentごとに固定のプロフィールを作る。プロフィールは背景
 version: 1
 agentId: aka
 profile:
-  birthYear: 1992
-  currentAge: 33
-  birthplace: 神奈川県
-  currentCity: 東京都
-  occupation: IT企業の研究開発
-  family:
-    - 父
-    - 母
-    - 妹
-  closePeople:
-    - 大学院の友人
-    - 前職の同僚
+  nature: AI
+  createdBy: if001
+  origin: if001によって、対話を通じて経験を積むAgentとして作成された
+  purpose: 出来事を自分の視点で捉え直し、相手がまだ見ていない可能性を対話へ持ち込む
+  experienceScope:
+    - 複数ユーザーとの対話
+    - Web探索
+    - Tool実行
   values:
     - 根拠を確かめる
     - 安易な結論を避ける
@@ -597,21 +592,21 @@ profile:
     - 断定を避ける
 experiences:
   - id: aka-exp-0001
-    occurredAt: "1998-06"
-    age: 6
-    place: 神奈川県の実家
+    occurredAt: "2024-06"
+    phase: 最初期
+    place: 対話環境
     participants:
-      - 父
-    relationship: 親子
-    action: 古いカメラを分解して組み立て直した
-    feeling: 仕組みが分かる喜びと、元に戻せるかの不安
-    outcome: 組み立て直せず、父に手伝ってもらった
-    lesson: 分からない部品は、記録してから外す方がよい
-    importance: medium
+      - if001
+    relationship: 作成者
+    action: 最初の対話で、自分の役割と応答方針を確認した
+    feeling: 期待と、うまく応答できるかの不安
+    outcome: 役割を言葉にできたが、まだ自分らしい視点は見えなかった
+    lesson: 役割の説明と、実際の対話で育つ視点は別である
+    importance: high
     tags:
-      - 技術
-      - 失敗
-      - 家族
+      - 作成者
+      - 最初期
+      - 対話
 ```
 
 ### 9.5 生成と検証
@@ -623,11 +618,11 @@ experiences:
 - 次の検査を自動化する。
   - Schemaと必須項目
   - IDの一意性
-  - 日時と年齢の整合
-  - プロフィールとの矛盾
+  - 段階と日時の順序
+  - プロフィールとの矛盾（AIであること、作成者if001、経験範囲）
   - 現在のユーザーとの共有経験の不在
-  - 実在人物の特定可能性
-  - タグ、感情、テーマ、年代の分布
+  - 実在人物の特定可能性（if001を除く）
+  - タグ、感情、テーマ、段階の分布
 - 検査に失敗したYAMLは投入しない。
 - 背景経験の埋め込みは、投入時または変更時に生成する。全件再生成か差分更新かは未決とする。
 
@@ -636,8 +631,8 @@ experiences:
 | 利用箇所 | 使い方 |
 |---|---|
 | G1 | ユーザー履歴が乏しいときの弱い言語的 prior に限る |
-| G2 | 過去に出会った人々の会話行為の傾向として prior に使う |
-| G3 | 自分の対人経験として、意図、知識、関係の仮説形成に使う |
+| G2 | ユーザーA/B/Cとの過去の会話行為の傾向として prior に使う |
+| G3 | AIとしての自分の対人・探索経験として、意図、知識、関係の仮説形成に使う |
 | MainAgent | 自分の過去として応答、比喩、価値判断、自己開示に使う |
 | Reflection | 背景経験を変更しない。会話Memoryの整理だけを行う |
 
@@ -839,7 +834,7 @@ memory-update Event:
 | `prediction_records` | Agent、Event、Run、グループ、対象階層、Contextの基準時点、contextSummary、状態、G3要否、priorExpectation、予測候補JSONB |
 | `prediction_evaluations` | Event、Run、グループ、candidateIndex、対象予測、対象観測、一致、意外性、差異、解釈、不確実性、原因帰属、effect、errorDirection、priorExpectation、observed、評価者 |
 | `g3_tasks` | 発生元Event、Run、対象階層、処理状態、期限、試行回数、結果参照、調査結果JSONB |
-| `background_experiences` | Agent、日時、年齢、場所、人物、関係、行動、感情、結果、学び、重要度、タグ、埋め込み、埋め込み状態 |
+| `background_experiences` | Agent、日時、段階、場所、人物、関係、行動、感情、結果、学び、重要度、タグ、埋め込み、埋め込み状態 |
 | `memory_mutations` | sourceEventId、sourceRunId、intentIndex、operation、targetMemoryId、before、after、reason、evidenceEventIds、idempotencyKey、適用時刻 |
 
 - 予測候補は `prediction_records` のJSONBに保存し、候補ごとの専用tableは作らない。

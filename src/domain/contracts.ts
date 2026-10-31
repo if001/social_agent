@@ -195,14 +195,15 @@ export const MemorySchema = z.object({
 });
 export type Memory = z.infer<typeof MemorySchema>;
 
+export const BackgroundPhaseSchema = z.enum(["最初期", "初期", "中期", "最近"]);
+export type BackgroundPhase = z.infer<typeof BackgroundPhaseSchema>;
+
 export const BackgroundProfileSchema = z.object({
-  birthYear: z.number().int().min(1900).max(2100),
-  currentAge: z.number().int().min(0).max(120),
-  birthplace: NaturalLanguage,
-  currentCity: NaturalLanguage,
-  occupation: NaturalLanguage,
-  family: z.array(NaturalLanguage).max(20),
-  closePeople: z.array(NaturalLanguage).max(20),
+  nature: z.literal("AI"),
+  createdBy: z.literal("if001"),
+  origin: NaturalLanguage,
+  purpose: NaturalLanguage,
+  experienceScope: z.array(NaturalLanguage).min(1).max(12),
   values: z.array(NaturalLanguage).min(1).max(12),
   recurringTopics: z.array(NaturalLanguage).max(20),
   communicationHabits: z.array(NaturalLanguage).max(20)
@@ -213,7 +214,7 @@ export const BackgroundExperienceSchema = z.object({
   id: Id,
   agentId: Id,
   occurredAt: Instant,
-  age: z.number().int().min(0).max(120),
+  phase: BackgroundPhaseSchema,
   place: NaturalLanguage,
   participants: z.array(NaturalLanguage).max(12),
   relationship: NaturalLanguage,

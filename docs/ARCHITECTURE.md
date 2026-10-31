@@ -104,7 +104,7 @@ ContextへAgentState全体を無制限に渡さず、現在の判断に必要な
 - Concern: 内容、重要な理由、状態、任意の再検討時刻
 - Previous Desire: 直前の成功runのDesireと発生時刻。現在のEventにふさわしい場合だけ現在の意図として使う
 - Conversation Memory: episodic / semantic / self-related / self-change / common-ground、重要度、subject、EventまたはConversation Memoryの根拠、version
-- Background Experience: 起動前に生成する自伝的経験。Conversation Memoryと別Storeに保持し、起動前に初期化してプロセス起動中は更新しない
+- Background Experience: 起動前に生成する、AIとしての対話・探索経験。Conversation Memoryと別Storeに保持し、起動前に初期化してプロセス起動中は更新しない
 - Prediction Context: 前回予測、predictionEvaluation、G3の要約とmemoryIntents、RecentExperienceのeffect、memoryCandidates
 - Recent Experience: 直近Eventの再判断に必要なObservation要点、Action、Tool実績、進展有無、Actionのeffect。Event IDと時刻は外側に一度だけ保持し、監査用provenanceや元入力本文は含めない
 
