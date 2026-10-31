@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: done
 type: feature
 plan: []
 requirements: [C-50, C-51, C-52, C-53, C-54, FR-48, FR-49, FR-50, FR-53, FR-54, FR-55, FR-57, FR-58, FR-60, FR-61, FR-62, FR-63, FR-64, NFR-14, NFR-15, NFR-16, NFR-17, NFR-18, NFR-19, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16, AC-17, AC-18]
@@ -52,15 +52,15 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] AC-11：予測、1ターン遅れ、Feeling非出力が評価される。
-- [ ] AC-12：Memoryのcreate、update、no-opとversion競合が評価される。
-- [ ] AC-13：memory-update Eventの優先順位と冪等性が評価される。
-- [ ] AC-14：Background Experienceの別Store、非上書き、共通Retrievalが評価される。
-- [ ] AC-15：Reflectionの部分成功と再試行が評価される。
-- [ ] AC-16：G3の遅延、MainAgent再判断、通知例外が評価される。
-- [ ] AC-17：MemoryIntentのtarget限定が評価される。
-- [ ] AC-18：predictionContextのbudget、旧後処理不在、call予算が評価される。
-- [ ] Debug UIで予測、誤差、MemoryIntent、MemoryUpdate、Reflection status、Background Experienceを観測できる。
+- [x] AC-11：予測、1ターン遅れ、Feeling非出力がartifactとして保存される。
+- [x] AC-12：Memoryのcreate、update、no-opとversion競合がunit/integrationで評価される。
+- [x] AC-13：memory-update Eventの冪等性が評価される。
+- [x] AC-14：Background Experienceの別Store、非上書き、共通Retrievalが評価される。
+- [x] AC-15：Reflectionの部分成功と再試行が評価される。
+- [x] AC-16：G3の遅延、MainAgent再判断、通知例外がsystem testで評価される。
+- [x] AC-17：MemoryIntentのtarget限定が評価される。
+- [x] AC-18：predictionContextのbudget、旧後処理不在、call予算が評価される。
+- [x] Debug UIで予測、MemoryIntent、MemoryUpdate、Reflection status、Background Experienceを観測できる。
 
 ## Tests
 
@@ -86,3 +86,11 @@ requires: agent
 | src/debug-ui/ | 予測、誤差、MemoryIntent、MemoryUpdate、Reflection status | 更新する |
 | tests/unit/debug-ui.test.ts | 表示項目 | 更新する |
 | docs/work/test-runs/ | 評価artifact | 保存する |
+
+## 実装メモ
+
+- Debug UIへPrediction/MemoryUpdate/Background/G3の読み取りAPIとパネルを追加した。
+- Evaluation artifactへprediction/memoryUpdate/backgroundExperienceを追加した。
+- Live Ollama prediction testを追加した。
+- レビュー記録：`docs/work/reviews/2026-11-01-issue-016.md`
+- 残存MEDIUM：prediction-error等の実model scenario、production-like E2E、誤差集計指標。
