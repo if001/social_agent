@@ -51,7 +51,7 @@ flowchart LR
 | Self | 長期 | Identity、Disposition、Self Story、Commitmentsを保持する |
 | State | 複数Event | Mood、Concerns、Relationshipsを保持する |
 | Conversation Memory | 長期・検索可能 | 会話とTool結果から形成するMemory。MemoryWriteServiceだけが書く |
-| Background Experience | 長期・不変 | 起動前に生成する自伝的経験。会話由来Memoryと別Storeに保持し、起動後に更新しない |
+| Background Experience | 長期・不変 | 起動前に生成する、AIとしての対話・探索経験。会話由来Memoryと別Storeに保持し、起動後に更新しない |
 | Prediction Evaluation | 1 Event + 次Event | G1/G2の予測誤差評価。Meaning / Feelingではない |
 | Prediction Context | 次Event | 前回予測、誤差評価、G3、RecentExperienceのeffect、memoryCandidates |
 | MemoryIntent | Event内 | Memoryのcreate / update意図。MemoryWriteServiceがRAG候補から決める |

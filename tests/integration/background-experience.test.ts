@@ -21,12 +21,12 @@ const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
 const file = (experiences: BackgroundExperienceFile["experiences"]): BackgroundExperienceFile => ({
   version: 1,
   agentId: "a",
-  profile: { birthYear: 1990, currentAge: 35, birthplace: "神奈川", currentCity: "東京", occupation: "編集者", family: ["母"], closePeople: ["友人"], values: ["誠実さ"], recurringTopics: ["本"], communicationHabits: ["結論から話す"] },
+  profile: { nature: "AI", createdBy: "if001", origin: "if001によって作成された", purpose: "対話から学ぶ", experienceScope: ["複数ユーザーとの対話", "Web探索"], values: ["誠実さ"], recurringTopics: ["対話"], communicationHabits: ["結論から話す"] },
   experiences
 });
 
-const experience = (id: string, occurredAt: string, age: number, overrides: Partial<BackgroundExperienceFile["experiences"][number]> = {}) => ({
-  id, occurredAt, age, place: "東京", participants: ["友人"], relationship: "友人", action: "街を歩いた", feeling: "落ち着いた", outcome: "店を見つけた", lesson: "歩くと発見がある", importance: "普通", tags: ["散歩"], ...overrides
+const experience = (id: string, occurredAt: string, phase: "最初期" | "初期" | "中期" | "最近", overrides: Partial<BackgroundExperienceFile["experiences"][number]> = {}) => ({
+  id, occurredAt, phase, place: "対話環境", participants: ["ユーザーA"], relationship: "対話相手", action: "会話から発見を得た", feeling: "落ち着いた", outcome: "新しい見方を得た", lesson: "対話で考えが動く", importance: "普通", tags: ["対話", "発見"], ...overrides
 });
 
 describeDatabase("Background Experience persistence and retrieval", () => {
@@ -50,20 +50,20 @@ describeDatabase("Background Experience persistence and retrieval", () => {
   it("FR-53, FR-54, NFR-19: replaces only background experiences and preserves conversation memory", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,embedding_status) VALUES ('m1','a','episodic','東京で友人と話した','普通','normal',now(),now(),'pending')");
     await expect(replaceBackgroundExperiences(pool, file([
-      experience("e1", "2018-04-01T00:00:00+09:00", 28, { tags: ["散歩", "発見"], importance: "高い" }),
-      experience("e2", "2020-04-01T00:00:00+09:00", 30, { place: "横浜", tags: ["仕事", "学び"] })
+      experience("e1", "2018-04-01T00:00:00+09:00", "初期", { tags: ["散歩", "発見"], importance: "高い" }),
+      experience("e2", "2020-04-01T00:00:00+09:00", "中期", { place: "横浜", tags: ["仕事", "学び"] })
     ]), "a")).resolves.toBe(2);
     expect((await pool.query("SELECT count(*)::int AS count FROM background_experiences WHERE agent_id='a'")).rows[0]).toEqual({ count: 2 });
     expect((await pool.query("SELECT count(*)::int AS count FROM memories WHERE agent_id='a'")).rows[0]).toEqual({ count: 1 });
-    await expect(replaceBackgroundExperiences(pool, file([experience("e3", "2021-04-01T00:00:00+09:00", 31, { tags: ["仕事"] })]), "a")).resolves.toBe(1);
+    await expect(replaceBackgroundExperiences(pool, file([experience("e3", "2021-04-01T00:00:00+09:00", "中期", { tags: ["仕事"] })]), "a")).resolves.toBe(1);
     expect((await pool.query("SELECT count(*)::int AS count FROM background_experiences WHERE agent_id='a'")).rows[0]).toEqual({ count: 1 });
     expect((await pool.query("SELECT count(*)::int AS count FROM memories WHERE agent_id='a'")).rows[0]).toEqual({ count: 1 });
-    await expect(replaceBackgroundExperiences(pool, file([experience("e4", "2022-04-01T00:00:00+09:00", 32, { tags: ["仕事"] })]), "b")).rejects.toThrow(/target agent/);
+    await expect(replaceBackgroundExperiences(pool, file([experience("e4", "2022-04-01T00:00:00+09:00", "最近", { tags: ["仕事"] })]), "b")).rejects.toThrow(/target agent/);
     expect((await pool.query("SELECT count(*)::int AS count FROM background_experiences WHERE agent_id='a'")).rows[0]).toEqual({ count: 1 });
   });
 
   it("FR-55, AC-14, NFR-14: retrieves conversation memory and background experience with the common ranking", async () => {
-    await replaceBackgroundExperiences(pool, file([experience("e1", "2020-04-01T00:00:00+09:00", 30, { tags: ["散歩", "発見"], action: "東京の街を歩いた" })]), "a");
+    await replaceBackgroundExperiences(pool, file([experience("e1", "2020-04-01T00:00:00+09:00", "中期", { tags: ["散歩", "発見"], action: "東京の街を歩いた" })]), "a");
     const service = new PostgresRetrievalService(pool);
     const all = await service.retrieve({ agentId: "a", query: "東京", scope: "all", limit: 5 });
     expect(all.map(({ source }) => source)).toEqual(expect.arrayContaining(["conversation", "background"]));
@@ -88,8 +88,8 @@ describeDatabase("Background Experience persistence and retrieval", () => {
     };
     const timings = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 };
     const before = (await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE agent_id='a'")).rows[0];
-    await initializeAgent(pool, config, timings, { backgroundExperience: file([experience("i1", "2019-04-01T00:00:00+09:00", 29, { action: "初期化前の経験" })]) });
-    await initializeAgent(pool, config, timings, { backgroundExperience: file([experience("i2", "2021-04-01T00:00:00+09:00", 31, { action: "再初期化後の経験" })]) });
+    await initializeAgent(pool, config, timings, { backgroundExperience: file([experience("i1", "2019-04-01T00:00:00+09:00", "初期", { action: "初期化前の経験" })]) });
+    await initializeAgent(pool, config, timings, { backgroundExperience: file([experience("i2", "2021-04-01T00:00:00+09:00", "中期", { action: "再初期化後の経験" })]) });
     expect((await pool.query("SELECT count(*)::int AS count FROM memories WHERE agent_id='a'")).rows[0]).toEqual(before);
     const background = await pool.query<{ id: string }>("SELECT id FROM background_experiences WHERE agent_id='a'");
     expect(background.rows).toEqual([{ id: "i2" }]);

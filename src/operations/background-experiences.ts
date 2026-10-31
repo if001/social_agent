@@ -17,13 +17,13 @@ export async function replaceBackgroundExperiences(pool: Pool, file: BackgroundE
     for (const experience of validated.experiences) {
       await client.query(
         `INSERT INTO background_experiences(
-          id,agent_id,occurred_at,age,place,participants,relationship,action,feeling,outcome,lesson,importance,tags,embedding_status
+          id,agent_id,occurred_at,phase,place,participants,relationship,action,feeling,outcome,lesson,importance,tags,embedding_status
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending')`,
         [
           experience.id,
           validated.agentId,
           experience.occurredAt,
-          experience.age,
+          experience.phase,
           experience.place,
           JSON.stringify(experience.participants),
           experience.relationship,

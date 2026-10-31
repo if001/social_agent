@@ -157,7 +157,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-51 | System | `tests/system/g3-event.test.ts` | G3別DeepAgent、遅延、memoryIntents |
 | FR-52 | System | `tests/system/g3-event.test.ts` | MainAgent再判断、G3の通知例外 |
 | FR-53 | Integration | `tests/integration/background-experience.test.ts` | 別Store、不変、起動中の上書きなし |
-| FR-54 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | Schema、プロフィール矛盾、共有経験の不在、実在人物、分布 |
+| FR-54 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | Schema、AI/if001プロフィール、段階、共有経験の不在、実在人物、分布 |
 | FR-55 | Unit, Integration | `tests/unit/retrieval-service.test.ts`, `tests/integration/persistence.test.ts` | 共通rankingとadapter |
 | FR-56 | Unit, Contract | `tests/unit/memory-intent.test.ts`, `tests/contract/prediction-contracts.test.ts` | Memory kind限定、Patch/Concern経路 |
 | FR-57 | Unit, Integration | `tests/unit/memory-write-service.test.ts`, `tests/integration/persistence.test.ts` | create/update/no-op、version、直接INSERT不在 |
@@ -191,7 +191,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | NFR-16 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | deadline、試行回数、call予算、失敗分離 |
 | NFR-17 | Integration, System | `tests/system/memory-update-event.test.ts`, `tests/system/reflection-partial.test.ts`, `tests/integration/persistence.test.ts` | 監査記録と再試行 |
 | NFR-18 | System | `tests/system/memory-update-event.test.ts`, `tests/system/g3-event.test.ts` | user-message優先、下位Eventの開始抑制 |
-| NFR-19 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | YAML検証、時系列、プロフィール矛盾、共有経験不在、実在人物、分布、非上書き |
+| NFR-19 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | YAML検証、段階順序、AI/if001プロフィール、共有経験不在、実在人物、分布、非上書き |
 
 ### Acceptance criteria
 

@@ -201,7 +201,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価とMemoryIntentをMainAgentへ渡す。（C-39, C-40, C-42）
 - FR-52：G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` Eventは通知必須の例外とする。`prediction-g3`はActionを生成しない。（C-41）
 - FR-53：背景経験はConversation Memoryと別Storeに保持し、起動前の初期化時だけYAMLで置換し、プロセス起動中は変更しない。（C-43, C-45）
-- FR-54：背景経験は固定プロフィールと、いつ、どこで、誰と、何をして、何を感じ、結果、学びを持ち、現在のユーザーとの共有経験を含めない。（C-44, C-47）
+- FR-54：背景経験は、AIである自身と作成者if001のプロフィール、曖昧な段階、状況、複数ユーザーやif001との対話・探索、感じたこと、結果、学びを持ち、今回のユーザーとの共有経験を含めない。年齢、出身地、家族構成を持たない。（C-44, C-47）
 - FR-55：Conversation Memoryと背景経験は、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。（C-46, C-56）
 - FR-56：MemoryIntentのtargetはMemory kindに限定し、RelationshipとConcernは既存PatchまたはConcern Proposalへ渡す。（C-66）
 - FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補からcreate、update、no-opを決め、Memory versionを照合する。（C-55, C-57, C-58, C-63, C-67）
@@ -217,7 +217,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-16：G1/G2の追加callはdeadline、最大試行回数、call予算を持ち、失敗しても通常会話を継続する。（C-52, C-70）
 - NFR-17：Prediction Evaluation、MemoryIntent、memory-update Event、Reflection statusを監査可能にし、再試行に耐える。（C-50, C-64, C-69）
 - NFR-18：user-messageが待っている間はmemory-update、G3、reflectionを開始しない。（C-61, C-69）
-- NFR-19：背景経験のYAMLはSchema、時系列、プロフィール矛盾、現在のユーザーとの共有経験の不在、実在人物の特定可能性、タグ・感情・テーマ・年代の分布を検証する。起動前の初期化時だけ置換し、会話Memoryを上書きしない。（C-45, C-47）
+- NFR-19：背景経験のYAMLはSchema、段階と日時の順序、AI・作成者if001・経験範囲のプロフィール矛盾、現在のユーザーとの共有経験の不在、実在人物の特定可能性、タグ・感情・テーマ・段階の分布を検証する。起動前の初期化時だけ置換し、会話Memoryを上書きしない。（C-45, C-47）
 
 ## 完了判定
 
@@ -234,7 +234,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-11：G1/G2の予測、1ターン遅れの誤差評価、Feelingを出力しないことをContract/System testで確認する。（FR-48, FR-49, FR-50）
 - AC-12：MemoryIntentからcreate、update、no-opが決まり、Memory versionの競合と直接INSERTの不在をIntegration testで確認する。（FR-57, NFR-15）
 - AC-13：memory-update EventがLLMを呼ばず、専用Handler、冪等性、部分commit禁止、user-message優先で動くことをSystem testで確認する。（FR-58, FR-59, FR-61, NFR-17, NFR-18）
-- AC-14：背景経験が別Storeで不変であり、現在のユーザーとの共有経験を含まず、プロフィール・実在人物・分布の検証を通り、共通Retrievalで取得できることをIntegration testで確認する。（FR-53, FR-54, FR-55, NFR-19）
+- AC-14：背景経験が別Storeで不変であり、AI・作成者if001・段階のプロフィールを持ち、現在のユーザーとの共有経験を含まず、実在人物・分布の検証を通り、共通Retrievalで取得できることをIntegration testで確認する。（FR-53, FR-54, FR-55, NFR-19）
 - AC-15：ReflectionがMemory、Self、Relationship、Concernごとのstatusを持ち、失敗対象だけを再試行することをSystem testで確認する。（FR-60, NFR-17）
 - AC-16：G3が別DeepAgentとして遅延実行され、MainAgentの再判断が通常Loopを通り、G3 Eventが通知必須の例外になることをSystem testで確認する。（FR-51, FR-52）
 - AC-17：MemoryIntentのtargetにRelationshipとConcernが含まれず、既存PatchまたはConcern Proposalへ渡ることをContract testで確認する。（FR-56）

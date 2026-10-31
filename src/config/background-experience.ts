@@ -2,11 +2,13 @@ import { readFile } from "node:fs/promises";
 
 import { parse } from "yaml";
 
-import { BackgroundExperienceFileSchema, type BackgroundExperienceFile } from "../domain/contracts.js";
+import { BackgroundExperienceFileSchema, type BackgroundExperienceFile, type BackgroundPhase } from "../domain/contracts.js";
 
 const SHARED_USER_ALIASES = new Set(["owner", "user", "利用者", "現在のユーザー", "主人", "あなた", "ユーザー"]);
-const ROLE_MARKERS = ["友人", "友達", "母", "父", "兄弟", "姉妹", "同僚", "上司", "部下", "先生", "生徒", "学生", "店主", "店員", "隣人", "祖父", "祖母", "家族", "パートナー", "恋人", "先輩", "後輩", "チームメイト", "監督", "コーチ", "医師", "看護師", "客", "通行人", "知人", "同級生", "クラスメート", "仲間", "飼い犬", "一人", "自分", "教授", "医師", "看護師", "監督", "コーチ"];
-const ROLE_SUFFIXES = ["さん", "君", "氏", "先生", "教授", "医師", "看護師", "店員", "店主", "上司", "部下", "同僚", "友人", "友達", "母", "父", "兄弟", "姉妹", "祖父", "祖母", "家族", "パートナー", "恋人", "先輩", "後輩", "監督", "コーチ"];
+const ROLE_MARKERS = ["if001", "作成者", "友人", "友達", "同僚", "上司", "部下", "先生", "生徒", "学生", "店主", "店員", "隣人", "パートナー", "恋人", "先輩", "後輩", "チームメイト", "監督", "コーチ", "医師", "看護師", "客", "通行人", "知人", "同級生", "クラスメート", "仲間", "一人", "自分", "複数のユーザー", "ユーザーA", "ユーザーB", "ユーザーC"];
+const ROLE_SUFFIXES = ["さん", "君", "氏", "先生", "教授", "医師", "看護師", "店員", "店主", "上司", "部下", "同僚", "友人", "友達", "先輩", "後輩", "監督", "コーチ"];
+const PHASE_ORDER: Readonly<Record<BackgroundPhase, number>> = { 最初期: 0, 初期: 1, 中期: 2, 最近: 3 };
+
 const looksLikeIdentifiablePerson = (participant: string): boolean => {
   const value = participant.trim();
   if (ROLE_MARKERS.includes(value)) return false;
@@ -23,16 +25,12 @@ const fail = (message: string): never => {
 
 export function validateBackgroundExperienceFile(input: unknown): BackgroundExperienceFile {
   const file = BackgroundExperienceFileSchema.parse(input);
-  const { profile } = file;
   const now = new Date();
-  const currentYear = now.getUTCFullYear();
-  if (Math.abs(currentYear - profile.birthYear - profile.currentAge) > 1) fail("profile birthYear and currentAge are inconsistent");
-
-  if ([...profile.family, ...profile.closePeople].some(looksLikeIdentifiablePerson)) fail("profile includes an identifiable real person");
+  if (file.profile.experienceScope.length === 0) fail("profile experienceScope must not be empty");
 
   const ids = new Set<string>();
   let previousTime = Number.NEGATIVE_INFINITY;
-  let previousAge = Number.NEGATIVE_INFINITY;
+  let previousPhaseOrder = Number.NEGATIVE_INFINITY;
   for (const experience of file.experiences) {
     if (ids.has(experience.id)) fail(`duplicate experience id: ${experience.id}`);
     ids.add(experience.id);
@@ -40,12 +38,10 @@ export function validateBackgroundExperienceFile(input: unknown): BackgroundExpe
     if (!Number.isFinite(occurredAt)) fail(`invalid occurredAt: ${experience.id}`);
     if (occurredAt > now.getTime() + 86_400_000) fail(`experience is in the future: ${experience.id}`);
     if (occurredAt < previousTime) fail(`experiences are not chronological: ${experience.id}`);
-    if (experience.age < previousAge) fail(`experience age decreases over time: ${experience.id}`);
+    const phaseOrder = PHASE_ORDER[experience.phase];
+    if (phaseOrder < previousPhaseOrder) fail(`experience phase decreases over time: ${experience.id}`);
     previousTime = occurredAt;
-    previousAge = experience.age;
-    if (experience.age > profile.currentAge + 1) fail(`experience age exceeds currentAge: ${experience.id}`);
-    const approximateAge = new Date(occurredAt).getUTCFullYear() - profile.birthYear;
-    if (Math.abs(approximateAge - experience.age) > 1) fail(`experience age contradicts occurredAt: ${experience.id}`);
+    previousPhaseOrder = phaseOrder;
     if (experience.participants.some((participant) => SHARED_USER_ALIASES.has(participant.toLocaleLowerCase("ja")))) fail(`experience includes the current user: ${experience.id}`);
     if (experience.participants.some(looksLikeIdentifiablePerson)) fail(`experience includes an identifiable real person: ${experience.id}`);
     const text = [experience.place, experience.relationship, experience.action, experience.feeling, experience.outcome, experience.lesson].join("\n");
@@ -56,11 +52,11 @@ export function validateBackgroundExperienceFile(input: unknown): BackgroundExpe
     const tags = new Set(file.experiences.flatMap(({ tags: values }) => values));
     const importances = new Set(file.experiences.map(({ importance }) => importance));
     const feelings = new Set(file.experiences.map(({ feeling }) => feeling));
-    const decades = new Set(file.experiences.map(({ age }) => Math.floor(age / 10)));
+    const phases = new Set(file.experiences.map(({ phase }) => phase));
     if (tags.size < 5) fail("experience tags are not distributed");
     if (importances.size < 2) fail("experience importance is not distributed");
     if (feelings.size < 3) fail("experience feelings are not distributed");
-    if (decades.size < 2) fail("experience ages are not distributed");
+    if (phases.size < 3) fail("experience phases are not distributed");
   }
   return file;
 }
