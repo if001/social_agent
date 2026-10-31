@@ -468,7 +468,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ concerns: { id: string }[]; relationships: { subjectId: string }[] }>("SELECT concerns,relationships FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ concerns: [{ id: "concern-1" }, { id: "reflection-concern" }], relationships: [{ subjectId: "owner" }] });
     expect((await pool.query<{ content: string; importance: string }>("SELECT content,importance FROM memories WHERE id='reflection-memory'")).rows[0]).toEqual({ content: "約束を果たした", importance: "信頼が深まった" });
     expect((await pool.query<{ id: string; next_due_at: Date }>("SELECT id,next_due_at FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rows[0]).toMatchObject({ id: "concern:reflection-concern" });
-    expect((await pool.query<{ status: string }>("SELECT status FROM reflection_runs WHERE id='reflection-1'")).rows[0]?.status).toBe("completed");
+    expect((await pool.query<{ status: string; plan: { memory: string } }>("SELECT status,plan FROM reflection_runs WHERE id='reflection-1'")).rows[0]).toMatchObject({ status: "completed", plan: { memory: "completed" } });
   });
 
   it("FR-25: applies satisfied and abandoned Concern changes through Reflection", async () => {

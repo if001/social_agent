@@ -2,6 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import type { IdGenerator } from "../../application/ports.js";
 import { MemoryWriteService } from "../../application/memory-write-service.js";
+import { ReflectionPlanSchema } from "../../application/reflection.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ReflectionInputSchema, ReflectionOutputSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type Relationship } from "../../domain/contracts.js";
@@ -86,7 +87,8 @@ export class PostgresReflectionRepository implements ReflectionRepository {
           await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }) });
         }
       }
-      await client.query("UPDATE reflection_runs SET status='completed',output=$2,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.reflectionId, JSON.stringify(output)]);
+      const plan = ReflectionPlanSchema.parse({ memory: this.memoryUpdateSink === undefined ? "completed" : "pending", self: "completed", relationship: "completed", concern: "completed", errors: [] });
+      await client.query("UPDATE reflection_runs SET status='completed',plan=$2,output=$3,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.reflectionId, JSON.stringify(plan), JSON.stringify(output)]);
       await client.query("COMMIT");
       if (this.memoryUpdateSink !== undefined && reflectionIntents.length > 0) {
         try { await this.memoryUpdateSink.enqueue({ agentId: input.agentId, sourceEventId: input.reflectionId, intents: reflectionIntents, subjectsByIntent: output.memories.map((memory) => memory.subjects), sourceAgentIds: output.memories.map((memory) => memory.source) }); } catch { /* Reflection memory remains pending for retry. */ }

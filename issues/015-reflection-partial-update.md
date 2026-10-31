@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: doing
 type: change
 plan: []
 requirements: [C-64, C-68, FR-60, NFR-17, AC-15]
@@ -68,3 +68,10 @@ requires: agent
 | src/application/scheduler.ts | Reflectionの再試行 | 更新する |
 | src/debug-ui | 部分成功の表示 | 更新する |
 | tests/system, tests/integration | 追加設計のtest | 追加する |
+
+## 実装メモ（WIP）
+
+- ReflectionPlanSchemaと`reflection_runs.plan`を追加した。
+- Memory更新はmemory-update sink利用時にpending、直接更新時はcompletedとして記録する。
+- 未実装：対象別のfailed/blocked、Memory更新失敗時の依存blocked、失敗対象だけの再試行、Debug UI表示。
+- このため`status: doing`のままにし、mainへマージしない。
