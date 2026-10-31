@@ -471,6 +471,17 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ status: string; plan: { memory: string } }>("SELECT status,plan FROM reflection_runs WHERE id='reflection-1'")).rows[0]).toMatchObject({ status: "completed", plan: { memory: "completed" } });
   });
 
+  it("FR-60, AC-15: records memory failure as blocked targets and leaves the reflection retryable", async () => {
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-fail-event','a','user-message',$1,'test','completed',now())", [{ summary: "再試行対象の出来事" }]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-fail-memory"]), () => new Date("2026-01-02T00:00:00Z"), { enqueue: () => Promise.resolve(), enqueueAndWait: () => Promise.reject(new Error("memory unavailable")) });
+    const input = await repository.load("reflection-fail", "a"); if (input === undefined) throw new Error("Reflection input was not created");
+    const output = { memories: [{ summary: "失敗時の記憶", significance: "再試行の確認", subjects: [], occurredAt: fixtureInstant }], concernChanges: [], relationshipChanges: [], evidenceMemoryIds: [] };
+    await expect(repository.commit(input, output)).resolves.toBe("committed");
+    const row = await pool.query<{ status: string; plan: { memory: string; self: string; relationship: string; concern: string } }>("SELECT status,plan FROM reflection_runs WHERE id='reflection-fail'");
+    expect(row.rows[0]).toMatchObject({ status: "pending", plan: { memory: "failed", self: "blocked", relationship: "blocked", concern: "blocked" } });
+    expect((await pool.query("SELECT 1 FROM memories WHERE content='失敗時の記憶'")).rowCount).toBe(0);
+  });
+
   it("FR-25: applies satisfied and abandoned Concern changes through Reflection", async () => {
     await pool.query("UPDATE agent_states SET concerns=$1 WHERE agent_id='a'", [JSON.stringify([
       { id: "concern-satisfied", description: "確認を終える", whyItMatters: "次の判断に進むため", status: "active" },
