@@ -286,6 +286,7 @@ export const RecentExperienceSchema = z.object({
   eventKind: EventKindSchema,
   observation: RecentObservationSchema,
   steps: z.array(RecentExperienceStepSchema),
+  effect: z.enum(["reduced", "unchanged", "increased", "unknown"]).optional(),
   progressChanged: z.boolean()
 });
 export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
@@ -338,6 +339,76 @@ export const AgentTurnSchema = z.object({
 }).strict();
 export type AgentTurn = z.infer<typeof AgentTurnSchema>;
 
+export const MemoryIntentTargetSchema = z.enum(["episodic", "semantic", "self-related", "self-change", "common-ground"]);
+export const MemoryIntentSchema = z.object({
+  content: NaturalLanguage,
+  reason: NaturalLanguage,
+  evidenceEventIds: z.array(Id).max(16),
+  confidence: z.enum(["high", "medium", "low"]),
+  target: MemoryIntentTargetSchema
+}).strict();
+export type MemoryIntent = z.infer<typeof MemoryIntentSchema>;
+
+export const PredictionExpectationSchema = z.enum(["very_high", "high", "medium", "low", "very_low"]);
+const PredictionCandidateBase = {
+  candidateIndex: z.number().int().min(0).max(2),
+  content: NaturalLanguage,
+  expectation: PredictionExpectationSchema,
+  contextSummary: NaturalLanguage,
+  rationale: NaturalLanguage
+};
+export const G1PredictionCandidateSchema = z.object({ ...PredictionCandidateBase, feature: NaturalLanguage }).strict();
+export const G2PredictionCandidateSchema = z.object({ ...PredictionCandidateBase, speechAct: NaturalLanguage }).strict();
+export const PredictionEvaluationSchema = z.object({
+  group: z.enum(["g1", "g2"]),
+  candidateIndex: z.number().int().min(0).max(2),
+  match: z.enum(["primary", "alternative", "unexpected", "undecidable"]),
+  surprise: z.enum(["none", "low", "medium", "high", "unknown"]),
+  difference: NaturalLanguage,
+  interpretation: NaturalLanguage,
+  uncertainty: NaturalLanguage,
+  attribution: NaturalLanguage.optional(),
+  observed: NaturalLanguage,
+  errorDirection: z.enum(["over", "under", "matched", "undecidable"]),
+  effect: z.enum(["reduced", "unchanged", "increased", "unknown"]),
+  effectEvidence: NaturalLanguage.optional()
+}).strict();
+export const PredictionObservationSchema = z.object({
+  kind: z.enum(["semantic", "common-ground"]),
+  content: NaturalLanguage,
+  subjectIds: z.array(Id).max(12),
+  importance: NaturalLanguage,
+  evidenceEventIds: z.array(Id).max(16),
+  rationale: NaturalLanguage,
+  explicitness: z.enum(["explicit", "inferred"])
+}).strict();
+export const PredictionOutputSchema = z.object({
+  predictions: z.object({
+    g1: z.object({ candidates: z.array(G1PredictionCandidateSchema).max(3) }).strict(),
+    g2: z.object({ candidates: z.array(G2PredictionCandidateSchema).max(3) }).strict()
+  }).strict(),
+  predictionEvaluations: z.array(PredictionEvaluationSchema).max(6),
+  remember: z.array(MemoryIntentSchema).max(3),
+  observationCandidates: z.array(PredictionObservationSchema).max(6),
+  g3: z.object({
+    needsG3: z.boolean(),
+    targetLayers: z.array(z.enum(["L4", "L5", "L6"])).max(3).default([]),
+    reason: NaturalLanguage.optional(),
+    priority: z.enum(["high", "medium", "low"]).default("medium")
+  }).strict()
+}).strict();
+export type PredictionOutput = z.infer<typeof PredictionOutputSchema>;
+
+export const PredictionContextSchema = z.object({
+  agentId: Id,
+  previousPrediction: z.object({ id: Id, createdAt: Instant, output: PredictionOutputSchema }).optional(),
+  g3Summary: NaturalLanguage.optional(),
+  g3MemoryIntents: z.array(MemoryIntentSchema).max(5).default([]),
+  recentExperienceEffect: z.object({ eventId: Id, effect: z.enum(["reduced", "unchanged", "increased", "unknown"]), evidence: NaturalLanguage.optional() }).optional(),
+  memoryCandidates: z.array(RetrievedItemSchema).max(5).default([])
+}).strict();
+export type PredictionContext = z.infer<typeof PredictionContextSchema>;
+
 export const AgentCoreInputSchema = z.object({
   run: z.object({
     runId: Id,
@@ -355,12 +426,14 @@ export const AgentCoreInputSchema = z.object({
   state: CurrentAgentStateSchema,
   memories: z.array(MemorySchema),
   memoryRetrievalTrace: z.array(MemoryRetrievalTraceSchema).default([]),
+  predictionContext: PredictionContextSchema.optional(),
   availableTools: z.array(z.object({ name: Id, description: NaturalLanguage, inputSchema: z.record(z.string(), z.unknown()) })),
   runtimeConstraints: z.array(NaturalLanguage),
   limits: RunLimitsSchema
 }).strict().superRefine((value, context) => {
   const owners = [value.currentSelf.agentId, value.state.agentId, ...value.recentExperiences.map((item) => item.agentId), ...value.memories.map((item) => item.agentId)];
   if (owners.some((owner) => owner !== value.run.agentId)) context.addIssue({ code: "custom", message: "context contains data owned by another agent" });
+  if (value.predictionContext !== undefined && value.predictionContext.agentId !== value.run.agentId) context.addIssue({ code: "custom", message: "prediction context belongs to another agent" });
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 

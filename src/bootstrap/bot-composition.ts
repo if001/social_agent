@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import { resolve } from "node:path";
 import { AgentEventRouter } from "../application/agent-event-router.js";
 import { AgentRuntime, OutboxDispatcher } from "../application/agent-runtime.js";
+import { PredictionLoop } from "../application/prediction-loop.js";
 import { Reflection } from "../application/reflection.js";
 import type { Clock, IdGenerator, MessageQueue } from "../application/ports.js";
 import { ToolRegistry } from "../application/tool-registry.js";
@@ -15,6 +16,8 @@ import { OllamaEmbeddingProvider } from "../infrastructure/embedding/ollama-embe
 import { PostgresAgentContextLoader } from "../infrastructure/persistence/postgres-agent-context-loader.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../infrastructure/persistence/postgres-memory-embedding.js";
 import { PostgresRetrievalService } from "../infrastructure/persistence/postgres-retrieval-service.js";
+import { PostgresPredictionRepository } from "../infrastructure/persistence/postgres-prediction-repository.js";
+import { createOllamaPredictionModel } from "../infrastructure/agent/prediction-harness.js";
 import { PostgresWebArchive } from "../infrastructure/persistence/postgres-web-archive.js";
 import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgres-runtime-persistence.js";
 import { PostgresReflectionRepository } from "../infrastructure/persistence/postgres-reflection.js";
@@ -46,6 +49,8 @@ export function createBotComposition(options: BotCompositionOptions) {
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 27, maxToolCalls: 25, maxHops: 4, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
   const retrievalService = new PostgresRetrievalService(pool, embeddingProvider);
+  const predictionRepository = new PostgresPredictionRepository(pool);
+  const prediction = new PredictionLoop({ repository: predictionRepository, model: createOllamaPredictionModel(config.chat, logger), ids, now: () => clock.now(), retrieval: retrievalService, limits: { deadlineMs: 20_000, maxAttempts: 1 }, logger });
   const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
     ...createAgentContextTools(pool, retrievalService),
@@ -64,6 +69,8 @@ export function createBotComposition(options: BotCompositionOptions) {
   const contextLoader = new PostgresAgentContextLoader({
     pool, ids, tools: toolRegistry,
     embedding: embeddingProvider,
+    predictionRepository,
+    retrievalService,
     budget: { maxTokens: 4_500, maxMemories: 5, maxSocialContexts: 1 },
     limits, logger,
     ...(config.persona === undefined ? {} : { persona: config.persona })
@@ -74,7 +81,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name)),
     maxRepairs: 2
   });
-  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts });
+  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction });
   const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now()), new OllamaReflectionModel(config.chat, logger));
   const router = new AgentEventRouter(runtime);
   const outbox = new OutboxDispatcher(persistence, queue, logger);

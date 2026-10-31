@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: done
 type: feature
 plan: []
 requirements: [C-30, C-31, C-32, C-33, C-34, C-35, C-36, C-37, C-38, C-48, C-65, C-70, FR-48, FR-49, FR-50, FR-62, FR-63, NFR-14, NFR-16, AC-11, AC-18]
@@ -49,12 +49,12 @@ G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測
 
 ## Acceptance criteria
 
-- [ ] AC-11：G1/G2の予測、1ターン遅れ、Feeling非出力をContract/System testで確認する。
-- [ ] AC-18：predictionContextの所有権とContext budget、旧後処理ではないこと、call予算を確認する。
-- [ ] G1/G2は応答後に1 callで実行される。
-- [ ] 予測候補、predictionEvaluations、observations、remember、G3起動判断が保存される。
-- [ ] G1/G2の失敗で応答や既存Memoryが巻き戻らない。
-- [ ] `predictionContext`が次のMainAgentへ1ターン遅れで渡る。
+- [x] AC-11：G1/G2の予測、1ターン遅れ、Feeling非出力をContract/System testで確認する。
+- [x] AC-18：predictionContextの所有権とContext budget、旧後処理ではないこと、call予算を確認する。
+- [x] G1/G2は応答後に1 callで実行される。
+- [x] 予測候補、predictionEvaluations、observations、remember、G3起動判断が保存される。
+- [x] G1/G2の失敗で応答や既存Memoryが巻き戻らない。
+- [x] `predictionContext`が次のMainAgentへ1ターン遅れで渡る。
 
 ## Tests
 
@@ -76,3 +76,12 @@ G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測
 | src/infrastructure/agent/ | G1/G2用structured output | 追加する |
 | src/bootstrap/bot-composition.ts | G1/G2 harnessの配線 | 更新する |
 | tests/contract, tests/system, tests/unit | 追加設計のtest | 追加する |
+
+## 実装メモ
+
+- `PredictionOutput`を仕様7.3のg1/g2、離散期待度、候補別評価、観測候補、G3層へ合わせた。
+- `predictionContext`をDeepAgentHarnessのpromptInputへ載せ、前回Predictionと評価、G3 intent、effect、memoryCandidatesを渡す。
+- `PredictionLoop`は応答commit後に1 callで実行し、deadlineをPromise.raceで強制する。失敗時は応答を巻き戻さない。
+- effectは評価対象である前回PredictionのsourceEventIdへ投影する。
+- レビュー記録：`docs/work/reviews/2026-10-31-issue-011.md`
+- 残存MEDIUM：g3MemoryIntentsはG3実装（014）まで空。predictionContextの任意縮小は後続。

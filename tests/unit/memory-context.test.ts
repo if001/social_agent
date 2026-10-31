@@ -108,4 +108,15 @@ describe("embedding and context", () => {
     expect(result.memoryRetrievalTrace.find(({ memoryId }) => memoryId === "duplicate")).toMatchObject({ selected: false, exclusionReason: "recent-experience-duplicate" });
     expect(logs.find(({ message }) => message === "context.memory_duplicates_excluded")?.context?.count).toBe(1);
   });
+
+  it("FR-62, NFR-14, AC-18: includes prediction context under the same owner and budget", () => {
+    const input = agentCoreInputFixture();
+    const predictionOutput = { predictions: { g1: { candidates: [{ candidateIndex: 0, feature: "語彙", content: "次は技術の話", expectation: "medium" as const, contextSummary: "技術", rationale: "直前" }] }, g2: { candidates: [] } }, predictionEvaluations: [], remember: [], observationCandidates: [], g3: { needsG3: false, targetLayers: [], priority: "medium" as const } };
+    input.predictionContext = { agentId: input.run.agentId, previousPrediction: { id: "prediction-1", createdAt: input.run.occurredAt, output: predictionOutput }, g3MemoryIntents: [], memoryCandidates: [] };
+    const result = new ContextBuilder().build(input, { maxTokens: 4_500, maxMemories: 5, maxSocialContexts: 1 });
+    expect(result.predictionContext?.previousPrediction?.id).toBe("prediction-1");
+    const context = input.predictionContext;
+    expect(() => new ContextBuilder().build({ ...input, predictionContext: { ...context, agentId: "agent-b" } }, { maxTokens: 4_500, maxMemories: 5, maxSocialContexts: 1 })).toThrow("Prediction context owner mismatch");
+    expect(() => new ContextBuilder().build(input, { maxTokens: 10, maxMemories: 5, maxSocialContexts: 1 })).toThrow("too small");
+  });
 });

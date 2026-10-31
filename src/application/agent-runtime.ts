@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { AgentHarness, IdGenerator, MessageQueue } from "./ports.js";
+import type { AgentHarness, IdGenerator, MessageQueue, PredictionService } from "./ports.js";
 import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
@@ -24,7 +24,7 @@ export interface RuntimePersistence {
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService };
 
 const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined;
 
@@ -120,6 +120,14 @@ export class AgentRuntime {
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
+    if (committed === "committed" && this.options.prediction !== undefined) {
+      const predictionStartedAt = Date.now();
+      try {
+        await this.options.prediction.afterResponse({ event, input, result }, signal);
+      } catch (error) {
+        logger.log("warn", "prediction.failed_after_commit", { elapsedMs: Date.now() - predictionStartedAt, ...errorLogContext(error) });
+      }
+    }
     return output.action;
   }
 }
