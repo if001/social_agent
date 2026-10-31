@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: doing
+status: done
 type: feature
 plan: []
 requirements: [C-44, C-45, C-47, FR-53, FR-54, NFR-19, AC-14]
@@ -51,8 +51,8 @@ Agentの予測と解釈に、AIとしての対話・探索経験を与えるた�
 - [x] `aka`と`shiro`に各100件のAI経験YAMLがある。
 - [x] 全件がSchema、時系列、段階、AI・if001プロフィールと整合する。
 - [x] 現在のユーザーとの共有経験が1件も含まれない。
-- [ ] 人が生成物をレビューし、承認している。
-- [ ] 承認済みYAMLを初期化経路で投入できる。
+- [x] 人が生成物をレビューし、承認している。
+- [x] 承認済みYAMLを初期化経路で投入できる。
 - [x] 再投入してもConversation Memoryを上書きしない。
 
 ## Tests
@@ -80,3 +80,8 @@ Agentの予測と解釈に、AIとしての対話・探索経験を与えるた�
 - 生成物は25個のAI経験seedを4variationへ展開したドラフトであり、同じaction/outcome/lessonが4回繰り返される箇所がある。年齢・出身地・家族構成は持たず、`phase`で段階を表す。
 - 人レビューでは、経験の重複、AI・if001プロフィールとの整合、実在人物・現在ユーザーの不在、タグ・感情・テーマ・段階の分布を確認し、必要ならseedを修正して再生成する。
 - 人レビュー完了まで`status: doing`とし、mainへマージしない。
+
+## 承認
+
+- 2026-10-31にユーザーが生成物を承認した。
+- 承認済みYAMLは`tests/integration/background-experience.test.ts`で初期化経路へ投入し、各100件になることを確認済み。
