@@ -21,6 +21,10 @@ export function createDebugUiServer(repository: DebugUiRepository): Server {
         if (parts[3] === "runs" && parts.length === 4) { response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json(await repository.listRuns(agentId, limit(url)))); return; }
         if (parts[3] === "runs" && parts[4] !== undefined && parts.length === 5) { const value = await repository.getRun(agentId, parts[4]); if (value === undefined) response.writeHead(404).end("Run Not Found"); else response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json(value)); return; }
         if (parts[3] === "memories" && parts.length === 4) { response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json(await repository.listMemories(agentId, limit(url)))); return; }
+        if (parts[3] === "predictions" && parts.length === 4) { response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json(await repository.listPredictions(agentId, limit(url)))); return; }
+        if (parts[3] === "memory-updates" && parts.length === 4) { response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json(await repository.listMemoryUpdates(agentId, limit(url)))); return; }
+        if (parts[3] === "background-experiences" && parts.length === 4) { response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json(await repository.listBackgroundExperiences(agentId, limit(url)))); return; }
+        if (parts[3] === "g3" && parts.length === 4) { response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json(await repository.listG3Tasks(agentId, limit(url)))); return; }
         response.writeHead(404).end("Not Found");
       } catch (error) { response.writeHead(500, { "content-type": "application/json" }).end(json({ error: error instanceof Error ? error.message : "Internal Server Error" })); }
     })();

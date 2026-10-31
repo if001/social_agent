@@ -82,4 +82,24 @@ export class DebugUiRepository {
       embedding_error AS "embeddingError",source_agent_id AS "sourceAgentId",evidence_event_ids AS "evidenceEventIds",occurred_at AS "occurredAt",created_at AS "createdAt"
       FROM memories WHERE agent_id=$1 ORDER BY occurred_at DESC,id LIMIT $2`, [agentId, bounded]);
   }
+
+  async listPredictions(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {
+    const bounded = Math.min(Math.max(limit, 1), 100);
+    return this.query<QueryResultRow>(`SELECT id,source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",output,created_at AS "createdAt" FROM prediction_records WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
+  }
+
+  async listMemoryUpdates(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {
+    const bounded = Math.min(Math.max(limit, 1), 100);
+    return this.query<QueryResultRow>(`SELECT id,memory_id AS "memoryId",operation,candidate_memory_id AS "candidateMemoryId",source_event_id AS "sourceEventId",intent_index AS "intentIndex",source_agent_id AS "sourceAgentId",intent,created_at AS "createdAt" FROM memory_mutations WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
+  }
+
+  async listBackgroundExperiences(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {
+    const bounded = Math.min(Math.max(limit, 1), 100);
+    return this.query<QueryResultRow>(`SELECT id,phase,place,participants,relationship,action,feeling,outcome,lesson,importance,tags,embedding_status AS "embeddingStatus",occurred_at AS "occurredAt" FROM background_experiences WHERE agent_id=$1 ORDER BY occurred_at DESC,id LIMIT $2`, [agentId, bounded]);
+  }
+
+  async listG3Tasks(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {
+    const bounded = Math.min(Math.max(limit, 1), 100);
+    return this.query<QueryResultRow>(`SELECT id,source_prediction_id AS "sourcePredictionId",source_event_id AS "sourceEventId",status,input,output,failure_reason AS "failureReason",created_at AS "createdAt",completed_at AS "completedAt" FROM g3_tasks WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
+  }
 }
