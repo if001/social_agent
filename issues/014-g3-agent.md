@@ -77,5 +77,6 @@ G3はユーザーの意図、知識、信念、関係についての仮説を深
 - G3Output、G3Task、G3Service、PostgresG3TaskRepository、Ollama G3 modelを追加した。
 - PredictionLoopの`g3Sink`からG3を非同期起動できるようにした。
 - G3のMemoryIntentはMemoryG3ResultSinkからmemory-updateへ渡す。
-- 未実装：G3専用DeepAgentのTool利用、`prediction-g3`/`prediction-g3-result` Eventの永続化、MainAgent再判断、user-message優先。
+- G3専用DeepAgentとTool利用（retrieval_search、self_get、concern_list、concern_get）を追加した。
+- 未実装：`prediction-g3`/`prediction-g3-result` Eventの永続化、MainAgent再判断、user-message優先。
 - このため`status: doing`のままにし、mainへマージしない。
