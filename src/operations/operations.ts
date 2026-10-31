@@ -1,13 +1,14 @@
 import type { Pool } from "pg";
 
-import type { InitialSelfConfig } from "../domain/contracts.js";
+import type { BackgroundExperienceFile, InitialSelfConfig } from "../domain/contracts.js";
+import { replaceBackgroundExperiences } from "./background-experiences.js";
 import type { SchedulerTimings } from "../config/config.js";
 
 import type { AddressedFileQueue, DeadLetter } from "../infrastructure/queue/addressed-file-queue.js";
 import type { LifecycleState } from "../bootstrap/lifecycle.js";
 import { redactSecrets } from "../observability/redaction.js";
 
-export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs" | "memoryRecallIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 }, options: { readonly overwriteConfiguredSelf?: boolean } = {}): Promise<void> {
+export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs" | "memoryRecallIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 }, options: { readonly overwriteConfiguredSelf?: boolean; readonly backgroundExperience?: BackgroundExperienceFile } = {}): Promise<void> {
   const { family, agent, initialState } = config;
   const client = await pool.connect();
   try {
@@ -28,6 +29,10 @@ export async function initializeAgent(pool: Pool, config: InitialSelfConfig, tim
     await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'reflection',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`reflection:${agent.id}`, agent.id, "蓄積したEvent logをMemoryと長期状態へ統合する", timings.stateReviewIntervalMs]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+  if (options.backgroundExperience !== undefined) {
+    if (options.backgroundExperience.agentId !== agent.id) throw new Error("Background Experience agentId does not match the initialized agent");
+    await replaceBackgroundExperiences(pool, options.backgroundExperience, agent.id);
+  }
 }
 
 export type HealthSnapshot = { readonly state: LifecycleState; readonly accepting: boolean; readonly ready: boolean; readonly dependencies: Readonly<Record<string, "up" | "down">> };
