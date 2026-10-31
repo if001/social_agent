@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AgentRuntime } from "../../src/application/agent-runtime.js";
 import { PredictionLoop } from "../../src/application/prediction-loop.js";
@@ -39,10 +39,12 @@ describe("FR-48, FR-49, FR-63, NFR-16, AC-11, AC-18: G1/G2 prediction loop", () 
   it("FR-48, FR-49: saves one prediction after a user response and filters evaluations to the previous record", async () => {
     const previous: PredictionRecord = { id: "previous", agentId: "a", sourceEventId: "old", sourceRunId: "old-run", output: { ...output, predictionEvaluations: [] }, createdAt: "2026-10-30T00:00:00+00:00" };
     const { repo, saved } = repository(previous);
-    const loop = new PredictionLoop({ repository: repo, model: model(output), ids: { next: () => "new-prediction" }, now: () => new Date("2026-10-31T01:00:00+00:00"), limits: { deadlineMs: 1_000, maxAttempts: 1 } });
+    const enqueue = vi.fn(() => Promise.resolve());
+    const loop = new PredictionLoop({ repository: repo, model: model(output), ids: { next: () => "new-prediction" }, now: () => new Date("2026-10-31T01:00:00+00:00"), memoryUpdateSink: { enqueue }, limits: { deadlineMs: 1_000, maxAttempts: 1 } });
     await loop.afterResponse({ event, input, result: {} as never }, new AbortController().signal);
     expect(saved).toHaveLength(1);
     expect(saved[0]?.output.predictionEvaluations).toEqual(output.predictionEvaluations);
+    expect(enqueue).toHaveBeenCalledWith({ agentId: "a", sourceEventId: "event-1", intents: output.remember });
   });
 
   it("FR-63, AC-11: skips non-user events and does not throw when the model fails", async () => {

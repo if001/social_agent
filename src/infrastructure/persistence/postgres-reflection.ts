@@ -2,6 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 
 import type { IdGenerator } from "../../application/ports.js";
 import { MemoryWriteService } from "../../application/memory-write-service.js";
+import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ReflectionInputSchema, ReflectionOutputSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type Relationship } from "../../domain/contracts.js";
 
@@ -32,7 +33,7 @@ function applyRelationships(current: readonly Relationship[], changes: Reflectio
 }
 
 export class PostgresReflectionRepository implements ReflectionRepository {
-  constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date) {}
+  constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryUpdateSink?: MemoryUpdateSink) {}
 
   async load(reflectionId: string, agentId: string): Promise<ReflectionInput | undefined> {
     const existing = await this.pool.query<ReflectionRow>("SELECT status,input FROM reflection_runs WHERE id=$1 AND agent_id=$2", [reflectionId, agentId]);
@@ -79,17 +80,18 @@ export class PostgresReflectionRepository implements ReflectionRepository {
         await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,$4)", [`concern:${concern.id}`, input.agentId, concern.whyItMatters, concern.reconsiderAt]);
       }
       const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
-      for (const [memoryIndex, memory] of output.memories.entries()) {
-        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, {
-          content: memory.summary,
-          reason: memory.significance,
-          evidenceEventIds: input.events.map(({ id: eventId }) => eventId),
-          confidence: "medium",
-          target: "episodic"
-        }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }) });
+      const reflectionIntents = output.memories.map((memory) => ({ content: memory.summary, reason: memory.significance, evidenceEventIds: input.events.map(({ id: eventId }) => eventId), confidence: "medium" as const, target: "episodic" as const }));
+      if (this.memoryUpdateSink === undefined) {
+        for (const [memoryIndex, memory] of output.memories.entries()) {
+          await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }) });
+        }
       }
       await client.query("UPDATE reflection_runs SET status='completed',output=$2,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.reflectionId, JSON.stringify(output)]);
-      await client.query("COMMIT"); return "committed";
+      await client.query("COMMIT");
+      if (this.memoryUpdateSink !== undefined && reflectionIntents.length > 0) {
+        try { await this.memoryUpdateSink.enqueue({ agentId: input.agentId, sourceEventId: input.reflectionId, intents: reflectionIntents, subjectsByIntent: output.memories.map((memory) => memory.subjects), sourceAgentIds: output.memories.map((memory) => memory.source) }); } catch { /* Reflection memory remains pending for retry. */ }
+      }
+      return "committed";
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 

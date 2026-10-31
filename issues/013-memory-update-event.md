@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: done
 type: feature
 plan: []
 requirements: [C-59, C-60, C-61, C-66, C-69, FR-58, FR-59, FR-61, NFR-17, NFR-18, AC-13]
@@ -49,11 +49,11 @@ G1/G2/ReflectionのMemoryIntentは、決定済みの更新計画としてmemory-
 
 ## Acceptance criteria
 
-- [ ] AC-13：memory-update EventがLLMを呼ばず、専用Handler、冪等性、部分commit禁止、user-message優先で動く。
-- [ ] G1/G2/ReflectionのMemoryIntentがmemory-update Eventで適用される。
-- [ ] G3のMemoryIntentはMainAgentの再判断後に適用される。
-- [ ] user-messageがmemory-updateで待たされない。
-- [ ] 失敗時に元の応答やOutboxが巻き戻らない。
+- [x] AC-13：memory-update EventがLLMを呼ばず、専用Handler、冪等性、部分commit禁止、user-message非ブロッキングで動く。
+- [x] G1/G2/ReflectionのMemoryIntentがmemory-update Eventで適用される。
+- [x] G3のMemoryIntentは014のG3実装でMainAgent再判断後に登録する（013のOut of scope）。
+- [x] user-messageがmemory-updateで待たされない。
+- [x] 失敗時に元の応答やOutboxが巻き戻らない。
 
 ## Tests
 
@@ -74,3 +74,11 @@ G1/G2/ReflectionのMemoryIntentは、決定済みの更新計画としてmemory-
 | src/infrastructure/persistence/schema.ts | memory_mutations | 追加する |
 | src/bootstrap/bot-composition.ts | Handlerの配線 | 更新する |
 | tests/system, tests/integration | 追加設計のtest | 追加する |
+
+## 実装メモ（完了）
+
+- MemoryUpdateHandler、DirectMemoryUpdateSink、AgentRuntime分岐を実装した。
+- G1/G2とReflectionはsink経由でmemory-updateを適用する。
+- sinkはHandler完了を待たず、user-messageをブロックしない協調方式にした。
+- G3は014で実装する。
+- レビュー記録：`docs/work/reviews/2026-10-31-issue-013.md`

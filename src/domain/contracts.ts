@@ -409,6 +409,13 @@ export const PredictionContextSchema = z.object({
 }).strict();
 export type PredictionContext = z.infer<typeof PredictionContextSchema>;
 
+export const MemoryUpdatePayloadSchema = z.looseObject({
+  intents: z.array(MemoryIntentSchema).min(1).max(10),
+  subjectsByIntent: z.array(z.array(Id)).optional(),
+  sourceAgentIds: z.array(Id.optional()).optional()
+});
+export type MemoryUpdatePayload = z.infer<typeof MemoryUpdatePayloadSchema>;
+
 export const AgentCoreInputSchema = z.object({
   run: z.object({
     runId: Id,

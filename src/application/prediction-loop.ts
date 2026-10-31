@@ -1,4 +1,5 @@
 import type { IdGenerator, RetrievalService } from "./ports.js";
+import type { MemoryUpdateSink } from "./memory-update.js";
 import type { PredictionModel, PredictionRepository, PredictionService, PredictionServiceInput } from "./prediction.js";
 import { DomainError } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
@@ -22,6 +23,7 @@ export type PredictionLoopOptions = {
   readonly ids: IdGenerator;
   readonly now: () => Date;
   readonly retrieval?: RetrievalService;
+  readonly memoryUpdateSink?: MemoryUpdateSink;
   readonly limits: PredictionLoopLimits;
   readonly logger?: Logger;
 };
@@ -60,6 +62,7 @@ export class PredictionLoop implements PredictionService {
           createdAt: this.options.now().toISOString()
         });
         logger.log("info", "prediction.saved", { g1Count: output.predictions.g1.candidates.length, g2Count: output.predictions.g2.candidates.length, evaluationCount: output.predictionEvaluations.length, needsG3: output.g3.needsG3 });
+        if (output.remember.length > 0 && this.options.memoryUpdateSink !== undefined) await this.options.memoryUpdateSink.enqueue({ agentId: input.event.agentId, sourceEventId: input.event.id, intents: output.remember });
         return;
       } catch (error) {
         logger.log("warn", "prediction.attempt_failed", { remainingAttempts: remaining, ...errorLogContext(error) });
