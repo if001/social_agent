@@ -69,4 +69,13 @@ describe("Agent Debug UI", () => {
     expect(JSON.parse((await request(server, "/api/agents/ao/g3")).body)).toEqual([{ id: "g3-1" }]);
     server.close();
   });
+
+  it("NFR-12: returns 500 without crashing when a repository query fails", async () => {
+    const repository = { listAgents: () => Promise.reject(new Error("query failed")), getOverview: () => Promise.resolve(undefined), listRuns: () => Promise.resolve([]), getRun: () => Promise.resolve(undefined), listMemories: () => Promise.resolve([]), listPredictions: () => Promise.resolve([]), listMemoryUpdates: () => Promise.resolve([]), listBackgroundExperiences: () => Promise.resolve([]), listG3Tasks: () => Promise.resolve([]) } as unknown as DebugUiRepository;
+    const server = createDebugUiServer(repository);
+    const response = await request(server, "/api/agents");
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body)).toEqual({ error: "query failed" });
+    server.close();
+  });
 });
