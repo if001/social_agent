@@ -33,6 +33,16 @@ export const ReflectionOutputSchema = z.object({
 });
 export type ReflectionOutput = z.infer<typeof ReflectionOutputSchema>;
 
+export const ReflectionTargetStatusSchema = z.enum(["pending", "completed", "failed", "blocked"]);
+export const ReflectionPlanSchema = z.object({
+  memory: ReflectionTargetStatusSchema,
+  self: ReflectionTargetStatusSchema,
+  relationship: ReflectionTargetStatusSchema,
+  concern: ReflectionTargetStatusSchema,
+  errors: z.array(z.object({ target: z.enum(["memory", "self", "relationship", "concern"]), message: Text })).default([])
+}).strict();
+export type ReflectionPlan = z.infer<typeof ReflectionPlanSchema>;
+
 export interface ReflectionModel { reflect(input: ReflectionInput, signal: AbortSignal): Promise<ReflectionOutput>; }
 export interface ReflectionRepository {
   load(reflectionId: string, agentId: string): Promise<ReflectionInput | undefined>;

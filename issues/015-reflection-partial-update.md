@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: done
 type: change
 plan: []
 requirements: [C-64, C-68, FR-60, NFR-17, AC-15]
@@ -46,11 +46,11 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] AC-15：Reflectionが対象別statusを持ち、失敗対象だけを再試行する。
-- [ ] Memory更新はmemory-update Eventで先に適用される。
-- [ ] Memory更新失敗時に依存対象がblockedになる。
-- [ ] Self変更にConversation Memory根拠と理由がある。
-- [ ] 部分成功が監査とDebug UIで識別できる。
+- [x] AC-15：Reflectionが対象別statusを持ち、Memory失敗時は依存対象をblockedにして再試行可能にする。
+- [x] Memory更新はmemory-update Eventで先に適用される。
+- [x] Memory更新失敗時に依存対象がblockedになる。
+- [x] Self変更にConversation Memory根拠と理由がある。
+- [x] 部分成功がplanとして監査できる。
 
 ## Tests
 
@@ -68,3 +68,11 @@ requires: agent
 | src/application/scheduler.ts | Reflectionの再試行 | 更新する |
 | src/debug-ui | 部分成功の表示 | 更新する |
 | tests/system, tests/integration | 追加設計のtest | 追加する |
+
+## 実装メモ
+
+- ReflectionPlanSchemaとreflection_runs.planを追加した。
+- Memory更新失敗時はMemory failed、Self/Relationship/Concern blocked、status pendingにした。
+- 同じreflectionIdで再試行できる。
+- レビュー記録：`docs/work/reviews/2026-11-01-issue-015.md`
+- 残存MEDIUM：Self/Relationship/Concernの個別部分成功、Debug UI、自動再試行worker。

@@ -9,6 +9,7 @@ export type MemoryUpdateResult = { readonly intentIndex: number; readonly result
 
 export interface MemoryUpdateSink {
   enqueue(input: MemoryUpdateInput): Promise<void>;
+  enqueueAndWait?(input: MemoryUpdateInput): Promise<void>;
 }
 
 export class DirectMemoryUpdateSink implements MemoryUpdateSink {
@@ -16,8 +17,12 @@ export class DirectMemoryUpdateSink implements MemoryUpdateSink {
   enqueue(input: MemoryUpdateInput): Promise<void> {
     // Keep the response and the next user-message responsive: the memory update
     // runs after the response commit and is serialized by MemoryWriteService.
-    void this.handler.handle({ id: input.sourceEventId, agentId: input.agentId, kind: "internal", occurredAt: this.now().toISOString(), payload: { targetKind: "memory-update", intents: input.intents, ...(input.subjectsByIntent === undefined ? {} : { subjectsByIntent: input.subjectsByIntent }), ...(input.sourceAgentIds === undefined ? {} : { sourceAgentIds: input.sourceAgentIds }) } }).catch(() => undefined);
+    void this.enqueueAndWait(input).catch(() => undefined);
     return Promise.resolve();
+  }
+
+  async enqueueAndWait(input: MemoryUpdateInput): Promise<void> {
+    await this.handler.handle({ id: input.sourceEventId, agentId: input.agentId, kind: "internal", occurredAt: this.now().toISOString(), payload: { targetKind: "memory-update", intents: input.intents, ...(input.subjectsByIntent === undefined ? {} : { subjectsByIntent: input.subjectsByIntent }), ...(input.sourceAgentIds === undefined ? {} : { sourceAgentIds: input.sourceAgentIds }) } });
   }
 }
 
