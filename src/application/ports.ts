@@ -8,7 +8,6 @@ export interface MessageQueue {
   subscribe(destination: string, handler: (message: MessageEnvelope) => Promise<void>, signal: AbortSignal): Promise<void>;
 }
 export interface MemoryRepository {
-  save(memory: Memory): Promise<void>;
   list(agentId: string): Promise<readonly Memory[]>;
 }
 export interface UnitOfWork { transaction<T>(work: () => Promise<T>): Promise<T>; }

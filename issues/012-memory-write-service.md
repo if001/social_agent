@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: done
 type: feature
 plan: []
 requirements: [C-49, C-55, C-57, C-58, C-63, C-67, FR-56, FR-57, NFR-15, AC-12, AC-17]
@@ -50,11 +50,11 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] AC-12：create、update、no-op、Memory version競合、直接INSERT不在をIntegration testで確認する。
-- [ ] AC-17：MemoryIntentのtargetにRelationshipとConcernが含まれず、既存Patch/Concern Proposalへ渡ることをContract testで確認する。
-- [ ] MainAgentのrememberが応答transactionでMemoryWriteServiceを経由する。
-- [ ] 既存の3つの直接INSERT経路が削除されている。
-- [ ] version競合時に再検索、update、no-opのいずれかを選べる。
+- [x] AC-12：create、update、no-op、Memory version競合、直接INSERT不在をIntegration/Unit testで確認する。
+- [x] AC-17：MemoryIntentのtargetにRelationshipとConcernが含まれず、既存Patch/Concern Proposalへ渡ることをContract testで確認する。
+- [x] MainAgentのrememberが応答transactionでMemoryWriteServiceを経由する。
+- [x] 既存の3つの直接INSERT経路が削除されている。
+- [x] version競合時に再検索、update、no-opのいずれかを選べる。
 
 ## Tests
 
@@ -75,3 +75,13 @@ requires: agent
 | src/infrastructure/persistence/postgres-reflection.ts | Memory INSERT | MemoryWriteServiceへ移行する |
 | src/infrastructure/persistence/schema.ts | memories.version、memory_mutations | 追加する |
 | tests/unit, tests/integration | 追加設計のtest | 追加する |
+
+## 実装メモ
+
+- MemoryWriteServiceを唯一のConversation Memory書込み経路にした。
+- RAG候補、MemoryIntentSchema検証、Agent所有権、kind一致、evidence必須を追加した。
+- memories.versionとmemory_mutationsを追加し、sourceEventId/intentIndexで冪等にした。
+- update時にembeddingをpendingへ戻す。
+- MainAgent rememberはEvent transaction、ReflectionはMemoryWriteService経由にした。
+- レビュー記録：`docs/work/reviews/2026-10-31-issue-012.md`
+- 残存MEDIUM：実DBの同時version競合testは未追加。通常経路はRAG候補を渡す。

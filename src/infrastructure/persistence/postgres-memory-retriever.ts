@@ -15,9 +15,6 @@ export type MemoryRetrievalResult = { readonly memories: readonly Memory[]; read
 export class PostgresMemoryRetriever implements MemoryRepository {
   private readonly service: PostgresRetrievalService;
   constructor(private readonly pool: Pool) { this.service = new PostgresRetrievalService(pool); }
-  async save(memory: Memory): Promise<void> {
-    await this.pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')", [memory.id, memory.agentId, memory.kind, memory.content, memory.importance, memory.retrievalPriority, memory.occurredAt, memory.createdAt, memory.sourceAgentId ?? null, JSON.stringify(memory.evidenceEventIds)]);
-  }
   async list(agentId: string): Promise<readonly Memory[]> { return (await this.retrieve(agentId, { text: "", keywords: [], subjectIds: [], kinds: ["episodic", "semantic", "self-related", "self-change", "common-ground"] }, [], 100)).memories; }
   async retrieve(agentId: string, query: RelevantMemoryQuery, embedding: readonly number[], limit: number, filter: RetrievalFilter = {}): Promise<MemoryRetrievalResult> {
     if (limit <= 0) return { memories: [], trace: [] };

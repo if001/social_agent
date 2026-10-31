@@ -2,7 +2,8 @@ import type { Pool, QueryResultRow } from "pg";
 import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
-import type { IdGenerator } from "../../application/ports.js";
+import type { IdGenerator, RetrievalService } from "../../application/ports.js";
+import type { MemoryCandidate } from "../../application/memory-write-service.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
 import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
@@ -14,7 +15,7 @@ type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, _legacyMemoryEmbedding?: unknown, tools?: ToolRegistry, private readonly agentId?: string) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, _legacyMemoryEmbedding?: unknown, tools?: ToolRegistry, private readonly agentId?: string, private readonly retrievalService?: RetrievalService) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -33,14 +34,21 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     const actorSubject = input.observation.actor?.type === "human" || input.observation.actor?.type === "agent" ? [input.observation.actor.id] : [];
-    const immediateMemories = update.remember === undefined ? [] : [{ id: this.ids.next(), agentId: event.agentId, kind: "episodic" as const, content: update.remember, occurredAt: event.occurredAt, createdAt: this.now().toISOString(), relatedSubjectIds: actorSubject, importance: "Agent Coreが次の判断へ残すと決めた経験", retrievalPriority: "normal" as const, evidenceEventIds: [event.id] }];
+    const memoryIntents = update.remember === undefined ? [] : [{ content: update.remember, reason: "Agent Coreが次の判断へ残すと決めた経験", evidenceEventIds: [event.id], confidence: "medium" as const, target: "episodic" as const }];
+    let memoryCandidates: readonly MemoryCandidate[] | undefined;
+    if (update.remember !== undefined && this.retrievalService !== undefined) {
+      try { memoryCandidates = (await this.retrievalService.retrieve({ agentId: event.agentId, query: update.remember, scope: "conversation", limit: 5 })).map((item) => ({ id: item.id, kind: item.kind, content: item.content, importance: item.importance })); }
+      catch { memoryCandidates = undefined; }
+    }
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { mood: update.state.mood, concerns: update.state.concerns, relationships: update.state.relationships },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next(), reason: "AgentTurn patch", evidenceIds: [change.eventId] })),
-      memories: immediateMemories,
+      memoryIntents,
+      memorySubjects: memoryIntents.map(() => actorSubject),
+      ...(memoryCandidates === undefined ? {} : { memoryCandidates }),
       toolExecutions: validatedTools,
       outbox: outgoing
     });

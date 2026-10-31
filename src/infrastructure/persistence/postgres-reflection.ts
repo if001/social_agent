@@ -1,6 +1,7 @@
 import type { Pool, QueryResultRow } from "pg";
 
 import type { IdGenerator } from "../../application/ports.js";
+import { MemoryWriteService } from "../../application/memory-write-service.js";
 import { ReflectionInputSchema, ReflectionOutputSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type Relationship } from "../../domain/contracts.js";
 
@@ -77,10 +78,15 @@ export class PostgresReflectionRepository implements ReflectionRepository {
         if (concern.status !== "active" || concern.reconsiderAt === undefined) continue;
         await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,$4)", [`concern:${concern.id}`, input.agentId, concern.whyItMatters, concern.reconsiderAt]);
       }
-      for (const memory of output.memories) {
-        const id = this.ids.next(); const createdAt = this.now();
-        await client.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,created_at,source_agent_id,evidence_event_ids,embedding_status) VALUES ($1,$2,'episodic',$3,$4,$5,$6,$7,$8,'pending')", [id, input.agentId, memory.summary, memory.significance, memory.occurredAt, createdAt, memory.source ?? null, JSON.stringify(input.events.map(({ id: eventId }) => eventId))]);
-        for (const subjectId of memory.subjects) await client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2)", [id, subjectId]);
+      const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
+      for (const [memoryIndex, memory] of output.memories.entries()) {
+        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, {
+          content: memory.summary,
+          reason: memory.significance,
+          evidenceEventIds: input.events.map(({ id: eventId }) => eventId),
+          confidence: "medium",
+          target: "episodic"
+        }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }) });
       }
       await client.query("UPDATE reflection_runs SET status='completed',output=$2,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.reflectionId, JSON.stringify(output)]);
       await client.query("COMMIT"); return "committed";
