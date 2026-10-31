@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue, PredictionService } from "./ports.js";
+import type { MemoryUpdateHandler } from "./memory-update.js";
 import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
@@ -24,7 +25,7 @@ export interface RuntimePersistence {
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler };
 
 const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined;
 
@@ -98,6 +99,12 @@ export class AgentRuntime {
   }
   async #execute(message: MessageEnvelope, event: DomainEvent, signal: AbortSignal, outgoingFor: readonly MessageEnvelope[] | ((action: AgentAction, input: AgentCoreInput) => readonly MessageEnvelope[])): Promise<AgentAction> {
     const startedAt = Date.now(); const eventLogger = (this.options.logger ?? noopLogger).child({ agentId: event.agentId, messageId: message.id, eventId: event.id, eventKind: event.kind, correlationId: event.correlationId });
+    if (event.payload.targetKind === "memory-update") {
+      if (this.options.memoryUpdateHandler === undefined) throw new DomainError("VALIDATION", "MemoryUpdateHandler is not configured");
+      const results = await this.options.memoryUpdateHandler.handle(event);
+      eventLogger.log("info", "memory_update.completed", { intentCount: results.length, elapsedMs: Date.now() - startedAt });
+      return { type: "no-external-action", reason: "MemoryUpdate was applied without an Agent Action" };
+    }
     eventLogger.log("info", "context.loading");
     const input = await this.options.persistence.loadInput(event);
     const logger = eventLogger.child({ runId: input.run.runId });

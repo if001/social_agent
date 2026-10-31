@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: doing
 type: feature
 plan: []
 requirements: [C-59, C-60, C-61, C-66, C-69, FR-58, FR-59, FR-61, NFR-17, NFR-18, AC-13]
@@ -74,3 +74,11 @@ G1/G2/ReflectionのMemoryIntentは、決定済みの更新計画としてmemory-
 | src/infrastructure/persistence/schema.ts | memory_mutations | 追加する |
 | src/bootstrap/bot-composition.ts | Handlerの配線 | 更新する |
 | tests/system, tests/integration | 追加設計のtest | 追加する |
+
+## 実装メモ（WIP）
+
+- MemoryUpdatePayloadSchemaとMemoryUpdateHandlerを追加した。
+- AgentRuntimeは`targetKind: memory-update`のEventをHandlerへ渡し、AgentHarnessを実行しない。
+- Handlerは1 transactionでMemoryWriteServiceを適用し、失敗時は全体をrollbackする。
+- 未実装：G1/G2/ReflectionからのEvent登録、Event優先順位とuser-message優先の協調制御。
+- このため`status: doing`のままにし、mainへマージしない。
