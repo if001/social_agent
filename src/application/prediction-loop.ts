@@ -1,5 +1,6 @@
 import type { IdGenerator, RetrievalService } from "./ports.js";
 import type { MemoryUpdateSink } from "./memory-update.js";
+import type { G3Sink } from "./g3.js";
 import type { PredictionModel, PredictionRepository, PredictionService, PredictionServiceInput } from "./prediction.js";
 import { DomainError } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
@@ -24,6 +25,7 @@ export type PredictionLoopOptions = {
   readonly now: () => Date;
   readonly retrieval?: RetrievalService;
   readonly memoryUpdateSink?: MemoryUpdateSink;
+  readonly g3Sink?: G3Sink;
   readonly limits: PredictionLoopLimits;
   readonly logger?: Logger;
 };
@@ -53,8 +55,9 @@ export class PredictionLoop implements PredictionService {
           ...(previous === undefined ? {} : { previousPrediction: { id: previous.id, createdAt: previous.createdAt, output: previous.output } }),
           memoryCandidates
         }, predictionSignal), this.options.limits.deadlineMs);
+        const predictionId = this.options.ids.next();
         await this.options.repository.save({
-          id: this.options.ids.next(),
+          id: predictionId,
           agentId: input.event.agentId,
           sourceEventId: input.event.id,
           sourceRunId: input.input.run.runId,
@@ -63,6 +66,7 @@ export class PredictionLoop implements PredictionService {
         });
         logger.log("info", "prediction.saved", { g1Count: output.predictions.g1.candidates.length, g2Count: output.predictions.g2.candidates.length, evaluationCount: output.predictionEvaluations.length, needsG3: output.g3.needsG3 });
         if (output.remember.length > 0 && this.options.memoryUpdateSink !== undefined) await this.options.memoryUpdateSink.enqueue({ agentId: input.event.agentId, sourceEventId: input.event.id, intents: output.remember });
+        if (output.g3.needsG3 && this.options.g3Sink !== undefined) await this.options.g3Sink.enqueue({ agentId: input.event.agentId, sourceEventId: input.event.id, sourcePredictionId: predictionId, observation: input.input.observation, prediction: output });
         return;
       } catch (error) {
         logger.log("warn", "prediction.attempt_failed", { remainingAttempts: remaining, ...errorLogContext(error) });

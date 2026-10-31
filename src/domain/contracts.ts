@@ -409,6 +409,20 @@ export const PredictionContextSchema = z.object({
 }).strict();
 export type PredictionContext = z.infer<typeof PredictionContextSchema>;
 
+export const G3HypothesisEvaluationSchema = z.object({
+  statement: NaturalLanguage,
+  status: z.enum(["supported", "contradicted", "undecidable"]),
+  evidenceEventIds: z.array(Id).max(16),
+  rationale: NaturalLanguage
+}).strict();
+export const G3OutputSchema = z.object({
+  hypothesisEvaluations: z.array(G3HypothesisEvaluationSchema).max(6),
+  newHypotheses: z.array(NaturalLanguage).max(5),
+  findings: z.array(NaturalLanguage).max(5),
+  remember: z.array(MemoryIntentSchema).max(3)
+}).strict();
+export type G3EvaluationOutput = z.infer<typeof G3OutputSchema>;
+
 export const MemoryUpdatePayloadSchema = z.looseObject({
   intents: z.array(MemoryIntentSchema).min(1).max(10),
   subjectsByIntent: z.array(z.array(Id)).optional(),

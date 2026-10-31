@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: doing
 type: feature
 plan: []
 requirements: [C-39, C-40, C-41, C-42, C-66, FR-51, FR-52, NFR-17, AC-16]
@@ -71,3 +71,11 @@ G3はユーザーの意図、知識、信念、関係についての仮説を深
 | src/infrastructure/persistence/schema.ts | g3_tasks | 追加する |
 | src/bootstrap/bot-composition.ts | G3 harnessの配線 | 更新する |
 | tests/system | G3 Eventのtest | 追加する |
+
+## 実装メモ（WIP）
+
+- G3Output、G3Task、G3Service、PostgresG3TaskRepository、Ollama G3 modelを追加した。
+- PredictionLoopの`g3Sink`からG3を非同期起動できるようにした。
+- G3のMemoryIntentはMemoryG3ResultSinkからmemory-updateへ渡す。
+- 未実装：G3専用DeepAgentのTool利用、`prediction-g3`/`prediction-g3-result` Eventの永続化、MainAgent再判断、user-message優先。
+- このため`status: doing`のままにし、mainへマージしない。
