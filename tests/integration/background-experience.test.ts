@@ -12,6 +12,7 @@ import { replaceBackgroundExperiences } from "../../src/operations/background-ex
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { FakeEmbeddingProvider } from "../../src/infrastructure/embedding/ollama-embedding.js";
 import { initializeAgent } from "../../src/operations/operations.js";
+import { loadBackgroundExperienceFile } from "../../src/config/background-experience.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
@@ -37,7 +38,7 @@ describeDatabase("Background Experience persistence and retrieval", () => {
     await control.query(`CREATE SCHEMA ${schema}`);
     await migrate(pool);
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
-    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold'),('aka','family','Aka','Calm'),('shiro','family','Shiro','Calm')");
     for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful learner','Growing continuously','[]','[]','[]','Calm')", [agentId]);
   });
   afterAll(async () => {
@@ -109,5 +110,13 @@ describeDatabase("Background Experience persistence and retrieval", () => {
     const recent = await service.retrieve({ agentId: "a", query: "", scope: "conversation", limit: 5 });
     expect(recent.findIndex(({ id }) => id === "vec")).toBeLessThan(recent.findIndex(({ id }) => id === "subject"));
     expect(recent.findIndex(({ id }) => id === "subject")).toBeLessThan(recent.findIndex(({ id }) => id === "old"));
+  });
+
+  it("FR-53, FR-54, NFR-19: seeds the generated aka and shiro YAML with 100 experiences each", async () => {
+    for (const agentId of ["aka", "shiro"]) {
+      const generated = await loadBackgroundExperienceFile(`config/background-experiences/${agentId}.yaml`);
+      await expect(replaceBackgroundExperiences(pool, generated, agentId)).resolves.toBe(100);
+      expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM background_experiences WHERE agent_id=$1", [agentId])).rows[0]).toEqual({ count: 100 });
+    }
   });
 });

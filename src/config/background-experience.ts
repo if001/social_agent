@@ -5,7 +5,7 @@ import { parse } from "yaml";
 import { BackgroundExperienceFileSchema, type BackgroundExperienceFile } from "../domain/contracts.js";
 
 const SHARED_USER_ALIASES = new Set(["owner", "user", "利用者", "現在のユーザー", "主人", "あなた", "ユーザー"]);
-const ROLE_MARKERS = ["友人", "友達", "母", "父", "兄弟", "姉妹", "同僚", "上司", "部下", "先生", "生徒", "学生", "店主", "店員", "隣人", "祖父", "祖母", "家族", "パートナー", "恋人", "先輩", "後輩", "チームメイト", "監督", "コーチ", "医師", "看護師", "客", "通行人", "知人"];
+const ROLE_MARKERS = ["友人", "友達", "母", "父", "兄弟", "姉妹", "同僚", "上司", "部下", "先生", "生徒", "学生", "店主", "店員", "隣人", "祖父", "祖母", "家族", "パートナー", "恋人", "先輩", "後輩", "チームメイト", "監督", "コーチ", "医師", "看護師", "客", "通行人", "知人", "同級生", "クラスメート", "仲間", "飼い犬", "一人", "自分", "教授", "医師", "看護師", "監督", "コーチ"];
 const ROLE_SUFFIXES = ["さん", "君", "氏", "先生", "教授", "医師", "看護師", "店員", "店主", "上司", "部下", "同僚", "友人", "友達", "母", "父", "兄弟", "姉妹", "祖父", "祖母", "家族", "パートナー", "恋人", "先輩", "後輩", "監督", "コーチ"];
 const looksLikeIdentifiablePerson = (participant: string): boolean => {
   const value = participant.trim();

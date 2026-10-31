@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: doing
 type: feature
 plan: []
 requirements: [C-44, C-45, C-47, FR-53, FR-54, NFR-19, AC-14]
@@ -48,12 +48,12 @@ Agentの予測と解釈に自伝的経験を与えるため、既存personaを�
 ## Acceptance criteria
 
 - [ ] AC-14：Background ExperienceがConversation Memoryと別Storeで扱える。
-- [ ] `aka`と`shiro`に各100件のYAMLがある。
-- [ ] 全件がSchema、時系列、年齢、プロフィールと整合する。
-- [ ] 現在のユーザーとの共有経験が1件も含まれない。
+- [x] `aka`と`shiro`に各100件のYAMLがある。
+- [x] 全件がSchema、時系列、年齢、プロフィールと整合する。
+- [x] 現在のユーザーとの共有経験が1件も含まれない。
 - [ ] 人が生成物をレビューし、承認している。
 - [ ] 承認済みYAMLを初期化経路で投入できる。
-- [ ] 再投入してもConversation Memoryを上書きしない。
+- [x] 再投入してもConversation Memoryを上書きしない。
 
 ## Tests
 
@@ -71,3 +71,12 @@ Agentの予測と解釈に自伝的経験を与えるため、既存personaを�
 | config/personas/*.yaml | プロフィールとの整合 | 必要なら更新する |
 | scripts/ | 生成・validation script | 追加する |
 | tests/unit/background-experience.test.ts | 生成YAMLの検証 | 追加する |
+
+## 実装メモ
+
+- `config/background-experiences/aka.yaml`と`shiro.yaml`に各100件のドラフトを生成した。
+- Schema、時系列、年齢、profile整合、現在ユーザー不在、分布、実在人物ヒューリスティックのvalidationを通した。
+- isolated PostgreSQLで両ファイルを投入し、各100件になることとConversation Memoryを上書きしないことをtestした。
+- 生成物は25個の経験seedを4variationへ展開したドラフトであり、同じaction/outcome/lessonが4回繰り返される箇所がある。
+- 人レビューでは、経験の重複、プロフィールとの整合、実在人物・現在ユーザーの不在、タグ・感情・テーマ・年代の分布を確認し、必要ならseedを修正して再生成する。
+- 人レビュー完了まで`status: doing`とし、mainへマージしない。

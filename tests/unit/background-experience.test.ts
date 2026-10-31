@@ -65,6 +65,15 @@ describe("FR-53, FR-54, NFR-19: Background Experience YAML", () => {
     expect(() => validateBackgroundExperienceFile({ ...file([experience("e1", "2018-04-01T00:00:00+09:00", 28)]), profile: { ...profile, currentAge: 20 } })).toThrow(/inconsistent/);
   });
 
+  it("FR-53, FR-54, NFR-19: validates the generated aka and shiro histories", async () => {
+    for (const agentId of ["aka", "shiro"]) {
+      const generated = await loadBackgroundExperienceFile(`config/background-experiences/${agentId}.yaml`);
+      expect(generated.agentId).toBe(agentId);
+      expect(generated.experiences).toHaveLength(100);
+      expect(new Set(generated.experiences.map(({ tags }) => tags.join("|"))).size).toBeGreaterThan(5);
+    }
+  });
+
   it("NFR-19: rejects a skewed distribution in a full history", () => {
     const experiences = Array.from({ length: 10 }, (_, index) => experience(`e${String(index)}`, `${String(2010 + index)}-04-01T00:00:00+09:00`, 20 + index, { tags: ["同じ"], feeling: "同じ", importance: "普通" }));
     expect(() => validateBackgroundExperienceFile(file(experiences))).toThrow(/tags are not distributed|feelings are not distributed/);
