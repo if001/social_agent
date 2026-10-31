@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentRuntime } from "../../src/application/agent-runtime.js";
-import type { MemoryUpdateHandler } from "../../src/application/memory-update.js";
+import { DirectMemoryUpdateSink, type MemoryUpdateHandler } from "../../src/application/memory-update.js";
 import { InMemoryRuntimePersistence } from "../../src/testing/in-memory-runtime-persistence.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 
@@ -15,5 +15,13 @@ describe("FR-58, FR-59, NFR-18, AC-13: memory-update Event", () => {
     expect(action).toEqual({ type: "no-external-action", reason: "MemoryUpdate was applied without an Agent Action" });
     expect(handle).toHaveBeenCalledTimes(1);
     expect(harness.run).not.toHaveBeenCalled();
+  });
+
+  it("FR-59, NFR-18: returns before a slow MemoryUpdateHandler finishes", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const sink = new DirectMemoryUpdateSink({ handle: () => pending } as unknown as MemoryUpdateHandler, () => new Date("2026-10-31T00:00:00Z"));
+    await expect(sink.enqueue({ agentId: "a", sourceEventId: "event-1", intents: [{ content: "x", reason: "y", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic" }] })).resolves.toBeUndefined();
+    release();
   });
 });

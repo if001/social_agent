@@ -4,11 +4,21 @@ import type { IdGenerator, RetrievalService } from "./ports.js";
 import { MemoryWriteService, type MemoryWriteResult } from "./memory-write-service.js";
 import { MemoryUpdatePayloadSchema, type DomainEvent, type MemoryIntent } from "../domain/contracts.js";
 
-export type MemoryUpdateInput = { readonly agentId: string; readonly sourceEventId: string; readonly intents: readonly MemoryIntent[] };
+export type MemoryUpdateInput = { readonly agentId: string; readonly sourceEventId: string; readonly intents: readonly MemoryIntent[]; readonly subjectsByIntent?: readonly (readonly string[])[]; readonly sourceAgentIds?: readonly (string | undefined)[] };
 export type MemoryUpdateResult = { readonly intentIndex: number; readonly result: MemoryWriteResult };
 
 export interface MemoryUpdateSink {
   enqueue(input: MemoryUpdateInput): Promise<void>;
+}
+
+export class DirectMemoryUpdateSink implements MemoryUpdateSink {
+  constructor(private readonly handler: MemoryUpdateHandler, private readonly now: () => Date) {}
+  enqueue(input: MemoryUpdateInput): Promise<void> {
+    // Keep the response and the next user-message responsive: the memory update
+    // runs after the response commit and is serialized by MemoryWriteService.
+    void this.handler.handle({ id: input.sourceEventId, agentId: input.agentId, kind: "internal", occurredAt: this.now().toISOString(), payload: { targetKind: "memory-update", intents: input.intents, ...(input.subjectsByIntent === undefined ? {} : { subjectsByIntent: input.subjectsByIntent }), ...(input.sourceAgentIds === undefined ? {} : { sourceAgentIds: input.sourceAgentIds }) } }).catch(() => undefined);
+    return Promise.resolve();
+  }
 }
 
 export class MemoryUpdateHandler {
@@ -28,7 +38,9 @@ export class MemoryUpdateHandler {
       const results: MemoryUpdateResult[] = [];
       for (const [intentIndex, intent] of payload.intents.entries()) {
         const candidates = this.retrieval === undefined ? undefined : (await this.retrieval.retrieve({ agentId: event.agentId, query: intent.content, scope: "conversation", limit: 5 })).map((item) => ({ id: item.id, kind: item.kind, content: item.content, importance: item.importance }));
-        const result = await service.apply(event.agentId, intent, { sourceEventId: event.id, intentIndex, ...(candidates === undefined ? {} : { candidates }) });
+        const subjectIds = payload.subjectsByIntent?.[intentIndex] ?? [];
+        const sourceAgentId = payload.sourceAgentIds?.[intentIndex];
+        const result = await service.apply(event.agentId, intent, { sourceEventId: event.id, intentIndex, subjectIds, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), ...(candidates === undefined ? {} : { candidates }) });
         results.push({ intentIndex, result });
       }
       await client.query("COMMIT");
