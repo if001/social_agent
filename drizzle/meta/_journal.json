@@ -141,6 +141,13 @@
       "when": 1791990288539,
       "tag": "0019_dashing_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793440841641,
+      "tag": "0020_superb_pyro",
+      "breakpoints": true
     }
   ]
 }

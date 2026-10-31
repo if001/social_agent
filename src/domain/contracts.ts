@@ -183,7 +183,7 @@ export type Observation = z.infer<typeof ObservationSchema>;
 export const MemorySchema = z.object({
   id: Id,
   agentId: Id,
-  kind: z.enum(["episodic", "semantic", "self-related", "self-change"]),
+  kind: z.enum(["episodic", "semantic", "self-related", "self-change", "common-ground"]),
   content: NaturalLanguage,
   occurredAt: Instant,
   createdAt: Instant,
@@ -194,6 +194,61 @@ export const MemorySchema = z.object({
   evidenceEventIds: z.array(Id)
 });
 export type Memory = z.infer<typeof MemorySchema>;
+
+export const BackgroundProfileSchema = z.object({
+  birthYear: z.number().int().min(1900).max(2100),
+  currentAge: z.number().int().min(0).max(120),
+  birthplace: NaturalLanguage,
+  currentCity: NaturalLanguage,
+  occupation: NaturalLanguage,
+  family: z.array(NaturalLanguage).max(20),
+  closePeople: z.array(NaturalLanguage).max(20),
+  values: z.array(NaturalLanguage).min(1).max(12),
+  recurringTopics: z.array(NaturalLanguage).max(20),
+  communicationHabits: z.array(NaturalLanguage).max(20)
+}).strict();
+export type BackgroundProfile = z.infer<typeof BackgroundProfileSchema>;
+
+export const BackgroundExperienceSchema = z.object({
+  id: Id,
+  agentId: Id,
+  occurredAt: Instant,
+  age: z.number().int().min(0).max(120),
+  place: NaturalLanguage,
+  participants: z.array(NaturalLanguage).max(12),
+  relationship: NaturalLanguage,
+  action: NaturalLanguage,
+  feeling: NaturalLanguage,
+  outcome: NaturalLanguage,
+  lesson: NaturalLanguage,
+  importance: NaturalLanguage,
+  tags: z.array(NaturalLanguage).min(1).max(12)
+}).strict();
+export type BackgroundExperience = z.infer<typeof BackgroundExperienceSchema>;
+
+export const BackgroundExperienceFileSchema = z.object({
+  version: z.literal(1),
+  agentId: Id,
+  profile: BackgroundProfileSchema,
+  experiences: z.array(BackgroundExperienceSchema.omit({ agentId: true })).min(1)
+}).strict();
+export type BackgroundExperienceFile = z.infer<typeof BackgroundExperienceFileSchema>;
+
+export const RetrievalSourceSchema = z.enum(["conversation", "background"]);
+export type RetrievalSource = z.infer<typeof RetrievalSourceSchema>;
+export const RetrievalSignalSchema = z.enum(["vector", "keyword", "subject", "recency"]);
+export type RetrievalSignal = z.infer<typeof RetrievalSignalSchema>;
+export const RetrievedItemSchema = z.object({
+  source: RetrievalSourceSchema,
+  id: Id,
+  kind: z.string().min(1),
+  content: NaturalLanguage,
+  occurredAt: Instant,
+  importance: NaturalLanguage,
+  matchedBy: z.array(RetrievalSignalSchema),
+  finalRank: z.number().int().positive()
+});
+export type RetrievedItem = z.infer<typeof RetrievedItemSchema>;
 
 export const MemoryRetrievalTraceSchema = z.object({
   memoryId: Id,

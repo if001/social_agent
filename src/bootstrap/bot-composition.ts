@@ -14,6 +14,7 @@ import { createOllamaWebPageSummarizer } from "../infrastructure/agent/web-summa
 import { OllamaEmbeddingProvider } from "../infrastructure/embedding/ollama-embedding.js";
 import { PostgresAgentContextLoader } from "../infrastructure/persistence/postgres-agent-context-loader.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../infrastructure/persistence/postgres-memory-embedding.js";
+import { PostgresRetrievalService } from "../infrastructure/persistence/postgres-retrieval-service.js";
 import { PostgresWebArchive } from "../infrastructure/persistence/postgres-web-archive.js";
 import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgres-runtime-persistence.js";
 import { PostgresReflectionRepository } from "../infrastructure/persistence/postgres-reflection.js";
@@ -44,9 +45,10 @@ export function createBotComposition(options: BotCompositionOptions) {
   const queue = options.queue ?? new AddressedFileQueue(config.queueRoot);
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 27, maxToolCalls: 25, maxHops: 4, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
+  const retrievalService = new PostgresRetrievalService(pool, embeddingProvider);
   const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
-    ...createAgentContextTools(pool),
+    ...createAgentContextTools(pool, retrievalService),
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
     ...createSkillTools({ skillsRoot: resolve(process.cwd(), "skills") }),

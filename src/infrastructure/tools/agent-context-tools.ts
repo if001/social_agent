@@ -1,12 +1,13 @@
 import type { Pool, QueryResultRow } from "pg";
 import { z } from "zod";
 
+import type { RetrievalService } from "../../application/ports.js";
 import type { RegisteredTool } from "../../application/tool-registry.js";
 import { ConcernProposalSchema, ConcernSchema, RelationshipSchema, SelfSchema } from "../../domain/contracts.js";
+import { PostgresRetrievalService } from "../persistence/postgres-retrieval-service.js";
 
 type StateRow = QueryResultRow & { concerns: unknown; relationships: unknown; mood: string };
 type SelfRow = QueryResultRow & { identity: string; disposition: string; self_story: string; commitments: unknown; mood: string };
-type MemoryRow = QueryResultRow & { id: string; content: string; importance: string; occurred_at: Date };
 type EventRow = QueryResultRow & { id: string; observation: unknown };
 type ActionRow = QueryResultRow & { result: unknown };
 
@@ -32,8 +33,25 @@ function responseQuestion(result: unknown): string | undefined {
   return questions.length === 0 ? undefined : compact(questions.at(-1)?.trim() ?? "", 180);
 }
 
-export function createAgentContextTools(pool: Pool): readonly RegisteredTool[] {
+export function createAgentContextTools(pool: Pool, retrievalService?: RetrievalService): readonly RegisteredTool[] {
   return [
+    {
+      name: "retrieval_search",
+      description: "会話由来MemoryとBackground Experienceを、語句・subject・新しさ・意味の近さで横断検索する。Predictiveな仮説の確認や、過去の経験の参照に使う。",
+      schema: z.object({
+        query: z.string().trim().min(1).max(240).describe("探す出来事、対象、仮説、または判断材料"),
+        scope: z.enum(["conversation", "background", "all"]).default("all").describe("検索対象。会話Memory、背景経験、または両方"),
+        kinds: z.array(z.enum(["episodic", "semantic", "self-related", "self-change", "common-ground", "background"])).min(1).max(6).optional().describe("会話Memoryのkind、またはbackgroundで絞る"),
+        subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"),
+        limit: z.number().int().min(1).max(8).default(5).describe("返す最大件数")
+      }).strict(),
+      resultPolicy: { kind: "standard" },
+      execute: async ({ query, scope, kinds, subject, limit }: { query: string; scope: "conversation" | "background" | "all"; kinds?: ("episodic" | "semantic" | "self-related" | "self-change" | "common-ground" | "background")[]; subject?: string; limit: number }, context) => {
+        const service = retrievalService ?? new PostgresRetrievalService(pool);
+        const items = await service.retrieve({ agentId: context.agentId, query, scope, ...(kinds === undefined ? {} : { kinds }), ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
+        return success({ items: items.map((item) => ({ source: item.source, id: item.id, kind: item.kind, summary: compact(item.content, 400), importance: compact(item.importance, 180), occurredAt: item.occurredAt, matchedBy: item.matchedBy })) });
+      }
+    },
     {
       name: "concern_list",
       description: "自分のactive ConcernをFocus選択用の短い一覧で取得する。自律Eventではまずこれで1件を選ぶ。",
@@ -85,10 +103,8 @@ export function createAgentContextTools(pool: Pool): readonly RegisteredTool[] {
         }
         if (resolvedSubjectId === undefined) return success({ subjectId: null, knownFacts: [], factCount: 0, recentlyAskedTopics: [] });
 
-        const facts = await pool.query<MemoryRow>(`SELECT m.id,m.content,m.importance,m.occurred_at
-          FROM memories m JOIN memory_subjects ms ON ms.memory_id=m.id
-          WHERE m.agent_id=$1 AND ms.subject_id=$2
-          ORDER BY m.occurred_at DESC,m.id DESC LIMIT 5`, [context.agentId, resolvedSubjectId]);
+        const service = retrievalService ?? new PostgresRetrievalService(pool);
+        const facts = await service.retrieve({ agentId: context.agentId, query: "", scope: "conversation", subjectIds: [resolvedSubjectId], subjectFilter: true, limit: 5 });
         const state = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
         const relationship = z.array(RelationshipSchema).parse(state?.relationships ?? []).find((value) => value.subjectId === resolvedSubjectId);
         const recentActions = await pool.query<ActionRow>(`SELECT r.result
@@ -98,8 +114,8 @@ export function createAgentContextTools(pool: Pool): readonly RegisteredTool[] {
         const recentlyAskedTopics = recentActions.rows.flatMap((row) => { const question = responseQuestion(row.result); return question === undefined ? [] : [question]; }).slice(0, 3);
         return success({
           subjectId: resolvedSubjectId,
-          knownFacts: facts.rows.map((row) => compact(row.content, 240)),
-          factCount: facts.rows.length,
+          knownFacts: facts.map((item) => compact(item.content, 240)),
+          factCount: facts.length,
           ...(relationship === undefined ? {} : { relationshipSummary: compact(relationship.description, 300) }),
           recentlyAskedTopics
         });
@@ -111,11 +127,9 @@ export function createAgentContextTools(pool: Pool): readonly RegisteredTool[] {
       schema: z.object({ query: z.string().trim().min(1).max(160).describe("探す出来事、対象、または判断材料"), subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"), limit: z.number().int().min(1).max(5).default(3).describe("返す最大件数") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ query, subject, limit }: { query: string; subject?: string; limit: number }, context) => {
-        const rows = await pool.query<MemoryRow>(`SELECT DISTINCT m.id,m.content,m.importance,m.occurred_at
-          FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id
-          WHERE m.agent_id=$1 AND (m.content ILIKE '%'||$2||'%' OR m.importance ILIKE '%'||$2||'%') AND ($3::text IS NULL OR ms.subject_id=$3)
-          ORDER BY m.occurred_at DESC,m.id LIMIT $4`, [context.agentId, query, subject ?? null, limit]);
-        return success({ memories: rows.rows.map((row) => ({ id: row.id, summary: compact(row.content, 320), significance: compact(row.importance, 180), occurredAt: row.occurred_at.toISOString() })) });
+        const service = retrievalService ?? new PostgresRetrievalService(pool);
+        const items = await service.retrieve({ agentId: context.agentId, query, scope: "conversation", ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
+        return success({ memories: items.map((item) => ({ id: item.id, summary: compact(item.content, 320), significance: compact(item.importance, 180), occurredAt: item.occurredAt })) });
       }
     },
     {

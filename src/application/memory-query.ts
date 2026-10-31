@@ -42,6 +42,6 @@ export function buildRelevantMemoryQuery(input: RelevantMemoryQueryInput): Relev
     text: parts.join("\n").slice(0, 4_000),
     keywords: memoryKeywords(parts),
     subjectIds: [...new Set(relationships.map(({ subjectId }) => subjectId))],
-    kinds: ["episodic", "semantic", "self-related"]
+    kinds: ["episodic", "semantic", "self-related", "self-change", "common-ground"]
   };
 }
