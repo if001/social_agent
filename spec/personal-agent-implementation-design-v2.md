@@ -171,7 +171,7 @@ FeelingはEventへの短期反応であり、独立した長期状態として�
 type Memory = {
   id: string;
   agentId: string;
-  kind: "episodic" | "semantic" | "self-related" | "self-change";
+  kind: "episodic" | "semantic" | "self-related" | "self-change" | "common-ground";
   content: string;
   occurredAt: string;
   createdAt: string;
@@ -183,7 +183,9 @@ type Memory = {
 };
 ```
 
-Memoryは単一のStoreに保持し、`kind` を属性として持つ。種類ごとに保存経路を分けない。Reflectionが生成するMemoryは原則として `episodic` とし、Semantic、Self-related、Self-changeは必要に応じてtagまたは監査記録として扱う。
+会話由来Memoryは単一のStoreに保持し、`kind` を属性として持つ。会話由来Memoryの種類ごとに保存経路を分けない。Reflectionが生成するMemoryは原則として `episodic` とし、Semantic、Self-related、Self-change、Common Groundは必要に応じてtagまたは監査記録として扱う。
+
+生成済みの背景経験は、会話由来Memoryとは別Storeに保持する。背景経験は起動後に変更せず、初期化時に定義ファイルから置換する。会話で得た経験は背景経験へ書き戻さず、会話由来Memoryとして保持する。
 
 ### 5.4 Recent Experiences
 
@@ -418,20 +420,21 @@ Relationshipを親密度や信頼度の数値へ還元することは前提と�
 
 ## 16. Memory
 
-Memoryは論理的に次の用途を区別するが、物理的な保存経路は一つとする。
+会話由来Memoryは論理的に次の用途を区別するが、物理的な保存経路は一つとする。生成済みの背景経験は、会話由来Memoryとは別Storeに保持する。
 
 - `episodic`: 過去の出来事。
 - `semantic`: 出来事から抽出された比較的安定した知識。
 - `self-related`: 個体化やSelfの形成に関わる経験。
 - `self-change`: Self変更の監査記録。
+- `common-ground`: 両者が共有しているとAgentが考える知識。
 
-初期の物理モデルはEpisodic Memoryを中心とし、Semantic、Self-related、Self-changeはtagまたはReflection結果として扱う。
+初期の物理モデルはEpisodic Memoryを中心とし、Semantic、Self-related、Self-change、Common GroundはtagまたはReflection結果として扱う。
 
 ```ts
 type Memory = {
   id: string;
   agentId: string;
-  kind: "episodic" | "semantic" | "self-related" | "self-change";
+  kind: "episodic" | "semantic" | "self-related" | "self-change" | "common-ground";
   content: string;
   occurredAt: string;
   createdAt: string;
@@ -449,9 +452,33 @@ type Memory = {
 自発的な探索が実際に役立つという自己理解に強く影響した経験。
 ```
 
-## 17. Memory Retrieval
+### 16.1 背景経験Store
 
-すべてのMemoryを毎回Agent Coreへ渡さない。Retrievalは、
+背景経験は、起動前に生成したAgent自身の自伝的経験である。会話由来Memoryとは別Storeに保持し、起動後に変更しない。初期化時に定義ファイルから置換する。
+
+```ts
+type BackgroundExperience = {
+  id: string;
+  agentId: string;
+  occurredAt: string;
+  age: string;
+  place: string;
+  participants: string[];
+  relationship: string;
+  action: string;
+  feeling: string;
+  outcome: string;
+  lesson: string;
+  importance: string;
+  tags: string[];
+};
+```
+
+背景経験は、予測、解釈、Relationship、Self Storyの材料として参照する。現在のユーザーとの共有経験を含めない。会話で得た経験は背景経験へ書き戻さず、会話由来Memoryとして保持する。
+
+## 17. Memory / Background Experience Retrieval
+
+すべてのMemoryと背景経験を毎回Agent Coreへ渡さない。Retrievalは、
 
 ```text
 Observation
@@ -468,10 +495,12 @@ Relationship
 
 ```text
 1. ObservationとStateからQuery生成
-2. lexical / vector / subject / recencyを組み合わせてMemory検索
+2. lexical / vector / subject / recencyを組み合わせて検索
 3. 上位候補をContext Builderへ返す
 4. Agent CoreのToolまたは初期Contextへ投入
 ```
+
+会話由来Memoryと背景経験は別Storeに保持するが、検索のQuery生成、順位付け、候補選択は共通にする。検索結果には、会話由来Memoryか背景経験かの由来を付ける。
 
 検索Query生成や候補選択の一部をLLMへ任せてもよいが、検索自体は通常コードで行う。検索結果はAgent所有権、件数、Context token budgetで制限する。
 

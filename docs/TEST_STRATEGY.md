@@ -1,6 +1,8 @@
 # Test Strategy
 
-本書は[`spec/`](../spec/)の概念と実装設計、[`AGENT_MOTIVATION_MODEL.md`](AGENT_MOTIVATION_MODEL.md)の動機・感情・行動モデルを、現在のコードでどう検証するかを定める。過去文書の `old_docs/` は対象外である。
+本書は[`spec/`](../spec/)の概念と実装設計、[`AGENT_MOTIVATION_MODEL.md`](AGENT_MOTIVATION_MODEL.md)の動機・感情・行動モデルを、現在のコードと追加設計でどう検証するかを定める。過去文書の `old_docs/` は対象外である。
+
+本書では、会話由来MemoryをConversation Memory、生成済みの背景経験をBackground Experience、`memory-update` EventをMemoryUpdate Event、G1/G2の評価をpredictionEvaluation、Reflectionの計画をreflection planと呼ぶ。
 
 ## Test layers
 
@@ -18,6 +20,13 @@
 - 探索領域カタログの件数・重複検証、`distant`候補の上限制御、探索モード選択の具体化
 - Agent Core入力でTool定義を二重投入しないこと、8,000推定token超過をwarningにしてprovider呼び出しを継続すること
 - Reflectionのモデル向けfield説明、flat変更record、repair、入力token上限
+- PredictionEvaluation、PredictionContext、MemoryIntent、memoryCandidatesのZod契約
+- MemoryWriteServiceのcreate、update、no-op、Memory version楽観ロック
+- Background ExperienceのSchema、時系列、現在のユーザーとの共有経験の不在
+- 共通RetrievalServiceのvector、keyword、subject、recency順位付けとadapter
+- memory-update Eventのpayload、intentIndex冪等性、部分commit禁止
+- Reflection planのMemory、Self、Relationship、Concernごとのstatus
+- G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
 
 ### System
 
@@ -34,12 +43,19 @@
 - user-messageの`action: string`既知誤出力は空でないfallback応答へ復旧する
 - crash recovery、重複受信、複数Agent分離、Runtime制限
 - Reflection連続失敗時の指数backoff
+- G1/G2が応答後に予測し、1ターン遅れでpredictionEvaluationをMainAgentへ渡すこと
+- predictionEvaluationがFeelingを出力せず、MainAgentだけがMeaning / Feelingを確定すること
+- memory-update EventがLLMを呼ばず、MemoryUpdateHandlerで処理されること
+- user-message、memory-update、G3、reflectionの優先順位と強制中断なしの協調制御
+- memory-update Eventの冪等性、部分commit禁止、失敗時の応答非巻き戻し
+- G3の遅延実行、MainAgent再判断、通知必須の例外
+- Reflectionの部分成功、blocked、失敗対象だけの再試行
 
 ここでいうシナリオtestは複数componentを通すSystem testであり、実Ollama、実PostgreSQL、外部Discordをすべて使うEnd-to-End testとは区別する。
 
 ### PostgreSQL integration
 
-実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Memory検索、Reflection commit、Concern schedule、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。
+実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern schedule、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。
 
 接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。testは専用schemaだけを作成・破棄し、共有schemaの検証データへ依存しない。
 
@@ -52,11 +68,13 @@
 
 `tests/live/ollama-reflection.test.ts`は、実OllamaがReflectionのproduction構造化出力経路から有効なmaintenance結果を返すことを確認する。
 
+`tests/live/ollama-prediction.test.ts`は、実OllamaがG1/G2のproduction構造化出力経路から予測候補、predictionEvaluation、rememberを返し、Feelingを出力しないことを確認する。G3が有効な場合は仮説評価とmemoryIntentsを返すことも確認する。
+
 ### Production-like text UI E2E
 
 `tests/live/production-context-user-response.test.ts`は外部Discordを使わず、UI非依存のユーザー入力経路を検証する。隔離PostgreSQLへ実migrationとAgent初期値を投入し、本番composition、Context Builder、本番Tool群、Deep Agent、実Ollama、Runtime transaction、Outbox dispatcherを通す。
 
-入力は「動作確認です。日本語で一文だけ返答してください。」で、空でない`agent-response`、Message receipt、完了Run、未送信Outbox、配送先を確認する。続けて`idle` Eventを入力し、自律Actionと2件目のcommitを確認する。このtestとDiscord本番の差は外部adapterとDiscord APIだけであり、ContextとToolの有無ではない。
+入力は「動作確認です。日本語で一文だけ返答してください。」で、空でない`agent-response`、Message receipt、完了Run、未送信Outbox、配送先を確認する。続けて`idle` Eventを入力し、自律Actionと2件目のcommitを確認する。このtestとDiscord本番の差は外部adapterとDiscord APIだけであり、ContextとToolの有無ではない。予測を有効にした構成では、応答後のG1/G2、memory-update Event、Background Experienceの検索、MainAgentのrememberが同じproduction compositionで動くことも確認する。
 
 Live testはproviderとモデルの非決定性を含む。失敗を単なる揺らぎとして成功扱いせず、構造化出力、timeout、Context予算、Tool loopのどの境界で失敗したかをlogから判定する。
 
@@ -70,6 +88,11 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 - curiosity: ConcernとMemoryによる自律Tool利用差
 - individuality: 異なる経験から形成されたSelf Storyと行動差
 - desire-handoff / desire-stale / desire-satisfied: previousDesireの直近性・満足性によるDesire採用差
+- prediction-error: 予測誤差の有無でFeeling、Desire、Actionが変わる
+- prediction-key: 同じ予測誤差でもSelf、Disposition、Concern、Relationship、Background Experienceで反応が変わる
+- memory-update-effect: Memoryのcreate、update、no-opの後、同じような状況の次のpredictionEvaluationが変わる
+- non-sycophancy: 予測誤差が迎合ではなく、確認、検索、信念維持、拒否、距離取りへつながる
+- memory-update-latency: user-messageがmemory-updateやreflectionで待たされない
 
 欠測、schema failure、timeout、期待方向に届かない効果量を成功へ含めない。自動testや単発live応答の成功だけで、人格らしさや状態差による行動差を実証済みとはしない。
 
@@ -128,6 +151,23 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
 | FR-45 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts` | idle の再開間隔と通知の扱い |
+| FR-48 | System | `tests/system/prediction-loop.test.ts` | 応答後の予測、1ターン遅れの誤差評価 |
+| FR-49 | Contract | `tests/contract/prediction-contracts.test.ts` | 1 callの予測・評価・remember・G3判断 |
+| FR-50 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | Feeling非出力とMainAgentのAssessment確定 |
+| FR-51 | System | `tests/system/g3-event.test.ts` | G3別DeepAgent、遅延、memoryIntents |
+| FR-52 | System | `tests/system/g3-event.test.ts` | MainAgent再判断、G3の通知例外 |
+| FR-53 | Integration | `tests/integration/background-experience.test.ts` | 別Store、不変、起動中の上書きなし |
+| FR-54 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | Schema、プロフィール矛盾、共有経験の不在、実在人物、分布 |
+| FR-55 | Unit, Integration | `tests/unit/retrieval-service.test.ts`, `tests/integration/persistence.test.ts` | 共通rankingとadapter |
+| FR-56 | Unit, Contract | `tests/unit/memory-intent.test.ts`, `tests/contract/prediction-contracts.test.ts` | Memory kind限定、Patch/Concern経路 |
+| FR-57 | Unit, Integration | `tests/unit/memory-write-service.test.ts`, `tests/integration/persistence.test.ts` | create/update/no-op、version、直接INSERT不在 |
+| FR-58 | System | `tests/system/memory-update-event.test.ts`, `tests/system/g3-event.test.ts` | 専用Handler、LLMなし、G3はMainAgentのrememberで適用 |
+| FR-59 | System | `tests/system/memory-update-event.test.ts`, `tests/system/g3-event.test.ts` | 優先順位、強制中断なし |
+| FR-60 | System, Integration | `tests/system/reflection-partial.test.ts`, `tests/integration/persistence.test.ts` | status、blocked、失敗対象の再試行 |
+| FR-61 | System, Integration | `tests/system/memory-update-event.test.ts`, `tests/integration/persistence.test.ts` | intentIndex冪等、部分commit禁止 |
+| FR-62 | Unit, Contract | `tests/contract/prediction-contracts.test.ts` | predictionContextの内容と所有権 |
+| FR-63 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | deadline、call予算、失敗時の継続 |
+| FR-64 | Contract, Unit | `tests/contract/prediction-contracts.test.ts`, `tests/unit/domain-contracts.test.ts` | 旧後処理の不在、単一MemoryWriteService |
 
 ### Non-functional requirements
 
@@ -140,12 +180,18 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | NFR-5 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/tool-loop.test.ts`, `tests/unit/ollama-provider.test.ts` | model call・Tool call・deadline |
 | NFR-6 | Unit, Integration | `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | claim・lease・retry |
 | NFR-7 | Integration, Evaluation, Unit | `tests/integration/persistence.test.ts`, `tests/evaluation/evaluation-runner.test.ts`, `tests/unit/operations.test.ts` | 監査記録と artifact |
-| NFR-8 | Integration, Live | `tests/integration/persistence.test.ts`, `tests/live/production-context-user-response.test.ts` | transaction と一括 commit |
+| NFR-8 | Integration, Live | `tests/integration/persistence.test.ts`, `tests/live/production-context-user-response.test.ts` | MainAgentの一括commitとmemory-updateの分離 |
 | NFR-9 | Contract, System | `tests/contract/message-queue.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/system/recovery.test.ts` | retry・冪等性・Outbox |
 | NFR-10 | Unit, Contract, Integration | `tests/unit/agent-send.test.ts`, `tests/contract/message-queue.contract.test.ts`, `tests/integration/persistence.test.ts` | lock・version・TTL・hop・rate limit |
 | NFR-11 | Integration | `tests/integration/persistence.test.ts`, `tests/integration/reset-runtime.test.ts` | 現行 schema のみの保持 |
 | NFR-12 | Unit | `tests/unit/debug-ui.test.ts` | 読取り専用 Debug UI |
 | NFR-13 | Unit, Contract, Evaluation | `tests/unit/config-lifecycle.test.ts`, `tests/unit/logger.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | secret の非表示 |
+| NFR-14 | Unit | `tests/unit/memory-context.test.ts`, `tests/contract/prediction-contracts.test.ts` | predictionContextと背景経験の所有権・budget |
+| NFR-15 | Unit, Integration | `tests/unit/memory-write-service.test.ts`, `tests/integration/persistence.test.ts` | 直列化、version、冪等性 |
+| NFR-16 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | deadline、試行回数、call予算、失敗分離 |
+| NFR-17 | Integration, System | `tests/system/memory-update-event.test.ts`, `tests/system/reflection-partial.test.ts`, `tests/integration/persistence.test.ts` | 監査記録と再試行 |
+| NFR-18 | System | `tests/system/memory-update-event.test.ts`, `tests/system/g3-event.test.ts` | user-message優先、下位Eventの開始抑制 |
+| NFR-19 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | YAML検証、時系列、プロフィール矛盾、共有経験不在、実在人物、分布、非上書き |
 
 ### Acceptance criteria
 
@@ -161,6 +207,16 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-8 | Unit | `tests/unit/agent-prompts.test.ts` | 共通の社会基盤と質問しない選択 |
 | AC-9 | Unit | `tests/unit/agent-prompts.test.ts` | 実効system prompt 4,500 |
 | AC-10 | Unit | `tests/unit/agent-prompts.test.ts` | Event種別ごとのskillルーティング |
+| AC-11 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | 予測、1ターン遅れ、Feeling非出力 |
+| AC-12 | Unit, Integration | `tests/unit/memory-write-service.test.ts`, `tests/integration/persistence.test.ts` | create/update/no-op、version、直接INSERT不在 |
+| AC-13 | System | `tests/system/memory-update-event.test.ts` | LLMなし、専用Handler、冪等性、部分commit禁止、user-message優先 |
+| AC-14 | Integration | `tests/integration/background-experience.test.ts` | 別Store、不変、共有経験不在、共通Retrieval |
+| AC-15 | System, Integration | `tests/system/reflection-partial.test.ts`, `tests/integration/persistence.test.ts` | 対象別status、blocked、再試行 |
+| AC-16 | System | `tests/system/g3-event.test.ts` | G3別DeepAgent、遅延、再判断、通知例外 |
+| AC-17 | Contract | `tests/unit/memory-intent.test.ts`, `tests/contract/prediction-contracts.test.ts` | Memory kind限定、Patch/Concern経路 |
+| AC-18 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | ownership、budget、旧後処理不在、call予算 |
+
+FR-48〜FR-64、NFR-14〜NFR-19、AC-11〜AC-18は追加設計の受入要件である。対応するtest fileは実装時に追加するため、実装完了まではtrace_checkで未参照の警告が残る。
 
 ## Standard verification
 
@@ -194,5 +250,7 @@ pnpm test:live
 - schema、migration、repository、prompt、文書の用語と不変条件が一致する。
 - 不正出力、provider失敗、DB失敗の経路が部分commitを残さない。
 - 旧互換経路をtestのためだけに残していない。
+- Conversation Memoryへの直接INSERTがなく、MemoryWriteServiceとversion楽観ロックを経由している。
+- predictionEvaluation、memory-update Event、Background Experience、Reflectionの部分成功が対応するsuiteで検証されている。
 - 実model対応を変更した場合はLive Ollamaとproduction-like E2Eを実行する。
 - 行動差を主張する場合は、反復paired live evaluation artifactと集計を保存する。

@@ -329,7 +329,7 @@ Relationshipを巨大なSocial Graphや多数の数値へ還元することは�
 
 ## 12. Memory
 
-- C-10：Memoryを経験・知識・自己関連経験の検索可能なStoreとして保持し、現在状態と分ける。
+- C-10：会話で得た経験・知識・自己関連経験を検索可能なMemoryとして保持し、現在状態と分ける。生成済みの背景経験は、会話由来のMemoryと区別した別Storeに保持する。
 
 Memoryは個体化を支える重要なResourceである。Memoryによって、過去に何が起きたか、以前どう反応したか、誰とどのような経験をしたか、自分が何に興味を持っていたか、何を失敗したか、何に成功したか、どのような役割を果たしてきたか、どの経験が自分にとって重要だったかを参照できる。
 
@@ -343,14 +343,19 @@ Current Internal State
   = その経験を踏まえて、今どういう状態か
 ```
 
-現在の実装では、Memoryは単一のStoreに保持し、`kind` を属性として持つ。
+Memoryは、会話とTool結果から形成する会話由来Memoryと、起動前に生成する背景経験に分ける。両者は検索時に共通のRetrievalで扱うが、保存先と更新経路は分ける。
+
+現在の実装では、会話由来Memoryは単一のStoreに保持し、`kind` を属性として持つ。
 
 - `episodic`: 過去の出来事
 - `semantic`: 出来事から抽出された比較的安定した知識
 - `self-related`: 個体化やSelfの形成に関わる経験
 - `self-change`: Self変更の監査記録
+- `common-ground`: 両者が共有しているとAgentが考える知識
 
-種類ごとに保存経路を分けない。Memoryは `summary`、`significance`、`subjects`、`occurredAt`、`createdAt`、`source`、`importance`、`retrievalPriority`、`evidenceEventIds` などを持つ。Semantic、Self-related、Self-changeは、必要に応じてtagまたはReflection結果として扱う。
+会話由来Memoryの種類ごとに保存経路を分けない。Memoryは `summary`、`significance`、`subjects`、`occurredAt`、`createdAt`、`source`、`importance`、`retrievalPriority`、`evidenceEventIds` などを持つ。Semantic、Self-related、Self-change、Common Groundは、必要に応じてtagまたはReflection結果として扱う。
+
+背景経験は、Agentの過去として生成した経験を別Storeに保持する。背景経験は起動後に変更せず、初期化時に定義ファイルから置換する。会話で得た経験は背景経験へ書き戻さず、会話由来Memoryとして保持する。
 
 MemoryはAcquired DispositionやSelf Storyを形成する材料になる。元会話やTool結果の保管場所ではなく、後の検索で状況と判断への影響を復元できる具体的な要点を1〜2文で持つ。
 
