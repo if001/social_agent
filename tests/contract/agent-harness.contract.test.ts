@@ -55,6 +55,29 @@ describe("AgentHarness contract", () => {
     expect(recentToolInputs).toEqual(['{"tool":"lookup","input":{"query":"same"}}']);
   });
 
+  it("FR-62, AC-18: includes predictionContext in the MainAgent prompt", async () => {
+    let prompt = "";
+    const invoker: DeepAgentInvoker = { invoke: (input) => { prompt = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: output }); } };
+    const input = agentCoreInputFixture();
+    input.predictionContext = {
+      agentId: input.run.agentId,
+      previousPrediction: {
+        id: "prediction-1",
+        createdAt: fixtureInstant,
+        output: {
+          predictions: { g1: { candidates: [{ candidateIndex: 0, feature: "語彙", content: "prediction marker", expectation: "medium", contextSummary: "文脈", rationale: "根拠" }] }, g2: { candidates: [] } },
+          predictionEvaluations: [], remember: [], observationCandidates: [],
+          g3: { needsG3: false, targetLayers: [], priority: "medium" }
+        }
+      },
+      g3MemoryIntents: [],
+      memoryCandidates: []
+    };
+    await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
+    expect(prompt).toContain("prediction-1");
+    expect(prompt).toContain("prediction marker");
+  });
+
   it("FR-24, FR-12: collects successful concern_propose results outside the final output schema", async () => {
     const proposal = { operation: "create" as const, description: "復元音声の検証方法を確認する", whyItMatters: "紹介できる確度を判断するため", explorationMode: "distant" as const };
     const execution = { callId: "tool-1", runId: "run-1", eventId: "event-1", name: "concern_propose", input: proposal, ok: true, result: { queued: true, proposal }, startedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:00Z" };

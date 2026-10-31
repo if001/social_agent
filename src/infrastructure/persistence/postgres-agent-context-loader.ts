@@ -1,7 +1,8 @@
 import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
-import type { EmbeddingProvider, IdGenerator } from "../../application/ports.js";
+import type { EmbeddingProvider, IdGenerator, RetrievalService } from "../../application/ports.js";
+import type { PredictionRepository } from "../../application/prediction.js";
 import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, ObservationSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
@@ -24,6 +25,8 @@ export type PostgresAgentContextLoaderOptions = {
   readonly budget: ContextBudget;
   readonly limits: RunLimits;
   readonly persona?: BotPersona;
+  readonly predictionRepository?: PredictionRepository;
+  readonly retrievalService?: RetrievalService;
   readonly retrievalLimit?: number;
   readonly embeddingTimeoutMs?: number;
   readonly logger?: Logger;
@@ -128,15 +131,18 @@ export class PostgresAgentContextLoader {
     const state = { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: agent.concerns, relationships: agent.relationships }) };
     const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);
+    const loadedPredictionContext = this.options.predictionRepository === undefined ? undefined : await this.options.predictionRepository.context(event.agentId);
+    const predictionContext = loadedPredictionContext === undefined || loadedPredictionContext.memoryCandidates.length > 0 || this.options.retrievalService === undefined ? loadedPredictionContext : { ...loadedPredictionContext, memoryCandidates: [...await this.options.retrievalService.retrieve({ agentId: event.agentId, query: loadedPredictionContext.previousPrediction?.output.predictions.g2.candidates[0]?.content ?? observation.summary, scope: "all", limit: 5 }).catch(() => [])] };
+    const recentExperiencesWithEffect = predictionContext?.recentExperienceEffect === undefined ? recentExperiences : recentExperiences.map((item) => item.eventId === predictionContext.recentExperienceEffect?.eventId ? { ...item, effect: predictionContext.recentExperienceEffect.effect } : item);
     const built = AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
-      observation, recentExperiences,
+      observation, recentExperiences: recentExperiencesWithEffect,
       ...(priorAssessment === undefined ? {} : { previousAssessment: priorAssessment }),
       ...(priorDesire === undefined ? {} : { previousDesire: priorDesire }),
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
       currentSelf: { agentId: agent.id, version: agent.version, ...SelfSchema.parse({ identity: agent.identity, disposition: agent.disposition, selfStory: agent.self_story, commitments: agent.commitments }) },
       state,
-      memories: [], memoryRetrievalTrace: [], availableTools: [...availableTools],
+      memories: [], memoryRetrievalTrace: [], ...(predictionContext === undefined ? {} : { predictionContext }), availableTools: [...availableTools],
       runtimeConstraints: [agent.base_instruction.trim(), "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),
       limits: this.options.limits
     }, this.options.budget));

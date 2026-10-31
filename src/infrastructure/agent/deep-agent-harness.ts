@@ -187,7 +187,8 @@ export class DeepAgentHarness implements AgentHarness {
           recentExperiences: input.recentExperiences.slice(-2),
           runtimeConstraints: input.runtimeConstraints,
           ...(input.previousAssessment === undefined ? {} : { previousAssessment: input.previousAssessment }),
-          ...(input.previousDesire === undefined ? {} : { previousDesire: input.previousDesire })
+          ...(input.previousDesire === undefined ? {} : { previousDesire: input.previousDesire }),
+          ...(input.predictionContext === undefined ? {} : { predictionContext: input.predictionContext })
         };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v3-ja", input: promptInput })

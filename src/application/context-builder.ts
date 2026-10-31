@@ -1,4 +1,4 @@
-import type { AgentCoreInput, BotPersona, Memory, MemoryRetrievalTrace, Observation, RecentExperience } from "../domain/contracts.js";
+import type { AgentCoreInput, BotPersona, Memory, MemoryRetrievalTrace, Observation, PredictionContext, RecentExperience } from "../domain/contracts.js";
 import { noopLogger, type Logger } from "../observability/logger.js";
 
 export type ContextBudget = { readonly maxTokens: number; readonly maxMemories: number; readonly maxSocialContexts: number };
@@ -21,10 +21,31 @@ export class ContextBuilder {
   constructor(private readonly logger: Logger = noopLogger) {}
   build(source: ContextSource, budget: ContextBudget): AgentCoreInput {
     if (source.currentSelf.agentId !== source.run.agentId || source.state.agentId !== source.run.agentId) throw new Error("Context owner mismatch");
+    if (source.predictionContext !== undefined && source.predictionContext.agentId !== source.run.agentId) throw new Error("Prediction context owner mismatch");
     const currentSelf = { ...source.currentSelf, identity: text(source.currentSelf.identity, 300), disposition: text(source.currentSelf.disposition, 1_200), selfStory: text(source.currentSelf.selfStory, 1_000), commitments: texts(source.currentSelf.commitments, 12, 400) };
     const state = { ...source.state, ...(source.state.mood === undefined ? {} : { mood: text(source.state.mood, 500) }), concerns: source.state.concerns.slice(0, 12).map((concern) => ({ ...concern, description: text(concern.description, 500), whyItMatters: text(concern.whyItMatters, 500) })), relationships: source.state.relationships.slice(0, 12).map((relationship) => ({ ...relationship, description: text(relationship.description, 600) })) };
     const boundedPersona = persona(source.persona);
-    const required = { run: source.run, observation: observation(source.observation), ...(source.previousAssessment === undefined ? {} : { previousAssessment: source.previousAssessment }), ...(source.previousDesire === undefined ? {} : { previousDesire: { ...source.previousDesire, desire: text(source.previousDesire.desire, 800) } }), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), currentSelf, state, runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
+    const predictionContext: PredictionContext | undefined = source.predictionContext === undefined ? undefined : {
+      ...source.predictionContext,
+      g3MemoryIntents: source.predictionContext.g3MemoryIntents.slice(0, 5),
+      memoryCandidates: source.predictionContext.memoryCandidates.slice(0, 5).map((item) => ({ ...item, content: text(item.content, 800) })),
+      ...(source.predictionContext.previousPrediction === undefined ? {} : {
+        previousPrediction: {
+          ...source.predictionContext.previousPrediction,
+          output: {
+            ...source.predictionContext.previousPrediction.output,
+            predictions: {
+              g1: { candidates: source.predictionContext.previousPrediction.output.predictions.g1.candidates.map((item) => ({ ...item, content: text(item.content, 800), contextSummary: text(item.contextSummary, 500), rationale: text(item.rationale, 500) })) },
+              g2: { candidates: source.predictionContext.previousPrediction.output.predictions.g2.candidates.map((item) => ({ ...item, content: text(item.content, 800), contextSummary: text(item.contextSummary, 500), rationale: text(item.rationale, 500) })) }
+            },
+            predictionEvaluations: source.predictionContext.previousPrediction.output.predictionEvaluations.slice(0, 6),
+            remember: source.predictionContext.previousPrediction.output.remember.slice(0, 3),
+            observationCandidates: source.predictionContext.previousPrediction.output.observationCandidates.slice(0, 6)
+          }
+        }
+      })
+    };
+    const required = { run: source.run, observation: observation(source.observation), ...(predictionContext === undefined ? {} : { predictionContext }), ...(source.previousAssessment === undefined ? {} : { previousAssessment: source.previousAssessment }), ...(source.previousDesire === undefined ? {} : { previousDesire: { ...source.previousDesire, desire: text(source.previousDesire.desire, 800) } }), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), currentSelf, state, runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
     let used = estimateTokens(required);
     if (used > budget.maxTokens) throw new Error(`Context budget is too small for required state: required=${String(used)}, max=${String(budget.maxTokens)}`);
     const recentCandidates = source.recentExperiences.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId)).slice(-2);
