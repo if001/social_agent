@@ -169,6 +169,13 @@
       "when": 1793600000001,
       "tag": "0023_fearless_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793600000002,
+      "tag": "0024_g3_tasks",
+      "breakpoints": true
     }
   ]
 }

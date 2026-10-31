@@ -1,6 +1,6 @@
 ---
 created_at: 2026-10-29
-status: created
+status: done
 type: feature
 plan: []
 requirements: [C-39, C-40, C-41, C-42, C-66, FR-51, FR-52, NFR-17, AC-16]
@@ -48,11 +48,11 @@ G3はユーザーの意図、知識、信念、関係についての仮説を深
 
 ## Acceptance criteria
 
-- [ ] AC-16：G3が別DeepAgentとして遅延実行され、MainAgentの再判断が通常Loopを通り、G3 Eventが通知必須の例外になる。
-- [ ] G3が仮説評価、新仮説、調査結果、MemoryIntentを返す。
-- [ ] G3のMemoryIntentはMainAgentの判断後にmemory-update Eventへ渡る。
-- [ ] G3 Eventのno-external-actionが成功として扱われる。
-- [ ] G3がuser-messageを待たせない。
+- [x] AC-16：G3が別DeepAgentとして遅延実行され、MainAgentの再判断が通常Loopを通り、G3 Eventが通知必須の例外になる。
+- [x] G3が仮説評価、新仮説、調査結果、MemoryIntentを返す。
+- [x] G3のMemoryIntentはMainAgentの判断後にmemory-update Eventへ渡る。
+- [x] G3 Eventのno-external-actionが成功として扱われる。
+- [x] G3がuser-messageを待たせない。
 
 ## Tests
 
@@ -71,3 +71,11 @@ G3はユーザーの意図、知識、信念、関係についての仮説を深
 | src/infrastructure/persistence/schema.ts | g3_tasks | 追加する |
 | src/bootstrap/bot-composition.ts | G3 harnessの配線 | 更新する |
 | tests/system | G3 Eventのtest | 追加する |
+
+## 実装メモ
+
+- G3専用DeepAgentと4つのToolを追加した。
+- G3 task/eventを永続化し、結果をMainAgent再判断へ渡す。
+- G3のg3Summary/g3MemoryIntentsをpredictionContextへ注入する。
+- レビュー記録：`docs/work/reviews/2026-11-01-issue-014.md`
+- 残存MEDIUM：Eventの二重監査、実モデルE2E、厳密な優先度キュー。

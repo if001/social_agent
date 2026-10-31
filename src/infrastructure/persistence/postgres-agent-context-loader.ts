@@ -3,7 +3,7 @@ import type { Pool, QueryResultRow } from "pg";
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { EmbeddingProvider, IdGenerator, RetrievalService } from "../../application/ports.js";
 import type { PredictionRepository } from "../../application/prediction.js";
-import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, ObservationSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, G3OutputSchema, ObservationSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
 
@@ -132,7 +132,15 @@ export class PostgresAgentContextLoader {
     const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);
     const loadedPredictionContext = this.options.predictionRepository === undefined ? undefined : await this.options.predictionRepository.context(event.agentId);
-    const predictionContext = loadedPredictionContext === undefined || loadedPredictionContext.memoryCandidates.length > 0 || this.options.retrievalService === undefined ? loadedPredictionContext : { ...loadedPredictionContext, memoryCandidates: [...await this.options.retrievalService.retrieve({ agentId: event.agentId, query: loadedPredictionContext.previousPrediction?.output.predictions.g2.candidates[0]?.content ?? observation.summary, scope: "all", limit: 5 }).catch(() => [])] };
+    const basePredictionContext = loadedPredictionContext === undefined || loadedPredictionContext.memoryCandidates.length > 0 || this.options.retrievalService === undefined ? loadedPredictionContext : { ...loadedPredictionContext, memoryCandidates: [...await this.options.retrievalService.retrieve({ agentId: event.agentId, query: loadedPredictionContext.previousPrediction?.output.predictions.g2.candidates[0]?.content ?? observation.summary, scope: "all", limit: 5 }).catch(() => [])] };
+    const g3Output = event.payload.targetKind === "prediction-g3-result" ? G3OutputSchema.safeParse(event.payload.output) : undefined;
+    const predictionContext = g3Output?.success === true ? {
+      agentId: event.agentId,
+      ...(basePredictionContext?.previousPrediction === undefined ? {} : { previousPrediction: basePredictionContext.previousPrediction }),
+      g3Summary: [...g3Output.data.newHypotheses, ...g3Output.data.findings].join("\n").slice(0, 4_000),
+      g3MemoryIntents: g3Output.data.remember,
+      memoryCandidates: basePredictionContext?.memoryCandidates ?? []
+    } : basePredictionContext;
     const recentExperiencesWithEffect = predictionContext?.recentExperienceEffect === undefined ? recentExperiences : recentExperiences.map((item) => item.eventId === predictionContext.recentExperienceEffect?.eventId ? { ...item, effect: predictionContext.recentExperienceEffect.effect } : item);
     const built = AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
