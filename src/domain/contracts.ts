@@ -339,64 +339,64 @@ export const AgentTurnSchema = z.object({
 }).strict();
 export type AgentTurn = z.infer<typeof AgentTurnSchema>;
 
-export const MemoryIntentTargetSchema = z.enum(["episodic", "semantic", "self-related", "self-change", "common-ground"]);
+export const MemoryIntentTargetSchema = z.enum(["episodic", "semantic", "self-related", "self-change", "common-ground"]).describe("保存先Memoryのkind。RelationshipやConcernは含めない");
 export const MemoryIntentSchema = z.object({
-  content: NaturalLanguage,
-  reason: NaturalLanguage,
-  evidenceEventIds: z.array(Id).max(16),
-  confidence: z.enum(["high", "medium", "low"]),
+  content: NaturalLanguage.describe("次回以降の検索と判断で再利用する、具体的で短い経験の要点"),
+  reason: NaturalLanguage.describe("この内容をMemoryとして残す理由。予測誤差や観測との関係を書く"),
+  evidenceEventIds: z.array(Id).max(16).describe("このMemoryIntentの根拠となるEvent ID。入力に存在するIDだけを使う"),
+  confidence: z.enum(["high", "medium", "low"]).describe("更新してよい確信度。確率値ではなく離散値"),
   target: MemoryIntentTargetSchema
-}).strict();
+}).strict().describe("予測誤差や観測から作成・更新したいMemoryの意図。operationや候補Indexは持たない");
 export type MemoryIntent = z.infer<typeof MemoryIntentSchema>;
 
-export const PredictionExpectationSchema = z.enum(["very_high", "high", "medium", "low", "very_low"]);
+export const PredictionExpectationSchema = z.enum(["very_high", "high", "medium", "low", "very_low"]).describe("次ターンにこの候補が現れる期待度。確率値や校正済みスコアではなく離散値");
 const PredictionCandidateBase = {
-  candidateIndex: z.number().int().min(0).max(2),
-  content: NaturalLanguage,
+  candidateIndex: z.number().int().min(0).max(2).describe("このグループ内の候補位置。0始まりの構造的なIndexで、意味タグではない"),
+  content: NaturalLanguage.describe("次ターンのユーザー発話として予測する自然言語の内容"),
   expectation: PredictionExpectationSchema,
-  contextSummary: NaturalLanguage,
-  rationale: NaturalLanguage
+  contextSummary: NaturalLanguage.describe("予測の前提にした話題、状況、関係の短い自然言語要約。タグにしない"),
+  rationale: NaturalLanguage.describe("この予測を置いた根拠。観測、直近の会話、Memoryのどれに基づくかを書く")
 };
-export const G1PredictionCandidateSchema = z.object({ ...PredictionCandidateBase, feature: NaturalLanguage }).strict();
-export const G2PredictionCandidateSchema = z.object({ ...PredictionCandidateBase, speechAct: NaturalLanguage }).strict();
+export const G1PredictionCandidateSchema = z.object({ ...PredictionCandidateBase, feature: NaturalLanguage.describe("語彙、文法、表記、口調、言い回しのどの軸の予測か") }).strict().describe("G1の表層的な次発話予測候補");
+export const G2PredictionCandidateSchema = z.object({ ...PredictionCandidateBase, speechAct: NaturalLanguage.describe("質問、同意、拒否、保留、話題転換などの会話行為") }).strict().describe("G2の意味・命題・会話行為の次発話予測候補");
 export const PredictionEvaluationSchema = z.object({
-  group: z.enum(["g1", "g2"]),
-  candidateIndex: z.number().int().min(0).max(2),
-  match: z.enum(["primary", "alternative", "unexpected", "undecidable"]),
-  surprise: z.enum(["none", "low", "medium", "high", "unknown"]),
-  difference: NaturalLanguage,
-  interpretation: NaturalLanguage,
-  uncertainty: NaturalLanguage,
-  attribution: NaturalLanguage.optional(),
-  observed: NaturalLanguage,
-  errorDirection: z.enum(["over", "under", "matched", "undecidable"]),
-  effect: z.enum(["reduced", "unchanged", "increased", "unknown"]),
-  effectEvidence: NaturalLanguage.optional()
-}).strict();
+  group: z.enum(["g1", "g2"]).describe("評価対象の予測グループ"),
+  candidateIndex: z.number().int().min(0).max(2).describe("評価対象の候補位置"),
+  match: z.enum(["primary", "alternative", "unexpected", "undecidable"]).describe("観測が予測候補に一致したか。候補外はunexpected、判断不能はundecidable"),
+  surprise: z.enum(["none", "low", "medium", "high", "unknown"]).describe("予測と観測のずれの大きさ。離散値"),
+  difference: NaturalLanguage.describe("予測と実際の観測の差異を自然言語で説明する"),
+  interpretation: NaturalLanguage.describe("Agentが実際の発話をどう受け取ったか。観測事実と混ぜない"),
+  uncertainty: NaturalLanguage.describe("解釈の不確実性。判断できない理由も書く"),
+  attribution: NaturalLanguage.optional().describe("不一致の原因についての仮説。判断できない場合は省略する"),
+  observed: NaturalLanguage.describe("実際に観測したユーザー発話の要点"),
+  errorDirection: z.enum(["over", "under", "matched", "undecidable"]).describe("予測が観測より過大、過小、一致、判断不能のどれか"),
+  effect: z.enum(["reduced", "unchanged", "increased", "unknown"]).describe("前ターンのActionがこの候補へ与えた影響。RuntimeがRecentExperienceへ投影する"),
+  effectEvidence: NaturalLanguage.optional().describe("effectの根拠。効果を判断できない場合は省略する")
+}).strict().describe("候補ごとの予測誤差評価。MeaningやFeelingは含めない");
 export const PredictionObservationSchema = z.object({
-  kind: z.enum(["semantic", "common-ground"]),
-  content: NaturalLanguage,
-  subjectIds: z.array(Id).max(12),
-  importance: NaturalLanguage,
-  evidenceEventIds: z.array(Id).max(16),
-  rationale: NaturalLanguage,
-  explicitness: z.enum(["explicit", "inferred"])
-}).strict();
+  kind: z.enum(["semantic", "common-ground"]).describe("観測候補のMemory kind"),
+  content: NaturalLanguage.describe("保存候補の観測事実または傾向"),
+  subjectIds: z.array(Id).max(12).describe("観測候補の対象ID。入力に存在するIDだけを使う"),
+  importance: NaturalLanguage.describe("この観測を残す重要度"),
+  evidenceEventIds: z.array(Id).max(16).describe("観測候補の根拠Event ID"),
+  rationale: NaturalLanguage.describe("保存候補にする理由"),
+  explicitness: z.enum(["explicit", "inferred"]).describe("ユーザーが明示した事実か、Agentが推測した内容か")
+}).strict().describe("MemoryWriteServiceへ渡す観測候補。rememberとは混ぜない");
 export const PredictionOutputSchema = z.object({
   predictions: z.object({
-    g1: z.object({ candidates: z.array(G1PredictionCandidateSchema).max(3) }).strict(),
-    g2: z.object({ candidates: z.array(G2PredictionCandidateSchema).max(3) }).strict()
-  }).strict(),
-  predictionEvaluations: z.array(PredictionEvaluationSchema).max(6),
-  remember: z.array(MemoryIntentSchema).max(3),
-  observationCandidates: z.array(PredictionObservationSchema).max(6),
+    g1: z.object({ candidates: z.array(G1PredictionCandidateSchema).max(3).describe("G1の予測候補。0〜3件") }).strict(),
+    g2: z.object({ candidates: z.array(G2PredictionCandidateSchema).max(3).describe("G2の予測候補。0〜3件") }).strict()
+  }).strict().describe("G1/G2の予測。必ずg1とg2を持つobjectで、配列を直接置かない"),
+  predictionEvaluations: z.array(PredictionEvaluationSchema).max(6).describe("前回予測の候補ごとの評価。前回予測がなければ空配列"),
+  remember: z.array(MemoryIntentSchema).max(3).describe("予測誤差に基づくMemoryIntent。作成・更新・no-opの判断はMemoryWriteServiceが行う"),
+  observationCandidates: z.array(PredictionObservationSchema).max(6).describe("今回の発話から得た観測候補。rememberとは別に扱う"),
   g3: z.object({
-    needsG3: z.boolean(),
-    targetLayers: z.array(z.enum(["L4", "L5", "L6"])).max(3).default([]),
-    reason: NaturalLanguage.optional(),
-    priority: z.enum(["high", "medium", "low"]).default("medium")
-  }).strict()
-}).strict();
+    needsG3: z.boolean().describe("G3で仮説を深掘りする必要があるか"),
+    targetLayers: z.array(z.enum(["L4", "L5", "L6"])).max(3).default([]).describe("G3で深掘りする層。L4は意図、L5は知識・信念、L6は関係・個人傾向"),
+    reason: NaturalLanguage.optional().describe("G3が必要な理由。不要なら省略する"),
+    priority: z.enum(["high", "medium", "low"]).default("medium").describe("G3の優先度")
+  }).strict().describe("G3起動判断")
+}).strict().describe("G1/G2の1回の構造化出力。predictions.g1.candidatesとpredictions.g2.candidatesを必ず持つ");
 export type PredictionOutput = z.infer<typeof PredictionOutputSchema>;
 
 export const PredictionContextSchema = z.object({
