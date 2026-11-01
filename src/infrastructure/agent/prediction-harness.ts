@@ -96,12 +96,16 @@ export function createOllamaPredictionModel(config: OllamaChatConfig, logger: Lo
   const structured = model.withConfig({ format: jsonSchema });
   return {
     async predict(input: PredictionModelInput, signal: AbortSignal): Promise<PredictionOutput> {
+      const startedAt = Date.now();
       try {
+        const inputJson = JSON.stringify(input);
         const result = await structured.invoke([
           { role: "system", content: predictionSystemPrompt },
-          { role: "user", content: JSON.stringify(input) }
+          { role: "user", content: inputJson }
         ], { signal });
         const content = contentOf(result.content);
+        const usage = objectOf(result.usage_metadata); const responseMeta = objectOf(result.response_metadata);
+        logger.log("info", "prediction.model_completed", { agentId: input.agentId, elapsedMs: Date.now() - startedAt, systemPromptChars: predictionSystemPrompt.length, inputChars: inputJson.length, outputChars: content.length, ...(typeof usage.input_tokens === "number" ? { inputTokens: usage.input_tokens } : {}), ...(typeof usage.output_tokens === "number" ? { outputTokens: usage.output_tokens } : {}), ...(typeof responseMeta.finish_reason === "string" ? { finishReason: responseMeta.finish_reason } : {}) });
         if (content.trim().length === 0) throw providerFailure("G1/G2 prediction", new Error("Prediction returned empty content"), signal);
         return normalizePrediction(parseJson(content));
       } catch (error) {
