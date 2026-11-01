@@ -364,9 +364,9 @@ type Desire = string;
 - `respond`: 相手へ応答する。
 - `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
-- `no-external-action`: 今回は外部発話を行わないと判断する。Tool利用の有無とは独立する。
+- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使い、idleでは選択しない。Tool利用の有無とは独立する。
 
-`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。
 
 ## 14. Scheduled Task
 
@@ -585,7 +585,7 @@ type AgentRunResult = {
 
 モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。field descriptionは出力意味をモデルへ伝えるために保持し、RuntimeのZod検証を置き換えない。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
-最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。InteractionではDesireに基づく具体的Actionを必須とする。
+最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。ただしidleでは`no-external-action`を選択できない。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。InteractionではDesireに基づく具体的Actionを必須とする。
 
 持続状態、Memory、Concernは最終出力へ混在させず、PatchまたはToolによる提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
 

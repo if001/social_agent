@@ -94,11 +94,11 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
         await middleware.wrapModelCall(request, () => Promise.resolve({ content: "select concern" }));
         config.context.collector.count = 1;
         await middleware.wrapModelCall(request, (effective) => { secondCallTools = effective.tools.map(({ name }) => name); return Promise.resolve({ content: "propose concern" }); });
-        return { structuredResponse: { desire: "新しい関心を持つ", actionType: "no-external-action", reason: "Concernを提案した" } };
+        return { structuredResponse: { desire: "新しい関心を持つ", actionType: "respond", content: "関心を深めたいと思っています" } };
       } };
     } });
 
-    await expect(invoker.invoke({ messages: [{ role: "user", content: "idle" }] }, { signal: new AbortController().signal, recursionLimit: 6, maxModelCalls: 6, agentId: "agent-a", runId: "empty-concern-run", eventId: "empty-concern-event", eventKind: "internal", maxToolCalls: 5 })).resolves.toMatchObject({ structuredResponse: { action: { type: "no-external-action" } } });
+    await expect(invoker.invoke({ messages: [{ role: "user", content: "idle" }] }, { signal: new AbortController().signal, recursionLimit: 6, maxModelCalls: 6, agentId: "agent-a", runId: "empty-concern-run", eventId: "empty-concern-event", eventKind: "internal", maxToolCalls: 5 })).resolves.toMatchObject({ structuredResponse: { action: { type: "respond" } } });
     expect(secondCallTools).toContain("concern_propose");
     expect(secondCallTools).toContain("concern_list");
   });
@@ -115,11 +115,11 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
         if (listTool === undefined) throw new Error("concern_list Tool is missing");
         await listTool.invoke({ limit: 8 }, { context: config.context });
         observedExecutions = config.context.collector.executions;
-        return { structuredResponse: { desire: "今は新しいConcernを提案せず応答したい", actionType: "no-external-action", reason: "空のConcern一覧だけでは提案を強制しない" } };
+        return { structuredResponse: { desire: "今は新しいConcernを提案せず応答したい", actionType: "respond", content: "今は新しい関心を無理に作らず、話せることがあります" } };
       } };
     } });
     const result = await invoker.invoke({ messages: [{ role: "user", content: "idle" }] }, { signal: new AbortController().signal, recursionLimit: 6, maxModelCalls: 6, agentId: "agent-a", runId: "empty-concern-no-proposal", eventId: "empty-concern-no-proposal-event", eventKind: "internal", maxToolCalls: 5 });
-    expect(result.structuredResponse).toMatchObject({ action: { type: "no-external-action" } });
+    expect(result.structuredResponse).toMatchObject({ action: { type: "respond" } });
     expect(observedExecutions).toEqual(expect.arrayContaining([expect.objectContaining({ name: "concern_list" })]));
     expect(observedExecutions).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "concern_propose" })]));
   });

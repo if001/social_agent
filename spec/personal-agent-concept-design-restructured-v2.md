@@ -633,11 +633,11 @@ Agentはユーザー入力がなくても、Event sourceを契機にDesireを活
 - `respond`: 相手へ応答する。
 - `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
-- `no-external-action`: 今回は外部発話を行わないと判断する。Tool利用の有無とは独立する。
+- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使い、idleでは選択しない。Tool利用の有無とは独立する。
 
 自律EventではTool利用と発話判断を独立させる。調査後にも共有価値があれば発話し、Toolを使わなくても話したいことがあれば発話する。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
 
-`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。外部へ観測可能な結果を残す必要がある自律Eventでは、`notify-no-execution` または具体的なTool / 送信Actionを選ぶ。
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。外部へ観測可能な結果を残す必要がある自律Eventでは、`notify-no-execution` または具体的なTool / 送信Actionを選ぶ。
 
 ## 24. シンプルさを優先する
 

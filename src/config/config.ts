@@ -10,13 +10,17 @@ import { loadExplorationDomainCatalog } from "./exploration-domains.js";
 
 const HttpUrl = z.url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "must use HTTP(S)");
 const OptionalText = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().min(1).optional());
+const QuietHoursSchema = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$/u, "must be HH:MM-HH:MM").optional());
+const TimeZoneSchema = z.string().default("Asia/Tokyo").refine((value) => { try { new Intl.DateTimeFormat("en-US", { timeZone: value }).format(); return true; } catch { return false; } }, "invalid IANA time zone");
 export const SchedulerTimingsSchema = z.object({
   SCHEDULER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   AUTONOMY_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   STATE_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   MEMORY_RECALL_INTERVAL_MS: z.coerce.number().int().positive().default(604_800_000),
   SCHEDULER_RETRY_DELAY_MS: z.coerce.number().int().positive().default(300_000),
-  SCHEDULER_LEASE_MS: z.coerce.number().int().positive().default(60_000)
+  SCHEDULER_LEASE_MS: z.coerce.number().int().positive().default(60_000),
+  AUTONOMY_IDLE_QUIET_HOURS: QuietHoursSchema,
+  AUTONOMY_IDLE_QUIET_TIME_ZONE: TimeZoneSchema
 });
 export type SchedulerTimings = {
   readonly scanIntervalMs: number;
@@ -25,10 +29,14 @@ export type SchedulerTimings = {
   readonly memoryRecallIntervalMs: number;
   readonly retryDelayMs: number;
   readonly leaseMs: number;
+  readonly idleQuietHours?: { readonly startMinutes: number; readonly endMinutes: number; readonly timeZone: string };
 };
+const minutesOf = (value: string): number => { const [hour, minute] = value.split(":").map(Number); return (hour ?? 0) * 60 + (minute ?? 0); };
 export function parseSchedulerTimings(environment: Record<string, unknown>): SchedulerTimings {
   const value = SchedulerTimingsSchema.parse(environment);
-  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, memoryRecallIntervalMs: value.MEMORY_RECALL_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS };
+  const quiet = value.AUTONOMY_IDLE_QUIET_HOURS;
+  const [start, end] = quiet === undefined ? [] : quiet.split("-");
+  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, memoryRecallIntervalMs: value.MEMORY_RECALL_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS, ...(start === undefined || end === undefined ? {} : { idleQuietHours: { startMinutes: minutesOf(start), endMinutes: minutesOf(end), timeZone: value.AUTONOMY_IDLE_QUIET_TIME_ZONE } }) };
 }
 const ConfigSchema = z.object({
   BOT_ID: z.string().min(1),
