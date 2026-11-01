@@ -257,7 +257,7 @@ export function createDefaultDeepAgentFactory(skillsRoot: string, deepAgent: typ
 }
 
 export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): DeepAgentInvoker {
-  const model = (config.modelFactory ?? createOllamaChatModel)(config);
+  const model = (config.modelFactory ?? createOllamaChatModel)({ ...config, think: "high" });
   const logger = config.logger ?? noopLogger;
   const now = config.now ?? (() => new Date());
   const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
