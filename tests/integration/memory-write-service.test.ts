@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { parse } from "dotenv";
@@ -59,5 +59,22 @@ describeDatabase("MemoryWriteService", () => {
     await service(async (_client, writer) => { await expect(writer.apply("a", idempotent, { sourceEventId: "idem-event", intentIndex: 0 })).resolves.toMatchObject({ operation: "create" }); });
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE content='冪等性を確認するMemory'")).rows[0]).toEqual({ count: 1 });
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memory_mutations WHERE source_event_id='idem-event'")).rows[0]).toEqual({ count: 1 });
+  });
+
+  it("NFR-15, AC-12: does not deadlock with the bot-host process lock", async () => {
+    const holder = await pool.connect();
+    const lockKey = createHash("sha256").update("a").digest().readBigInt64BE().toString();
+    try {
+      await holder.query("INSERT INTO agent_lock_keys(agent_id,lock_key) VALUES ('a',$1) ON CONFLICT (agent_id) DO NOTHING", [lockKey]);
+      const acquired = await holder.query<{ acquired: boolean }>("SELECT pg_try_advisory_lock($1::bigint) AS acquired", [lockKey]);
+      expect(acquired.rows[0]?.acquired).toBe(true);
+      await expect(Promise.race([
+        service(async (_client, writer) => { await writer.apply("a", intent({ content: "プロセスロックと共存するMemory", target: "semantic" })); }),
+        new Promise((_, reject) => setTimeout(() => { reject(new Error("MemoryWriteService deadlocked")); }, 2_000))
+      ])).resolves.toBeUndefined();
+    } finally {
+      await holder.query("SELECT pg_advisory_unlock_all()");
+      holder.release();
+    }
   });
 });
