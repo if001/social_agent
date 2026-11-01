@@ -28,10 +28,10 @@ export class MemoryWriteService {
   async apply(agentId: string, rawIntent: MemoryIntent, options: MemoryWriteOptions = {}): Promise<MemoryWriteResult> {
     const intent = MemoryIntentSchema.parse(rawIntent);
     if (intent.evidenceEventIds.length === 0) throw new Error("MemoryIntent requires at least one evidence Event");
-    const lock = await this.client.query<{ lock_key: string }>("SELECT lock_key::text AS lock_key FROM agent_lock_keys WHERE agent_id=$1", [agentId]);
-    const lockKey = lock.rows[0]?.lock_key;
-    if (lockKey === undefined) await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [agentId]);
-    else await this.client.query("SELECT pg_advisory_xact_lock($1::bigint)", [lockKey]);
+    // Use a namespace separate from bot-host's session-level Agent lock.
+    // bot-host intentionally holds one process lock for its lifetime; using the
+    // same key here would make every Memory write wait on its own process.
+    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended('memory-write:' || $1, 0))", [agentId]);
     if (options.sourceEventId !== undefined && options.intentIndex !== undefined) {
       const prior = await this.client.query<{ operation: MemoryWriteOperation; memory_id: string | null }>("SELECT operation,memory_id FROM memory_mutations WHERE agent_id=$1 AND source_event_id=$2 AND intent_index=$3", [agentId, options.sourceEventId, options.intentIndex]);
       const existing = prior.rows[0];
