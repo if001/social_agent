@@ -91,7 +91,7 @@ const contentOf = (value: unknown): string => {
 const parseJson = (content: string): unknown => JSON.parse(content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""));
 
 export function createOllamaPredictionModel(config: OllamaChatConfig, logger: Logger = noopLogger): PredictionModel {
-  const model = createOllamaChatModel(config);
+  const model = createOllamaChatModel({ ...config, think: "low" });
   const jsonSchema = modelJsonSchema(PredictionOutputSchema);
   const structured = model.withConfig({ format: jsonSchema });
   return {

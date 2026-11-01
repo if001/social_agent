@@ -1,10 +1,11 @@
 import { ChatOllama } from "@langchain/ollama";
 import { DomainError } from "../../domain/contracts.js";
 
-export type OllamaChatConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string };
+export type OllamaThinkingLevel = "low" | "high" | "max";
+export type OllamaChatConfig = { readonly baseUrl: string; readonly apiKey: string; readonly model: string; readonly think?: OllamaThinkingLevel };
 
 export function createOllamaChatModel(config: OllamaChatConfig): ChatOllama {
-  return new ChatOllama({ model: config.model, baseUrl: config.baseUrl, headers: { Authorization: `Bearer ${config.apiKey}` }, checkOrPullModel: false });
+  return new ChatOllama({ model: config.model, baseUrl: config.baseUrl, headers: { Authorization: `Bearer ${config.apiKey}` }, checkOrPullModel: false, ...(config.think === undefined ? {} : { think: config.think as unknown as boolean }) });
 }
 
 export function providerFailure(operation: string, error: unknown, signal: AbortSignal, cause: unknown = error): DomainError {
