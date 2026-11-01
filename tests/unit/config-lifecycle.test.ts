@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
-import { assertDistinctBotConfigs, loadConfig } from "../../src/config/config.js";
+import { assertDistinctBotConfigs, loadConfig, parseSchedulerTimings } from "../../src/config/config.js";
 import { loadBotStartConfig, parseBotStartArguments } from "../../src/bootstrap/bot-start.js";
 import { loadPageIngestStartConfig, parsePageIngestStartArguments } from "../../src/bootstrap/page-ingest-start.js";
 import { loadInitialSelfFile } from "../../src/config/initial-self.js";
@@ -77,6 +77,11 @@ describe("configuration and lifecycle", () => {
     expect(config.schedulerTimings).toEqual({ scanIntervalMs: 1000, autonomyReviewIntervalMs: 2000, stateReviewIntervalMs: 3000, memoryRecallIntervalMs: 4000, retryDelayMs: 7000, leaseMs: 8000 });
     expect(config.fileReadRoots).toEqual([`${cwd}/read-a`, `${cwd}/read-b`]); expect(config.fileWriteRoots).toEqual([`${cwd}/write`]);
     await scope.close();
+  });
+
+  it("FR-45: parses configurable idle quiet hours", () => {
+    const timings = parseSchedulerTimings({ AUTONOMY_IDLE_QUIET_HOURS: "23:00-07:00", AUTONOMY_IDLE_QUIET_TIME_ZONE: "Asia/Tokyo" });
+    expect(timings.idleQuietHours).toEqual({ startMinutes: 1380, endMinutes: 420, timeZone: "Asia/Tokyo" });
   });
 
   it("NFR-1, NFR-10: loads process-specific bot files after .env and keeps bot destinations distinct", async () => {

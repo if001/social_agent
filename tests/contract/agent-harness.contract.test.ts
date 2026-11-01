@@ -261,6 +261,16 @@ describe("AgentHarness contract", () => {
     expect(calls).toBe(1);
   });
 
+  it("FR-45, AC-7: rejects idle no-external-action and repairs it to a response", async () => {
+    const input = agentCoreInputFixture();
+    input.observation.kind = "internal";
+    input.observation.content = { schedulerGenerated: true, targetKind: "idle" };
+    let calls = 0;
+    const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: calls++ === 0 ? { ...output, action: { type: "no-external-action" as const, reason: "夜間で緊急性がない" } } : { ...output, action: { type: "respond" as const, content: "まだ十分に確認できていないので、もう少し調べてから話します" } } }) };
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ output: { action: { type: "respond" } } });
+    expect(calls).toBe(2);
+  });
+
   it("FR-20, FR-38: accepts a user-facing response regardless of whether a Tool failed", async () => {
     const respond = { ...output, action: { type: "respond" as const, content: "調査できなかったことも含めて共有する" } };
     const invoker: DeepAgentInvoker = { invoke: () => Promise.resolve({ structuredResponse: respond, toolExecutions: [{ callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: {}, ok: false, error: "unavailable", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] }) };

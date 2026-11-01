@@ -14,7 +14,8 @@ export interface ScheduleRepository {
   release(target: ScheduledTarget): Promise<void>;
 }
 export interface InternalEventRuntime { process(event: DomainEvent, signal: AbortSignal): Promise<AgentAction>; }
-export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly reflection?: { process(reflectionId: string, agentId: string, signal: AbortSignal): Promise<unknown> }; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly explorationDomains?: readonly string[]; readonly random?: () => number; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly logger?: Logger; readonly batchSize?: number };
+export type IdleQuietHours = { readonly startMinutes: number; readonly endMinutes: number; readonly timeZone: string };
+export type SchedulerOptions = { readonly repository: ScheduleRepository; readonly runtime: InternalEventRuntime; readonly reflection?: { process(reflectionId: string, agentId: string, signal: AbortSignal): Promise<unknown> }; readonly clock: Clock; readonly ids: IdGenerator; readonly lifecycle: ProcessLifecycle; readonly defaultDestination: (agentId: string) => string | undefined; readonly defaultReplyContext?: (agentId: string) => Readonly<Record<string, unknown>> | undefined; readonly explorationDomains?: readonly string[]; readonly random?: () => number; readonly autonomyReviewIntervalMs: number; readonly stateReviewIntervalMs: number; readonly memoryRecallIntervalMs: number; readonly idleQuietHours?: IdleQuietHours; readonly logger?: Logger; readonly batchSize?: number };
 
 export function randomExplorationCandidates(domains: readonly string[], random: () => number = Math.random, count = 8): readonly string[] {
   const candidates = [...domains];
@@ -29,6 +30,25 @@ export class Scheduler {
   readonly #running = new Set<string>();
   constructor(private readonly options: SchedulerOptions) {}
   #canRun(signal: AbortSignal): boolean { return this.options.lifecycle.accepting && !signal.aborted; }
+  #minutesInTimeZone(date: Date, timeZone: string): number {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
+    const hour = Number(parts.find(({ type }) => type === "hour")?.value ?? "0");
+    const minute = Number(parts.find(({ type }) => type === "minute")?.value ?? "0");
+    return hour * 60 + minute;
+  }
+  #isIdleQuiet(date: Date): boolean {
+    const quiet = this.options.idleQuietHours;
+    if (quiet === undefined || quiet.startMinutes === quiet.endMinutes) return false;
+    const minutes = this.#minutesInTimeZone(date, quiet.timeZone);
+    return quiet.startMinutes < quiet.endMinutes ? minutes >= quiet.startMinutes && minutes < quiet.endMinutes : minutes >= quiet.startMinutes || minutes < quiet.endMinutes;
+  }
+  #nextIdleAllowed(date: Date): Date {
+    const quiet = this.options.idleQuietHours;
+    if (quiet === undefined) return date;
+    const minutes = this.#minutesInTimeZone(date, quiet.timeZone);
+    const wait = ((quiet.endMinutes - minutes + 1_440) % 1_440) || 1_440;
+    return new Date(date.getTime() + wait * 60_000);
+  }
   async tick(signal: AbortSignal): Promise<number> {
     if (!this.#canRun(signal)) return 0;
     const targets = await this.options.repository.claimDue(this.options.clock.now(), this.options.batchSize ?? 100);
@@ -42,6 +62,13 @@ export class Scheduler {
       try {
         logger.log("info", "scheduler.target_started");
         const occurredAt = this.options.clock.now();
+        if (target.kind === "idle" && this.#isIdleQuiet(occurredAt)) {
+          const next = this.#nextIdleAllowed(occurredAt);
+          await this.options.repository.complete(target, next);
+          logger.log("info", "scheduler.idle_suppressed", { nextReviewAt: next.toISOString() });
+          completed += 1;
+          continue;
+        }
         const destination = target.destination ?? (target.kind === "scheduled-task" ? undefined : this.options.defaultDestination(target.agentId));
         const replyContext = destination === this.options.defaultDestination(target.agentId) ? this.options.defaultReplyContext?.(target.agentId) : undefined;
         const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: target.reason, schedulerGenerated: true, ...(target.kind === "idle" ? { explorationCandidates: randomExplorationCandidates(this.options.explorationDomains ?? [], this.options.random) } : {}), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };

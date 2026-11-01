@@ -9,7 +9,7 @@ describe("live Ollama G1/G2 prediction", () => {
     try {
       output = await createOllamaPredictionModel(config.chat).predict({
         agentId: "live-agent",
-        observation: { eventId: "live-event", summary: "ユーザーが技術の話を続けた", facts: [], observedAt: "2026-10-13T00:00:00.000Z" } as never,
+        observation: { eventId: "live-event", summary: "ユーザーが技術の話を続けた", facts: [], observedAt: "2026-10-13T00:00:00.000Z" },
         recentExperiences: [],
         memoryCandidates: []
       }, AbortSignal.timeout(300_000));

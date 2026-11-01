@@ -29,6 +29,14 @@ describe("Scheduler", () => {
     }
   });
 
+  it("FR-45: suppresses idle Events during configured quiet hours", async () => {
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); let runtimeCalls = 0; const completions: (Date | null)[] = [];
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([target]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => { runtimeCalls += 1; return Promise.resolve({ type: "respond", content: "unexpected" }); } }, clock: new FixedClock(new Date("2026-01-01T14:30:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", idleQuietHours: { startMinutes: 23 * 60, endMinutes: 7 * 60, timeZone: "Asia/Tokyo" }, ...timings });
+    await expect(scheduler.tick(new AbortController().signal)).resolves.toBe(1);
+    expect(runtimeCalls).toBe(0);
+    expect(completions[0]?.toISOString()).toBe("2026-01-01T22:00:00.000Z");
+  });
+
   it("FR-39: passes the resolved destination and reply context to Runtime", async () => {
     const value = setup({ type: "respond", content: "An autonomous update" }, { channelId: "discord-channel" }); await value.scheduler.tick(new AbortController().signal);
     expect(value.events).toHaveLength(1); expect(value.events[0]).toMatchObject({ payload: { destination: "terminal", replyContext: { channelId: "discord-channel" } } }); expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");

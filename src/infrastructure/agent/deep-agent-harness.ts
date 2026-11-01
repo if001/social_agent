@@ -20,7 +20,7 @@ const AgentCoreFlatOutputSchema = z.object({
   meaning: z.string().trim().min(1).max(800).optional().describe("今回のEvent処理を終えた時点で、この経験が自分にとって何を意味するかを1〜2文で書く。感情、願望、計画、Actionは書かない"),
   feeling: z.string().trim().min(1).max(160).optional().describe("今回のEvent処理を終えた時点で残っている短期的な感情を、感情語中心の1文で書く。例: 嬉しい、期待、不安、落胆、苛立ち、安堵、退屈。例から選ぶ必要はない。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。特に残る感情がなければ省略する"),
   desire: z.string().trim().min(1).max(800).describe("今回のEventを受けて今具体的に望むこと。現在のコミットメントとして、入力中の具体的な対象と今回の行為に結び付けて短く書く。既存Concernの言い換えにしない"),
-  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない場合はno-external-actionを選ぶ。idleではrespondまたはrefuseを通常経路とし、通知を発話の代替にせず、no-external-actionを既定にしない"),
+  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない場合はno-external-actionを選ぶ。idleではrespondまたはrefuseを必ず選び、no-external-actionを選ばない。情報が不十分ならrespondで不十分な旨を伝える"),
   content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
@@ -40,7 +40,7 @@ function dispositionTendency(disposition: string): string {
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
 
 export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
-export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontent、refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reason、no-external-actionならreasonを指定してください。状態変更がなければmood、relationship系、rememberは省略してください。";
+export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontent、refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reasonを指定してください。状態変更がなければmood、relationship系、rememberは省略してください。";
 
 function domainOutputFromFlat(value: unknown): unknown {
   const parsed = AgentCoreFlatOutputSchema.safeParse(value);
@@ -162,6 +162,11 @@ function recoverUserStringAction(raw: unknown, input: AgentCoreInput): AgentRunR
   return recovered.success ? recovered.data : undefined;
 }
 
+function isIdleEvent(input: AgentCoreInput): boolean {
+  const content = input.observation.content;
+  return input.observation.kind === "internal" && typeof content === "object" && content !== null && "targetKind" in content && content.targetKind === "idle";
+}
+
 export class DeepAgentHarness implements AgentHarness {
   readonly #maxRepairs: number;
   constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 0; }
@@ -209,7 +214,16 @@ export class DeepAgentHarness implements AgentHarness {
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
         const parsed = AgentCoreDecisionSchema.safeParse(raw);
-        if (parsed.success) { logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls }); return { ...decisionResult(parsed.data), toolExecutions: observedToolExecutions, concernProposals: concernProposals(observedToolExecutions), budget: budgetResult(consumedModelCalls, attempt) }; }
+        if (parsed.success) {
+          const decision = decisionResult(parsed.data);
+          if (isIdleEvent(input) && decision.output.action.type === "no-external-action") {
+            validationIssues = [{ code: "custom", message: "idle Eventではno-external-actionを選べません。不十分ならrespondでその旨を伝えてください", path: ["actionType"] }];
+            logger.log("warn", "agent_core.idle_silence_rejected", { attempt: attempt + 1 });
+            continue;
+          }
+          logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls });
+          return { ...decision, toolExecutions: observedToolExecutions, concernProposals: concernProposals(observedToolExecutions), budget: budgetResult(consumedModelCalls, attempt) };
+        }
         validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
         logger.log("warn", "agent_core.output_invalid", { attempt: attempt + 1, issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
       } catch (error) {

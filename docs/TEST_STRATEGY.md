@@ -129,7 +129,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-19 | System, Contract, Unit | `tests/system/runtime-terminal.test.ts`, `tests/contract/discord-adapter.contract.test.ts` | notify-no-execution の配送 |
 | FR-20 | Contract, System | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts` | Tool 利用と発話判断の独立 |
 | FR-21 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/unit/domain-contracts.test.ts` | no-external-action の理由 |
-| FR-22 | Contract | `tests/contract/agent-harness.contract.test.ts` | 夜間の判断材料 |
+| FR-22 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/config-lifecycle.test.ts` | 夜間quiet hoursのidle抑制と再スケジュール |
 | FR-23 | Unit, System, Evaluation | `tests/unit/agent-state-patch.test.ts`, `tests/unit/domain-contracts.test.ts`, `tests/system/invalid-output.test.ts` | Patch 対象の限定 |
 | FR-24 | Unit, Integration, System | `tests/unit/agent-state-patch.test.ts`, `tests/integration/persistence.test.ts`, `tests/unit/scheduler.test.ts`, `tests/system/tool-loop.test.ts` | Concern 更新と schedule 同期 |
 | FR-25 | Unit, Integration, System | `tests/unit/agent-prompts.test.ts`, `tests/unit/scheduler.test.ts`, `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | Concern ライフサイクルと状態遷移 |
@@ -151,7 +151,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-40 | Unit, Integration | `tests/unit/scheduled-task-tools.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Scheduled Task の分離 |
 | FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
-| FR-45 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts` | idle の再開間隔と通知の扱い |
+| FR-45 | Unit, System, Contract | `tests/unit/scheduler.test.ts`, `tests/system/internal-event.test.ts`, `tests/contract/agent-harness.contract.test.ts` | idleのno-external拒否、再開間隔、夜間idle抑制 |
 | FR-48 | System | `tests/system/prediction-loop.test.ts` | 応答後の予測、1ターン遅れの誤差評価 |
 | FR-49 | Contract | `tests/contract/prediction-contracts.test.ts` | 1 callの予測・評価・remember・G3判断 |
 | FR-50 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | Feeling非出力とMainAgentのAssessment確定 |

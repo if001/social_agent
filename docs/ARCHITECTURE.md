@@ -140,9 +140,9 @@ Domain上の最終Actionは次の4種類である。
 - `respond`: contentを相手へ配送する。
 - `refuse`: contentを配送し、内部にreasonと`personality | system`のbasisを残す。
 - `notify-no-execution`: 自律Eventで実行しない判断と理由をownerへ配送する。
-- `no-external-action`: Agentが今回は外部発話を行わないと判断した内部終端である。Tool利用の有無とは独立して選ぶ。
+- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使う内部終端である。idleでは選択できない。Tool利用の有無とは独立する。
 
-Tool利用とユーザーへの発話判断は独立する。Toolの前後を問わず共有価値があれば`respond`でき、Toolを使わなくても発話できる。反対に、Agentは具体的理由があれば`no-external-action`を選べる。ただし、ユーザーからの返信待ちは発話を控える理由にしない。夜間であることは強制制御ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
+Tool利用とユーザーへの発話判断は独立する。Toolの前後を問わず共有価値があれば`respond`でき、Toolを使わなくても発話できる。反対に、Actionを生成しない内部Eventは`no-external-action`で完了できる。ただしidleでは選択できず、情報が不十分なら`respond`でその旨を伝える。ユーザーからの返信待ちは発話を控える理由にしない。夜間は設定された時間帯にidle Eventを発生させず、次の許可時刻へ再スケジュールする。
 
 Patchは任意のmood、Relationship 1件、`remember`（MemoryIntent）に限定する。Concernは`concern_propose` Toolで提案し、成功したcommit時だけ反映する。Runtimeがupsert/remove、Agent所有権、evidence、versionを検証し、DB metadataやIDは通常コードが付与する。MainAgentの`remember`はそのEventのtransactionでMemoryWriteServiceが適用し、G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用する。
 
@@ -160,7 +160,7 @@ G3とMainAgentのConversation Memory・Background Experienceの検索は`retriev
 
 ## Event-driven autonomyとReflection
 
-常時思考loopは持たない。Schedulerは`idle`、`concern-due`、`external-change`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。`memory-update`はG1/G2/Reflectionと、G3のMemoryIntentを採否したMainAgent、`prediction-g3`はG1/G2、`prediction-g3-result`はG3完了後のRuntimeが発生させるinternal Eventであり、Schedulerの自律Eventとは分ける。Scheduled TaskのTool descriptionはToolの用途、入力schemaは各fieldへ保存する内容、scheduled-task skillは期限到来後の共通実行規則をそれぞれ記述し、実行規則を`instruction`へ複製しない。`idle`の次回時刻はActionに依存せず、`no-external-action`や`notify-no-execution`の後も`autonomyReviewIntervalMs`で再開する。`idle`などの自律Eventは通常Agent Loopへ入り、Concernの`reconsiderAt`はscheduleと同期する。Schedulerは`idle` Eventごとに`config/exploration-domains.yaml`からランダムな最大8件を候補として渡すが、探索方法は指定しない。Agent Coreは`concern_list`で状態を取得し、Focus ConcernまたはConcern不在を判断したうえで、`concern_propose`の`explorationMode`として`deepen`、`bridge`、`distant`を必要に応じて選ぶ。永続的な探索modeとcursorは持たない。モードの成功・失敗による巡回状態も保存しない。
+常時思考loopは持たない。Schedulerは`idle`、`concern-due`、`external-change`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。`memory-update`はG1/G2/Reflectionと、G3のMemoryIntentを採否したMainAgent、`prediction-g3`はG1/G2、`prediction-g3-result`はG3完了後のRuntimeが発生させるinternal Eventであり、Schedulerの自律Eventとは分ける。Scheduled TaskのTool descriptionはToolの用途、入力schemaは各fieldへ保存する内容、scheduled-task skillは期限到来後の共通実行規則をそれぞれ記述し、実行規則を`instruction`へ複製しない。`idle`の次回時刻はActionに依存せず、`notify-no-execution`の後も`autonomyReviewIntervalMs`で再開する。夜間のidle抑制は`AUTONOMY_IDLE_QUIET_HOURS`と`AUTONOMY_IDLE_QUIET_TIME_ZONE`で設定し、抑制中は次の許可時刻へ再スケジュールする。`idle`などの自律Eventは通常Agent Loopへ入り、Concernの`reconsiderAt`はscheduleと同期する。Schedulerは`idle` Eventごとに`config/exploration-domains.yaml`からランダムな最大8件を候補として渡すが、探索方法は指定しない。Agent Coreは`concern_list`で状態を取得し、Focus ConcernまたはConcern不在を判断したうえで、`concern_propose`の`explorationMode`として`deepen`、`bridge`、`distant`を必要に応じて選ぶ。永続的な探索modeとcursorは持たない。モードの成功・失敗による巡回状態も保存しない。
 
 Event優先順位はuser-message、memory-update、G3、reflectionの順とする。user-messageが待っている間は下位Eventを開始せず、実行中でも強制中断せず短いtransaction単位で完了させる。`memory-update`は専用MemoryUpdateHandlerが処理し、LLMを呼ばない。G3は別DeepAgent、Reflectionは専用LLM処理であり、MainAgentのAgentHarnessを通らない。
 
@@ -197,7 +197,7 @@ Selfは`identity`、`disposition`、`selfStory`、`commitments`を持つ。State
 - 最終Actionは`respond`、`refuse`、`notify-no-execution`、`no-external-action`の4種である。
 - 自律Eventの成功runは、具体的なTool、送信、記録、予約、または`notify-no-execution`を持つ。
 - 何も実行しない判断は`notify-no-execution`としてユーザーへ配送する。
-- `no-external-action`は外部発話なしの判断として監査に残す。外部へ観測可能な結果が必要な自律Eventでは`notify-no-execution`を使う。
+- `no-external-action`はActionを生成しない内部Eventの完了として監査に残す。idleでは選択できない。外部へ観測可能な結果が必要な自律Eventでは`notify-no-execution`を使う。
 - 通知先を解決できない自律Eventは成功扱いにせず、再試行・運用通知の対象にする。
 - 同じEvent sourceでも、Self、State、Conversation Memory、Relationshipが異なれば異なるActionを選べる。
 - Event優先順位はuser-message、memory-update、G3、reflectionの順とする。user-messageを待たせない。

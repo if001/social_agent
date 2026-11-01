@@ -82,9 +82,9 @@ describe("Agent prompts", () => {
   });
 
   it("FR-45: treats respond/refuse as the normal idle path and notification as operational", () => {
-    expect(idleSkill).toContain("respondまたはrefuseを通常経路");
-    expect(idleSkill).toContain("notify-no-executionを発話を避ける代替にしません");
-    expect(idleSkill).toContain("no-external-actionを既定にしません");
+    expect(idleSkill).toContain("respondまたはrefuseを必ず選びます");
+    expect(idleSkill).toContain("notify-no-executionを発話の代替にしません");
+    expect(idleSkill).toContain("no-external-actionは使いません");
   });
 
   it("FR-25, FR-44: gives concerns a bounded lifecycle and does not force creation on empty", () => {
