@@ -583,7 +583,7 @@ type AgentRunResult = {
 };
 ```
 
-モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
+モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。field descriptionは出力意味をモデルへ伝えるために保持し、RuntimeのZod検証を置き換えない。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
 最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。InteractionではDesireに基づく具体的Actionを必須とする。
 

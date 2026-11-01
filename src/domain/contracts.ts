@@ -410,17 +410,17 @@ export const PredictionContextSchema = z.object({
 export type PredictionContext = z.infer<typeof PredictionContextSchema>;
 
 export const G3HypothesisEvaluationSchema = z.object({
-  statement: NaturalLanguage,
-  status: z.enum(["supported", "contradicted", "undecidable"]),
-  evidenceEventIds: z.array(Id).max(16),
-  rationale: NaturalLanguage
-}).strict();
+  statement: NaturalLanguage.describe("評価する前回仮説の内容"),
+  status: z.enum(["supported", "contradicted", "undecidable"]).describe("仮説が支持されたか、反証されたか、判断不能か"),
+  evidenceEventIds: z.array(Id).max(16).describe("仮説評価の根拠Event ID。入力に存在するIDだけを使う"),
+  rationale: NaturalLanguage.describe("支持・反証・判断不能の理由")
+}).strict().describe("前回仮説の評価");
 export const G3OutputSchema = z.object({
-  hypothesisEvaluations: z.array(G3HypothesisEvaluationSchema).max(6),
-  newHypotheses: z.array(NaturalLanguage).max(5),
-  findings: z.array(NaturalLanguage).max(5),
-  remember: z.array(MemoryIntentSchema).max(3)
-}).strict();
+  hypothesisEvaluations: z.array(G3HypothesisEvaluationSchema).max(6).describe("前回仮説の評価。仮説がなければ空配列"),
+  newHypotheses: z.array(NaturalLanguage).max(5).describe("新しく立てた仮説"),
+  findings: z.array(NaturalLanguage).max(5).describe("ToolやMemoryから得た調査結果"),
+  remember: z.array(MemoryIntentSchema).max(3).describe("MainAgentの再判断へ渡すMemoryIntent。G3自身は保存しない")
+}).strict().describe("G3の構造化出力");
 export type G3EvaluationOutput = z.infer<typeof G3OutputSchema>;
 
 export const MemoryUpdatePayloadSchema = z.looseObject({

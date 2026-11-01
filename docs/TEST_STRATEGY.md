@@ -27,6 +27,7 @@
 - memory-update Eventのpayload、intentIndex冪等性、部分commit禁止
 - Reflection planのMemory、Self、Relationship、Concernごとのstatus
 - G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
+- 通常OllamaとDeepAgentへ渡すJSON Schemaのfield description保持
 
 ### System
 
@@ -168,6 +169,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-62 | Unit, Contract | `tests/contract/prediction-contracts.test.ts` | predictionContextの内容と所有権 |
 | FR-63 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | deadline、call予算、失敗時の継続 |
 | FR-64 | Contract, Unit | `tests/contract/prediction-contracts.test.ts`, `tests/unit/domain-contracts.test.ts` | 旧後処理の不在、単一MemoryWriteService |
+| FR-65 | Contract | `tests/contract/structured-output-description.test.ts` | 通常Ollama/DeepAgentのdescription付きJSON Schema |
 
 ### Non-functional requirements
 
@@ -192,6 +194,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | NFR-17 | Integration, System | `tests/system/memory-update-event.test.ts`, `tests/system/reflection-partial.test.ts`, `tests/integration/persistence.test.ts` | 監査記録と再試行 |
 | NFR-18 | System | `tests/system/memory-update-event.test.ts`, `tests/system/g3-event.test.ts` | user-message優先、下位Eventの開始抑制 |
 | NFR-19 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | YAML検証、段階順序、AI/if001プロフィール、共有経験不在、実在人物、分布、非上書き |
+| NFR-20 | Contract | `tests/contract/structured-output-description.test.ts` | G1/G2、G3、MainAgentのdescription保持 |
 
 ### Acceptance criteria
 
@@ -215,6 +218,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-16 | System | `tests/system/g3-event.test.ts` | G3別DeepAgent、遅延、再判断、通知例外 |
 | AC-17 | Contract | `tests/unit/memory-intent.test.ts`, `tests/contract/prediction-contracts.test.ts` | Memory kind限定、Patch/Concern経路 |
 | AC-18 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | ownership、budget、旧後処理不在、call予算 |
+| AC-19 | Contract | `tests/contract/structured-output-description.test.ts` | 通常OllamaとDeepAgentのdescription伝播 |
 
 FR-48〜FR-64、NFR-14〜NFR-19、AC-11〜AC-18は追加設計の受入要件である。対応するtest fileは実装時に追加するため、実装完了まではtrace_checkで未参照の警告が残る。
 
