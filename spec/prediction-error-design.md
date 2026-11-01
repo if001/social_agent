@@ -52,6 +52,7 @@
 - C-68：Reflectionはplanと対象別statusで更新し、Memory更新後にSelf、Relationship、Concernを更新する。失敗した対象だけを再試行する。
 - C-69：memory-update Eventは専用Handlerで処理し、user-message優先の協調的スケジューリングを行う。強制中断はしない。
 - C-70：予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加LLM callはNFRの例外とし、call予算とdeadlineを持つ。
+- C-71：構造化出力は、モデルへ渡すJSON Schemaのfield descriptionに出力意味を含める。通常OllamaはJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgentは`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。descriptionは生成を補助するが、RuntimeのSchema検証を省略しない。
 
 ## 3. 用語
 
@@ -973,7 +974,7 @@ memory-update Event:
 ## 18. 既存設計との関係
 
 - 概念設計のC-01からC-19、実装設計のC-20からC-29を既存の原則とする。
-- 本ドキュメントはC-30からC-70を追加する。
+- 本ドキュメントはC-30からC-71を追加する。
 - Agent Coreの構造化出力（C-23）は維持する。予測Contextとremember（MemoryIntent）は入力・出力として追加する。
 - Actionの期待はdesire、Actionの結果はRecentExperience、Memory更新意図はrememberとMemoryIntentへ統合する。
 - G1/G2のpredictionEvaluationは予測シグナルであり、Meaning / FeelingはMainAgentだけが確定する。

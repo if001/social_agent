@@ -47,6 +47,7 @@
 | ADR-17 | ReflectionはMemory、Self、Relationship、Concernごとのstatusを持つplanで適用し、部分成功と失敗対象の再試行を許容する。 | FR-60, NFR-17 |
 | ADR-18 | 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、deadlineとcall予算を持つ。 | FR-63, FR-64, NFR-16 |
 | ADR-19 | 予測、G3 Task、Memory mutationは監査・集計のため専用tableに保存し、Conversation MemoryとBackground Experienceは別Storeにする。既存Run/Event/StateChangeは意味判断と行動の監査に限定する。 | FR-50, FR-57, FR-60, FR-61, NFR-17 |
+| ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。 | FR-65, NFR-20 |
 
 ADR-12〜ADR-19は追加設計であり、現行コードには未実装である。実装Issueでコード、migration、testを追加する。
 
@@ -118,7 +119,7 @@ Concernのライフサイクルは新しい数値counterを増やさず、`activ
 
 本番Agent Coreは`createDeepAgent`へ登録Tool群、system prompt、context schema、middlewareを一度設定し、`toolStrategy(...)`を`responseFormat`として渡す。通常Toolの呼び出しと最終構造化出力ToolはDeep Agentsの標準loopに任せる。system promptは共通規則とEvent skillのルーティングだけを持ち、`skills/`の`SKILL.md`をEvent種別に応じてRegistry Tool `skill_read`で読む。`createDeepAgent`には`skills`と`FilesystemBackend`を渡し、Toolの公開範囲はmiddlewareで強制する。`skill_read`はcontent-read policyで結果と上限を管理し、Deep Agents組み込みの`read_file`は公開しない。
 
-モデル向け最終出力は、nested unionを直接生成させず、説明付きのflat schemaを使う。必須なのは`desire`と`actionType`で、ActionやPatchに必要なfieldだけを追加する。providerへ渡すJSON Schemaから`$schema`と文字列の正規表現制約を除き、日時や参照整合性を含む厳密なZod Domain schemaはRuntime側で再検証する。これによりモデル負荷を抑えてもDomain保証は緩めない。
+モデル向け最終出力は、nested unionを直接生成させず、説明付きのflat schemaを使う。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。descriptionは生成を補助するが、RuntimeのZod検証を省略しない。必須なのは`desire`と`actionType`で、ActionやPatchに必要なfieldだけを追加する。providerへ渡すJSON Schemaから`$schema`と文字列の正規表現制約を除き、日時や参照整合性を含む厳密なZod Domain schemaはRuntime側で再検証する。これによりモデル負荷を抑えてもDomain保証は緩めない。
 
 初回出力が不正な場合、validation issue、許可されたevidence ID、不正出力、flat schemaを含むrepair入力で再試行する。repair中は通常Toolを無効にする。全試行後も不正ならcommitせずfailureだけを記録する。ただしuser-messageで既知の`action: string`誤出力だけは、空でない応答または定型の再試行依頼へ限定的に復旧する。自律Eventやその他の不正出力にはこのfallbackを使わない。
 

@@ -212,12 +212,14 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-62：predictionContextは前回予測、誤差評価、G3要約とmemoryIntents、RecentExperienceのeffect、memoryCandidatesを持つ。（C-51, C-62, C-66）
 - FR-63：G1/G2の追加LLM callはNFRの例外とし、deadlineとcall予算を持つ。（C-70）
 - FR-64：予測Loopは旧continuity / memory分割後処理ではなく、Memory書込みはMemoryWriteServiceに集約する。（C-70）
+- FR-65：通常Ollamaの構造化出力はJSON Schemaのfield descriptionを`format`または`withStructuredOutput`で渡し、DeepAgentは`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。descriptionはRuntime検証を置き換えない。（C-71）
 - NFR-14：predictionContextと背景経験はAgent所有権とContext budgetの対象にする。（C-51）
 - NFR-15：MemoryWriteServiceはAgent単位で直列化し、Memory versionの楽観ロックと冪等性を保証する。（C-67）
 - NFR-16：G1/G2の追加callはdeadline、最大試行回数、call予算を持ち、失敗しても通常会話を継続する。（C-52, C-70）
 - NFR-17：Prediction Evaluation、MemoryIntent、memory-update Event、Reflection statusを監査可能にし、再試行に耐える。（C-50, C-64, C-69）
 - NFR-18：user-messageが待っている間はmemory-update、G3、reflectionを開始しない。（C-61, C-69）
 - NFR-19：背景経験のYAMLはSchema、段階と日時の順序、AI・作成者if001・経験範囲のプロフィール矛盾、現在のユーザーとの共有経験の不在、実在人物の特定可能性、タグ・感情・テーマ・段階の分布を検証する。起動前の初期化時だけ置換し、会話Memoryを上書きしない。（C-45, C-47）
+- NFR-20：G1/G2、G3、MainAgentの構造化出力Schemaは主要fieldのdescriptionを保持し、通常OllamaとDeepAgentの両経路でdescription付きJSON Schemaをモデルへ渡す。descriptionの有無をtestで検証する。（C-71）
 
 ## 完了判定
 
@@ -239,6 +241,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-16：G3が別DeepAgentとして遅延実行され、MainAgentの再判断が通常Loopを通り、G3 Eventが通知必須の例外になることをSystem testで確認する。（FR-51, FR-52）
 - AC-17：MemoryIntentのtargetにRelationshipとConcernが含まれず、既存PatchまたはConcern Proposalへ渡ることをContract testで確認する。（FR-56）
 - AC-18：predictionContextの所有権とContext budget、予測Loopが旧後処理ではないこと、G1/G2のcall予算をContract/System testで確認する。（FR-62, FR-63, FR-64, NFR-14, NFR-16）
+- AC-19：通常OllamaとDeepAgentの構造化出力がdescription付きJSON Schemaを渡し、G1/G2、G3、MainAgentの主要fieldにdescriptionがあることをContract testで確認する。（FR-65, NFR-20）
 
 ### 方針の完了条件との対応
 
