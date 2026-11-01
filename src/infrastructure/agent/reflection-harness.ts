@@ -158,7 +158,7 @@ export class StructuredReflectionModel implements ReflectionModel {
 }
 
 export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: Logger = noopLogger): ReflectionInvoker {
-  const model = createOllamaChatModel(config);
+  const model = createOllamaChatModel({ ...config, think: "high" });
   const responseFormat = toolStrategy(ReflectionModelOutputJsonSchema, { handleError: (error) => {
     logger.log("warn", "reflection.structured_output_invalid", errorLogContext(error));
     return reflectionStructuredOutputRepairMessage;

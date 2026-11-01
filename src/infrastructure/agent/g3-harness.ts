@@ -31,7 +31,7 @@ export const g3SystemPrompt = `あなたはAgentのG3担当です。ユーザー
 const g3ToolNames = new Set(["retrieval_search", "self_get", "concern_list", "concern_get"]);
 
 export function createOllamaG3Model(config: OllamaChatConfig & { readonly toolRegistry?: ToolRegistry }, logger: Logger = noopLogger): G3Model {
-  const model = createOllamaChatModel(config);
+  const model = createOllamaChatModel({ ...config, think: "high" });
   const all = config.toolRegistry?.registered() ?? [];
   const selected = all.filter(({ name }) => g3ToolNames.has(name));
   const registry = new ToolRegistry(selected);
