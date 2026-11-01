@@ -101,10 +101,13 @@ export function createOllamaPredictionModel(config: OllamaChatConfig, logger: Lo
           { role: "system", content: predictionSystemPrompt },
           { role: "user", content: JSON.stringify(input) }
         ], { signal });
-        return normalizePrediction(parseJson(contentOf(result.content)));
+        const content = contentOf(result.content);
+        if (content.trim().length === 0) throw providerFailure("G1/G2 prediction", new Error("Prediction returned empty content"), signal);
+        return normalizePrediction(parseJson(content));
       } catch (error) {
-        logger.log("warn", "prediction.failed", { agentId: input.agentId, ...errorLogContext(error) });
-        throw providerFailure("G1/G2 prediction", error, signal);
+        const failure = providerFailure("G1/G2 prediction", error, signal);
+        logger.log("warn", "prediction.failed", { agentId: input.agentId, ...errorLogContext(failure), aborted: signal.aborted });
+        throw failure;
       }
     }
   };
