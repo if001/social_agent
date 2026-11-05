@@ -124,14 +124,14 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(observedExecutions).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "concern_propose" })]));
   });
 
-  it("FR-32, FR-35: returns an identical recent Tool input as a Tool failure without executing it again", async () => {
+  it("FR-32, FR-35: allows a Tool input that was used in a prior Run", async () => {
     let executions = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { executions += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
     const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
-    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 2, signal: new AbortController().signal, recentToolInputs: ['{"tool":"lookup","input":{"query":"same"}}'] });
-    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).resolves.toContain("Recent identical Tool input");
-    expect(executions).toBe(0);
-    expect(runContext.collector.executions).toMatchObject([{ ok: false, error: "Recent identical Tool input must not be repeated" }]);
+    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "new-run", eventId: "new-event", maxToolCalls: 2, signal: new AbortController().signal });
+    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).resolves.toContain('"ok":true');
+    expect(executions).toBe(1);
+    expect(runContext.collector.executions).toMatchObject([{ ok: true }]);
   });
 
   it("FR-32: rejects an identical Tool input repeated within the same run", async () => {
@@ -140,9 +140,9 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     const [lookup] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "repeat-run", eventId: "repeat-event", maxToolCalls: 25, signal: new AbortController().signal });
     await lookup?.invoke({ query: "same" }, { context: runContext });
-    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).resolves.toContain("must not be repeated");
+    await expect(lookup?.invoke({ query: "same" }, { context: runContext })).resolves.toContain('"errorCode":"REPEATED_INPUT"');
     expect(executions).toBe(1);
-    expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Recent identical Tool input must not be repeated" });
+    expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "This exact Tool and input were already used in this Run; its result is already available" });
   });
 
   it("FR-4, FR-39: can choose a Tool on autonomy review from Self, Concern, and Memory", async () => {

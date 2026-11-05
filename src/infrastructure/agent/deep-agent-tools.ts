@@ -44,7 +44,6 @@ export type DeepAgentToolRunContext = {
   readonly maxToolCalls: number;
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
-  readonly recentToolInputs: readonly string[];
   readonly transport?: AgentCoreInput["run"]["transport"];
 };
 
@@ -57,12 +56,11 @@ export const DeepAgentToolRunContextSchema = z.object({
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
-  recentToolInputs: z.array(z.string()).default([]),
   transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
 });
 
-export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "recentToolInputs" | "maxModelCalls"> & { readonly maxModelCalls?: number; readonly recentToolInputs?: readonly string[] }): DeepAgentToolRunContext {
-  return { ...options, maxModelCalls: options.maxModelCalls ?? 8, recentToolInputs: options.recentToolInputs ?? [], collector: new ToolExecutionCollector() };
+export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "maxModelCalls"> & { readonly maxModelCalls?: number }): DeepAgentToolRunContext {
+  return { ...options, maxModelCalls: options.maxModelCalls ?? 8, collector: new ToolExecutionCollector() };
 }
 
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };
@@ -108,12 +106,12 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
     const signature = JSON.stringify({ tool: name, input: projectToolInput(rawInput) });
     const repeatedInRun = context.collector.executions.some((execution) => JSON.stringify({ tool: execution.name, input: projectToolInput(execution.input) }) === signature);
-    if (context.recentToolInputs.includes(signature) || repeatedInRun) {
+    if (repeatedInRun) {
       const finishedAt = now().toISOString();
-      const error = "Recent identical Tool input must not be repeated";
+      const error = "This exact Tool and input were already used in this Run; its result is already available";
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
       logger.log("warn", "tool.completed", { ok: false, errorCode: "REPEATED_INPUT", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
-      return JSON.stringify({ ok: false, error });
+      return JSON.stringify({ ok: false, errorCode: "REPEATED_INPUT", error, requiredNextStep: "Use the result already returned in this Run, change the input or Tool if new information is needed, or return the final Action." });
     }
     try {
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };

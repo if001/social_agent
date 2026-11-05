@@ -165,7 +165,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-31：Memoryは会話またはTool結果の転載ではなく、後の検索と判断で再利用する具体的要点として生成する。（C-10）
 - NFR-4：Agent Contextを4,500推定token以内に収める。system promptとTool schemaを含むmodel入力が8,000推定tokenを超えた場合は警告するが、provider呼び出しを中断しない。（C-20, C-23、追加：具体的なtoken上限は実装判断）
 - NFR-5：model call数、Deep Agent step数、Tool call数、deadlineをRun単位で制限する。探索用のgraph safety上限が先に到達した場合は、残した1 model callで、それまでに取得・記録済みのTool結果を根拠に通常Toolなしの最終Actionを試みる。この回復も失敗した場合だけRunを失敗にする。（C-27, C-28）
-- FR-32：予算超過、schema不正、権限違反、同一Tool・同一入力の反復を拒否する。モデルが生成した未登録Tool callは失敗実績として同じAgent loopへ返し、利用可能なToolまたは最終Actionへ回復させる。（C-24, C-27, C-28）
+- FR-32：予算超過、schema不正、権限違反、同一Run内での同一Tool・同一入力の反復を拒否する。重複拒否は既取得結果の利用、入力・Toolの変更、または最終Actionへの移行を示す機械可読な失敗結果を同じAgent loopへ返す。過去Runでの同一入力だけを理由に実行を拒否しない。モデルが生成した未登録Tool callも同じAgent loopへ失敗実績として返す。（C-24, C-27, C-28）
 
 ## R6. Tool
 
