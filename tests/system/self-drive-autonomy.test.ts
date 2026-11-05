@@ -31,7 +31,7 @@ describe("Initial disposition → autonomous action", () => {
       const input = agentCoreInputFixture(); input.run = { runId: "autonomy-run", eventId: event.id, agentId: "ao", occurredAt: event.occurredAt }; input.observation = { eventId: event.id, kind: "internal", summary: target.reason, facts: ["Concernと継続中のScheduled Taskはない"], observedAt: event.occurredAt, content: event.payload }; input.currentSelf = { ...input.currentSelf, agentId: "ao", identity: ao.agent.identity, disposition: `${ao.family.sharedDisposition}\n${ao.agent.initialDisposition}`, selfStory: ao.agent.selfNarrative, commitments: ao.agent.raisonDetre === undefined ? [] : [ao.agent.raisonDetre] }; input.state = { ...input.state, agentId: "ao", concerns: [] }; input.memories = []; input.availableTools = [{ name: "web_page", description: "Read and archive a page", inputSchema: {} }];
       expect(input.observation.content).toMatchObject({ targetKind: "idle" });
       return (await harness.run(input, signal)).output.action;
-    } }, clock: new FixedClock(new Date(fixtureInstant)), ids: new SequenceIdGenerator(["autonomy-event"]), lifecycle, defaultDestination: () => undefined, autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 });
+    } }, clock: new FixedClock(new Date(fixtureInstant)), ids: new SequenceIdGenerator(["autonomy-event"]), lifecycle, defaultDestination: () => undefined, autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 });
 
     await expect(scheduler.tick(new AbortController().signal)).resolves.toBe(1);
     await expect(scheduler.tick(new AbortController().signal)).resolves.toBe(0);

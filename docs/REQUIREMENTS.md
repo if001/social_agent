@@ -153,6 +153,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-26：`idle` Eventは`deepen`、`bridge`、`distant`の探索モードを持ち、Agent Coreが`concern_propose`で必要なモードを選ぶ。永続的なmodeやcursor、固定順の巡回は持たない。（C-11, C-14, C-17）
 - FR-27：`bridge`と`distant`の探索も抽象語だけで完結させず、人物、作品、出来事、技術、場所など検証可能な具体的対象へ着地させる。（C-11, C-17）
 - FR-28：探索領域カタログは`config/exploration-domains.yaml`に重複のない100〜200件を保持する。全件をモデル入力へ入れず、`idle` Eventごとにランダムな最大8件を候補として渡す。永続cursorや固定順の巡回は持たない。（C-11, C-17、追加：カタログ件数と供給方法は実装判断）
+- FR-66：`idle`、`concern-due`の自律発話は、Concern、Self、Memory、Mood、探索結果からAgent自身が扱いたい具体的対象を選ぶ。ユーザーの現在話題・好み・共有文脈は届き方を調整する任意の材料であり、話題選択の前提にしない。唐突な話題転換を許容するが、Desireには対象が現在の個体状態・経験と結び付く理由を含める。（C-01, C-03, C-14, C-17）
 
 ## R5. Contextと実行予算
 
@@ -190,7 +191,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-9：Queue、Outbox、Tool実行はretryと重複実行に耐える。（C-20, C-27）
 - NFR-10：Agent単位advisory lock、state version、Tool権限、TTL、hop、rate limitを通常コードで保証する。（C-27, C-28）
 - NFR-11：PostgreSQL schemaは現行Domain契約だけを保持し、削除した旧互換tableや列を戻さない。（C-18）
-- NFR-12：Debug UIは観測用途に限定し、独自の書込み経路やAgent Loopを持たない。（C-20, C-54）
+- NFR-12：Debug UIは観測用途に限定し、独自の書込み経路やAgent Loopを持たない。Eventごとに発火入力、Run開始時の判断入力断面、Tool実行、外部化済みの評価・Action、State / Memory更新、後続処理を追跡し、Event台帳に起点のない更新とReflectionを通常Event traceと区別して表示する。モデルの内部思考過程やprompt全文は保存・表示しない。（C-20, C-54）
 - NFR-13：`.env`は実行時だけ読み込み、値をlog、test artifact、文書へ表示しない。（C-28）
 
 ## R9. 予測・予測誤差・背景経験

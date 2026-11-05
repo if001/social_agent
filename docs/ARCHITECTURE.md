@@ -252,7 +252,7 @@ Context Builderは独立した認知moduleにせず、`agent-loop`が利用す�
 
 PostgreSQLを正本とする。Agentごとの状態・Conversation Memory・Background Experience分離、advisory lock、optimistic state version、Queue receipt、Outbox、Tool冪等性、correlation、TTL、hop、rate limitを通常コードが保証する。Conversation Memoryの書込みはMemoryWriteServiceに集約し、Memory versionの楽観ロックとAgent単位の直列処理を行う。predictionEvaluation、Prediction Context、MemoryIntent、memory-update Event、memory mutation、Reflectionの対象別statusを監査可能にする。MainAgentは権限やsystem constraintを上書きできない。
 
-Debug UIは状態、Event、Run、Tool実績、Conversation Memory、Prediction Evaluation、MemoryIntent、memory-update Event、Background Experience、Outbox等を観測する運用UIであり、別の認知経路や状態更新規則を持たない。
+Debug UIは状態、Event、Run、Tool実績、Conversation Memory、Prediction Evaluation、MemoryIntent、memory-update Event、Background Experience、Outbox等を観測する運用UIであり、別の認知経路や状態更新規則を持たない。Event traceは発火入力、Run開始時の判断入力断面、Tool実行、外部化済みの評価・Action、更新、派生処理を結ぶ。ReflectionとEvent台帳に起点のない更新は通常traceと区別して表示し、モデルの内部思考過程やprompt全文は監査対象にしない。
 
 ## 未実装・非目標
 

@@ -68,7 +68,7 @@ describeDatabase("PostgreSQL persistence", () => {
       agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "具体的な対象を調べることが好きで、根拠のない断定は嫌い", raisonDetre: "対話相手との約束を守る", selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
       initialState: { mood: "中立", concerns: [], relationships: [] }
     };
-    const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000, memoryRecallIntervalMs: 4_000 };
+    const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000 };
     await initializeAgent(pool, config, initialTimings);
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='idle'", [config.agent.id])).rows).toEqual([{ kind: "idle" }]);
     expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "idle", delay_ms: 2_000 }, { kind: "reflection", delay_ms: 3_000 }]);
@@ -453,6 +453,9 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
     expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-1");
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
+    const inputSnapshot = (await pool.query<{ input_snapshot: { version: number; observation: { summary: string }; currentSelf: { version: number }; availableTools: { name: string; inputSchema?: unknown }[]; memories: { id: string }[] } }>("SELECT input_snapshot FROM agent_runs WHERE id='runtime-run'")).rows[0]?.input_snapshot;
+    expect(inputSnapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "lookup" }] });
+    expect(inputSnapshot?.availableTools[0]).not.toHaveProperty("inputSchema");
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([{ subject_id: "user-42" }]);
   });
 
@@ -523,6 +526,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const event = { id: "failed-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" } };
     await persistence.recordFailure(message, event, input, new Error("invalid final output"), [{ callId: "tool-1", runId: "failed-run", eventId: "failed-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]);
     expect((await pool.query<{ failure_reason: string }>("SELECT failure_reason FROM agent_runs WHERE id='failed-run'")).rows[0]?.failure_reason).toContain("invalid final output");
+    expect((await pool.query<{ input_snapshot: { version: number; observation: { summary: string } } }>("SELECT input_snapshot FROM agent_runs WHERE id='failed-run'")).rows[0]?.input_snapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary } });
     expect((await pool.query("SELECT 1 FROM tool_executions WHERE id='failed-tool-record'")).rowCount).toBe(1);
     expect((await pool.query("SELECT 1 FROM message_receipts WHERE message_id='failed-message'")).rowCount).toBe(0);
   });

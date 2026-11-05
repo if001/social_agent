@@ -8,7 +8,7 @@ import type { AddressedFileQueue, DeadLetter } from "../infrastructure/queue/add
 import type { LifecycleState } from "../bootstrap/lifecycle.js";
 import { redactSecrets } from "../observability/redaction.js";
 
-export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs" | "memoryRecallIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 }, options: { readonly overwriteConfiguredSelf?: boolean; readonly backgroundExperience?: BackgroundExperienceFile } = {}): Promise<void> {
+export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }, options: { readonly overwriteConfiguredSelf?: boolean; readonly backgroundExperience?: BackgroundExperienceFile } = {}): Promise<void> {
   const { family, agent, initialState } = config;
   const client = await pool.connect();
   try {
