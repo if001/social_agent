@@ -51,7 +51,7 @@ Agentを便利なAssistantではなく、ユーザーとは別の価値傾向・
 - Actionも通知もない成功runを型、Runtime、testで禁止する。
 - `no-external-action`はActionを生成しない内部Eventの完了に限る。idleでは選択せず、外部へ観測可能な結果が必要な自律Eventでは`notify-no-execution`を使う。
 - 通知先を解決できない自律Eventは成功扱いにせず、再試行・運用通知の対象にする。
-- `idle`、`concern-due`、`external-change`は別Event sourceでよいが、同じAgent CoreとAction契約を通る。
+- `idle`、`concern-formation`、`concern-due`、`external-change`は別Event sourceでよいが、同じAgent CoreとAction契約を通る。
 - 明示的Scheduled Taskは自律判断と区別し、System Eventとして実行契約を維持する。
 - `prediction-g3`はG3専用処理でActionを生成しない。`prediction-g3-result`は通知必須の例外とし、`no-external-action`を成功として扱う。
 
@@ -150,9 +150,11 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-23：Patchはmood、Relationship 1件、即時Memory意図に限定する。Concernは`concern_propose`で提案する。（C-24）
 - FR-24：Concernのupsert/removeと`reconsiderAt` scheduleを同期する。（C-06, C-08, C-24）
 - FR-25：Concernは進展、満足点、現在のSelfにとっての価値に基づいて継続・変更・満足・放棄・削除する。進展のない同一内容を機械的に延長せず、一律の時間だけでも削除しない。（C-06, C-15）
-- FR-26：`idle` Eventは`deepen`、`bridge`、`distant`の探索モードを持ち、Agent Coreが`concern_propose`で必要なモードを選ぶ。永続的なmodeやcursor、固定順の巡回は持たない。（C-11, C-14, C-17）
+- FR-26：`idle` Eventは既存active Concernを1件Focusとして選び、探索・考察・共有を行う。`deepen`、`bridge`、`distant`は`concern_propose`の探索モードであり、永続的なmodeやcursor、固定順の巡回は持たない。（C-11, C-14, C-17）
+- FR-68：`concern-formation`は一定間隔で起動する内部Eventであり、ユーザーへの発話ではなく関心地図の形成を担う。Self、Memory、Background Experience、Relationshipから根拠のある独立Concernをcreateできるほか、`exploration-domains` の候補を用いて既存Concernだけでは生まれにくい異領域のConcernをcreateできる。件数だけを根拠に作らず、createできない場合はno-external-actionで終える。（C-06, C-11, C-14, C-17）
+- FR-69：`concern-due`は具体的な`reconsiderAt`、新しいMemory、又はexternal-changeを契機に既存Concernを再評価する。継続・方法変更・終了に加え、別の問い・対象・方法が残ればderive + forkする。不進展・予測誤差は、起動済みEventでの再評価材料として使う。独立Concernの幅を作る責務は持たない。（C-06, C-14, C-17）
 - FR-27：`bridge`と`distant`の探索も抽象語だけで完結させず、人物、作品、出来事、技術、場所など検証可能な具体的対象へ着地させる。（C-11, C-17）
-- FR-28：探索領域カタログは`config/exploration-domains.yaml`に重複のない100〜200件を保持する。全件をモデル入力へ入れず、`idle` Eventごとにランダムな最大8件を候補として渡す。永続cursorや固定順の巡回は持たない。（C-11, C-17、追加：カタログ件数と供給方法は実装判断）
+- FR-28：探索領域カタログは`config/exploration-domains.yaml`に重複のない100〜200件を保持する。全件をモデル入力へ入れず、`concern-formation` Eventごとにランダムな最大8件を候補として渡す。永続cursorや固定順の巡回は持たない。（C-11, C-17、追加：カタログ件数と供給方法は実装判断）
 - FR-66：`idle`、`concern-due`の自律発話は、Concern、Self、Memory、Mood、探索結果からAgent自身が扱いたい具体的対象を選ぶ。ユーザーの現在話題・好み・共有文脈は届き方を調整する任意の材料であり、話題選択の前提にしない。唐突な話題転換を許容するが、Desireには対象が現在の個体状態・経験と結び付く理由を含める。（C-01, C-03, C-14, C-17）
 - FR-67：`idle`、`concern-due`では、ユーザーの未返信・返答待ち・連投回避を待機、沈黙、Concernの減衰・終了の根拠にしない。各EventでAgent自身が探索・調査・考察・記録・共有から行動を選び、必ずユーザーへ発話する。複数の独立したactive Concernを並行して持つことを自然な通常状態とし、空・少数・同一対象への偏りを自明な安定状態として扱わない。永続する根拠があればcreateまたは派生`fork`を積極的に行うが、件数閾値だけで機械的に作らない。件数を減らすためだけに置換・終了しない。（C-01, C-03, C-06, C-14, C-17）
 - FR-68：`idle`は毎回、既知のユーザーの予定、試み、関心、未完了の話題と直近の質問を確認する。Memoryに根拠があり同じ問いの再送でなければ、自律的な探索・共有に加えて最大1件、その人自身について自然に尋ねる。探索対象とDesireは、会話Memory、Concern、Self、Mood、探索結果、またはBackground Experienceの出来事・Feeling・lessonの少なくとも一つに根拠を持つ。Background Experienceを現在のユーザーとの共有経験として扱わない。（C-01, C-03, C-10, C-14, C-17, C-45）

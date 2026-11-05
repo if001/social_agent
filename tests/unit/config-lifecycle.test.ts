@@ -67,14 +67,14 @@ describe("configuration and lifecycle", () => {
     await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");
     const config = await loadConfig({ cwd, environment: { BOT_ID: "process" } });
     expect(config.botId).toBe("process"); expect(config.chat.model).toBe("local-model"); expect(config.embedding.dimension).toBe(768);
-    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 30_000, autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, retryDelayMs: 300_000, leaseMs: 60_000 });
+    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 30_000, autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, retryDelayMs: 300_000, leaseMs: 60_000 });
     await scope.close();
   });
 
   it("FR-39, NFR-6: loads every autonomous schedule timing from environment", async () => {
     const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
-    const config = await loadConfig({ cwd, environment: { SCHEDULER_INTERVAL_MS: "1000", AUTONOMY_REVIEW_INTERVAL_MS: "2000", STATE_REVIEW_INTERVAL_MS: "3000", SCHEDULER_RETRY_DELAY_MS: "7000", SCHEDULER_LEASE_MS: "8000", FILE_READ_ROOTS: "./read-a,./read-b", FILE_WRITE_ROOTS: "./write" } });
-    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 1000, autonomyReviewIntervalMs: 2000, stateReviewIntervalMs: 3000, retryDelayMs: 7000, leaseMs: 8000 });
+    const config = await loadConfig({ cwd, environment: { SCHEDULER_INTERVAL_MS: "1000", AUTONOMY_REVIEW_INTERVAL_MS: "2000", CONCERN_FORMATION_INTERVAL_MS: "2500", STATE_REVIEW_INTERVAL_MS: "3000", SCHEDULER_RETRY_DELAY_MS: "7000", SCHEDULER_LEASE_MS: "8000", FILE_READ_ROOTS: "./read-a,./read-b", FILE_WRITE_ROOTS: "./write" } });
+    expect(config.schedulerTimings).toEqual({ scanIntervalMs: 1000, autonomyReviewIntervalMs: 2000, concernFormationIntervalMs: 2500, stateReviewIntervalMs: 3000, retryDelayMs: 7000, leaseMs: 8000 });
     expect(config.fileReadRoots).toEqual([`${cwd}/read-a`, `${cwd}/read-b`]); expect(config.fileWriteRoots).toEqual([`${cwd}/write`]);
     await scope.close();
   });

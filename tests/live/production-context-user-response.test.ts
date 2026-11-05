@@ -46,7 +46,7 @@ describe("production-like text UI user response", () => {
       expect(responsePayload !== undefined && responsePayload.type === "agent-response" && typeof responsePayload.text === "string" && responsePayload.text.trim().length > 0).toBe(true);
       const autonomousAction = await (async () => {
         try {
-          return await composition.runtime.process({ id: "production-like-idle", agentId: "live-e2e-agent", kind: "internal", occurredAt: idleAt, payload: { targetKind: "idle", schedulerGenerated: true, explorationCandidates: [], reason: "現在の状態から小さな行動を検討する", destination: "text-user" } }, new AbortController().signal);
+          return await composition.runtime.process({ id: "production-like-idle", agentId: "live-e2e-agent", kind: "internal", occurredAt: idleAt, payload: { targetKind: "idle", schedulerGenerated: true, reason: "現在の状態から小さな行動を検討する", destination: "text-user" } }, new AbortController().signal);
         } catch (error) {
           throw new Error(`Production-like idle Agent failed: ${JSON.stringify(errorLogContext(error))}; diagnostics=${diagnosticLogs.slice(-20).join(" | ")}`);
         }

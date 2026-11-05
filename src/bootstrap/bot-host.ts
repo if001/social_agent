@@ -123,12 +123,17 @@ export async function createProductionBotHost(config: AppConfig): Promise<BotHos
   if (config.discord === undefined) throw new Error("Discord configuration is required");
   const pool = new Pool({ connectionString: config.database.url.replace("postgresql+psycopg://", "postgresql://") });
   const logger = createStdoutLogger({ botId: config.botId, agentId: config.botId });
+  const timings = config.schedulerTimings;
   let composition: ReturnType<typeof createBotComposition>;
-  try { composition = createBotComposition({ pool, config, logger }); }
+  try {
+    // Existing agents predate concern-formation.  Install the new recurring
+    // schedule without moving an already scheduled next run.
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) SELECT $1,id,'concern-formation',$2,now()+$3*interval '1 millisecond' FROM agents WHERE id=$4 ON CONFLICT (id) DO NOTHING", [`concern-formation:${config.botId}`, "Self、経験、関係、探索領域から今後も残る関心を形成する", timings.concernFormationIntervalMs, config.botId]);
+    composition = createBotComposition({ pool, config, logger });
+  }
   catch (error) { await pool.end(); throw error; }
   const lifecycle = new ProcessLifecycle();
-  const timings = config.schedulerTimings;
-  const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, timings.leaseMs, config.botId, timings.retryDelayMs), runtime: composition.router, reflection: composition.reflection, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, defaultReplyContext: () => config.defaultOutputDestination === config.discord?.queueDestination && config.discord.channelIds[0] !== undefined ? { channelId: config.discord.channelIds[0] } : undefined, explorationDomains: config.explorationDomains, autonomyReviewIntervalMs: timings.autonomyReviewIntervalMs, stateReviewIntervalMs: timings.stateReviewIntervalMs, ...(timings.idleQuietHours === undefined ? {} : { idleQuietHours: timings.idleQuietHours }) });
+  const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, timings.leaseMs, config.botId, timings.retryDelayMs), runtime: composition.router, reflection: composition.reflection, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, defaultReplyContext: () => config.defaultOutputDestination === config.discord?.queueDestination && config.discord.channelIds[0] !== undefined ? { channelId: config.discord.channelIds[0] } : undefined, explorationDomains: config.explorationDomains, autonomyReviewIntervalMs: timings.autonomyReviewIntervalMs, concernFormationIntervalMs: timings.concernFormationIntervalMs, stateReviewIntervalMs: timings.stateReviewIntervalMs, ...(timings.idleQuietHours === undefined ? {} : { idleQuietHours: timings.idleQuietHours }) });
   const discord = new DiscordAdapter({ gateway: new DiscordJsGateway(config.discord.token, logger), queue: composition.queue, clock: composition.clock, ids: composition.ids, agentId: config.botId, botUserId: config.discord.botUserId, ownerIds: new Set(config.discord.ownerIds), guildIds: new Set(config.discord.guildIds), channelIds: new Set(config.discord.channelIds), queueDestination: config.discord.queueDestination, logger });
   return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, discord, logger, schedulerIntervalMs: timings.scanIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
     await checkOllamaChatCapability(config.chat); await checkOllamaEmbeddingCapability(config.embedding);
