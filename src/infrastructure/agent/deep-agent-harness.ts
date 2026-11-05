@@ -18,13 +18,13 @@ type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeep
 
 const AgentCoreFlatOutputSchema = z.object({
   meaning: z.string().trim().min(1).max(800).optional().describe("今回のEvent処理を終えた時点で、この経験が自分にとって何を意味するかを1〜2文で書く。感情、願望、計画、Actionは書かない"),
-  feeling: z.string().trim().min(1).max(160).optional().describe("今回のEvent処理を終えた時点で残っている短期的な感情を、感情語中心の1文で書く。例: 嬉しい、期待、不安、落胆、苛立ち、安堵、退屈。例から選ぶ必要はない。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。特に残る感情がなければ省略する"),
+  feeling: z.string().trim().min(1).max(160).optional().describe("今回のEvent処理を終えた時点で残っている短期的な感情を、感情語中心の1文で書く。例: 喜び、期待、不安、落胆、苛立ち、怒り、驚き、警戒、安堵、退屈。例から選ぶ必要はない。Toolの失敗・探索結果・予測誤差への反応も書ける。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。特に残る感情がなければ省略する"),
   desire: z.string().trim().min(1).max(800).describe("今回のEventを受けて今具体的に望むこと。現在のコミットメントとして、入力中の具体的な対象と今回の行為に結び付けて短く書く。自律Eventでは、その対象が今のSelf、Concern、会話Memory、Background Experience、Mood、探索結果のどれと結び付くかも含める。既存Concernの言い換えにしない"),
   actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない場合はno-external-actionを選ぶ。idleではrespondまたはrefuseを必ず選び、no-external-actionを選ばない。情報が不十分ならrespondで不十分な旨を伝える"),
   content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
-  mood: z.string().trim().min(1).max(160).optional().describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する"),
+  mood: z.string().trim().min(1).max(160).optional().describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い、失望が尾を引く、やや警戒している。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する"),
   relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
   relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
   relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。プロフィール事実ではなく、信頼、共有の仕方、会話の深まりなど関係自体を書く。relationshipOperationがupsertの場合は必須"),

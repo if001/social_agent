@@ -223,6 +223,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-18：user-messageが待っている間はmemory-update、G3、reflectionを開始しない。（C-61, C-69）
 - NFR-19：背景経験のYAMLはSchema、段階と日時の順序、AI・作成者if001・経験範囲のプロフィール矛盾、現在のユーザーとの共有経験の不在、実在人物の特定可能性、タグ・感情・テーマ・段階の分布を検証する。起動前の初期化時だけ置換し、会話Memoryを上書きしない。（C-45, C-47）
 - FR-69：Background Experience YAMLは`background:load <path>`で対象AgentのBackground Experience Storeへ単独で置換投入できる。YAMLのagentIdと対象を一致させ、会話Memory、Self、Stateを変更しない。Embedding設定が有効なら投入後にBackground ExperienceのEmbeddingを作成する。（C-45, C-46）
+- FR-70：予測誤差に加え、自律EventのTool成功・失敗、探索で得た事実、進展のなさを、Self、Commitment、Concern、Relationship、Background Experienceに照らしてappraisalする。喜びだけでなく、驚き、失望、苛立ち、怒り、警戒などを正当なFeelingとして扱い、相手へ共有しやすい前向きな結論へ丸めない。持続する影響はMood、Concern、Relationship、次のActionへ反映する。（C-03, C-07, C-09, C-14, C-17, C-48）
 - NFR-20：G1/G2、G3、MainAgentの構造化出力Schemaは主要fieldのdescriptionを保持し、通常OllamaとDeepAgentの両経路でdescription付きJSON Schemaをモデルへ渡す。descriptionの有無をtestで検証する。（C-71）
 
 ## 完了判定
@@ -240,6 +241,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-15：自律EventのpromptとConcern適用が、未返信を抑制根拠にせず、毎回の発話と独立Concernの並行保持を指示・実現することをUnit testで確認する。（FR-67）
 - AC-16：idleがユーザー文脈の確認、根拠付きの最大1件の問い、Background Experienceを含む探索理由を指示することをUnit testで確認する。（FR-68）
 - AC-17：Background Experienceの単独投入がYAMLを検証し、対象Storeだけを置換して会話Memoryを保持することをIntegration testで確認する。（FR-69）
+- AC-20：Agent Coreと自律skillが、予測誤差・Tool結果・探索結果からネガティブなFeelingと持続状態への反映を許可し、前向きな結論への丸めを禁止することをUnit testで確認する。（FR-70）
 - AC-11：G1/G2の予測、1ターン遅れの誤差評価、Feelingを出力しないことをContract/System testで確認する。（FR-48, FR-49, FR-50）
 - AC-12：MemoryIntentからcreate、update、no-opが決まり、Memory versionの競合と直接INSERTの不在をIntegration testで確認する。（FR-57, NFR-15）
 - AC-13：memory-update EventがLLMを呼ばず、専用Handler、冪等性、部分commit禁止、user-message優先で動くことをSystem testで確認する。（FR-58, FR-59, FR-61, NFR-17, NFR-18）

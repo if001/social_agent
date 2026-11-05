@@ -9,7 +9,7 @@ const AgentReason = z.string().trim().min(1).max(800);
 const AgentMood = z.string().trim().min(1).max(160);
 const AgentStateDescription = z.string().trim().min(1).max(800);
 const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない。未返信・返答待ち・連投回避を待機や抑制の意味として書かない");
-const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 嬉しい、期待、不安、落胆、苛立ち、安堵、退屈。例から選ぶ必要はない。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。未返信・返答待ち・連投回避を待機や抑制の感情として書かない");
+const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 喜び、期待、不安、落胆、苛立ち、怒り、驚き、警戒、安堵、退屈。例から選ぶ必要はない。Toolの失敗・探索結果・予測誤差への反応も書ける。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。未返信・返答待ち・連投回避を待機や抑制の感情として書かない");
 
 export const SelfSchema = z.object({
   identity: NaturalLanguage,
