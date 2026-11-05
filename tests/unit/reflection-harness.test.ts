@@ -3,6 +3,7 @@ import {
   MAX_REFLECTION_MODEL_INPUT_TOKENS,
   REFLECTION_RECURSION_LIMIT,
   ReflectionModelOutputJsonSchema,
+  ReflectionModelOutputSchema,
   StructuredReflectionModel,
   reflectionSystemPrompt,
   type ReflectionInvoker
@@ -69,6 +70,21 @@ describe("structured Reflection model", () => {
     } });
     await expect(model.reflect(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(calls).toBe(2);
+  });
+
+  it("FR-42: rejects incomplete Self updates, non-ISO timestamps, and overlong Concerns before domain conversion", () => {
+    const base = { memories: [], concernChanges: [], relationshipChanges: [], evidenceMemoryIds: [] };
+    expect(ReflectionModelOutputSchema.safeParse({ ...base, selfChangeReason: "理由だけ" }).success).toBe(false);
+    expect(ReflectionModelOutputSchema.safeParse({ ...base, memories: [{ summary: "経験", significance: "重要", subjects: [], occurredAt: "2026-01-01" }] }).success).toBe(false);
+    expect(ReflectionModelOutputSchema.safeParse({ ...base, concernChanges: [{ operation: "create", description: "長".repeat(801), whyItMatters: "理由" }], evidenceMemoryIds: ["memory-1"] }).success).toBe(false);
+  });
+
+  it("FR-42: logs schema paths without logging the invalid output value", async () => {
+    const logs: { readonly step: string; readonly context?: Readonly<Record<string, string | number | boolean | null | undefined>> }[] = [];
+    const logger = { child: () => logger, log: (_level: string, step: string, context?: Readonly<Record<string, string | number | boolean | null | undefined>>) => { logs.push({ step, ...(context === undefined ? {} : { context }) }); } };
+    const model = new StructuredReflectionModel({ invoke: () => Promise.resolve({ structuredResponse: { memories: [], concernChanges: [], relationshipChanges: [], evidenceMemoryIds: [], selfChangeReason: "理由だけ" } }) }, logger, 0);
+    await expect(model.reflect(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(logs.find(({ step }) => step === "reflection.output_invalid")?.context?.validationIssues).toContain("selfChangeReason");
   });
 
   it("FR-42: describes every model-facing property and removes provider-only regex constraints", () => {

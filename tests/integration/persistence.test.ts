@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { parse } from "dotenv";
 import { Pool } from "pg";
 import { z } from "zod";
+import { DomainError } from "../../src/domain/contracts.js";
 
 import { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "../../src/infrastructure/persistence/postgres.js";
 import { PostgresEventTransaction } from "../../src/infrastructure/persistence/event-transaction.js";
@@ -483,6 +484,18 @@ describeDatabase("PostgreSQL persistence", () => {
     const row = await pool.query<{ status: string; plan: { memory: string; self: string; relationship: string; concern: string } }>("SELECT status,plan FROM reflection_runs WHERE id='reflection-fail'");
     expect(row.rows[0]).toMatchObject({ status: "pending", plan: { memory: "failed", self: "blocked", relationship: "blocked", concern: "blocked" } });
     expect((await pool.query("SELECT 1 FROM memories WHERE content='失敗時の記憶'")).rowCount).toBe(0);
+  });
+
+  it("FR-42, NFR-7: records Reflection validation paths without persisting invalid model output", async () => {
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-validation-event','a','internal',$1,'test','completed',now())", [{ summary: "検証失敗を監査する" }]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
+    const input = await repository.load("reflection-validation", "a");
+    if (input === undefined) throw new Error("Reflection input was not created");
+    await repository.fail(input, new DomainError("VALIDATION", "Reflection output failed schema validation", { cause: { validationIssues: [{ code: "custom", path: ["selfChangeReason"], message: "selfChangeReason requires all Self fields", invalidOutput: "must-not-persist" }] } }));
+    const failure = (await pool.query<{ failure_reason: string; output: unknown }>("SELECT failure_reason,output FROM reflection_runs WHERE id='reflection-validation'")).rows[0];
+    expect(failure?.failure_reason).toContain("selfChangeReason");
+    expect(failure?.failure_reason).not.toContain("must-not-persist");
+    expect(failure?.output).toBeNull();
   });
 
   it("FR-25: applies satisfied and abandoned Concern changes through Reflection", async () => {

@@ -14,17 +14,17 @@ const ReflectionMemorySchema = z.object({
   summary: z.string().trim().min(1).max(800).describe("後の判断や検索で再利用する経験の要点。会話やTool結果を転載せず、何が起き、どうなったかを具体的に1〜2文で書く"),
   significance: z.string().trim().min(1).max(400).describe("この経験を今後も覚える具体的理由。説明を繰り返さず、Self、Concern、関係、判断のどれに影響するかを1文で書く"),
   subjects: z.array(z.string().min(1)).max(12).describe("このMemoryを人物・対象から検索するためのID。入力にあるIDだけを使い、対象がなければ空配列"),
-  occurredAt: z.string().describe("Memoryの時系列順と根拠追跡に使う発生日時。根拠EventのoccurredAtをそのまま使う"),
+  occurredAt: z.iso.datetime({ offset: true }).describe("Memoryの時系列順と根拠追跡に使うISO 8601日時。根拠EventのoccurredAtをそのまま使う"),
   source: z.string().trim().min(1).max(16_000).optional().describe("伝聞と直接経験を区別する情報源ID。入力に情報源が明記された伝聞だけに指定する")
 }).strict().describe("今後の判断に再利用する価値がある経験。入力Eventの単なる要約は保存しない");
 
 const ReflectionConcernChangeSchema = z.object({
   operation: z.enum(["create", "upsert", "remove"]).describe("新しいConcernを作るならcreate、既存Concernを更新するならupsert、重複や不要な既存Concernを消すならremove"),
   id: z.string().min(1).optional().describe("入力state.concernsに存在するConcern ID。upsertとremoveでは必須。createでは指定しない"),
-  description: z.string().trim().min(1).max(16_000).optional().describe("気に掛けること。未解決課題だけでなく、知りたい、確かめたい、共有したい、守りたいことを一文で書く。createとupsertで必須"),
-  whyItMatters: z.string().trim().min(1).max(16_000).optional().describe("このConcernを次回以降の判断へ残す理由。現在のSelfや関係との結び付きを具体的に書く。createとupsertで必須"),
+  description: z.string().trim().min(1).max(800).optional().describe("気に掛けること。未解決課題だけでなく、知りたい、確かめたい、共有したい、守りたいことを800文字以内の一文で書く。createとupsertで必須"),
+  whyItMatters: z.string().trim().min(1).max(800).optional().describe("このConcernを次回以降の判断へ残す理由。現在のSelfや関係との結び付きを800文字以内で具体的に書く。createとupsertで必須"),
   status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。createではactiveだけ、upsertでは必須"),
-  reconsiderAt: z.string().optional().describe("Schedulerが再検討Eventを起こす日時。入力から明確な将来時刻を決められる場合だけ指定する")
+  reconsiderAt: z.iso.datetime({ offset: true }).optional().describe("Schedulerが再検討Eventを起こすISO 8601日時。入力から明確な将来時刻を決められる場合だけ指定する")
 }).strict().superRefine((value, context) => {
   if (value.operation === "create") {
     if (value.id !== undefined) context.addIssue({ code: "custom", path: ["id"], message: "create must not specify id" });
@@ -61,6 +61,13 @@ export const ReflectionModelOutputSchema = z.object({
 }).strict().superRefine((value, context) => {
   if (value.concernChanges.filter((change) => change.operation === "create").length > 3) context.addIssue({ code: "custom", path: ["concernChanges"], message: "create at most three Concerns per reflection" });
   if (value.concernChanges.some((change) => change.operation === "create") && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "new Concerns require Memory evidence" });
+  const selfFields = [value.selfIdentity, value.selfDisposition, value.selfStory, value.selfCommitments];
+  const hasSelf = selfFields.some((field) => field !== undefined);
+  const hasCompleteSelf = selfFields.every((field) => field !== undefined);
+  if (hasSelf && !hasCompleteSelf) context.addIssue({ code: "custom", path: ["selfIdentity"], message: "Self changes require all Self fields together" });
+  if (hasSelf && value.selfChangeReason === undefined) context.addIssue({ code: "custom", path: ["selfChangeReason"], message: "Self changes require an explicit reason" });
+  if (!hasSelf && value.selfChangeReason !== undefined) context.addIssue({ code: "custom", path: ["selfChangeReason"], message: "selfChangeReason requires all Self fields" });
+  if (hasSelf && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "Self changes require Memory evidence" });
 }).describe("永続状態へ実際に適用する最小限の変更。入力の説明や変更のない値は出力しない");
 
 export const ReflectionModelOutputJsonSchema = modelJsonSchema(ReflectionModelOutputSchema);
@@ -151,7 +158,7 @@ export class StructuredReflectionModel implements ReflectionModel {
       const parsed = ReflectionOutputSchema.safeParse(raw);
       if (parsed.success) return parsed.data;
       validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
-      this.logger.log("warn", "reflection.output_invalid", { attempt: attempt + 1, issueCount: parsed.error.issues.length });
+      this.logger.log("warn", "reflection.output_invalid", { attempt: attempt + 1, issueCount: parsed.error.issues.length, validationIssues: JSON.stringify(validationIssues) });
     }
     throw new DomainError("VALIDATION", "Reflection output failed schema validation", { cause: { validationIssues, invalidOutput: raw } });
   }
