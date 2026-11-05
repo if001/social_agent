@@ -329,7 +329,7 @@ export const RelationshipChangeSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("remove").describe("Relationshipを削除する"), subjectId: Id.describe("削除するRelationshipの相手ID") })
 ]).describe("次のEventにも残すRelationshipの変更。変更不要なら出力しない");
 export const AgentTurnSchema = z.object({
-  desire: AgentDesire.describe("現在のSelf、状態、Observation、前回Assessment、previousDesire、取得したContextとTool結果から生じた今回の具体的な現在のコミットメント。Concernの言い換えにしない"),
+  desire: AgentDesire.describe("現在のSelf、状態、Observation、前回Assessment、previousDesire、取得したContextとTool結果から生じた今回の具体的な現在のコミットメント。自律Eventでは探索対象を選んだ根拠をSelf、Concern、会話Memory、Background Experience、Mood、探索結果のいずれかへ辿れるようにする。Concernの言い換えにしない"),
   action: FinalActionSchema,
   patch: z.object({
     mood: AgentMood.describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する").optional(),
