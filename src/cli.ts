@@ -6,6 +6,7 @@ import { PostgresMemoryEmbeddingLifecycle } from "./infrastructure/persistence/p
 import { PostgresBackgroundExperienceEmbeddingLifecycle } from "./infrastructure/persistence/postgres-background-experience-embedding.js";
 import { AddressedFileQueue } from "./infrastructure/queue/addressed-file-queue.js";
 import { initializeAgent, listDeadLetters, requeueDeadLetter } from "./operations/operations.js";
+import { replaceBackgroundExperiences } from "./operations/background-experiences.js";
 import { loadInitialSelfFile } from "./config/initial-self.js";
 import { loadBackgroundExperienceFile } from "./config/background-experience.js";
 import { parseSchedulerTimings } from "./config/config.js";
@@ -15,6 +16,23 @@ const databaseUrl = (process.env.POSTGRES_URL ?? "").replace("postgresql+psycopg
 
 async function main(): Promise<void> {
   if (command === "agent:init") { const [configPath, option] = args; if (configPath === undefined || args.length > 2 || (option !== undefined && option !== "--overwrite-configured-self")) throw new Error("Usage: agent:init <initial-self-yaml> [--overwrite-configured-self]"); const config = await loadInitialSelfFile(configPath); const backgroundPath = join(process.cwd(), "config", "background-experiences", `${config.agent.id}.yaml`); const backgroundExperience = existsSync(backgroundPath) ? await loadBackgroundExperienceFile(backgroundPath) : undefined; const pool = new Pool({ connectionString: databaseUrl }); try { await initializeAgent(pool, config, parseSchedulerTimings(process.env), { overwriteConfiguredSelf: option === "--overwrite-configured-self", ...(backgroundExperience === undefined ? {} : { backgroundExperience }) }); if (backgroundExperience !== undefined) { const baseUrl = process.env.OLLAMA_EMBEDDING_BASE_URL; const model = process.env.OLLAMA_EMBEDDING_MODEL; const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10); if (baseUrl !== undefined && model !== undefined && Number.isInteger(dimension) && dimension > 0) await new PostgresBackgroundExperienceEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model).backfill({ agentId: config.agent.id, limit: backgroundExperience.experiences.length, signal: AbortSignal.timeout(120_000) }); } } finally { await pool.end(); } return; }
+  if (command === "background:load") {
+    const [path] = args;
+    if (path === undefined || args.length !== 1) throw new Error("Usage: background:load <background-experience-yaml>");
+    const backgroundExperience = await loadBackgroundExperienceFile(path);
+    const pool = new Pool({ connectionString: databaseUrl });
+    try {
+      const replaced = await replaceBackgroundExperiences(pool, backgroundExperience, backgroundExperience.agentId);
+      const baseUrl = process.env.OLLAMA_EMBEDDING_BASE_URL;
+      const model = process.env.OLLAMA_EMBEDDING_MODEL;
+      const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10);
+      const embedding = baseUrl === undefined || model === undefined || !Number.isInteger(dimension) || dimension <= 0
+        ? undefined
+        : await new PostgresBackgroundExperienceEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model).backfill({ agentId: backgroundExperience.agentId, limit: replaced, signal: AbortSignal.timeout(120_000) });
+      process.stdout.write(`${JSON.stringify({ agentId: backgroundExperience.agentId, replaced, ...(embedding === undefined ? {} : { embedding }) })}\n`);
+    } finally { await pool.end(); }
+    return;
+  }
   if (command === "memory:backfill") {
     const [agentId, rawLimit] = args; const limit = rawLimit === undefined ? 100 : Number.parseInt(rawLimit, 10);
     const baseUrl = process.env.OLLAMA_EMBEDDING_BASE_URL; const model = process.env.OLLAMA_EMBEDDING_MODEL; const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10);
@@ -41,7 +59,7 @@ async function main(): Promise<void> {
   }
   if (command === "dead:list") { const [root, destination] = args; if (root === undefined || destination === undefined) throw new Error("Usage: dead:list <queue-root> <destination>"); process.stdout.write(`${JSON.stringify(await listDeadLetters(new AddressedFileQueue(root), destination), null, 2)}\n`); return; }
   if (command === "dead:requeue") { const [root, destination, file] = args; if (root === undefined || destination === undefined || file === undefined) throw new Error("Usage: dead:requeue <queue-root> <destination> <file>"); await requeueDeadLetter(new AddressedFileQueue(root), destination, file); return; }
-  throw new Error("Commands: agent:init | memory:backfill | background:embed | dead:list | dead:requeue");
+  throw new Error("Commands: agent:init | background:load | memory:backfill | background:embed | dead:list | dead:requeue");
 }
 
 void main().catch((error: unknown) => { process.stderr.write(`${error instanceof Error ? error.message : "Operation failed"}\n`); process.exitCode = 1; });
