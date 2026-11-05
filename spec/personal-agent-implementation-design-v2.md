@@ -345,7 +345,7 @@ type Concern = {
 
 Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`から今回のDesireを形成する。保存済みConcernが空でも行動を止めない。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`からDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用せず、Concernの作成はidle、concern-due、Reflectionで行う。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formation、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。既存Concernからの派生はconcern-dueまたはexternal-changeがderiveで行い、ReflectionはMemory根拠のあるConcernを作成・整理できる。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -735,10 +735,11 @@ ReflectionはState追加だけでなく、再整理も行う。似たMemory、Co
 
 Internal Eventは自律性の入口として採用するが、Agent Coreが直接自由生成しない。Runtimeが既存Stateから発火する。
 
-現在のScheduler targetKindは、`idle`、`concern-due`、`external-change`、`reflection`、`scheduled-task` である。
+現在のScheduler targetKindは、`idle`、`concern-formation`、`concern-due`、`external-change`、`reflection`、`scheduled-task` である。
 
-- `idle`: 一定期間の無活動を契機とする。payloadに `explorationCandidates` としてランダムな最大8件を含める。
-- `concern-due`: Concernの `reconsiderAt` 到来。
+- `idle`: 一定期間の無活動を契機とし、既存Concernを行動・探索・共有で進める。
+- `concern-formation`: 一定間隔で起動し、Self、Memory、Background Experience、Relationshipまたは`explorationCandidates`から独立Concernを形成する。候補としてランダムな最大8件の探索領域をpayloadに含める。
+- `concern-due`: Concernの `reconsiderAt`、新しいMemory、またはexternal-changeを契機に既存Concernを再評価する。
 - `external-change`: 外部変化。現在の通常構成では常用する登録元がない。
 - `reflection`: 通常のAgent Coreではなく専用Reflection処理へ渡す。
 - `scheduled-task`: System Eventとして通常のAgent Loopへ渡す。

@@ -29,11 +29,11 @@ export const ConcernSchema = z.object({
 export type Concern = z.infer<typeof ConcernSchema>;
 
 export const ConcernProposalSchema = z.object({
-  operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern"),
+  operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern。createはconcern-formationまたはidle、deriveはconcern-dueまたはexternal-changeでのみ使う"),
   description: z.string().trim().min(1).max(400).describe("次に何を明らかにする、試す、または確認するかを、対象と行為が分かる一文で書く"),
   whyItMatters: z.string().trim().min(1).max(400).describe("得られた結果をどの判断、行動、会話、またはConcern解決に使うかを一文で書く"),
-  sourceConcernId: Id.optional().describe("derive時の派生元Concern ID"),
-  explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは経験の薄い領域への移動"),
+  sourceConcernId: Id.optional().describe("derive時の派生元Concern ID。createでは指定しない"),
+  explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("提案したConcernの探索の向き。deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは既存Focusから離れた具体対象への移動。exploration-domains候補はconcern-formationだけが受け取る"),
   transition: z.enum(["replace", "fork"]).optional().describe("deriveで省略時はfork。replaceは派生元が役目を終えた場合だけ閉じて置換し、forkは派生元を残して並行追跡"),
   reconsiderAt: Instant.optional().describe("再検討すべき具体的な将来時刻がある場合だけ指定する")
 }).strict().superRefine((value, context) => {
@@ -275,7 +275,7 @@ export const RecentObservationSchema = z.object({
   scheduler: z.object({
     targetKind: z.string().optional(),
     explorationCandidates: z.array(z.string().trim().min(1).max(120)).max(8).optional()
-  }).optional().describe("自律Eventの継続性を判断するために必要な探索条件")
+  }).optional().describe("concern-formation Eventが関心地図の幅を作るために受け取る探索候補")
 }).strict().describe("Recent Experience専用の再判断材料。監査用メタデータや入力本文は含めない");
 export type RecentObservation = z.infer<typeof RecentObservationSchema>;
 export const RecentExperienceSchema = z.object({
