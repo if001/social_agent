@@ -20,7 +20,7 @@ const AgentCoreFlatOutputSchema = z.object({
   meaning: z.string().trim().min(1).max(800).optional().describe("今回のEvent処理を終えた時点で、この経験が自分にとって何を意味するかを1〜2文で書く。感情、願望、計画、Actionは書かない"),
   feeling: z.string().trim().min(1).max(160).optional().describe("今回のEvent処理を終えた時点で残っている短期的な感情を、感情語中心の1文で書く。例: 喜び、期待、不安、落胆、苛立ち、怒り、驚き、警戒、安堵、退屈。例から選ぶ必要はない。Toolの失敗・探索結果・予測誤差への反応も書ける。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。特に残る感情がなければ省略する"),
   desire: z.string().trim().min(1).max(800).describe("今回のEventを受けて今具体的に望むこと。現在のコミットメントとして、入力中の具体的な対象と今回の行為に結び付けて短く書く。自律Eventでは、その対象が今のSelf、Concern、会話Memory、Background Experience、Mood、探索結果のどれと結び付くかも含める。既存Concernの言い換えにしない"),
-  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない場合はno-external-actionを選ぶ。idleではrespondまたはrefuseを必ず選び、no-external-actionを選ばない。情報が不十分ならrespondで不十分な旨を伝える"),
+  actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない内部Eventはno-external-actionを選ぶ。idleではrespondまたはrefuseを必ず選び、no-external-actionを選ばない。concern-formationは関心地図を形成する内部Eventなのでno-external-actionを選ぶ。情報が不十分ならidleではrespondで不十分な旨を伝える"),
   content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
@@ -97,7 +97,7 @@ export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
 export type { EventAssessment } from "../../domain/contracts.js";
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
   invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>;
 }
@@ -174,6 +174,11 @@ function isIdleEvent(input: AgentCoreInput): boolean {
   return input.observation.kind === "internal" && typeof content === "object" && content !== null && "targetKind" in content && content.targetKind === "idle";
 }
 
+function eventTargetKind(input: AgentCoreInput): string | undefined {
+  const content = input.observation.content;
+  return typeof content === "object" && content !== null && "targetKind" in content && typeof content.targetKind === "string" ? content.targetKind : undefined;
+}
+
 export class DeepAgentHarness implements AgentHarness {
   readonly #maxRepairs: number;
   constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 0; }
@@ -215,7 +220,7 @@ export class DeepAgentHarness implements AgentHarness {
         // count of model and Tool calls.
         const exploratoryModelCalls = remainingModelCalls > 1 ? remainingModelCalls - 1 : remainingModelCalls;
         const recursionLimit = exploratoryModelCalls * 2 + attemptToolCalls + 6;
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
         if (invokedModelCalls > exploratoryModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the exploratory model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
         consumedModelCalls += invokedModelCalls;
@@ -247,7 +252,7 @@ export class DeepAgentHarness implements AgentHarness {
             outputSchema: AgentCoreModelOutputJsonSchema
           });
           try {
-            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
             const recoveryModelCalls = recovery.modelCalls ?? 1;
             if (recoveryModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Recovery invoker exceeded the reserved final model call", { cause: { modelCalls: recoveryModelCalls, toolExecutions: recovery.toolExecutions ?? [] } });
             consumedModelCalls += recoveryModelCalls;
@@ -330,6 +335,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         runId: options.runId,
         eventId: options.eventId,
         eventKind: options.eventKind,
+        eventTargetKind: options.eventTargetKind,
         maxModelCalls: options.maxModelCalls,
         maxToolCalls: Math.min(25, options.maxToolCalls),
         signal: options.signal,

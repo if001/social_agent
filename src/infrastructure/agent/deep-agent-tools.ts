@@ -35,11 +35,20 @@ function contentTextCharacters(value: unknown): number {
   return Object.entries(value).reduce((total, [key, item]) => total + (["content", "text", "markdown", "snippet"].includes(key) && typeof item === "string" ? item.length : contentTextCharacters(item)), 0);
 }
 
+function concernProposalPermission(targetKind: string | undefined, input: Record<string, unknown>): string | undefined {
+  if (targetKind === undefined) return undefined;
+  const operation = input.operation;
+  if (operation !== "create" && operation !== "derive") return undefined;
+  const allowed = operation === "create" ? ["idle", "concern-formation"] : ["concern-due", "external-change"];
+  return allowed.includes(targetKind) ? undefined : `concern_propose operation '${operation}' is not allowed for ${targetKind}; allowed Event kinds are ${allowed.join(", ")}`;
+}
+
 export type DeepAgentToolRunContext = {
   readonly agentId: string;
   readonly runId: string;
   readonly eventId: string;
   readonly eventKind?: AgentCoreInput["observation"]["kind"];
+  readonly eventTargetKind?: string | undefined;
   readonly maxModelCalls: number;
   readonly maxToolCalls: number;
   readonly signal: AbortSignal;
@@ -52,6 +61,7 @@ export const DeepAgentToolRunContextSchema = z.object({
   runId: z.string().min(1),
   eventId: z.string().min(1),
   eventKind: z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]).optional(),
+  eventTargetKind: z.string().min(1).optional(),
   maxModelCalls: z.number().int().positive(),
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
@@ -82,6 +92,15 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
       logger.log("warn", "tool.completed", { ok: false, errorCode: "TOOL_CALL_LIMIT", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify({ ok: false, errorCode: "TOOL_CALL_LIMIT_REACHED", error, requiredNextStep: "Use the information already obtained and return the final Action now." });
+    }
+    if (name === "concern_propose") {
+      const error = concernProposalPermission(context.eventTargetKind, rawInput);
+      if (error !== undefined) {
+        const finishedAt = now().toISOString();
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
+        logger.log("warn", "tool.completed", { ok: false, errorCode: "CONCERN_OPERATION_NOT_ALLOWED", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+        return JSON.stringify({ ok: false, errorCode: "CONCERN_OPERATION_NOT_ALLOWED", error, requiredNextStep: "Use the Concern operation allowed for this Event, or continue the current Concern without proposing one." });
+      }
     }
     const policy = registry.resultPolicy(name);
     const requestedContentCharacters = policy?.kind === "content-read" ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : policy.defaultRequestCharacters) : 0;

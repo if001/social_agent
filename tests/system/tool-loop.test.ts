@@ -145,6 +145,17 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(runContext.collector.executions.at(-1)).toMatchObject({ ok: false, error: "This exact Tool and input were already used in this Run; its result is already available" });
   });
 
+  it("FR-68, FR-69: restricts Concern create and derive to their Event routes", async () => {
+    let dispatched = 0;
+    const registry = new ToolRegistry([{ name: "concern_propose", description: "Propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string() }), resultPolicy: { kind: "standard" }, execute: () => { dispatched += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
+    const [propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    const idle = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "idle-route", eventId: "idle-event", eventKind: "internal", eventTargetKind: "idle", maxToolCalls: 2, signal: new AbortController().signal });
+    await expect(propose?.invoke({ operation: "derive", description: "別の問い" }, { context: idle })).resolves.toContain('"errorCode":"CONCERN_OPERATION_NOT_ALLOWED"');
+    const due = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-route", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", maxToolCalls: 2, signal: new AbortController().signal });
+    await expect(propose?.invoke({ operation: "create", description: "別の関心" }, { context: due })).resolves.toContain('"errorCode":"CONCERN_OPERATION_NOT_ALLOWED"');
+    expect(dispatched).toBe(0);
+  });
+
   it("FR-4, FR-39: can choose a Tool on autonomy review from Self, Concern, and Memory", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Search a topic", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" }, execute: ({ query }: { query: string }) => Promise.resolve({ ok: true, value: { query, finding: "new evidence" } }) }]);
     const invoker: DeepAgentInvoker = { invoke: async (modelInput, options) => {
