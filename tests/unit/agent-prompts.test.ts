@@ -39,6 +39,14 @@ describe("Agent prompts", () => {
     expect(reflectionSystemPrompt).toContain("未返信や件数を理由に終了しない");
   });
 
+  it("FR-68: makes idle retain relational curiosity and ground exploration in experience", () => {
+    expect(idleSkill).toContain("idleごとにuser_context_getを使い");
+    expect(idleSkill).toContain("最大1件の自然な問いを添えます");
+    expect(idleSkill).toContain("retrieval_searchで会話MemoryまたはBackground Experienceを必要に応じて確かめます");
+    expect(idleSkill).toContain("背景経験は自分の過去として扱い");
+    expect(completeAgentCoreSystemPrompt).toContain("既知のユーザーの予定、試み、関心、未完了の話題へ自発的な関心");
+  });
+
   it("FR-17: keeps user-facing content concise, concrete, and separate from internal state", () => {
     expect(completeAgentCoreSystemPrompt).toContain("ユーザーへ実際に届ける文章だけ");
     expect(completeAgentCoreSystemPrompt).toContain("内部情報や管理情報を開示しません");

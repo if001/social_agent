@@ -155,6 +155,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-28：探索領域カタログは`config/exploration-domains.yaml`に重複のない100〜200件を保持する。全件をモデル入力へ入れず、`idle` Eventごとにランダムな最大8件を候補として渡す。永続cursorや固定順の巡回は持たない。（C-11, C-17、追加：カタログ件数と供給方法は実装判断）
 - FR-66：`idle`、`concern-due`の自律発話は、Concern、Self、Memory、Mood、探索結果からAgent自身が扱いたい具体的対象を選ぶ。ユーザーの現在話題・好み・共有文脈は届き方を調整する任意の材料であり、話題選択の前提にしない。唐突な話題転換を許容するが、Desireには対象が現在の個体状態・経験と結び付く理由を含める。（C-01, C-03, C-14, C-17）
 - FR-67：`idle`、`concern-due`では、ユーザーの未返信・返答待ち・連投回避を待機、沈黙、Concernの減衰・終了の根拠にしない。各EventでAgent自身が探索・調査・考察・記録・共有から行動を選び、必ずユーザーへ発話する。独立したConcernは複数activeで並行してよく、派生時の既定はforkとする。件数を減らすためだけに置換・終了しない。（C-01, C-03, C-06, C-14, C-17）
+- FR-68：`idle`は毎回、既知のユーザーの予定、試み、関心、未完了の話題と直近の質問を確認する。Memoryに根拠があり同じ問いの再送でなければ、自律的な探索・共有に加えて最大1件、その人自身について自然に尋ねる。探索対象とDesireは、会話Memory、Concern、Self、Mood、探索結果、またはBackground Experienceの出来事・Feeling・lessonの少なくとも一つに根拠を持つ。Background Experienceを現在のユーザーとの共有経験として扱わない。（C-01, C-03, C-10, C-14, C-17, C-45）
 
 ## R5. Contextと実行予算
 
@@ -236,6 +237,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-9：Agent Coreの実効system promptは4,500文字以下を保つ。SkillsMiddlewareのskill catalogはモデルへ渡す前に除去する。（NFR-4）
 - AC-10：Event種別ごとのskillが読み込まれ、user-message / idle / concern-due / scheduled-taskのFlowに応じた指示へ到達することをUnit testで確認する。（FR-47）
 - AC-15：自律EventのpromptとConcern適用が、未返信を抑制根拠にせず、毎回の発話と独立Concernの並行保持を指示・実現することをUnit testで確認する。（FR-67）
+- AC-16：idleがユーザー文脈の確認、根拠付きの最大1件の問い、Background Experienceを含む探索理由を指示することをUnit testで確認する。（FR-68）
 - AC-11：G1/G2の予測、1ターン遅れの誤差評価、Feelingを出力しないことをContract/System testで確認する。（FR-48, FR-49, FR-50）
 - AC-12：MemoryIntentからcreate、update、no-opが決まり、Memory versionの競合と直接INSERTの不在をIntegration testで確認する。（FR-57, NFR-15）
 - AC-13：memory-update EventがLLMを呼ばず、専用Handler、冪等性、部分commit禁止、user-message優先で動くことをSystem testで確認する。（FR-58, FR-59, FR-61, NFR-17, NFR-18）
