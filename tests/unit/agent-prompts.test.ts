@@ -22,6 +22,15 @@ describe("Agent prompts", () => {
     expect(idleSkill).toContain("固有で検証可能な対象");
   });
 
+  it("FR-66: lets autonomous Events introduce a topic from the Agent's own state", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("話題選択の前提ではありません");
+    expect(completeAgentCoreSystemPrompt).toContain("唐突な話題転換も許容します");
+    expect(completeAgentCoreSystemPrompt).toContain("ユーザーに有用そうというだけで話題を選びません");
+    expect(idleSkill).toContain("接続を必須にしません");
+    expect(idleSkill).toContain("なぜ今の自分に気になるか");
+    expect(idleSkill).toContain("self_getでDisposition、Self Story、Commitments、Moodを確認");
+  });
+
   it("FR-17: keeps user-facing content concise, concrete, and separate from internal state", () => {
     expect(completeAgentCoreSystemPrompt).toContain("ユーザーへ実際に届ける文章だけ");
     expect(completeAgentCoreSystemPrompt).toContain("内部情報や管理情報を開示しません");
@@ -40,7 +49,7 @@ describe("Agent prompts", () => {
     expect(socialPrompt).toContain("0件も選びます");
     expect(socialPrompt).toContain("現在の話題から1段だけ離れた軽い話題");
     expect(socialPrompt).toContain("プロフィール事実ではなく");
-    expect(socialPrompt).toContain("既知のユーザーの好み、仕事、経験、最近の話題");
+    expect(idleSkill).toContain("接続を必須にしません");
   });
 
   it("FR-46, AC-8: provides a shared social baseline and leaves depth to Disposition", () => {

@@ -137,6 +137,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-26 | Unit, System | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts`, `tests/system/self-drive-autonomy.test.ts` | idle 探索モード |
 | FR-27 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/self-drive-autonomy.test.ts` | 具体対象への着地 |
 | FR-28 | Unit | `tests/unit/config-lifecycle.test.ts`, `tests/unit/scheduler.test.ts` | カタログ件数・重複・抽出 |
+| FR-66 | Unit | `tests/unit/agent-prompts.test.ts` | 自律Eventがユーザー文脈を必須とせず、個体状態・経験から話題を選ぶ指示 |
 | FR-29 | Unit | `tests/unit/memory-context.test.ts` | Recent Experience との重複排除 |
 | FR-30 | Unit, Contract | `tests/unit/memory-context.test.ts`, `tests/contract/agent-harness.contract.test.ts` | Recent Experience の内容 |
 | FR-31 | Integration | `tests/integration/persistence.test.ts` | Memory の生成・保存 |

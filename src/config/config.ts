@@ -16,7 +16,6 @@ export const SchedulerTimingsSchema = z.object({
   SCHEDULER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   AUTONOMY_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   STATE_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
-  MEMORY_RECALL_INTERVAL_MS: z.coerce.number().int().positive().default(604_800_000),
   SCHEDULER_RETRY_DELAY_MS: z.coerce.number().int().positive().default(300_000),
   SCHEDULER_LEASE_MS: z.coerce.number().int().positive().default(60_000),
   AUTONOMY_IDLE_QUIET_HOURS: QuietHoursSchema,
@@ -26,7 +25,6 @@ export type SchedulerTimings = {
   readonly scanIntervalMs: number;
   readonly autonomyReviewIntervalMs: number;
   readonly stateReviewIntervalMs: number;
-  readonly memoryRecallIntervalMs: number;
   readonly retryDelayMs: number;
   readonly leaseMs: number;
   readonly idleQuietHours?: { readonly startMinutes: number; readonly endMinutes: number; readonly timeZone: string };
@@ -36,11 +34,10 @@ export function parseSchedulerTimings(environment: Record<string, unknown>): Sch
   const value = SchedulerTimingsSchema.parse(environment);
   const quiet = value.AUTONOMY_IDLE_QUIET_HOURS;
   const [start, end] = quiet === undefined ? [] : quiet.split("-");
-  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, memoryRecallIntervalMs: value.MEMORY_RECALL_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS, ...(start === undefined || end === undefined ? {} : { idleQuietHours: { startMinutes: minutesOf(start), endMinutes: minutesOf(end), timeZone: value.AUTONOMY_IDLE_QUIET_TIME_ZONE } }) };
+  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS, ...(start === undefined || end === undefined ? {} : { idleQuietHours: { startMinutes: minutesOf(start), endMinutes: minutesOf(end), timeZone: value.AUTONOMY_IDLE_QUIET_TIME_ZONE } }) };
 }
 const ConfigSchema = z.object({
   BOT_ID: z.string().min(1),
-  BOT_FAMILY_ID: z.string().min(1).default("default"),
   BOT_PERSONA_FILE: OptionalText,
   POSTGRES_URL: z.string().min(1),
   ADMIN_POSTGRES_URL: z.string().min(1),
@@ -79,7 +76,6 @@ const ConfigSchema = z.object({
 
 export type AppConfig = {
   readonly botId: string;
-  readonly familyId: string;
   readonly persona?: BotPersona;
   readonly explorationDomains: readonly string[];
   readonly database: { readonly url: string; readonly adminUrl: string };
@@ -127,7 +123,6 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
   const ownerIds = list(value.DISCORD_OWNER_IDS); const guildIds = list(value.DISCORD_GUILD_IDS);
   return {
     botId: value.BOT_ID,
-    familyId: value.BOT_FAMILY_ID,
     ...(persona === undefined ? {} : { persona }),
     explorationDomains,
     database: { url: value.POSTGRES_URL, adminUrl: value.ADMIN_POSTGRES_URL },

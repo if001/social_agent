@@ -9,7 +9,7 @@ export type CommitEventInput = {
   readonly destination: string;
   readonly messageId: string;
   readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date; readonly causationId?: string; readonly correlationId?: string };
-  readonly run: { readonly id: string; readonly inputStateVersion: number; readonly startedAt: Date; readonly result: unknown };
+  readonly run: { readonly id: string; readonly inputStateVersion: number; readonly inputSnapshot?: unknown; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly { readonly id: string; readonly target: string; readonly operation: string; readonly before: unknown; readonly after: unknown; readonly reason: string; readonly evidenceIds: readonly string[] }[];
   readonly memoryIntents?: readonly MemoryIntent[];
@@ -29,7 +29,7 @@ export class PostgresEventTransaction {
       const reserved = await client.query("INSERT INTO message_receipts(destination,message_id,status) VALUES ($1,$2,'processing') ON CONFLICT DO NOTHING RETURNING message_id", [input.destination, input.messageId]);
       if (reserved.rowCount === 0) return "duplicate";
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'processing',$8)", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.causationId ?? null, input.event.correlationId ?? null, input.event.occurredAt]);
-      await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,started_at) VALUES ($1,$2,$3,$4,$5)", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.startedAt]);
+      await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,started_at) VALUES ($1,$2,$3,$4,$5,$6)", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.inputSnapshot === undefined ? null : JSON.stringify(input.run.inputSnapshot), input.run.startedAt]);
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
       await this.#syncConcernSchedules(client, input.event.agentId, input.stateValues.concerns);
@@ -51,7 +51,7 @@ export class PostgresEventTransaction {
   async recordFailure(input: FailedEventInput): Promise<void> {
     await this.unitOfWork.transaction(async (client) => {
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'failed',$8) ON CONFLICT (id) DO NOTHING", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.causationId ?? null, input.event.correlationId ?? null, input.event.occurredAt]);
-      await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,failure_reason,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,now()) ON CONFLICT (id) DO UPDATE SET failure_reason=EXCLUDED.failure_reason,finished_at=EXCLUDED.finished_at", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.result, input.failureReason, input.run.startedAt]);
+      await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,failure_reason,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now()) ON CONFLICT (id) DO UPDATE SET failure_reason=EXCLUDED.failure_reason,finished_at=EXCLUDED.finished_at", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.inputSnapshot === undefined ? null : JSON.stringify(input.run.inputSnapshot), input.run.result, input.failureReason, input.run.startedAt]);
       await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
     });
   }

@@ -5,7 +5,7 @@ import type { DomainEvent } from "../../src/domain/contracts.js";
 
 describe("Scheduler", () => {
   const target: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "Due" };
-  const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 };
+  const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000 };
   const setup = (action: { type: "no-external-action"; reason: string } | { type: "notify-no-execution"; content: string; reason: string } | { type: "respond"; content: string }, replyContext?: Readonly<Record<string, unknown>>) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = []; let claimed = false; const completions: (Date | null)[] = [];
     const repository = { claimDue: () => { if (claimed) return Promise.resolve([]); claimed = true; return Promise.resolve([target]); }, complete: (_target: ScheduledTarget, next: Date | null) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() };

@@ -86,7 +86,7 @@ describeDatabase("Background Experience persistence and retrieval", () => {
       agent: { id: "a", identity: "Agent A", initialDisposition: "Calm", selfNarrative: "Growing", selfContinuity: "Continuous" },
       initialState: { mood: "Calm", concerns: [], relationships: [] }
     };
-    const timings = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, memoryRecallIntervalMs: 604_800_000 };
+    const timings = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 };
     const before = (await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE agent_id='a'")).rows[0];
     await initializeAgent(pool, config, timings, { backgroundExperience: file([experience("i1", "2019-04-01T00:00:00+09:00", "初期", { action: "初期化前の経験" })]) });
     await initializeAgent(pool, config, timings, { backgroundExperience: file([experience("i2", "2021-04-01T00:00:00+09:00", "中期", { action: "再初期化後の経験" })]) });

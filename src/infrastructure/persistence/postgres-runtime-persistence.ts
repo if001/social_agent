@@ -13,6 +13,30 @@ import { PostgresUnitOfWork } from "./postgres.js";
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput>;
 type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
+/**
+ * An immutable, UI-facing record of the decision materials available before
+ * Tool execution. It deliberately omits prompt text and Tool JSON schemas:
+ * the former is not an audit artifact and the latter does not help explain a
+ * particular decision. The selected context and callable Tool identities do.
+ */
+function decisionInputSnapshot(input: AgentCoreInput): Record<string, unknown> {
+  return {
+    version: 1,
+    observation: input.observation,
+    ...(input.previousAssessment === undefined ? {} : { previousAssessment: input.previousAssessment }),
+    ...(input.previousDesire === undefined ? {} : { previousDesire: input.previousDesire }),
+    recentExperiences: input.recentExperiences,
+    currentSelf: input.currentSelf,
+    state: input.state,
+    memories: input.memories,
+    memoryRetrievalTrace: input.memoryRetrievalTrace,
+    ...(input.predictionContext === undefined ? {} : { predictionContext: input.predictionContext }),
+    availableTools: input.availableTools.map(({ name, description }) => ({ name, description })),
+    runtimeConstraints: input.runtimeConstraints,
+    limits: input.limits
+  };
+}
+
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
   constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, _legacyMemoryEmbedding?: unknown, tools?: ToolRegistry, private readonly agentId?: string, private readonly retrievalService?: RetrievalService) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
@@ -43,7 +67,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
-      run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
+      run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, inputSnapshot: decisionInputSnapshot(input), startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { mood: update.state.mood, concerns: update.state.concerns, relationships: update.state.relationships },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next(), reason: "AgentTurn patch", evidenceIds: [change.eventId] })),
       memoryIntents,
@@ -60,7 +84,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     await this.#transaction.recordFailure({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
-      run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, startedAt: new Date(input.run.occurredAt), result: null },
+      run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, inputSnapshot: decisionInputSnapshot(input), startedAt: new Date(input.run.occurredAt), result: null },
       toolExecutions: validatedTools,
       failureReason: JSON.stringify(errorLogContext(error))
     });
