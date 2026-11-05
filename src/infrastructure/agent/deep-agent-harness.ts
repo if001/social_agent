@@ -137,6 +137,13 @@ function errorModelCalls(error: unknown): number {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("modelCalls" in error.cause) || typeof error.cause.modelCalls !== "number") return 0;
   return error.cause.modelCalls;
 }
+function hasGraphRecursionError(value: unknown, seen = new Set<object>()): boolean {
+  if (typeof value !== "object" || value === null || seen.has(value)) return false;
+  seen.add(value);
+  if (value instanceof Error && (value.name === "GraphRecursionError" || /Recursion limit of \d+ reached/u.test(value.message))) return true;
+  const record = value as Record<string, unknown>;
+  return hasGraphRecursionError(record.cause, seen) || hasGraphRecursionError(record.providerError, seen);
+}
 function repairToolEvidence(executions: readonly ToolExecutionRecord[]): readonly unknown[] {
   return executions.slice(-8).map((execution) => ({
     tool: execution.name,
@@ -180,36 +187,38 @@ export class DeepAgentHarness implements AgentHarness {
     let raw: unknown; let validationIssues: unknown; const observedToolExecutions: ToolExecutionRecord[] = []; let consumedModelCalls = 0;
     const maxAttempts = this.#maxRepairs + 1;
     const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
-    for (let attempt = 0; attempt < maxAttempts && consumedModelCalls < input.limits.maxSteps; attempt += 1) {
+    const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
+    const promptInput = {
+      event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: input.observation },
+      identity: input.currentSelf.identity,
+      dispositionTendency: dispositionTendency(input.currentSelf.disposition),
+      ...(input.persona === undefined ? {} : { persona: input.persona }),
+      recentExperiences: input.recentExperiences.slice(-2),
+      runtimeConstraints: input.runtimeConstraints,
+      ...(input.previousAssessment === undefined ? {} : { previousAssessment: input.previousAssessment }),
+      ...(input.previousDesire === undefined ? {} : { previousDesire: input.previousDesire }),
+      ...(input.predictionContext === undefined ? {} : { predictionContext: input.predictionContext })
+    };
+    const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
+    attempts: for (let attempt = 0; attempt < maxAttempts && consumedModelCalls < input.limits.maxSteps; attempt += 1) {
       try {
-        const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
-        const promptInput = {
-          event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: input.observation },
-          identity: input.currentSelf.identity,
-          dispositionTendency: dispositionTendency(input.currentSelf.disposition),
-          ...(input.persona === undefined ? {} : { persona: input.persona }),
-          recentExperiences: input.recentExperiences.slice(-2),
-          runtimeConstraints: input.runtimeConstraints,
-          ...(input.previousAssessment === undefined ? {} : { previousAssessment: input.previousAssessment }),
-          ...(input.previousDesire === undefined ? {} : { previousDesire: input.previousDesire }),
-          ...(input.predictionContext === undefined ? {} : { predictionContext: input.predictionContext })
-        };
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v3-ja", input: promptInput })
           : JSON.stringify({ instruction: "元の入力Contextと今回のTool結果を根拠に、直前の無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。新しい調査や通常Tool呼び出しは行わず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。状態変更がなければ状態フィールドは省略してください。Contextを推測せず、与えられた内容だけを使ってください。", input: promptInput, toolEvidence: repairToolEvidence(observedToolExecutions), allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
         const modelBudget = modelInputBudget(input, content);
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "agent_core.model_input_budget_exceeded", { estimatedTokens: modelBudget.total, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(modelBudget.components) });
-        const recentToolInputs = input.recentExperiences.flatMap(({ steps }) => steps.flatMap((step) => step.type === "tool" ? [JSON.stringify({ tool: step.name, input: step.input })] : []));
         const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;
         const attemptToolCalls = attempt === 0 ? input.limits.maxToolCalls : 0;
-        // LangGraph counts model and Tool nodes separately. Keep its safety limit
-        // outside the business budgets so middleware can hide operational Tools
-        // and spend one final node producing the structured response.
-        const recursionLimit = remainingModelCalls + attemptToolCalls + 2;
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: remainingModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, maxToolCalls: attemptToolCalls, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        // Keep one model call for a Tool-free final Action if LangGraph stops the
+        // exploratory graph at its own safety limit. Its internal graph has model,
+        // Tool, and structured-output nodes, so it needs more than the business
+        // count of model and Tool calls.
+        const exploratoryModelCalls = remainingModelCalls > 1 ? remainingModelCalls - 1 : remainingModelCalls;
+        const recursionLimit = exploratoryModelCalls * 2 + attemptToolCalls + 6;
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, maxToolCalls: attemptToolCalls, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
-        if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
+        if (invokedModelCalls > exploratoryModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the exploratory model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
         consumedModelCalls += invokedModelCalls;
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
@@ -229,6 +238,39 @@ export class DeepAgentHarness implements AgentHarness {
       } catch (error) {
         consumedModelCalls += errorModelCalls(error);
         observedToolExecutions.push(...errorToolExecutions(error));
+        const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;
+        if (hasGraphRecursionError(error) && !combined.aborted && remainingModelCalls > 0) {
+          logger.log("warn", "agent_core.graph_recursion_recovery_started", { modelCalls: consumedModelCalls, toolCalls: observedToolExecutions.length, remainingModelCalls });
+          const recoveryContent = JSON.stringify({
+            instruction: "通常の探索は上限で停止しました。以下の入力と、ここまでに得たTool結果だけを根拠に、追加の通常Toolを呼び出さず、構造化出力専用Toolを1回だけ呼んで最終Actionを返してください。情報が足りない場合は推測せず、respondでその旨を伝えるか、適切ならrefuseを選んでください。",
+            input: promptInput,
+            toolEvidence: repairToolEvidence(observedToolExecutions),
+            outputSchema: AgentCoreModelOutputJsonSchema
+          });
+          try {
+            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, maxToolCalls: 0, recentToolInputs, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+            const recoveryModelCalls = recovery.modelCalls ?? 1;
+            if (recoveryModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Recovery invoker exceeded the reserved final model call", { cause: { modelCalls: recoveryModelCalls, toolExecutions: recovery.toolExecutions ?? [] } });
+            consumedModelCalls += recoveryModelCalls;
+            observedToolExecutions.push(...(recovery.toolExecutions ?? []));
+            raw = recovery.structuredResponse;
+            const parsed = AgentCoreDecisionSchema.safeParse(raw);
+            if (parsed.success) {
+              const decision = decisionResult(parsed.data);
+              if (!(isIdleEvent(input) && decision.output.action.type === "no-external-action")) {
+                logger.log("info", "agent_core.graph_recursion_recovery_completed", { modelCalls: consumedModelCalls, toolCalls: observedToolExecutions.length });
+                return { ...decision, toolExecutions: observedToolExecutions, concernProposals: concernProposals(observedToolExecutions), budget: budgetResult(consumedModelCalls, attempt + 1) };
+              }
+              validationIssues = [{ code: "custom", message: "idle Eventではno-external-actionを選べません", path: ["actionType"] }];
+            } else validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
+            logger.log("warn", "agent_core.graph_recursion_recovery_invalid", { issueCount: Array.isArray(validationIssues) ? validationIssues.length : 0 });
+            break attempts;
+          } catch (recoveryError) {
+            consumedModelCalls += errorModelCalls(recoveryError);
+            observedToolExecutions.push(...errorToolExecutions(recoveryError));
+            throw providerFailure("Agent", recoveryError, combined, { providerError: recoveryError, priorProviderError: error, toolExecutions: observedToolExecutions, modelCalls: consumedModelCalls, budget: budgetResult(consumedModelCalls, attempt + 1) });
+          }
+        }
         throw providerFailure("Agent", error, combined, { providerError: error, toolExecutions: observedToolExecutions, modelCalls: consumedModelCalls, budget: budgetResult(consumedModelCalls, 0) });
       }
     }
