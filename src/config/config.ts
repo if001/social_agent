@@ -15,6 +15,7 @@ const TimeZoneSchema = z.string().default("Asia/Tokyo").refine((value) => { try 
 export const SchedulerTimingsSchema = z.object({
   SCHEDULER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   AUTONOMY_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
+  CONCERN_FORMATION_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   STATE_REVIEW_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
   SCHEDULER_RETRY_DELAY_MS: z.coerce.number().int().positive().default(300_000),
   SCHEDULER_LEASE_MS: z.coerce.number().int().positive().default(60_000),
@@ -24,6 +25,7 @@ export const SchedulerTimingsSchema = z.object({
 export type SchedulerTimings = {
   readonly scanIntervalMs: number;
   readonly autonomyReviewIntervalMs: number;
+  readonly concernFormationIntervalMs: number;
   readonly stateReviewIntervalMs: number;
   readonly retryDelayMs: number;
   readonly leaseMs: number;
@@ -34,7 +36,7 @@ export function parseSchedulerTimings(environment: Record<string, unknown>): Sch
   const value = SchedulerTimingsSchema.parse(environment);
   const quiet = value.AUTONOMY_IDLE_QUIET_HOURS;
   const [start, end] = quiet === undefined ? [] : quiet.split("-");
-  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS, ...(start === undefined || end === undefined ? {} : { idleQuietHours: { startMinutes: minutesOf(start), endMinutes: minutesOf(end), timeZone: value.AUTONOMY_IDLE_QUIET_TIME_ZONE } }) };
+  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, concernFormationIntervalMs: value.CONCERN_FORMATION_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS, ...(start === undefined || end === undefined ? {} : { idleQuietHours: { startMinutes: minutesOf(start), endMinutes: minutesOf(end), timeZone: value.AUTONOMY_IDLE_QUIET_TIME_ZONE } }) };
 }
 const ConfigSchema = z.object({
   BOT_ID: z.string().min(1),

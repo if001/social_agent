@@ -8,7 +8,9 @@ import type { SchedulerTimings } from "../config/config.js";
 const historyTables = ["state_changes", "tool_executions", "agent_runs", "events", "reflection_runs", "memory_web_evidence", "memory_subjects", "memory_mutations", "memories", "web_snapshots", "web_resources", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
 
 // Move runtime-owned data out of the active roots; never recursively delete a configured path.
-export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConfig[], roots: readonly string[], timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }): Promise<{ agents: string[]; archivedDirectories: string[] }> {
+type ResetTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> & Partial<Pick<SchedulerTimings, "concernFormationIntervalMs">>;
+
+export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConfig[], roots: readonly string[], timings: ResetTimings = { autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }): Promise<{ agents: string[]; archivedDirectories: string[] }> {
   const paths = [...new Set(roots.map(path => resolve(path)))];
   const cwd = resolve(process.cwd());
   const runtimeRoot = resolve(cwd, "var");
@@ -44,6 +46,7 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
       if (!config) throw new Error(`Missing initial Self: ${id}`);
       const { agent, initialState } = config;
       await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle','一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する',now()+$3*interval '1 millisecond')", [`idle:${id}`, id, timings.autonomyReviewIntervalMs]);
+      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-formation','Self、経験、関係、探索領域から今後も残る関心を形成する',now()+$3*interval '1 millisecond')", [`concern-formation:${id}`, id, timings.concernFormationIntervalMs ?? timings.autonomyReviewIntervalMs]);
       await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'reflection','蓄積したEvent logをMemoryと長期状態へ統合する',now()+$3*interval '1 millisecond')", [`reflection:${id}`, id, timings.stateReviewIntervalMs]);
       const disposition = [config.family.sharedDisposition, agent.initialDisposition].join("\n");
       const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");

@@ -48,6 +48,10 @@ export class MemoryUpdateHandler {
         const result = await service.apply(event.agentId, intent, { sourceEventId: event.id, intentIndex, subjectIds, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), ...(candidates === undefined ? {} : { candidates }) });
         results.push({ intentIndex, result });
       }
+      if (results.length > 0) {
+        const reason = `新しいMemoryを既存Concernと照らして再評価する: ${payload.intents.map(({ content }) => content).join(" / ").slice(0, 800)}`;
+        await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,now()) ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason,next_due_at=LEAST(autonomous_schedules.next_due_at,EXCLUDED.next_due_at),lease_until=NULL,updated_at=now()", [`concern-due:memory:${event.agentId}`, event.agentId, reason]);
+      }
       await client.query("COMMIT");
       return results;
     } catch (error) {

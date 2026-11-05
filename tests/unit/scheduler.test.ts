@@ -45,19 +45,27 @@ describe("Scheduler", () => {
     const stopped = setup({ type: "no-external-action", reason: "No" }); stopped.lifecycle.transition("stopping"); await expect(stopped.scheduler.tick(new AbortController().signal)).resolves.toBe(0);
   });
   it("FR-26, FR-39: runs a bounded idle Event", async () => {
-    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: unknown[] = []; const completions: (Date | null)[] = [];
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = []; const completions: (Date | null)[] = [];
     const review: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "No activity during the configured interval" };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([review]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "Internal result" }); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, ...timings });
     await scheduler.tick(new AbortController().signal);
-    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "idle", schedulerGenerated: true, explorationCandidates: [] } });
+    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ payload: { targetKind: "idle", schedulerGenerated: true } }); expect(events[0]?.payload.explorationCandidates).toBeUndefined();
     expect(completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
-  it("FR-28: adds a random bounded catalog sample to idle Events", async () => {
+  it("FR-68: adds a random bounded catalog sample to concern formation Events", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = [];
-    const idle: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "Explore" };
-    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([idle]), complete: () => Promise.resolve(), release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "result" }); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", explorationDomains: ["a", "b", "c", "d", "e"], random: () => 0, ...timings });
+    const formation: ScheduledTarget = { id: "concern-formation:agent-a", agentId: "agent-a", kind: "concern-formation", reason: "Explore" };
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([formation]), complete: () => Promise.resolve(), release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "no-external-action", reason: "formed" }); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", explorationDomains: ["a", "b", "c", "d", "e"], random: () => 0, ...timings });
     await scheduler.tick(new AbortController().signal);
     expect(events[0]?.payload).toMatchObject({ explorationCandidates: ["b", "c", "d", "e", "a"] });
+  });
+  it("FR-68: runs concern formation on its own interval with exploration candidates", async () => {
+    const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = []; const completions: (Date | null)[] = [];
+    const formation: ScheduledTarget = { id: "concern-formation:agent-a", agentId: "agent-a", kind: "concern-formation", reason: "関心地図を形成する" };
+    const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([formation]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "no-external-action", reason: "Concernを形成した" }); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", explorationDomains: ["a", "b"], random: () => 0, concernFormationIntervalMs: 120_000, ...timings });
+    await scheduler.tick(new AbortController().signal);
+    expect(events[0]).toMatchObject({ kind: "internal", payload: { targetKind: "concern-formation", schedulerGenerated: true, explorationCandidates: ["b", "a"] } });
+    expect(completions[0]?.toISOString()).toBe("2026-01-01T00:02:00.000Z");
   });
   it("FR-24, FR-25: consumes a due Concern without installing a fixed periodic schedule", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const completions: (Date | null)[] = [];

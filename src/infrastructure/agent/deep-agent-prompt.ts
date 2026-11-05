@@ -3,8 +3,9 @@ export type EventSkillRoute = { readonly label: string; readonly kind: string; r
 export const EVENT_SKILL_ROUTES: readonly EventSkillRoute[] = [
   { label: "user-message", kind: "user-message", skills: ["user-message"] },
   { label: "internal + targetKind idle", kind: "internal", targetKind: "idle", skills: ["idle", "concern-lifecycle"] },
+  { label: "internal + targetKind concern-formation", kind: "internal", targetKind: "concern-formation", skills: ["concern-formation", "concern-lifecycle"] },
   { label: "internal + targetKind concern-due", kind: "internal", targetKind: "concern-due", skills: ["concern-due", "concern-lifecycle"] },
-  { label: "internal + targetKind external-change", kind: "internal", targetKind: "external-change", skills: ["idle"] },
+  { label: "internal + targetKind external-change", kind: "internal", targetKind: "external-change", skills: ["concern-due", "concern-lifecycle"] },
   { label: "system + targetKind scheduled-task", kind: "system", targetKind: "scheduled-task", skills: ["scheduled-task"] }
 ];
 

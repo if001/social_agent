@@ -8,7 +8,9 @@ import type { AddressedFileQueue, DeadLetter } from "../infrastructure/queue/add
 import type { LifecycleState } from "../bootstrap/lifecycle.js";
 import { redactSecrets } from "../observability/redaction.js";
 
-export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }, options: { readonly overwriteConfiguredSelf?: boolean; readonly backgroundExperience?: BackgroundExperienceFile } = {}): Promise<void> {
+type InitializationTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> & Partial<Pick<SchedulerTimings, "concernFormationIntervalMs">>;
+
+export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: InitializationTimings = { autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }, options: { readonly overwriteConfiguredSelf?: boolean; readonly backgroundExperience?: BackgroundExperienceFile } = {}): Promise<void> {
   const { family, agent, initialState } = config;
   const client = await pool.connect();
   try {
@@ -26,6 +28,7 @@ export async function initializeAgent(pool: Pool, config: InitialSelfConfig, tim
     }
     await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind=ANY($2::text[])", [agent.id, ["state-review", "memory-recall", "autonomy-review"]]);
     await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`idle:${agent.id}`, agent.id, "一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する", timings.autonomyReviewIntervalMs]);
+    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-formation',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`concern-formation:${agent.id}`, agent.id, "Self、経験、関係、探索領域から今後も残る関心を形成する", timings.concernFormationIntervalMs ?? timings.autonomyReviewIntervalMs]);
     await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'reflection',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`reflection:${agent.id}`, agent.id, "蓄積したEvent logをMemoryと長期状態へ統合する", timings.stateReviewIntervalMs]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }

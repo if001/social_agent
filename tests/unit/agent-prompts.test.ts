@@ -139,7 +139,7 @@ describe("Agent prompts", () => {
   it("FR-47, AC-10: loads SKILL.md metadata and allowed tools", () => {
     const skills = listSkills({ projectSkillsDir: join(process.cwd(), "skills") });
     const names = skills.map(({ name }) => name);
-    expect(names).toEqual(expect.arrayContaining(["user-message", "idle", "concern-due", "scheduled-task", "concern-lifecycle"]));
+    expect(names).toEqual(expect.arrayContaining(["user-message", "idle", "concern-formation", "concern-due", "scheduled-task", "concern-lifecycle"]));
     expect(userMessageSkill).toContain("使うToolの目安: self_get");
     expect(idleSkill).toContain("使うToolの目安: concern_list");
   });
@@ -148,8 +148,9 @@ describe("Agent prompts", () => {
     expect(resolveEventSkills("user-message", undefined)).toEqual(["user-message"]);
     expect(resolveEventSkills("internal", "idle")).toEqual(["idle", "concern-lifecycle"]);
     expect(resolveEventSkills("internal", "concern-due")).toEqual(["concern-due", "concern-lifecycle"]);
+    expect(resolveEventSkills("internal", "concern-formation")).toEqual(["concern-formation", "concern-lifecycle"]);
     expect(resolveEventSkills("system", "scheduled-task")).toEqual(["scheduled-task"]);
-    expect(resolveEventSkills("internal", "external-change")).toEqual(["idle"]);
+    expect(resolveEventSkills("internal", "external-change")).toEqual(["concern-due", "concern-lifecycle"]);
     expect(resolveEventSkills("time", undefined)).toEqual([]);
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=user-message");
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=idle");

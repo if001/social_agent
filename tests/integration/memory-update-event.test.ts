@@ -53,5 +53,6 @@ describeDatabase("memory-update Event", () => {
     expect(second.map(({ result }) => result.operation)).toEqual(["create", "no-op"]);
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE content='ユーザーAは技術の話を好む'")).rows[0]).toEqual({ count: 1 });
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memory_mutations WHERE source_event_id='memory-update-event'")).rows[0]?.count).toBe(2);
+    expect((await pool.query<{ id: string; kind: string; reason: string }>("SELECT id,kind,reason FROM autonomous_schedules WHERE id='concern-due:memory:a'")).rows[0]).toMatchObject({ id: "concern-due:memory:a", kind: "concern-due", reason: expect.stringContaining("新しいMemory") });
   });
 });
