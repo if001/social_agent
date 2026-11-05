@@ -306,7 +306,7 @@ describe("AgentHarness contract", () => {
     expect(agentCoreSystemPrompt).not.toContain("Toolを使うかどうかと、ユーザーへ発話するかどうかは独立");
     expect(agentCoreSystemPrompt).not.toContain("Toolは必要な最小回数だけ");
     expect(idleSkill).toContain("返信がまだ来ていないこと");
-    expect(idleSkill).toContain("発話を控える理由に絶対にしません");
+    expect(idleSkill).toContain("発話を控える理由にも、Concernを減衰・終了する理由にも絶対にしません");
     expect(idleSkill).toContain("夜間");
     expect(idleSkill).toContain("進展しなかった手段を繰り返さず");
     expect(agentCoreSystemPrompt).not.toContain("content-readの文字予算");

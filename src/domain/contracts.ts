@@ -8,8 +8,8 @@ const AgentContent = z.string().trim().min(1).max(6_000);
 const AgentReason = z.string().trim().min(1).max(800);
 const AgentMood = z.string().trim().min(1).max(160);
 const AgentStateDescription = z.string().trim().min(1).max(800);
-const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない");
-const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 嬉しい、期待、不安、落胆、苛立ち、安堵、退屈。例から選ぶ必要はない。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない");
+const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない。未返信・返答待ち・連投回避を待機や抑制の意味として書かない");
+const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 嬉しい、期待、不安、落胆、苛立ち、安堵、退屈。例から選ぶ必要はない。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。未返信・返答待ち・連投回避を待機や抑制の感情として書かない");
 
 export const SelfSchema = z.object({
   identity: NaturalLanguage,
@@ -34,7 +34,7 @@ export const ConcernProposalSchema = z.object({
   whyItMatters: z.string().trim().min(1).max(400).describe("得られた結果をどの判断、行動、会話、またはConcern解決に使うかを一文で書く"),
   sourceConcernId: Id.optional().describe("derive時の派生元Concern ID"),
   explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは経験の薄い領域への移動"),
-  transition: z.enum(["replace", "fork"]).optional().describe("replaceは派生元を閉じて置換、forkは派生元を残して並行追跡"),
+  transition: z.enum(["replace", "fork"]).optional().describe("deriveで省略時はfork。replaceは派生元が役目を終えた場合だけ閉じて置換し、forkは派生元を残して並行追跡"),
   reconsiderAt: Instant.optional().describe("再検討すべき具体的な将来時刻がある場合だけ指定する")
 }).strict().superRefine((value, context) => {
   if (value.operation === "derive" && value.sourceConcernId === undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "derive requires sourceConcernId" });

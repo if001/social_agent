@@ -82,7 +82,7 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 
 出力基準:
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
-- Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定に加え、Memory根拠とwhyItMattersがある場合だけ新しいConcernを1回1〜3件まで作成できる。createではidを指定しない
+- Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定に加え、Memory根拠とwhyItMattersがある場合だけ新しいConcernを1回1〜3件まで作成できる。異なる対象・動機で現在も価値があるConcernは並行してactiveに保持し、未返信や件数を理由に終了しない。createではidを指定しない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
 - Mood: 今回だけのFeelingではなく、次の複数Eventへ残る背景的な気分を短い1文で書く。現在のEvent、返答待ち、理由、願望、計画は含めず、持続する変化がなければ省略する
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
