@@ -127,7 +127,7 @@ export class DebugUiRepository {
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,status,attempt,available_at AS "availableAt",sent_at AS "sentAt",envelope FROM outbox_messages WHERE agent_id=$1 AND envelope#>>'{payload,action,id}'=$2 ORDER BY created_at,id`, [agentId, runId]),
       this.query<QueryResultRow>(`SELECT e.id,e.kind,e.status,e.source,e.observation,e.causation_id AS "causationId",e.correlation_id AS "correlationId",e.occurred_at AS "occurredAt",r.id AS "runId",r.failure_reason AS "failureReason"
         FROM events e LEFT JOIN LATERAL (SELECT id,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
-        WHERE e.agent_id=$1 AND (e.causation_id=$2 OR ($3::text IS NOT NULL AND e.causation_id=$3)) ORDER BY e.occurred_at,e.id`, [agentId, eventId, runId ?? null])
+        WHERE e.agent_id=$1 AND e.kind<>'tool-result' AND (e.causation_id=$2 OR ($3::text IS NOT NULL AND e.causation_id=$3)) ORDER BY e.occurred_at,e.id`, [agentId, eventId, runId ?? null])
     ]);
     return { event, run, stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, scheduledTasks, outbox, derivedEvents };
   }
