@@ -10,7 +10,7 @@ import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-hi
 import { summarizeModelResponse } from "../../src/infrastructure/agent/model-response.js";
 import { ScriptedAgentHarness } from "../../src/application/scripted-agent-harness.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
-import { AgentCoreOutputSchema, type AgentCoreOutput } from "../../src/domain/contracts.js";
+import { AgentCoreOutputSchema, DomainError, type AgentCoreOutput } from "../../src/domain/contracts.js";
 const idleSkill = readFileSync(join(process.cwd(), "skills", "idle", "SKILL.md"), "utf8");
 
 const output: AgentCoreOutput = { desire: "respond to this event", action: { type: "respond", content: "Hello" } };
@@ -185,7 +185,28 @@ describe("AgentHarness contract", () => {
     const input = agentCoreInputFixture();
     input.limits = { ...input.limits, maxSteps: 27, maxToolCalls: 15 };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(received).toMatchObject({ maxModelCalls: 27, maxToolCalls: 15, recursionLimit: 44 });
+    expect(received).toMatchObject({ maxModelCalls: 26, maxToolCalls: 15, recursionLimit: 73 });
+  });
+
+  it("NFR-5: recovers one final Action with collected Tool evidence after graph recursion stops exploration", async () => {
+    const calls: { content: string; options: { recursionLimit: number; maxModelCalls: number; maxToolCalls: number } }[] = [];
+    const graphError = Object.assign(new Error("Recursion limit of 54 reached without hitting a stop condition"), { name: "GraphRecursionError" });
+    const toolExecution = { callId: "tool-1", runId: "run-1", eventId: "event-1", name: "lookup", input: { query: "dots" }, ok: true, result: { finding: "dotsは継続作業を行うエージェント" }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
+    const invoker: DeepAgentInvoker = { invoke: ({ messages }, options) => {
+      calls.push({ content: messages[0]?.content ?? "", options });
+      if (calls.length === 1) return Promise.reject(new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: graphError, toolExecutions: [toolExecution], modelCalls: 3 } }));
+      return Promise.resolve({ structuredResponse: output, modelCalls: 1 });
+    } };
+    const input = agentCoreInputFixture();
+    input.limits = { ...input.limits, maxSteps: 4, maxToolCalls: 2 };
+    input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
+    const recovered = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
+    expect(recovered).toMatchObject({ output, toolExecutions: [toolExecution], budget: { consumed: { modelCalls: 4, toolCalls: 1 } } });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.options).toMatchObject({ maxModelCalls: 3, maxToolCalls: 2, recursionLimit: 14 });
+    expect(calls[1]?.options).toMatchObject({ maxModelCalls: 1, maxToolCalls: 0, recursionLimit: 8 });
+    expect(calls[1]?.content).toContain("通常の探索は上限で停止しました");
+    expect(calls[1]?.content).toContain("dotsは継続作業を行うエージェント");
   });
 
   it("FR-16: does not recover a string action for an autonomous Event", async () => {
