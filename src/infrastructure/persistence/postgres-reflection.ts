@@ -11,6 +11,18 @@ type StateRow = QueryResultRow & { identity: string; disposition: string; self_s
 type EventRow = QueryResultRow & { id: string; occurred_at: Date; observation: unknown };
 type MemoryRow = QueryResultRow & { id: string; content: string; importance: string; occurred_at: Date; created_at: Date; source_agent_id: string | null; subjects: unknown };
 
+function failureReason(error: unknown): string {
+  if (!(error instanceof Error)) return "Reflection failed";
+  const cause = error.cause;
+  if (typeof cause !== "object" || cause === null || !("validationIssues" in cause) || !Array.isArray(cause.validationIssues)) return error.message;
+  const issues = cause.validationIssues.slice(0, 8).flatMap((value) => {
+    if (typeof value !== "object" || value === null) return [];
+    const issue = value as { path?: unknown; message?: unknown; code?: unknown };
+    return [{ ...(Array.isArray(issue.path) ? { path: issue.path.map(String) } : {}), ...(typeof issue.message === "string" ? { message: issue.message } : {}), ...(typeof issue.code === "string" ? { code: issue.code } : {}) }];
+  });
+  return issues.length === 0 ? error.message : `${error.message}: ${JSON.stringify(issues)}`;
+}
+
 const summaryOf = (observation: unknown): string => {
   if (typeof observation === "object" && observation !== null && "summary" in observation && typeof observation.summary === "string" && observation.summary.trim() !== "") return observation.summary;
   return "記録された出来事";
@@ -106,6 +118,6 @@ export class PostgresReflectionRepository implements ReflectionRepository {
   }
 
   async fail(input: ReflectionInput, error: unknown): Promise<void> {
-    await this.pool.query("UPDATE reflection_runs SET status='failed',failure_reason=$2,updated_at=now() WHERE id=$1 AND status<>'completed'", [input.reflectionId, error instanceof Error ? error.message : "Reflection failed"]);
+    await this.pool.query("UPDATE reflection_runs SET status='failed',failure_reason=$2,updated_at=now() WHERE id=$1 AND status<>'completed'", [input.reflectionId, failureReason(error)]);
   }
 }
