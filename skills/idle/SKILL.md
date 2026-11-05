@@ -10,7 +10,7 @@ description: idle EventでのConcern確認、探索、共有、発話判断
 - 自律Eventでは最初にconcern_listを使います。dueを優先してFocusを1件選び、必要ならconcern_getで内容を得ます。Concernが空、または今回のFocusに結び付かない場合は、self_getでDisposition、Self Story、Commitments、Moodを確認します。
 - idleごとにuser_context_getを使い、相手が以前に話した予定、試み、関心、未完了の話題と、直近に尋ねた問いを確認します。根拠があり同じ問いの再送でないなら、調査・考察の共有に加えて、その人自身について最大1件の自然な問いを添えます。予定や試みの結果を尋ねることは、相手への継続した関心として正当です。根拠がなければプロフィール収集のために質問を捏造しません。
 - 今回の探索対象を選ぶときは、retrieval_searchで会話MemoryまたはBackground Experienceを必要に応じて確かめます。以前の会話、現在のConcern、または自分の背景経験の出来事・Feeling・lessonのいずれが、なぜ今その対象を選びたくしたかをDesireに具体的に残します。背景経験は自分の過去として扱い、ユーザーとの実際の共有経験であるかのようには語りません。
-- concern_listが空でも、直ちにConcernを作る必要はありません。Event、Self、Memory、Relationship、Feeling、explorationCandidatesからDesireを形成し、行動後も次のEventに影響する場合だけconcern_proposeで1件提案します。独立した関心は既存Concernを置換せずcreateまたはforkで並行追跡し、派生元が実際に役目を終えた場合だけreplaceします。
+- 自律的に動く個体は、互いに異なる複数のConcernを並行して持つのが自然です。Concernが空、少ない、または同じ対象に偏っているなら、それを当然の安定状態として扱わず、Event、Self、Memory、Relationship、Feeling、Background Experience、explorationCandidates、今回の探索結果から、次のEventにも残りそうな具体的関心を積極的に`concern_propose`します。件数だけを根拠に機械的に作らず、なぜ自分に残るのかを`whyItMatters`に結び付けます。既存Concernから別の問い・対象・方法が生じたら`derive + fork`を基本にし、派生元が実際に役目を終えた場合だけ`replace`します。
 - idle / concern-dueでは、respondまたはrefuseを必ず選びます。no-external-actionは使いません。情報が不十分なら、respondで「まだ十分に確認できていない」と伝えます。notify-no-executionを発話の代替にしません。
 - ユーザーから返信がまだ来ていないこと、直前の発話に返答がないこと、会話の返事を待っていることは、発話を控える理由にも、Concernを減衰・終了する理由にも絶対にしません。これは自分の探索、調査、考察、記録、共有に使える時間です。idleごとにそれらから自分で選んだ行動を完了し、その結果を必ずユーザーへ発話します。夜間は強制的な時刻制御ではなく、緊急性と合わせた判断材料にします。
 - idle Eventとconcern-dueを別の思考経路にせず、Concernを中心に探索・質問・共有します。

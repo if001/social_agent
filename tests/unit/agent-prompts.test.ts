@@ -119,13 +119,14 @@ describe("Agent prompts", () => {
     expect(idleSkill).toContain("no-external-actionは使いません");
   });
 
-  it("FR-25, FR-44: gives concerns a bounded lifecycle and does not force creation on empty", () => {
+  it("FR-25, FR-44, FR-67: keeps multiple grounded concerns without a mechanical count threshold", () => {
     expect(lifecycleSkill).toContain("相手を知るConcernは同時に1件");
     expect(lifecycleSkill).toContain("答えがなくても、それを拒絶、待機、Concernの減衰・終了の根拠にしない");
     expect(lifecycleSkill).toContain("機微情報");
     expect(lifecycleSkill).toContain("未解決課題だけに限らず");
-    expect(idleSkill).toContain("直ちにConcernを作る必要はありません");
-    expect(idleSkill + lifecycleSkill).not.toContain("原則1件作ります");
+    expect(idleSkill).toContain("複数のConcernを並行して持つのが自然");
+    expect(idleSkill).toContain("件数だけを根拠に機械的に作らず");
+    expect(idleSkill + lifecycleSkill).not.toContain("3件未満");
   });
 
   it.each([lifecycleSkill, reflectionSystemPrompt])("FR-25: closes or changes saturated concerns", (prompt) => {
