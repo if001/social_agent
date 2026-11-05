@@ -32,4 +32,12 @@ describe("AgentStatePatchService", () => {
     expect(committed.changes.at(-1)).toMatchObject({ target: "concerns", before: [{ id: "focus", status: "active" }] });
     expect(patched.state.concerns).toMatchObject([{ id: "focus", status: "active" }]);
   });
+
+  it("FR-67: keeps the source active when a derived Concern omits transition", () => {
+    const service = new AgentStatePatchService();
+    const populated: CurrentAgentState = { ...state, concerns: [{ id: "focus", description: "調査する", whyItMatters: "判断するため", status: "active" }] };
+    const patched = service.apply("a", populated, undefined, "event-6");
+    const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", explorationMode: "bridge", description: "別領域の比較対象を調べる", whyItMatters: "自分の関心がどこまで通じるか確かめるため" }], "event-6", () => "parallel");
+    expect(committed.state.concerns).toMatchObject([{ id: "focus", status: "active" }, { id: "parallel", status: "active" }]);
+  });
 });

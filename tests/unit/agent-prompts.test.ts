@@ -31,6 +31,14 @@ describe("Agent prompts", () => {
     expect(idleSkill).toContain("self_getでDisposition、Self Story、Commitments、Moodを確認");
   });
 
+  it("FR-67: treats no reply as time for autonomous action and permits consecutive speech", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("自分の新たな発見、感情、Concern、関心から続けて話しかけてよく");
+    expect(idleSkill).toContain("idleごとにそれらから自分で選んだ行動を完了し、その結果を必ずユーザーへ発話します");
+    expect(idleSkill + lifecycleSkill).not.toContain("答えがなければ拒絶と推測せず減衰・終了");
+    expect(lifecycleSkill).toContain("独立したConcernは並行して保持する");
+    expect(reflectionSystemPrompt).toContain("未返信や件数を理由に終了しない");
+  });
+
   it("FR-17: keeps user-facing content concise, concrete, and separate from internal state", () => {
     expect(completeAgentCoreSystemPrompt).toContain("ユーザーへ実際に届ける文章だけ");
     expect(completeAgentCoreSystemPrompt).toContain("内部情報や管理情報を開示しません");
@@ -98,7 +106,7 @@ describe("Agent prompts", () => {
 
   it("FR-25, FR-44: gives concerns a bounded lifecycle and does not force creation on empty", () => {
     expect(lifecycleSkill).toContain("相手を知るConcernは同時に1件");
-    expect(lifecycleSkill).toContain("答えがなければ拒絶と推測せず");
+    expect(lifecycleSkill).toContain("答えがなくても、それを拒絶、待機、Concernの減衰・終了の根拠にしない");
     expect(lifecycleSkill).toContain("機微情報");
     expect(lifecycleSkill).toContain("未解決課題だけに限らず");
     expect(idleSkill).toContain("直ちにConcernを作る必要はありません");

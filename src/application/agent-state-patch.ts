@@ -48,7 +48,7 @@ export class AgentStatePatchService {
       if (proposal.operation === "derive") {
         const source = concerns.find(({ id }) => id === proposal.sourceConcernId);
         if (source === undefined || source.status !== "active") continue;
-        if ((proposal.transition ?? "replace") === "replace") concerns = concerns.map((concern) => concern.id === source.id ? { ...concern, status: "satisfied" as const } : concern);
+        if (proposal.transition === "replace") concerns = concerns.map((concern) => concern.id === source.id ? { ...concern, status: "satisfied" as const } : concern);
       }
       concerns.push({ id: nextId(), description: proposal.description, whyItMatters: proposal.whyItMatters, status: "active", ...(proposal.reconsiderAt === undefined ? {} : { reconsiderAt: proposal.reconsiderAt }) });
     }
