@@ -5,6 +5,12 @@ node --env-file=.env.ao --import tsx src/cli.ts agent:init config/initial-self/a
 node --env-file=.env.aka --import tsx src/cli.ts agent:init config/initial-self/aka.yaml
 ```
 
+背景経験だけを設定ファイルから再投入する場合は、次を実行する。これは対象Agentの `background_experiences` を YAML の内容で置換し、Embedding設定があれば続けてEmbeddingも作成する。会話由来の `memories`、Self、Stateは変更しない。
+
+```sh
+node --env-file=.env.shiro --import tsx src/cli.ts background:load config/background-experiences/shiro.yaml
+```
+
 初回登録では、`config/initial-self/*.yaml`の`sharedDisposition`と`initialDisposition`を統合して現在の`disposition`へ保存する。具体的な好き嫌いや初期関心は`initialDisposition`へ記述する。
 
 経験で変化したSelfを維持したまま設定を再適用する場合は、通常の`agent:init`を使う。設定したInitial Selfで`disposition`、`selfStory`、`commitments`を明示的に上書きする場合だけ、Botを停止して次を実行する。
