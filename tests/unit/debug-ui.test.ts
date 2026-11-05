@@ -56,6 +56,7 @@ describe("Agent Debug UI", () => {
     expect(calls.find(({ sql }) => sql.includes("FROM memory_mutations m LEFT JOIN events"))?.values).toEqual(["ao", 1]);
     expect(calls.filter(({ sql }) => sql.includes("FROM agent_runs WHERE agent_id=$1 AND event_id=$2"))[0]?.values).toEqual(["ao", "event-1"]);
     expect(calls.find(({ sql }) => sql.includes("FROM tool_executions"))?.sql).toContain("error IS NULL AS ok");
+    expect(calls.find(({ sql }) => sql.includes("FROM prediction_evaluations pe JOIN prediction_records"))?.values).toEqual(["ao", "event-1"]);
     expect(calls.filter(({ sql }) => sql.includes("source_event_id=$2")).every(({ values }) => values[0] === "ao" && values[1] === "event-1")).toBe(true);
   });
 
@@ -75,14 +76,14 @@ describe("Agent Debug UI", () => {
   it("NFR-12: ships browser-side HTML escaping before rendering database values", async () => {
     const repository = { listAgents: () => Promise.resolve([]), getOverview: () => Promise.resolve(undefined), listRuns: () => Promise.resolve([]), getRun: () => Promise.resolve(undefined), listMemories: () => Promise.resolve([]) } as unknown as DebugUiRepository;
     const server = createDebugUiServer(repository); const page = (await request(server, "/")).body;
-    expect(page).toContain("function escapeHtml"); expect(page).toContain("function eventOf(item)"); expect(page).toContain("item.kind==='internal'&&item.internalKind"); expect(page).toContain("判断入力（Run開始時の保存断面）"); expect(page).toContain("function inputSummary(snapshot)"); expect(page).toContain("function toolActivity(item)"); expect(page).toContain("探索候補を提案"); expect(page).toContain("function followingSummary(detail)"); expect(page).toContain("配送・非同期後続処理"); expect(page).toContain("詳細を表示"); expect(page).toContain("State・Concern・Memory の変更"); expect(page).toContain("モデルの内部思考過程"); expect(page).toContain("overview.state"); expect(page).toContain("overview.reflections"); expect(page).toContain("detail.derivedEvents"); expect(page).toContain("String(value??'—').replace"); expect(page).toContain("JSON.stringify(value,null,2)??'—'"); expect(page).toContain("'&lt;'"); expect(page).not.toContain("setInterval"); server.close();
+    expect(page).toContain("function escapeHtml"); expect(page).toContain("function eventOf(item)"); expect(page).toContain("item.kind==='internal'&&item.internalKind"); expect(page).toContain("判断入力（Run開始時の保存断面）"); expect(page).toContain("function inputSummary(snapshot)"); expect(page).toContain("function toolActivity(item)"); expect(page).toContain("explorationMode"); expect(page).toContain("function followingSummary(detail)"); expect(page).toContain("predictionEvaluations"); expect(page).toContain("Core後の処理（配送・予測・派生Event）"); expect(page).toContain("詳細を表示"); expect(page).toContain("State・Concern・Memory の変更"); expect(page).toContain("モデルの内部思考過程"); expect(page).toContain("overview.state"); expect(page).toContain("overview.reflections"); expect(page).toContain("detail.derivedEvents"); expect(page).toContain("String(value??'—').replace"); expect(page).toContain("JSON.stringify(value,null,2)??'—'"); expect(page).toContain("'&lt;'"); expect(page).not.toContain("setInterval"); server.close();
   });
 
   it("NFR-12: serves an Event timeline and trace, including Events without a Run", async () => {
     const repository = {
       listAgents: () => Promise.resolve([]), getOverview: () => Promise.resolve(undefined), listRuns: () => Promise.resolve([]), getRun: () => Promise.resolve(undefined), listMemories: () => Promise.resolve([]),
       listEvents: () => Promise.resolve([{ id: "memory-update-event", kind: "internal", runId: null }]), listTraceGaps: () => Promise.resolve([{ id: "mutation-gap" }]),
-      getEventTrace: (_agentId: string, eventId: string) => Promise.resolve(eventId === "memory-update-event" ? { event: { id: "memory-update-event" }, run: undefined, stateChanges: [], toolExecutions: [], memoryMutations: [{ id: "mutation-1" }], predictions: [], g3Tasks: [], scheduledTasks: [], outbox: [], derivedEvents: [] } : undefined)
+      getEventTrace: (_agentId: string, eventId: string) => Promise.resolve(eventId === "memory-update-event" ? { event: { id: "memory-update-event" }, run: undefined, stateChanges: [], toolExecutions: [], memoryMutations: [{ id: "mutation-1" }], predictions: [], predictionEvaluations: [], g3Tasks: [], scheduledTasks: [], outbox: [], derivedEvents: [] } : undefined)
     } as unknown as DebugUiRepository;
     const server = createDebugUiServer(repository);
     expect(JSON.parse((await request(server, "/api/agents/ao/events")).body)).toEqual([{ id: "memory-update-event", kind: "internal", runId: null }]);
