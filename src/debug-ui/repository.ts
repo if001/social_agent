@@ -102,7 +102,7 @@ export class DebugUiRepository {
         SELECT id,started_at,finished_at,failure_reason,result FROM agent_runs
         WHERE event_id=e.id AND agent_id=e.agent_id ORDER BY started_at DESC,id DESC LIMIT 1
       ) r ON true
-      WHERE e.agent_id=$1 ORDER BY e.occurred_at DESC,e.id DESC LIMIT $2`, [agentId, bounded]);
+      WHERE e.agent_id=$1 AND e.kind<>'tool-result' ORDER BY e.occurred_at DESC,e.id DESC LIMIT $2`, [agentId, bounded]);
   }
 
   async getEventTrace(agentId: string, eventId: string): Promise<EventTrace | undefined> {
