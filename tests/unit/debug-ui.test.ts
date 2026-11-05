@@ -57,6 +57,7 @@ describe("Agent Debug UI", () => {
     expect(calls.filter(({ sql }) => sql.includes("FROM agent_runs WHERE agent_id=$1 AND event_id=$2"))[0]?.values).toEqual(["ao", "event-1"]);
     expect(calls.find(({ sql }) => sql.includes("FROM tool_executions"))?.sql).toContain("error IS NULL AS ok");
     expect(calls.find(({ sql }) => sql.includes("FROM prediction_evaluations pe JOIN prediction_records"))?.values).toEqual(["ao", "event-1"]);
+    expect(calls.find(({ sql }) => sql.includes("e.causation_id=$2"))?.sql).toContain("e.kind<>'tool-result'");
     expect(calls.filter(({ sql }) => sql.includes("source_event_id=$2")).every(({ values }) => values[0] === "ao" && values[1] === "event-1")).toBe(true);
   });
 
