@@ -10,6 +10,7 @@ function options(args: readonly string[]): Options {
   let batchSize = 100;
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
+    if (value === "--") continue;
     if (value === "--agent-id") { agentId = args[index + 1]; index += 1; continue; }
     if (value === "--batch-size") { batchSize = Number.parseInt(args[index + 1] ?? "", 10); index += 1; continue; }
     throw new Error("Usage: pnpm memory:embed:migrate [--agent-id <id>] [--batch-size <positive-integer>]");
