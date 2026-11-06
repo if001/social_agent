@@ -45,7 +45,7 @@ export function createOllamaG3Model(config: OllamaChatConfig & { readonly toolRe
     async analyze(input: G3Input, signal: AbortSignal): Promise<G3Output> {
       try {
         const context = createDeepAgentToolRunContext({ agentId: input.agentId, runId: input.sourcePredictionId, eventId: input.sourceEventId, eventKind: "internal", maxModelCalls: 4, maxToolCalls: 8, signal });
-        const result = await agent.invoke({ messages: [{ role: "user", content: JSON.stringify(input) }] }, { signal, recursionLimit: 16, context: context as never });
+        const result = await agent.invoke({ messages: [{ role: "user", content: JSON.stringify(input) }] }, { signal, recursionLimit: 16, context });
         return G3OutputSchema.parse(result.structuredResponse);
       } catch (error) {
         logger.log("warn", "g3.failed", { agentId: input.agentId, ...errorLogContext(error) });

@@ -46,15 +46,24 @@ describeDatabase("memory-update Event", () => {
   });
 
   it("FR-58, FR-61, AC-13: applies intents without an LLM and is idempotent", async () => {
-    const embedded: string[][] = [];
-    const handler = new MemoryUpdateHandler(pool, { next: () => `id-${String(++sequence)}` }, () => new Date("2026-10-31T00:00:00Z"), undefined, { embedMemoryIds: async (_agentId, memoryIds) => { embedded.push([...memoryIds]); } });
+    const embedded: string[] = [];
+    const handler = new MemoryUpdateHandler(pool, { next: () => `id-${String(++sequence)}` }, () => new Date("2026-10-31T00:00:00Z"), undefined, {
+      prepareMemory: (content) => {
+        embedded.push(content);
+        return Promise.resolve({ status: "ready" as const, vector: Array.from({ length: 768 }, () => 0), model: "fake", dimension: 768 });
+      }
+    });
     const first = await handler.handle(event(["event-1"]));
     expect(first.map(({ result }) => result.operation)).toEqual(["create", "no-op"]);
     const second = await handler.handle(event(["event-1"]));
     expect(second.map(({ result }) => result.operation)).toEqual(["create", "no-op"]);
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE content='ユーザーAは技術の話を好む'")).rows[0]).toEqual({ count: 1 });
+    expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE content='ユーザーAは技術の話を好む'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "fake" });
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memory_mutations WHERE source_event_id='memory-update-event'")).rows[0]?.count).toBe(2);
-    expect((await pool.query<{ id: string; kind: string; reason: string }>("SELECT id,kind,reason FROM autonomous_schedules WHERE id='concern-due:memory:a'")).rows[0]).toMatchObject({ id: "concern-due:memory:a", kind: "concern-due", reason: expect.stringContaining("新しいMemory") });
-    expect(embedded).toEqual([["id-1"], ["id-1"]]);
+    const schedule = (await pool.query<{ id: string; kind: string; reason: string }>("SELECT id,kind,reason FROM autonomous_schedules WHERE id='concern-due:memory:a'")).rows[0];
+    expect(schedule?.id).toBe("concern-due:memory:a");
+    expect(schedule?.kind).toBe("concern-due");
+    expect(schedule?.reason).toContain("新しいMemory");
+    expect(embedded).toEqual(["ユーザーAは技術の話を好む", "低確度の推測", "ユーザーAは技術の話を好む", "低確度の推測"]);
   });
 });

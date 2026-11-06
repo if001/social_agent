@@ -14,8 +14,16 @@ export interface UnitOfWork { transaction<T>(work: () => Promise<T>): Promise<T>
 export interface AgentHarness { run(input: AgentCoreInput, signal: AbortSignal): Promise<AgentRunResult>; }
 export interface EmbeddingProvider { readonly dimension: number; embed(texts: readonly string[], signal: AbortSignal): Promise<readonly (readonly number[])[]>; }
 
-export interface MemoryEmbeddingWriter {
-  embedMemoryIds(agentId: string, memoryIds: readonly string[], signal?: AbortSignal): Promise<unknown>;
+export type MemoryEmbedding = {
+  readonly status: "pending" | "ready" | "failed";
+  readonly vector?: readonly number[];
+  readonly model?: string;
+  readonly dimension?: number;
+  readonly error?: string;
+};
+
+export interface MemoryEmbeddingPreparer {
+  prepareMemory(content: string, signal?: AbortSignal): Promise<MemoryEmbedding>;
 }
 export interface MemoryRetriever { retrieve(agentId: string, query: string, limit: number): Promise<readonly Memory[]>; }
 export type RetrievalScope = "conversation" | "background" | "all";

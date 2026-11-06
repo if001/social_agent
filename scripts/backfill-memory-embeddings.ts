@@ -29,12 +29,11 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     const lifecycle = new PostgresMemoryEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model);
-    let attempted = 0; let ready = 0; let failed = 0;
-    while (true) {
-      const result = await lifecycle.backfill({ ...(config.agentId === undefined ? {} : { agentId: config.agentId }), limit: config.batchSize, signal: AbortSignal.timeout(120_000) });
+    let attempted = 0; let ready = 0; let failed = 0; let result;
+    do {
+      result = await lifecycle.backfill({ ...(config.agentId === undefined ? {} : { agentId: config.agentId }), limit: config.batchSize, signal: AbortSignal.timeout(120_000) });
       attempted += result.attempted; ready += result.ready; failed += result.failed;
-      if (result.attempted === 0 || result.failed > 0) break;
-    }
+    } while (result.attempted > 0 && result.failed === 0);
     process.stdout.write(`${JSON.stringify({ ...(config.agentId === undefined ? {} : { agentId: config.agentId }), attempted, ready, failed })}\n`);
     if (failed > 0) process.exitCode = 1;
   } finally {

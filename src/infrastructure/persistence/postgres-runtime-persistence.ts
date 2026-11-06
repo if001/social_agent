@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
-import type { IdGenerator, MemoryEmbeddingWriter, RetrievalService } from "../../application/ports.js";
+import type { IdGenerator, MemoryEmbeddingPreparer, RetrievalService } from "../../application/ports.js";
 import type { MemoryCandidate } from "../../application/memory-write-service.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
@@ -39,7 +39,7 @@ function decisionInputSnapshot(input: AgentCoreInput): Record<string, unknown> {
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingWriter, tools?: ToolRegistry, private readonly agentId?: string, private readonly retrievalService?: RetrievalService) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingPreparer, tools?: ToolRegistry, private readonly agentId?: string, private readonly retrievalService?: RetrievalService) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -64,6 +64,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       try { memoryCandidates = (await this.retrievalService.retrieve({ agentId: event.agentId, query: update.remember, scope: "conversation", limit: 5 })).map((item) => ({ id: item.id, kind: item.kind, content: item.content, importance: item.importance })); }
       catch { memoryCandidates = undefined; }
     }
+    const memoryEmbeddings = update.remember === undefined || this.memoryEmbedding === undefined ? undefined : [await this.memoryEmbedding.prepareMemory(update.remember)];
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
@@ -73,14 +74,10 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       memoryIntents,
       memorySubjects: memoryIntents.map(() => actorSubject),
       ...(memoryCandidates === undefined ? {} : { memoryCandidates }),
+      ...(memoryEmbeddings === undefined ? {} : { memoryEmbeddings }),
       toolExecutions: validatedTools,
       outbox: outgoing
     });
-    if (committed === "committed" && this.memoryEmbedding !== undefined) {
-      const written = await this.pool.query<{ memory_id: string | null }>("SELECT memory_id FROM memory_mutations WHERE agent_id=$1 AND source_event_id=$2 AND memory_id IS NOT NULL ORDER BY intent_index", [event.agentId, event.id]);
-      const memoryIds = written.rows.flatMap(({ memory_id }) => memory_id === null ? [] : [memory_id]);
-      if (memoryIds.length > 0) await this.memoryEmbedding.embedMemoryIds(event.agentId, memoryIds);
-    }
     return committed;
   }
 
