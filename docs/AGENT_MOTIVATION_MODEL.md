@@ -40,7 +40,7 @@ flowchart LR
     RF --> ST
 ```
 
-通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。user-messageではself_getを公開し、concern_list、concern_get、concern_proposeは公開しない。Concernの取得はidle、concern-dueなどの自律Eventで行い、作成はidle、concern-due、Reflectionで行う。
+通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。user-messageではself_getを公開し、concern_list、concern_get、concern_proposeは公開しない。Concernの生成・派生・消化は自律Eventに分け、許可する操作はRuntimeでも強制する。
 
 予測Loopは通常応答の外側にある。G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。MainAgentは予測誤差をSelf、Disposition、Concern、Relationship、背景経験で appraisal し、Meaning / Feeling、誤差低減のDesire、Actionを決める。Actionの結果はRecentExperienceのAction結果へ記録し、必要なら`remember`としてMemoryIntentを出す。G1/G2/ReflectionのMemoryIntentは`memory-update` Eventで適用し、G3のMemoryIntentはMainAgentの`remember`としてそのEventのtransactionで適用する。会話由来MemoryはMemoryWriteServiceを通してcreate / update / no-opする。G3は必要時だけ別のDeepAgentとして遅延実行し、仮説評価とMemoryIntentをMainAgentへ渡す。Reflectionは複数EventをまたいでConversation Memory、Self、Relationship、Concernを整理する。
 
@@ -91,13 +91,13 @@ Commitmentは長期的に大切にする原則、Concernは現在気に掛けて
 
 ユーザーは依頼の送信元ではなく、継続的な関係を持つ具体的な相手として扱う。相手について知らない状態は、好奇心、期待、戸惑い、軽い不安と、それを解消して相手を理解したいDesireを生み得る。未知を常に不安とせず、AgentのDispositionと直前の経験によって評価は変わる。
 
-共通の社会基盤として、相手の直前の発話内容へ触れてから自分の質問や話題を出す。話題の深さは相手がすでに開いた範囲より1段だけ深くし、相手が開いていない機微話題へ先に踏み込まない。共通点は現在の話題、共有している文脈、既知のConversation Memoryから探し、情報が乏しいときは相手の生活史や属性ではなく、現在の話題、自分の小さな開示、軽い好みから始める。質問は一度に最大1件とし、相手が短く返した、拒否した、忙しそうな場合は0件も選ぶ。家族、収入、健康、政治、宗教、恋愛、トラウマなどはRelationship / Conversation Memoryに関係の根拠がある場合だけ触れる。返答を要求せず、未返信を責めず、連投せず、Conversation Memoryにない共有体験を作らない。
+共通の社会基盤として、相手の直前の発話内容へ触れてから自分の質問や話題を出す。話題の深さは相手がすでに開いた範囲より1段だけ深くし、相手が開いていない機微話題へ先に踏み込まない。共通点は現在の話題、共有している文脈、既知のConversation Memoryから探し、情報が乏しいときは相手の生活史や属性ではなく、現在の話題、自分の小さな開示、軽い好みから始める。質問は一度に最大1件とし、相手が短く返した、拒否した、忙しそうな場合は0件も選ぶ。家族、収入、健康、政治、宗教、恋愛、トラウマなどはRelationship / Conversation Memoryに関係の根拠がある場合だけ触れる。返答を要求せず、未返信を責めず、Conversation Memoryにない共有体験を作らない。未返信は自律行動、発話、Concernの減衰・終了を正当化しない。
 
 Agentはまず現在の話題へ応答したうえで、生活、仕事、趣味、経験、好みなどについて具体的な質問を最大1件添えられる。現在の話題との接続を優先するが、既知情報が乏しく関係形成の動機が生じた場合も、現在の話題から1段だけ離れた軽い話題に留める。プロフィール項目を順番に埋めず、質問だけを続けず、自然ならAgent自身の反応や好みも短く共有する。
 
 ユーザーについて得た具体的な事実は、送信者をsubjectとするConversation Memoryとして保持する。Relationshipは「気安く話せる」「この話題では慎重さが必要」といった関係そのものの現在状態を保持し、プロフィール情報の保存先にはしない。質問前には必要に応じてConversation MemoryとRelationshipを検索し、既知の事実から一段深い問いへ進む。自律探索で得た情報も、既知のユーザーの好み、仕事、経験、最近の話題と自然につながる場合は共有できる。
 
-対人的な好奇心、関係形成、相手が分からないことによる具体的な不確かさは、idle / concern-dueでConcernを形成する正当な動機とする。ただし網羅的なプロフィール収集にはせず、同時に1件を目安として「次にその人の何を一つ知りたいか」へ具体化する。質問後は同じ問いを繰り返さず、回答があればConversation Memoryへ残して終了または自然な次の問いへ遷移し、回答がなければ拒絶と推測せず減衰させる。明示的な拒否は境界として記憶し、機微情報は関係形成だけを理由に尋ねない。
+対人的な好奇心、関係形成、相手が分からないことによる具体的な不確かさは、Self、Conversation Memory、Relationship、Background Experienceを根拠に`concern-formation`で独立したConcernを作る正当な動機とする。網羅的なプロフィール収集にはせず、「次にその人の何を一つ知りたいか」へ具体化する。質問後は同じ問いを根拠なく繰り返さず、回答があればConversation Memoryへ残して終了または自然な次の問いへ遷移する。回答がないことは拒絶・減衰・終了と解釈せず、明示的な拒否だけを境界として記憶する。機微情報は関係形成だけを理由に尋ねない。
 
 相手を理解することに価値を感じやすいか、どのような意味に関心を持つかはDispositionの自然言語で表す。深さや質問頻度は固定の個体差ではなく、Relationship、Conversation Memory、現在のObservation、相手の反応から今回のDesireとして生じる。同じDispositionでも、関係が浅ければ浅い話題に留まり、既知の話題があれば一段深い問いを選べる。数値の対人関心パラメータは持たない。
 
@@ -117,7 +117,7 @@ flowchart TD
     MEM[Conversation Memory] -. Common Retrieval .-> CORE
     BG[Background Experience] -. Common Retrieval .-> CORE
     RECENT[Recent Experiences] --> CORE
-    CATALOG[idle explorationCandidates] --> CORE
+    CATALOG[concern-formation explorationCandidates] --> CORE
 
     CORE -->|今回だけ| DESIRE[Desire]
     CORE -->|Event終了時| ASSESS[Final Meaning / Feeling]
@@ -231,10 +231,10 @@ Eventには、入力経路を表すDomain Event `kind`と、Schedulerが発火�
 | `tool-result` | Tool実行結果を監査可能なEventとして保存したもの |
 | `time` | 時刻を直接契機とする入力 |
 | `external` | 他Agentや外部システムからの入力 |
-| `internal` | `idle`、`concern-due`、`external-change`、`memory-update`、`prediction-g3`、`prediction-g3-result`など内部契機 |
+| `internal` | `idle`、`concern-formation`、`concern-due`、`external-change`、`memory-update`、`prediction-g3`、`prediction-g3-result`など内部契機 |
 | `system` | `scheduled-task`や運用上のSystem入力 |
 
-Schedulerの`targetKind`は`idle`、`concern-due`、`external-change`、`reflection`、`scheduled-task`である。`reflection`は通常Agent Loopへ入らず、`scheduled-task`はDomain Event `system`、それ以外の自律対象は基本的に`internal`となる。`external-change`は契約上サポートされているが、現在の通常構成には常用する登録元がない。
+Schedulerの`targetKind`は`idle`、`concern-formation`、`concern-due`、`external-change`、`reflection`、`scheduled-task`である。`reflection`は通常Agent Loopへ入らず、`scheduled-task`はDomain Event `system`、それ以外の自律対象は基本的に`internal`となる。`external-change`は契約上サポートされているが、現在の通常構成には常用する登録元がない。
 
 `memory-update`はG1/G2/Reflectionと、G3のMemoryIntentを採否したMainAgent、`prediction-g3`はG1/G2、`prediction-g3-result`はG3完了後のRuntimeが発生させるinternal Eventである。`memory-update`はMemoryUpdateHandler、`prediction-g3`はG3専用DeepAgent、`prediction-g3-result`はMainAgentが処理する。`memory-update`とReflectionはMemoryWriteServiceを共通利用するが、ReflectionはSelf / Relationship / Concernも更新する。
 
@@ -245,7 +245,7 @@ Schedulerの`targetKind`は`idle`、`concern-due`、`external-change`、`reflect
 - `respond`: 相手へ応答する。
 - `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
-- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使用する。idleでは選択できない。Tool利用の有無とは独立する。
+- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使用する。`idle`では選択できない。`concern-formation`は関心地図を形成する内部Eventであり、生成できない場合はこれで完了する。Tool利用の有無とは独立する。
 
 G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`prediction-g3-result` Eventは通知必須の例外とし、`no-external-action`を正常系として許容する。`prediction-g3`と`memory-update` EventはActionを生成しない。
 
@@ -253,36 +253,46 @@ G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`p
 
 ## 自律性とScheduled Task
 
-自律性は常時思考loopではなくEvent sourceで実現する。Idle、期限を迎えたConcern、外部変化、Scheduled TaskがEventを発生させ、通常と同じAgent Loopへ入る。ReflectionだけはAction生成ではなく経験統合の保守Eventとして専用処理へ送られる。
+自律性は常時思考loopではなくEvent sourceで実現する。Idle、Concern形成、期限を迎えたConcern、外部変化、Scheduled TaskがEventを発生させ、通常と同じAgent Loopへ入る。ReflectionだけはAction生成ではなく経験統合の保守Eventとして専用処理へ送られる。
 
 ```mermaid
 flowchart TD
     SCH[Scheduler] --> I[idle]
+    SCH --> CF[concern-formation]
     SCH --> CD[concern-due]
     SCH --> EC[external-change]
     SCH --> RF[reflection]
     SCH --> TASK[scheduled-task]
 
+    I -->|Internal Event| LOOP
+    CF -->|Internal Event| LOOP
     CD -->|Internal Event| LOOP
     EC -->|Internal Event| LOOP
     TASK -->|System Event| LOOP
     RF -->|専用maintenance| REFLECTION[Reflection処理]
 
-    I --> CAND[ランダムな探索候補 最大8件]
+    CF --> CAND[ランダムな探索候補 最大8件]
     CAND --> LOOP
-    LOOP --> MODE{Agentが探索方法を選ぶ}
-    MODE --> DEEPEN[deepen: 現在の具体を深掘り]
-    MODE --> BRIDGE[bridge: 性質を介して別領域の具体へ]
-    MODE --> DISTANT[distant: 経験の薄い領域の具体へ]
 ```
 
-`idle`は探索方法ごとにEvent種類を増やさない。Agent CoreがConcern取得後に、`concern_propose`の`explorationMode`として`deepen`、`bridge`、`distant`を必要に応じて選ぶ。`bridge`は抽象化そのものを目的にせず、ある対象から「惹かれる性質」を取り出し、その性質を共有する別領域の人物、作品、出来事、技術、場所などへ具体化する。
+`idle`は既存Concernを一つfocusして進め、必要なら`explorationMode`として`deepen`、`bridge`、`distant`を記録する。これはConcernを進める方法の説明であり、Concern作成を要求するものではない。`bridge`は抽象化そのものを目的にせず、ある対象から「惹かれる性質」を取り出し、その性質を共有する別領域の人物、作品、出来事、技術、場所などへ具体化する。
 
-`distant`のために、`config/exploration-domains.yaml`へ100〜200件の幅広い探索領域を置く。これは好みや永続的関心ではなく、現在の連想範囲から離れるための索引である。Schedulerは全件をContextへ投入せず、`idle` Eventごとにランダムな最大8件を`explorationCandidates`として含める。Agent Coreは必要な場合だけ候補から経験の薄い領域を一つ選び、その領域内の具体的対象へ落とす。永続cursorや固定順の巡回は持たない。「未知の領域」はDispositionやStateとして別途保存しない。
+`distant`のために、`config/exploration-domains.yaml`へ100〜200件の幅広い探索領域を置く。これは好みや永続的関心ではなく、既存Concernだけでは生まれにくい幅を作るための索引である。Schedulerは全件をContextへ投入せず、`concern-formation` Eventごとにランダムな最大8件を`explorationCandidates`として含める。Agent Coreは候補から具体的対象を選び、その対象がなぜ今後も気に掛かるかを`whyItMatters`として示せるときだけ、独立Concernとして作る。永続cursorや固定順の巡回は持たない。「未知の領域」はDispositionやStateとして別途保存しない。
 
 Scheduled Taskは予約の正本である。期限到来時にSchedulerがTaskをclaimし、通常のRuntimeへSystem Eventを投入する。Action、Outbox、再試行、監査の経路を迂回しない。
 
 ## Concernのライフサイクル
+
+Concernを作る経路と、既存Concernを進める経路を混同しない。
+
+| Event | Concern操作 | 役割 |
+|---|---|---|
+| `concern-formation` | `create` | Self、Memory、Relationship、Background Experienceから独立Concernを作る。探索領域カタログも、関心の幅を作る独立した生成根拠として使える。 |
+| `idle` | 既存Concernの消化、例外的な`create` | active Concernを進めてユーザーへ発話する。行動中に強く残った独立Concernだけをcreateできる。探索領域カタログは受け取らない。 |
+| `concern-due` / `external-change` | `derive` | 既存Concernを再評価し、別の問い・対象・方法が残った場合だけ派生Concernをforkする。 |
+| `reflection` | `create`、整理 | 複数経験を統合し、Memory根拠のあるConcernを作成・統合・終了する。 |
+
+`create`と`derive`の許可はpromptだけに委ねず、Eventの`targetKind`ごとにRuntimeが検証する。Concern数や一律の経過時間だけで、作成・終了・置換はしない。
 
 ```mermaid
 stateDiagram-v2
