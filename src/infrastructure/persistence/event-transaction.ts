@@ -1,6 +1,6 @@
 import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
 import type { MemoryIntent, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
-import type { IdGenerator } from "../../application/ports.js";
+import type { IdGenerator, MemoryEmbedding } from "../../application/ports.js";
 import { MemoryWriteService, type MemoryCandidate } from "../../application/memory-write-service.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
@@ -15,6 +15,7 @@ export type CommitEventInput = {
   readonly memoryIntents?: readonly MemoryIntent[];
   readonly memorySubjects?: readonly (readonly string[])[];
   readonly memoryCandidates?: readonly MemoryCandidate[];
+  readonly memoryEmbeddings?: readonly MemoryEmbedding[];
   readonly memoryWebEvidence?: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[];
   readonly toolExecutions?: readonly (ToolExecutionRecord & { readonly id: string })[];
   readonly outbox: readonly MessageEnvelope[];
@@ -36,7 +37,7 @@ export class PostgresEventTransaction {
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.run.id, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
       for (const [index, intent] of (input.memoryIntents ?? []).entries()) {
         if (this.ids === undefined || this.now === undefined) throw new Error("MemoryWriteService requires ids and now");
-        await new MemoryWriteService(client, this.ids, this.now).apply(input.event.agentId, intent, { subjectIds: input.memorySubjects?.[index] ?? [], sourceEventId: input.event.id, intentIndex: index, ...(input.memoryCandidates === undefined ? {} : { candidates: input.memoryCandidates }) });
+        await new MemoryWriteService(client, this.ids, this.now).apply(input.event.agentId, intent, { subjectIds: input.memorySubjects?.[index] ?? [], sourceEventId: input.event.id, intentIndex: index, ...(input.memoryCandidates === undefined ? {} : { candidates: input.memoryCandidates }), ...(input.memoryEmbeddings?.[index] === undefined ? {} : { embedding: input.memoryEmbeddings[index] }) });
       }
       for (const evidence of input.memoryWebEvidence ?? []) for (const snapshotId of evidence.snapshotIds) await client.query("INSERT INTO memory_web_evidence(memory_id,snapshot_id) SELECT $1,s.id FROM web_snapshots s WHERE s.id=$2 ON CONFLICT DO NOTHING", [evidence.memoryId, snapshotId]);
       await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 
-import type { IdGenerator } from "./ports.js";
+import type { IdGenerator, MemoryEmbedding } from "./ports.js";
 import { MemoryIntentSchema, type MemoryIntent } from "../domain/contracts.js";
 
 type CandidateRow = QueryResultRow & { id: string; kind: string; content: string; importance: string; version: number; evidence_event_ids: string[] };
@@ -12,6 +12,7 @@ export type MemoryWriteOptions = {
   readonly intentIndex?: number;
   readonly sourceAgentId?: string;
   readonly candidates?: readonly MemoryCandidate[];
+  readonly embedding?: MemoryEmbedding;
 };
 export type MemoryWriteOperation = "create" | "update" | "no-op";
 export type MemoryWriteResult = { readonly operation: MemoryWriteOperation; readonly memoryId?: string; readonly version?: number };
@@ -41,11 +42,13 @@ export class MemoryWriteService {
       ? (await this.client.query<CandidateRow>("SELECT id,kind,content,importance,version,evidence_event_ids FROM memories WHERE agent_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 20", [agentId])).rows
       : options.candidates.map((candidate) => ({ ...candidate, version: 0, evidence_event_ids: [] as string[] }));
     const candidate = candidates.find((row) => row.kind === intent.target && sameMemory(row.content, intent.content));
+    const embedding = options.embedding ?? { status: "pending" as const };
+    const vector = embedding.vector === undefined ? null : `[${embedding.vector.join(",")}]`;
     if (candidate !== undefined) {
       const evidence = [...new Set([...candidate.evidence_event_ids, ...intent.evidenceEventIds])];
       const updated = await this.client.query<{ version: number }>(
-        "UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,version=version+1,embedding=NULL,embedding_model=NULL,embedding_dimension=NULL,embedding_status='pending',embedding_error=NULL,source_agent_id=COALESCE(source_agent_id,$7),updated_at=now() WHERE id=$1 AND agent_id=$2 AND version=$6 RETURNING version",
-        [candidate.id, agentId, intent.content, intent.reason, JSON.stringify(evidence), candidate.version, options.sourceAgentId ?? null]
+        "UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,version=version+1,embedding=$7::vector,embedding_model=$8,embedding_dimension=$9,embedding_status=$10,embedding_error=$11,source_agent_id=COALESCE(source_agent_id,$12),updated_at=now() WHERE id=$1 AND agent_id=$2 AND version=$6 RETURNING version",
+        [candidate.id, agentId, intent.content, intent.reason, JSON.stringify(evidence), candidate.version, vector, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null, options.sourceAgentId ?? null]
       );
       if (updated.rowCount === 1) {
         const version = updated.rows[0]?.version;
@@ -63,8 +66,8 @@ export class MemoryWriteService {
     const id = this.ids.next();
     const occurredAt = this.now().toISOString();
     await this.client.query(
-      "INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,evidence_event_ids,source_agent_id,version,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,'pending')",
-      [id, agentId, intent.target, intent.content, intent.reason, intent.confidence === "high" ? "high" : "normal", occurredAt, occurredAt, JSON.stringify(intent.evidenceEventIds), options.sourceAgentId ?? null]
+      "INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,evidence_event_ids,source_agent_id,version,embedding,embedding_model,embedding_dimension,embedding_status,embedding_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11::vector,$12,$13,$14,$15)",
+      [id, agentId, intent.target, intent.content, intent.reason, intent.confidence === "high" ? "high" : "normal", occurredAt, occurredAt, JSON.stringify(intent.evidenceEventIds), options.sourceAgentId ?? null, vector, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null]
     );
     for (const subjectId of options.subjectIds ?? []) await this.client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [id, subjectId]);
     await this.#record(agentId, id, "create", undefined, intent, options, 0);
