@@ -33,7 +33,7 @@ describe("domain contracts", () => {
     expect(AgentTurnSchema.safeParse({ ...base, patch: { mood: "m".repeat(161) } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { concern: { operation: "upsert", concern: { id: "c", description: "d".repeat(801), whyItMatters: "理由", status: "active" } } } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { relationship: { operation: "upsert", relationship: { subjectId: "user", description: "d".repeat(801) } } } }).success).toBe(false);
-    expect(AgentTurnSchema.safeParse({ ...base, patch: { remember: "m".repeat(801) } }).success).toBe(false);
+    expect(AgentTurnSchema.safeParse({ ...base, patch: { remember: { content: "m".repeat(801), perspective: "user", purpose: "user-context" } } }).success).toBe(false);
   });
 
   it("FR-3, FR-9: bounds Event Meaning and Feeling without restricting Feeling to an enum", () => {

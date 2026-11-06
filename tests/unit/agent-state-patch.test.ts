@@ -8,11 +8,11 @@ describe("AgentStatePatchService", () => {
     const result = new AgentStatePatchService().apply("a", state, {
       mood: "hurt but composed",
       relationship: { operation: "upsert", relationship: { subjectId: "user", description: "trust was damaged by a broken promise" } },
-      remember: "The user broke an important promise."
+      remember: { content: "The user broke an important promise.", perspective: "user", purpose: "user-context" }
     }, "event-1");
     expect(result.state).toMatchObject({ mood: "hurt but composed", concerns: [], relationships: [{ subjectId: "user" }] });
     expect(result.changes.map(({ target }) => target)).toEqual(["mood", "relationships"]);
-    expect(result.remember).toBe("The user broke an important promise.");
+    expect(result.remember).toEqual({ content: "The user broke an important promise.", perspective: "user", purpose: "user-context" });
   });
 
   it("FR-23, NFR-1: removes owned relationships and rejects another agent", () => {

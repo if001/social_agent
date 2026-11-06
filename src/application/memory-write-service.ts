@@ -47,8 +47,8 @@ export class MemoryWriteService {
     if (candidate !== undefined) {
       const evidence = [...new Set([...candidate.evidence_event_ids, ...intent.evidenceEventIds])];
       const updated = await this.client.query<{ version: number }>(
-        "UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,version=version+1,embedding=$7::vector,embedding_model=$8,embedding_dimension=$9,embedding_status=$10,embedding_error=$11,source_agent_id=COALESCE(source_agent_id,$12),updated_at=now() WHERE id=$1 AND agent_id=$2 AND version=$6 RETURNING version",
-        [candidate.id, agentId, intent.content, intent.reason, JSON.stringify(evidence), candidate.version, vector, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null, options.sourceAgentId ?? null]
+        "UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,version=version+1,embedding=$7::vector,embedding_model=$8,embedding_dimension=$9,embedding_status=$10,embedding_error=$11,source_agent_id=COALESCE(source_agent_id,$12),perspective=$13,purpose=$14,updated_at=now() WHERE id=$1 AND agent_id=$2 AND version=$6 RETURNING version",
+        [candidate.id, agentId, intent.content, intent.reason, JSON.stringify(evidence), candidate.version, vector, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null, options.sourceAgentId ?? null, intent.perspective, intent.purpose]
       );
       if (updated.rowCount === 1) {
         const version = updated.rows[0]?.version;
@@ -66,8 +66,8 @@ export class MemoryWriteService {
     const id = this.ids.next();
     const occurredAt = this.now().toISOString();
     await this.client.query(
-      "INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,evidence_event_ids,source_agent_id,version,embedding,embedding_model,embedding_dimension,embedding_status,embedding_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11::vector,$12,$13,$14,$15)",
-      [id, agentId, intent.target, intent.content, intent.reason, intent.confidence === "high" ? "high" : "normal", occurredAt, occurredAt, JSON.stringify(intent.evidenceEventIds), options.sourceAgentId ?? null, vector, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null]
+      "INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,evidence_event_ids,source_agent_id,version,embedding,embedding_model,embedding_dimension,embedding_status,embedding_error,perspective,purpose) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11::vector,$12,$13,$14,$15,$16,$17)",
+      [id, agentId, intent.target, intent.content, intent.reason, intent.confidence === "high" ? "high" : "normal", occurredAt, occurredAt, JSON.stringify(intent.evidenceEventIds), options.sourceAgentId ?? null, vector, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null, intent.perspective, intent.purpose]
     );
     for (const subjectId of options.subjectIds ?? []) await this.client.query("INSERT INTO memory_subjects(memory_id,subject_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [id, subjectId]);
     await this.#record(agentId, id, "create", undefined, intent, options, 0);

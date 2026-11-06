@@ -1,4 +1,4 @@
-import { DomainError, type AgentTurn, type ConcernProposal, type CurrentAgentState } from "../domain/contracts.js";
+import { DomainError, type AgentTurn, type ConcernProposal, type CurrentAgentState, type MemoryProposal } from "../domain/contracts.js";
 
 export type AgentStatePatchChange = {
   readonly target: "mood" | "concerns" | "relationships";
@@ -11,7 +11,7 @@ export type AgentStatePatchChange = {
 export type AgentStatePatchResult = {
   readonly state: CurrentAgentState;
   readonly changes: readonly AgentStatePatchChange[];
-  readonly remember?: string;
+  readonly remember?: MemoryProposal;
 };
 
 export class AgentStatePatchService {

@@ -448,7 +448,7 @@ describeDatabase("PostgreSQL persistence", () => {
       output: { desire: "respond to this event", action: { type: "respond" as const, content: "Hello" } },
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
-    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [], remember: "A useful exchange" }, [])).resolves.toBe("committed");
+    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [], remember: { content: "A useful exchange", perspective: "user", purpose: "user-context" } }, [])).resolves.toBe("committed");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });

@@ -328,13 +328,24 @@ export const RelationshipChangeSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("upsert").describe("Relationshipを追加または更新する"), relationship: ProposedRelationshipSchema.describe("追加または更新するRelationshipの完全な値") }),
   z.object({ operation: z.literal("remove").describe("Relationshipを削除する"), subjectId: Id.describe("削除するRelationshipの相手ID") })
 ]).describe("次のEventにも残すRelationshipの変更。変更不要なら出力しない");
+export const MemoryPerspectiveSchema = z.enum(["user", "self"]).describe("このMemoryを誰の経験として保存するか。userは対話相手について確認できた事実、selfはAgent自身の探索・行動・判断から得た経験");
+export const MemoryPurposeSchema = z.enum(["user-context", "self-guidance"]).describe("次回どの判断に使うMemoryか。user-contextは相手への自然な問いや関係の継続、self-guidanceはConcern・探索方法・自分の判断に使う");
+export const MemoryProposalSchema = z.object({
+  content: z.string().trim().min(1).max(800).describe("今回すぐ記憶候補として残す、1〜2文の具体的な要点。ユーザー事実と自分の探索経験を一つに混ぜない"),
+  perspective: MemoryPerspectiveSchema,
+  purpose: MemoryPurposeSchema
+}).strict().superRefine((value, context) => {
+  if (value.perspective === "user" && value.purpose !== "user-context") context.addIssue({ code: "custom", path: ["purpose"], message: "user perspective requires user-context purpose" });
+  if (value.perspective === "self" && value.purpose !== "self-guidance") context.addIssue({ code: "custom", path: ["purpose"], message: "self perspective requires self-guidance purpose" });
+}).describe("保存するMemoryの視点と再利用先。単発のTool失敗は実行記録に残るため、繰り返された経験や次の方法を変える学びとして残る場合だけselfで提案する");
+export type MemoryProposal = z.infer<typeof MemoryProposalSchema>;
 export const AgentTurnSchema = z.object({
   desire: AgentDesire.describe("現在のSelf、状態、Observation、前回Assessment、previousDesire、取得したContextとTool結果から生じた今回の具体的な現在のコミットメント。自律Eventでは探索対象を選んだ根拠をSelf、Concern、会話Memory、Background Experience、Mood、探索結果のいずれかへ辿れるようにする。Concernの言い換えにしない"),
   action: FinalActionSchema,
   patch: z.object({
     mood: AgentMood.describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する").optional(),
     relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
-    remember: z.string().trim().min(1).max(800).describe("今回直ちに記憶候補として残す内容。ユーザーの生活、仕事、趣味、経験、好みなど次回以降に価値がある具体的事実も対象とする。会話全文ではなく1〜2文にし、長期的価値がなければ省略する").optional()
+    remember: MemoryProposalSchema.optional()
   }).strict().describe("次のEventにも影響する永続状態の変更提案。変更がなければpatch全体を省略する").optional()
 }).strict();
 export type AgentTurn = z.infer<typeof AgentTurnSchema>;
@@ -345,8 +356,13 @@ export const MemoryIntentSchema = z.object({
   reason: NaturalLanguage.describe("この内容をMemoryとして残す理由。予測誤差や観測との関係を書く"),
   evidenceEventIds: z.array(Id).max(16).describe("このMemoryIntentの根拠となるEvent ID。入力に存在するIDだけを使う"),
   confidence: z.enum(["high", "medium", "low"]).describe("更新してよい確信度。確率値ではなく離散値"),
-  target: MemoryIntentTargetSchema
-}).strict().describe("予測誤差や観測から作成・更新したいMemoryの意図。operationや候補Indexは持たない");
+  target: MemoryIntentTargetSchema,
+  perspective: MemoryPerspectiveSchema.default("self"),
+  purpose: MemoryPurposeSchema.default("self-guidance")
+}).strict().superRefine((value, context) => {
+  if (value.perspective === "user" && value.purpose !== "user-context") context.addIssue({ code: "custom", path: ["purpose"], message: "user perspective requires user-context purpose" });
+  if (value.perspective === "self" && value.purpose !== "self-guidance") context.addIssue({ code: "custom", path: ["purpose"], message: "self perspective requires self-guidance purpose" });
+}).describe("予測誤差や観測から作成・更新したいMemoryの意図。視点と再利用先を明示し、operationや候補Indexは持たない");
 export type MemoryIntent = z.infer<typeof MemoryIntentSchema>;
 
 export const PredictionExpectationSchema = z.enum(["very_high", "high", "medium", "low", "very_low"]).describe("次ターンにこの候補が現れる期待度。確率値や校正済みスコアではなく離散値");

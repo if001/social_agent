@@ -190,6 +190,13 @@
       "when": 1793600000004,
       "tag": "0026_run_input_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793600000005,
+      "tag": "0027_memory_perspective_purpose",
+      "breakpoints": true
     }
   ]
 }
