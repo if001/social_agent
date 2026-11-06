@@ -129,7 +129,7 @@ turn t:
   → needsG3 なら G3 Event を登録
   → G3 が前回仮説を評価し、調査結果とMemoryIntentを返す
   → MainAgent が再判断する
-       MainAgentのrememberは、そのEventの応答transactionで更新する
+       Experience Integrationが初回commit後にMemory更新を判断する
   → G3由来のMemoryIntentをmemory-update Eventへ登録
 ```
 
@@ -138,7 +138,7 @@ turn t:
 - 誤差の1ターン遅れは、人間の連続的な認知を離散的な会話ターンへ写像したものとして扱う。
 - G1/G2は応答のcommit後に実行する。次の入力を処理する前に、予測と誤差評価を保存する。
 - G1/G2とG3のMemoryIntentは、memory-update EventとしてMemoryWriteServiceが適用する。
-- MainAgentのrememberは、そのEventの応答transactionでMemoryWriteServiceが適用する。
+- 通常応答のMemoryIntentはExperience Integrationが初回commit後にMemoryWriteServiceへ渡す。
 - memory-update EventはLLMを呼ばず、決定済みのMemoryIntentだけを適用する。
 - G1/G2は追加のLLM callを持つ。このcallは通常応答のcall数を増やすが、予測と誤差評価をMainAgentの意思決定から分離するために必要とする。
 - MainAgentのActionで期待する変化は、desireの自然言語に含める。専用のaction expectation fieldは持たない。
@@ -170,10 +170,10 @@ turn t:
 
 | Event | 内部種別 | 役割 | LLM call | Memory更新 |
 |---|---|---|---|---|
-| `user-message` | user-message | 会話入力、Context構築、MainAgentの応答 | あり | MainAgentのrememberを同じtransactionで適用 |
+| `user-message` | user-message | 会話入力、Context構築、MainAgentの応答 | あり | 初回commit後にExperience Integrationが判断 |
 | `memory-update` | internal + targetKind `memory-update` | 決定済みのMemoryIntentの適用 | なし | MemoryWriteServiceが適用 |
 | `prediction-g3` | internal + targetKind `prediction-g3` | G3による仮説評価と調査 | あり | 直接更新しない |
-| `prediction-g3-result` | internal + targetKind `prediction-g3-result` | G3結果を受けたMainAgentの再判断 | あり | 採用したMemoryIntentをrememberで適用 |
+| `prediction-g3-result` | internal + targetKind `prediction-g3-result` | G3結果を受けたMainAgentの再判断 | あり | 初回commit後にExperience Integrationが判断 |
 | `reflection` | internal + targetKind `reflection` | 時差式の記憶整理、長期状態の更新 | あり | MemoryIntentをmemory-update Eventへ渡す |
 
 - 設計原則C-61に従い、同一Agent内の優先順位は `user-message`、`memory-update`、G3、`reflection` の順とする。
@@ -186,7 +186,7 @@ turn t:
 - G3 Eventはmemory-updateの後、reflectionより前に実行する。G3の結果によるmemory-updateは、G3完了後に登録する。
 - `memory-update` の適用中にMemoryが更新され、候補が古くなった場合は、同じqueryで再検索するかno-opにする。
 - `reflection` はMemoryの変更を `memory-update` Eventとして発行できる。Self、Relationship、ConcernはReflection自身のcommitで更新する。
-- MainAgentのrememberは、そのEventのtransactionでMemoryWriteServiceが適用する。memory-update Eventにはしない。
+- 通常応答のMemoryIntentはExperience Integrationが初回commit後に適用する。memory-update Eventにはしない。
 
 ```text
 user-message Event
@@ -246,10 +246,10 @@ reflection Event（時差式）
 - 設計原則C-65に従い、G1/G2の `predictionEvaluation` は予測シグナルであり、MeaningとFeelingではない。G1/G2はFeelingを出力しない。
 - 予測誤差は、`predictionContext` としてMainAgentへ渡す。
 - MainAgentだけが `meaning` と `feeling` を確定する。G1/G2の `interpretation` は観測の読み取りであり、最終的なMeaningではない。
-- MainAgentは、既存の `meaning`、`feeling`、`desire`、`action`、`patch`、`concern_propose`、`remember` を使って循環を表現する。新しい感情moduleやMotivation tableは追加しない。
+- MainAgentは、既存の `meaning`、`feeling`、`desire`、`action`、`concern_propose` を使って循環を表現する。Memory、Mood、Relationshipの持続更新はExperience Integrationが扱う。新しい感情moduleやMotivation tableは追加しない。
 - `feeling` には、驚き、戸惑い、好奇、警戒、不安、疑念、苛立ち、安堵、退屈などを、今回のEventの短期反応として書ける。
 - `desire` には、誤差を減らすために今回何をしたいかを書ける。例：理由を確かめたい、記憶を検索したい、相手の状態を確認したい、今の信念を維持したい。
-- `patch` は、Mood、Relationship、即時Memory意図の既存の範囲に限定する。Selfの変更はReflectionだけが行う。
+- MoodとRelationshipはExperience IntegrationまたはReflectionが扱う。Selfの変更はReflectionだけが行う。
 - 予測誤差の appraisal は、Actionの正当化のために作らない。Event終了時のMeaning / Feelingとして確定する。
 
 ### 6.4 非迎合の制約
@@ -405,7 +405,7 @@ g3:
 - `explicitness=explicit` の観測事実は、MemoryWriteServiceがAgent所有権、根拠Event、種別、文字数、重複を検証して保存できる。
 - `explicitness=inferred` の内容は自動保存しない。MainAgentの判断またはReflectionの入力にする。
 - `remember` はMemoryIntentとして渡し、MemoryWriteServiceがmemoryCandidatesとの類似度からcreate、update、no-opを決める。
-- `remember` のtargetはMemory kindに限る。RelationshipとConcernは`remember`に含めず、MainAgentのPatchまたはConcern提案へ渡す。
+- MemoryIntentのtargetはMemory kindに限る。RelationshipとConcernはMemoryIntentに含めず、RelationshipはExperience IntegrationまたはReflection、ConcernはConcern proposalまたはReflectionへ渡す。
 - 会話全文の転載、推測だけの信念、現在のユーザーとの架空の共有経験は保存しない。
 - 同じ内容の候補を毎ターン保存しないための統合と減衰は、MemoryWriteServiceの責務とする。
 
@@ -495,9 +495,9 @@ remember:
 
 - G3は更新候補を直接保存しない。`summary`、`investigationResults`、`remember` をMainAgentへ渡す。
 - `remember` はMemoryIntentとして扱い、MemoryWriteServiceがmemoryCandidatesとの類似度からcreate、update、no-opを決める。
-- RelationshipとConcernは`remember`に含めず、`summary`または既存の提案形式でMainAgentへ渡す。MainAgentがPatchまたはConcern Proposalを決める。
+- RelationshipとConcernは`remember`に含めず、`summary`または既存の提案形式でMainAgentへ渡す。Experience IntegrationがRelationship、Concern ProposalがConcernを決める。
 - `hypothesisIndex` は出力内の仮説を指す構造的な位置であり、意味分類ではない。
-- 保存するかどうかはMainAgentの再判断で決める。MainAgentは既存の `remember`、Patch、`concern_propose` を使う。
+- 保存するかどうかはExperience IntegrationがAgent Coreの再判断結果を踏まえて決める。Concernは`concern_propose`を使う。
 - Memory書込みはMemoryWriteServiceを通す。
 - G3の仮説と仮説評価は、予測記録のG3グループとして保存する。
 
@@ -709,13 +709,13 @@ retrieve({
 
 - 設計原則C-55に従い、会話由来Memoryの書込みは単一のMemoryWriteServiceを通す。
 - 次の入力を扱う。
-  - AgentCoreの `remember`、Patch、`concern_propose`
+  - Experience IntegrationのMemoryIntent、`concern_propose`
   - G1/G2の観測候補と `remember`
   - ReflectionのMemoryIntent
   - G3の `remember` と、調査結果に基づくMainAgentの判断
 - MemoryWriteServiceは、Agent所有権、origin、kind、content、subject、evidenceEventIds、importance、重複、文字数を検証する。
 - `explicitness=explicit` の観測事実は、G1/G2の候補から自動受理できる。
-- `explicitness=inferred` の内容、信念、自己像、関係、Common Groundの変更は、MainAgentまたはReflectionの判断を要する。
+- `explicitness=inferred` の内容、信念、自己像、関係、Common Groundの変更は、Experience IntegrationまたはReflectionの判断を要する。
 - 既存のMemory書込みは新規作成だけで、既存Memoryの更新経路を持たない。MemoryWriteServiceにupdateとno-opを追加する。
 - 更新対象は会話由来Memoryに限る。背景経験は更新しない。
 - `remember` はMemoryIntentとして、content、reason、evidenceEventIds、confidence、targetを持つ。operationや候補Indexは持たない。
@@ -723,8 +723,8 @@ retrieve({
 - 設計原則C-67に従い、MemoryWriteServiceはDB gatewayとしてtransaction clientを受け取り、Memory versionの楽観ロックとAgent単位の直列処理を行う。
 - 既存の直接INSERT経路を削除し、MemoryWriteService以外からmemoriesへ書き込まない。
 - 更新対象の選択と更新内容は誤り得る。誤った記憶の更新、更新しない判断を許容する。
-- 同一Event内のAction、State変更、Memory、Outboxは既存のtransactionで確定する。
-- MainAgentのrememberはそのEventのtransaction、G1/G2/ReflectionのMemoryIntentはmemory-update Eventのtransactionで適用する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとして同じEventのtransactionで適用する。
+- 同一Event内のAction、Concern変更、Outboxは初回transactionで確定する。Memory、Mood、RelationshipはExperience Integrationまたはmemory-update Eventの別transactionで確定する。
+- 通常応答のMemoryIntent、Mood、RelationshipはExperience Integrationが初回commit後に適用する。G1/G2/ReflectionのMemoryIntentはmemory-update Eventのtransactionで適用する。
 - G1/G2/G3の応答後書込みは、sourceEventIdとintentIndexの冪等性キーで重複を防ぐ。
 - 書込み失敗は予測処理の失敗として記録し、応答や既存Memoryを巻き戻さない。
 - 背景経験の初期化はMemoryWriteServiceを通さず、専用Storeの初期化処理で行う。
@@ -733,7 +733,7 @@ retrieve({
 
 - 設計原則C-48に従い、予測誤差は記憶更新の入力であり、修正を強制しない。
 - 観測事実はMemoryWriteServiceが保存する。
-- 信念、自己像、関係、共通認識の変更はMainAgentが決める。
+- 信念、自己像、関係、共通認識の変更はExperience IntegrationまたはReflectionが決める。SelfはReflectionだけが変更する。
 - Selfの変更は既存のReflectionの制約に従う。
 - 予測誤差だけを理由に、ユーザーへの迎合、信念の撤回、関係の変更を行わない。
 - 記憶違い、勘違い、誤った原因帰属を許容する。
@@ -741,7 +741,7 @@ retrieve({
 
 ### 11.4 MemoryUpdate Event
 
-- 設計原則C-59に従い、G1/G2/ReflectionのMemory更新は `memory-update` Eventとして適用する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。
+- 設計原則C-59に従い、G1/G2/ReflectionのMemory更新は `memory-update` Eventとして適用する。通常応答とG3再判断後のMemoryIntentはExperience Integrationが初回commit後に適用する。
 - `memory-update` は決定済みの更新計画を適用するEventであり、LLMを呼ばない。
 - payloadは次を持つ。
 
@@ -773,7 +773,7 @@ memory-update Event:
 - 個別intentのvalidation failureはEvent failureとして記録し、元のuser-message応答は巻き戻さない。
 - 同じsourceEventIdとintentIndexの再適用は冪等にする。
 - 更新対象は会話由来Memoryに限る。背景経験は更新しない。
-- MemoryIntentのtargetにrelationshipまたはconcernを含めない。RelationshipとConcernはMainAgentのPatchまたはConcern提案へ渡す。
+- MemoryIntentのtargetにrelationshipまたはconcernを含めない。RelationshipはExperience IntegrationまたはReflection、ConcernはConcern proposalまたはReflectionへ渡す。
 
 ### 11.5 Reflectionとの共通化
 
@@ -793,7 +793,7 @@ memory-update Event:
 | 固有処理 | なし | 統合、矛盾解消、Self / Relationship / Concernの更新 |
 
 - Reflectionは、Memoryの変更をmemory-update Eventとして発行する。
-- Self、Relationship、Concern、MoodはMemoryではないため、MemoryWriteServiceでは更新しない。既存のReflection、Patch、Concern Proposalを使う。
+- Self、Relationship、Concern、MoodはMemoryではないため、MemoryWriteServiceでは更新しない。MoodとRelationshipはExperience IntegrationまたはReflection、SelfはReflection、ConcernはConcern ProposalまたはReflectionを使う。
 - Reflectionがmemory-update Eventを発行する場合、Reflectionの入力上限（Event / Memory各32件）と出力上限（Memory / Concern / Relationship各4件）に収める。
 - 予測誤差の生ログをすべてReflectionへ流さず、要約・集約したprediction errorとMemoryIntent、解決済みoperationの履歴を渡す。
 - 設計原則C-64/C-68に従い、ReflectionのMemory更新とSelf、Relationship、Concernの更新は同一DB transactionを必須としない。
@@ -818,10 +818,10 @@ memory-update Event:
 - 設計原則C-66に従い、`predictionContext` は、前回の予測と誤差評価、G3の要約とmemoryIntents、RecentExperienceのeffect、memoryCandidatesを含む。
 - G3のmemoryIntentsは、MainAgentが採用・不採用を決めるためのMemoryIntentであり、G3は直接保存しない。
 - 設計原則C-58に従い、MainAgentはActionで期待する変化を `desire` の自然言語に含める。専用のactionExpectation fieldは持たない。
-- MainAgentがMemoryを更新する場合も、`retrieval_search` でmemoryCandidatesを取得し、`remember` としてMemoryIntentを返す。
-- Runtimeは`remember`の文字数、Agent所有権、target、evidenceを検証する。
-- `remember` がないActionは、Memoryを変更しない。
-- MainAgentの`remember`は、そのEventのtransactionでMemoryWriteServiceが適用する。
+- Experience Integrationは、Agent Coreの確定結果とTool traceを根拠にMemoryIntentを判断し、必要時にRetrievalでmemoryCandidatesを取得する。
+- RuntimeはExperience IntegrationのMemoryIntentの文字数、Agent所有権、target、evidenceを検証する。
+- IntegrationがMemoryIntentを出さないActionは、Memoryを変更しない。
+- Experience Integrationは初回Event transactionとは別にMemoryWriteServiceで適用する。
 - effectの評価はMainAgentではなく、次のG1/G2が観測後に行い、RecentExperienceのAction結果へ記録する。
 
 ## 13. 永続化
@@ -837,6 +837,7 @@ memory-update Event:
 | `g3_tasks` | 発生元Event、Run、対象階層、処理状態、期限、試行回数、結果参照、調査結果JSONB |
 | `background_experiences` | Agent、日時、段階、場所、人物、関係、行動、感情、結果、学び、重要度、タグ、埋め込み、埋め込み状態 |
 | `memory_mutations` | sourceEventId、sourceRunId、intentIndex、operation、targetMemoryId、before、after、reason、evidenceEventIds、idempotencyKey、適用時刻 |
+| `experience_integrations` | 初回commit済みのEventとRun、同じAgentCoreInput、確定Assessment / Desire / Action、Tool trace、pending / completed / failed、Memory・Mood・Relationshipの判断出力、適用結果または失敗理由 |
 
 - 予測候補は `prediction_records` のJSONBに保存し、候補ごとの専用tableは作らない。
 - prediction_recordsとprediction_evaluationsはEventとRunで検索できるようにする。予測専用の意味IDは作らない。
@@ -844,6 +845,7 @@ memory-update Event:
 - `memories` にversionを追加し、MemoryWriteServiceがupdate時に照合する。
 - `reflection_runs` にreflection planと対象別statusを保持する。
 - memory-update Eventは既存のeventsとagent_runsに保存し、mutationの監査はmemory_mutationsに保存する。
+- Experience Integrationは初回commit後にまず`experience_integrations`へpendingとして記録する。初回応答やOutboxを巻き戻さず、入力・出力・適用結果または失敗を同tableで監査する。
 - MemoryWriteServiceは、sourceEventId、intentIndex、解決したoperation、Memory ID、更新前後の内容をmemory_mutationsへ記録する。
 - ReflectionのMemory、Self、Relationship、Concernごとの状態はreflection_runsに保持し、部分成功を識別できるようにする。
 - G3の仮説は `prediction_records` のG3グループ、仮説評価は `prediction_evaluations` に保存する。
@@ -864,7 +866,7 @@ memory-update Event:
 - G3はuser-messageより低優先度で実行する。user-messageが待っている間はG3を開始せず、実行中の場合は次のuser-messageを優先する。
 - 予測処理の失敗を理由に、MainAgentの応答、Memory、Outboxのtransactionを壊さない。
 - 部分的な予測記録、誤差評価、観測候補をcommitしない。
-- MainAgentのrememberが空、または文字数上限を超える場合、validation failureとして記録する。Action自体は継続できる。
+- Experience IntegrationのMemoryIntentが空、または文字数上限を超える場合、Integration failureとして記録する。初回Action自体は継続できる。
 - MemoryIntentの候補が古い場合、MemoryWriteServiceは同じqueryで再検索するか、createまたはno-opにする。
 - Memory versionが競合した場合、MemoryWriteServiceは再検索・再判定し、解決できなければno-opにする。
 - memory-update Eventの失敗は、sourceEventIdとidempotencyKeyで再試行する。部分的なintentだけをcommitしない。
@@ -975,12 +977,12 @@ memory-update Event:
 
 - 概念設計のC-01からC-19、実装設計のC-20からC-29を既存の原則とする。
 - 本ドキュメントはC-30からC-71を追加する。
-- Agent Coreの構造化出力（C-23）は維持する。予測Contextとremember（MemoryIntent）は入力・出力として追加する。
-- Actionの期待はdesire、Actionの結果はRecentExperience、Memory更新意図はrememberとMemoryIntentへ統合する。
+- Agent Coreの構造化出力（C-23）はMeaning、Feeling、Desire、Actionに限定する。予測Contextは入力として維持し、Memory更新意図はExperience IntegrationとMemoryIntentへ分離する。
+- Actionの期待はdesire、Actionの結果はRecentExperience、Memory更新意図はExperience IntegrationのMemoryIntentへ統合する。
 - G1/G2のpredictionEvaluationは予測シグナルであり、Meaning / FeelingはMainAgentだけが確定する。
 - MemoryWriteServiceはDB gatewayとしてtransaction client、Memory version、楽観ロック、Agent単位の直列処理を持つ。
 - 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、call予算とdeadlineを持つ。
-- State PatchとConcern Proposalの境界（C-24）は維持する。
+- Experience IntegrationとConcern Proposalの境界を維持する。Experience IntegrationはMemory、Mood、Relationshipだけを扱う。
 - Reflectionの責務（C-25）は維持する。背景経験はReflectionの変更対象にしない。
 - LLMと通常コードの責務分担（C-27）を維持する。予測の意味判断はLLM、時刻、所有権、永続化、上限、再試行は通常コードが担う。
 - 最小実装単位と検証方針（C-29）を維持する。

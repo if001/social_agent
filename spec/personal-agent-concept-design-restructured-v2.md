@@ -108,7 +108,7 @@ Shared Dispositionは、そのAgent群に共通する「種類としての性質
 次回も自発探索を選びやすくなる
 ```
 
-このように、経験はMemory、Self Story、Disposition、Relationshipへ反映され、将来の意味解釈と行動を変える。Reflectionは、複数の経験をまとめてこの長期反映を行う。
+このように、経験はMemory、Mood、Relationship、Self Story、Dispositionへ反映され、将来の意味解釈と行動を変える。各Eventの小さな持続的反映は応答commit後のExperience Integrationが担い、複数の経験をまとめたSelf・Concernを含む長期反映はReflectionが担う。
 
 ## 4. Disposition
 
@@ -406,7 +406,7 @@ Previous Assessment
 Agent Coreによる意味解釈
         ↓
 Final Meaning / Feeling
-Desire / Action / State Patch
+Desire / Action
 ```
 
 と考える。
@@ -556,7 +556,7 @@ Feeling、Mood、Desire、Concern、Selfは保存されたまま固定されな�
 
 - C-16：小さなAgent Loopを基本とし、ToolをAgent自身が世界へ働きかけるCapabilityとして扱う。
 
-本構想では、多段の認知Pipelineを前提としない。基本形は、Event / Observationを受け取ったAgent Coreが、必要なContextをToolで取得し、意味・感情・Desire・Actionを一つの構造化出力として確定する小さなループである。
+本構想では、多段の認知Pipelineを前提としない。基本形は、Event / Observationを受け取ったAgent Coreが、必要なContextをToolで取得し、意味・感情・Desire・Actionを一つの構造化出力として確定する小さなループである。応答commit後のExperience Integrationは次のActionを再判断しない保存判断専用の後続処理であり、この認知ループを分割するものではない。
 
 ```text
 Event / Observation
@@ -574,7 +574,7 @@ Agent Core
         │
         ↓
 Final Meaning / Feeling
-Desire / Action / State Patch
+Desire / Action
         │
         ├── Respond
         ├── Refuse
@@ -583,14 +583,14 @@ Desire / Action / State Patch
         ↓
 Result / New Experience
         ↓
-Memory / Reflection
+Experience Integration（Memory / Mood / Relationship） / Reflection
         ↓
 loop
 ```
 
-Agent CoreはLLMを中心とする。必要に応じて、Observationの解釈、Final Meaningの形成、Desireの生成、Feeling / Moodの更新、Relationshipの更新、Self Storyの更新提案、必要なMemoryの検索判断、Tool選択、Action生成などを行う。
+Agent CoreはLLMを中心とする。Observationの解釈、Final Meaningの形成、Desireの生成、Feeling、必要なMemoryの検索判断、Tool選択、Action生成を行う。Mood・Relationship・Memoryの持続更新の判断は、commit済みのEvent、確定したAssessment / Desire / Action、Tool結果、同じ初期Contextを受けるExperience Integrationが行う。Self StoryとConcernの長期更新はReflectionとConcern Eventの責務である。
 
-MeaningとFeelingは、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。Event Assessmentを独立した別のLLM callとして必須にしない。Runtimeは出力のうちMeaningとFeelingを `assessment` として分離し、Desire、Action、Patchを `output` として扱う。
+MeaningとFeelingは、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。Event Assessmentを独立した別のLLM callとして必須にしない。Runtimeは出力のうちMeaningとFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。Experience Integrationのschema・provider・保存失敗は、既にcommitしたActionやoutboxを失敗にしない。
 
 これらの認知処理を必ず別々のLLM呼び出しや独立ブロックとして実装することは前提としない。
 
@@ -693,7 +693,7 @@ Agentはユーザー入力がなくても、Event sourceを契機にDesireを活
 
 この図は固定Pipelineを意味しない。単純な依頼であれば、Observation、Tool、Responseだけで終わってよい。
 
-一方、意味のある経験では、その結果がMemory、Self Story、Disposition、Relationship、Concernへ影響し、将来の意味解釈や行動にも影響する。現在の実装では、その長期反映をReflectionが担う。
+一方、意味のある経験では、その結果がMemory、Mood、Relationship、Self Story、Disposition、Concernへ影響し、将来の意味解釈や行動にも影響する。現在の実装では、Event単位のMemory・Mood・RelationshipをExperience Integrationが、複数経験をまたぐSelf・ConcernをReflectionが担う。
 
 ## 26. 非目標
 

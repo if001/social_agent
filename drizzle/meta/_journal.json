@@ -197,6 +197,13 @@
       "when": 1793600000005,
       "tag": "0027_memory_perspective_purpose",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793600000006,
+      "tag": "0028_experience_integration_trace",
+      "breakpoints": true
     }
   ]
 }

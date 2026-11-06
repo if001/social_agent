@@ -18,6 +18,8 @@ export { AddressedFileQueue } from "./infrastructure/queue/addressed-file-queue.
 export type { FileQueueOptions } from "./infrastructure/queue/addressed-file-queue.js";
 export { AgentStatePatchService } from "./application/agent-state-patch.js";
 export type { AgentStatePatchChange, AgentStatePatchResult } from "./application/agent-state-patch.js";
+export { ExperienceIntegration, DirectExperienceIntegrationSink } from "./application/experience-integration.js";
+export type { ExperienceIntegrationInput, ExperienceIntegrationModel, ExperienceIntegrationOutput, ExperienceIntegrationRepository, ExperienceIntegrationSink } from "./application/experience-integration.js";
 export { PostgresEventTransaction } from "./infrastructure/persistence/event-transaction.js";
 export type { CommitEventInput, FailedEventInput } from "./infrastructure/persistence/event-transaction.js";
 export { PostgresRuntimePersistence } from "./infrastructure/persistence/postgres-runtime-persistence.js";

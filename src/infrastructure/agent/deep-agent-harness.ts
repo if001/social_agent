@@ -23,20 +23,8 @@ const AgentCoreFlatOutputSchema = z.object({
   actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない内部Eventはno-external-actionを選ぶ。idleではrespondまたはrefuseを必ず選び、no-external-actionを選ばない。concern-formationは関心地図を形成する内部Eventなのでno-external-actionを選ぶ。情報が不十分ならidleではrespondで不十分な旨を伝える"),
   content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
-  refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須"),
-  mood: z.string().trim().min(1).max(160).optional().describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い、失望が尾を引く、やや警戒している。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する"),
-  relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
-  relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
-  relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。プロフィール事実ではなく、信頼、共有の仕方、会話の深まりなど関係自体を書く。relationshipOperationがupsertの場合は必須"),
-  rememberContent: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す1〜2文の要点。ユーザー事実と自分の探索経験を混ぜない。単発のTool失敗は保存しない"),
-  rememberPerspective: z.enum(["user", "self"]).optional().describe("rememberContentの視点。userは対話相手について確認できた事実、selfは自分の探索・行動・判断から得た経験"),
-  rememberPurpose: z.enum(["user-context", "self-guidance"]).optional().describe("rememberContentの再利用先。userはuser-context、selfはself-guidanceを選ぶ")
-}).strict().superRefine((value, context) => {
-  const specified = [value.rememberContent, value.rememberPerspective, value.rememberPurpose].filter((item) => item !== undefined).length;
-  if (specified > 0 && specified < 3) context.addIssue({ code: "custom", path: ["rememberContent"], message: "rememberContent, rememberPerspective, and rememberPurpose must be specified together" });
-  if (value.rememberPerspective === "user" && value.rememberPurpose !== undefined && value.rememberPurpose !== "user-context") context.addIssue({ code: "custom", path: ["rememberPurpose"], message: "user perspective requires user-context purpose" });
-  if (value.rememberPerspective === "self" && value.rememberPurpose !== undefined && value.rememberPurpose !== "self-guidance") context.addIssue({ code: "custom", path: ["rememberPurpose"], message: "self perspective requires self-guidance purpose" });
-}).describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
+  refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須")
+}).strict().describe("Agent Coreの最終判断。今回のMeaning・Feeling・Desire・Actionだけを埋める。Memory、Relationship、Moodの持続的な保存判断はExperience Integrationへ渡す");
 export const completeAgentCoreSystemPrompt = agentCoreSystemPrompt;
 
 function dispositionTendency(disposition: string): string {
@@ -47,7 +35,7 @@ function dispositionTendency(disposition: string): string {
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
 
 export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
-export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontent、refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reasonを指定してください。状態変更がなければmood、relationship系、rememberは省略してください。";
+export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontent、refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reasonを指定してください。Memory、Relationship、Moodは出力しません。";
 
 function domainOutputFromFlat(value: unknown): unknown {
   const parsed = AgentCoreFlatOutputSchema.safeParse(value);
@@ -57,12 +45,7 @@ function domainOutputFromFlat(value: unknown): unknown {
     : flat.actionType === "refuse" ? { type: flat.actionType, content: flat.content, reason: flat.reason, basis: flat.refusalBasis }
       : flat.actionType === "notify-no-execution" ? { type: flat.actionType, content: flat.content, reason: flat.reason }
         : { type: flat.actionType, reason: flat.reason };
-  const relationship = flat.relationshipOperation === "upsert"
-    ? { operation: flat.relationshipOperation, relationship: { subjectId: flat.relationshipSubjectId, description: flat.relationshipDescription } }
-    : flat.relationshipOperation === "remove" ? { operation: flat.relationshipOperation, subjectId: flat.relationshipSubjectId } : undefined;
-  const remember = flat.rememberContent === undefined ? undefined : { content: flat.rememberContent, perspective: flat.rememberPerspective, purpose: flat.rememberPurpose };
-  const hasPatch = flat.mood !== undefined || relationship !== undefined || remember !== undefined;
-  return { ...(flat.meaning === undefined ? {} : { meaning: flat.meaning }), ...(flat.feeling === undefined ? {} : { feeling: flat.feeling }), desire: flat.desire, action, ...(hasPatch ? { patch: { ...(flat.mood === undefined ? {} : { mood: flat.mood }), ...(relationship === undefined ? {} : { relationship }), ...(remember === undefined ? {} : { remember }) } } : {}) };
+  return { ...(flat.meaning === undefined ? {} : { meaning: flat.meaning }), ...(flat.feeling === undefined ? {} : { feeling: flat.feeling }), desire: flat.desire, action };
 }
 
 const AgentCoreDecisionSchema = AgentCoreOutputSchema.extend({
@@ -217,7 +200,7 @@ export class DeepAgentHarness implements AgentHarness {
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v3-ja", input: promptInput })
-          : JSON.stringify({ instruction: "元の入力Contextと今回のTool結果を根拠に、直前の無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。新しい調査や通常Tool呼び出しは行わず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。状態変更がなければ状態フィールドは省略してください。Contextを推測せず、与えられた内容だけを使ってください。", input: promptInput, toolEvidence: repairToolEvidence(observedToolExecutions), allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
+          : JSON.stringify({ instruction: "元の入力Contextと今回のTool結果を根拠に、直前の無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。新しい調査や通常Tool呼び出しは行わず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。Memory、Relationship、Moodは出力しません。Contextを推測せず、与えられた内容だけを使ってください。", input: promptInput, toolEvidence: repairToolEvidence(observedToolExecutions), allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
         const modelBudget = modelInputBudget(input, content);
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "agent_core.model_input_budget_exceeded", { estimatedTokens: modelBudget.total, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(modelBudget.components) });
         const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;

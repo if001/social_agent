@@ -6,7 +6,6 @@ const NaturalLanguage = z.string().trim().min(1).max(16_000);
 const AgentDesire = z.string().trim().min(1).max(800);
 const AgentContent = z.string().trim().min(1).max(6_000);
 const AgentReason = z.string().trim().min(1).max(800);
-const AgentMood = z.string().trim().min(1).max(160);
 const AgentStateDescription = z.string().trim().min(1).max(800);
 const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない。未返信・返答待ち・連投回避を待機や抑制の意味として書かない");
 const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 喜び、期待、不安、落胆、苛立ち、怒り、驚き、警戒、安堵、退屈。例から選ぶ必要はない。Toolの失敗・探索結果・予測誤差への反応も書ける。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。未返信・返答待ち・連投回避を待機や抑制の感情として書かない");
@@ -341,12 +340,7 @@ export const MemoryProposalSchema = z.object({
 export type MemoryProposal = z.infer<typeof MemoryProposalSchema>;
 export const AgentTurnSchema = z.object({
   desire: AgentDesire.describe("現在のSelf、状態、Observation、前回Assessment、previousDesire、取得したContextとTool結果から生じた今回の具体的な現在のコミットメント。自律Eventでは探索対象を選んだ根拠をSelf、Concern、会話Memory、Background Experience、Mood、探索結果のいずれかへ辿れるようにする。Concernの言い換えにしない"),
-  action: FinalActionSchema,
-  patch: z.object({
-    mood: AgentMood.describe("今回だけの反応ではなく、次の複数Eventにも影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がない場合は省略する").optional(),
-    relationship: RelationshipChangeSchema.optional().describe("Relationshipの変更を1件だけ提案する。抽象的過ぎる内容は避ける。変更不要なら省略する"),
-    remember: MemoryProposalSchema.optional()
-  }).strict().describe("次のEventにも影響する永続状態の変更提案。変更がなければpatch全体を省略する").optional()
+  action: FinalActionSchema
 }).strict();
 export type AgentTurn = z.infer<typeof AgentTurnSchema>;
 
@@ -474,7 +468,7 @@ export const AgentCoreInputSchema = z.object({
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 
-export const AgentCoreOutputSchema = AgentTurnSchema.describe("前回Assessmentと今回の経験を踏まえて決めたDesire、最終Action、次のEventへ残す任意の状態変化");
+export const AgentCoreOutputSchema = AgentTurnSchema.describe("前回Assessmentと今回の経験を踏まえて決めたDesireと最終Action。Memory、Relationship、Moodの持続的更新は応答commit後のExperience Integrationが判断する");
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
 

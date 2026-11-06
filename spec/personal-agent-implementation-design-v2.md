@@ -60,7 +60,7 @@ Agent Coreへ渡すContextを構築する薄い層。Self、State、Recent Exper
 
 ### Agent Core
 
-LLMを中心とする意味解釈・状態更新提案・意思決定層。Meaning、Feeling、Desire、Action、任意のState Patchを一つの構造化出力として返す。
+LLMを中心とする意味解釈・意思決定層。Meaning、Feeling、Desire、Actionを一つの構造化出力として返す。Memory、Mood、Relationshipの持続更新判断は応答commit後のExperience Integrationへ分離する。
 
 ### Agent State
 
@@ -75,16 +75,17 @@ flowchart TD
   E[Event] --> R[Runtime / Observation / Context Builder]
   R --> C[Agent Core Deep Agent]
   C <--> T[Tool実行・結果]
-  C --> O[Final Meaning / Feeling / Desire / Action / Patch]
+  C --> O[Final Meaning / Feeling / Desire / Action]
   O --> V[Runtime検証・RunとTool履歴保存・Outbox登録]
   V --> D[応答配送]
-  V --> S[State / Memory commit]
+  V --> EI[Experience Integration]
+  EI --> S[Memory / Mood / Relationship commit]
   S --> RF[Event駆動Reflection]
 ```
 
-- Agent Coreは、Event、Previous Assessment、Recent Experiences、必要に応じてToolで取得したContextを使い、Event終了時のMeaningとFeeling、Desire、最終Action、任意のPatchを同じ構造化出力で確定する。
-- RuntimeはMeaningとFeelingを `assessment` として分離し、Desire、Action、Patchを `output` として扱う。
-- Action、State Patch、即時Memory、Outboxを一つのtransactionで確定する。
+- Agent Coreは、Event、Previous Assessment、Recent Experiences、必要に応じてToolで取得したContextを使い、Event終了時のMeaningとFeeling、Desire、最終Actionを同じ構造化出力で確定する。
+- RuntimeはMeaningとFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。
+- Action、Concern Proposal、Outboxを一つの初回transactionで確定する。Experience Integrationはその後にMemory、Mood、Relationshipだけを判断・適用し、失敗しても初回commitを巻き戻さない。
 - Memoryの圧縮、Self更新、Concern / Relationshipの長期整理は、別EventのReflectionで行う。
 - 応答配送はcommit後のOutboxから行い、配送障害とAgentの判断確定を分離する。
 
@@ -517,7 +518,7 @@ Relationship
 
 ## 18. Agent Core Input
 
-- C-23：Agent Coreは選択済みのContextを受け、meaning、feeling、desire、action、任意のpatchを構造化出力する。
+- C-23：Agent Coreは選択済みのContextを受け、meaning、feeling、desire、actionを構造化出力する。
 
 Agent CoreへAgentState全体を毎回渡さず、Context Builderが関連情報を選択する。
 
@@ -564,7 +565,6 @@ type AgentCoreOutput = {
   feeling?: string;
   desire: string;
   action: FinalAction;
-  patch?: StatePatch;
 };
 
 type AgentRunResult = {
@@ -575,7 +575,6 @@ type AgentRunResult = {
   output: {
     desire: string;
     action: FinalAction;
-    patch?: StatePatch;
   };
   toolExecutions: ToolExecutionRecord[];
   concernProposals?: ConcernProposal[];
@@ -583,11 +582,11 @@ type AgentRunResult = {
 };
 ```
 
-モデル向けにはMeaning、Feeling、Desire、Action、Patchを一つのフラットな構造化出力として要求する。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。field descriptionは出力意味をモデルへ伝えるために保持し、RuntimeのZod検証を置き換えない。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
+モデル向けにはMeaning、Feeling、Desire、Actionを一つのフラットな構造化出力として要求する。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。field descriptionは出力意味をモデルへ伝えるために保持し、RuntimeのZod検証を置き換えない。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
 最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。ただしidleでは`no-external-action`を選択できない。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。InteractionではDesireに基づく具体的Actionを必須とする。
 
-持続状態、Memory、Concernは最終出力へ混在させず、PatchまたはToolによる提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
+持続状態、Memory、Concernは最終出力へ混在させない。Memory、Mood、RelationshipはExperience Integrationが判断し、ConcernはToolによるrun-localな提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
 
 ## 20. State Patch と Concern Proposal
 

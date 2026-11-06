@@ -448,7 +448,7 @@ describeDatabase("PostgreSQL persistence", () => {
       output: { desire: "respond to this event", action: { type: "respond" as const, content: "Hello" } },
       toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
     };
-    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [], remember: { content: "A useful exchange", perspective: "user", purpose: "user-context" } }, [])).resolves.toBe("committed");
+    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [] }, [])).resolves.toBe("committed");
     expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
@@ -457,8 +457,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const inputSnapshot = (await pool.query<{ input_snapshot: { version: number; observation: { summary: string }; currentSelf: { version: number }; availableTools: { name: string; inputSchema?: unknown }[]; memories: { id: string }[] } }>("SELECT input_snapshot FROM agent_runs WHERE id='runtime-run'")).rows[0]?.input_snapshot;
     expect(inputSnapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "lookup" }] });
     expect(inputSnapshot?.availableTools[0]).not.toHaveProperty("inputSchema");
-    expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([{ subject_id: "user-42" }]);
-    expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='integration-job'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
+    expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([]);
   });
 
   it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {

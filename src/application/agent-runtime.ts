@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { AgentHarness, IdGenerator, MessageQueue, PredictionService } from "./ports.js";
 import type { MemoryUpdateHandler } from "./memory-update.js";
+import type { ExperienceIntegrationSink } from "./experience-integration.js";
 import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
@@ -25,7 +26,7 @@ export interface RuntimePersistence {
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink };
 
 const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined;
 
@@ -121,12 +122,16 @@ export class AgentRuntime {
       throw error;
     }
     const output = result.output;
-    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: (output.patch === undefined ? 0 : 1) + (result.concernProposals?.length ?? 0) });
-    const patched = this.#updates.apply(event.agentId, input.state, output.patch, event.id);
+    logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: result.concernProposals?.length ?? 0 });
+    const patched = this.#updates.initial(event.agentId, input.state);
     const update = this.#updates.applyConcernProposals(patched, result.concernProposals ?? [], event.id, () => this.options.ids.next());
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
+    if (committed === "committed" && this.options.experienceIntegration !== undefined) {
+      try { await this.options.experienceIntegration.enqueue({ agentId: event.agentId, sourceEvent: event, sourceRunId: input.run.runId, input, result }); }
+      catch (error) { logger.log("warn", "experience_integration.enqueue_failed_after_commit", { ...errorLogContext(error) }); }
+    }
     if (committed === "committed" && this.options.prediction !== undefined) {
       const predictionStartedAt = Date.now();
       try {

@@ -1,5 +1,4 @@
 import { DeepAgentHarness } from "../../src/infrastructure/agent/deep-agent-harness.js";
-import { AgentStatePatchService } from "../../src/application/agent-state-patch.js";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { InMemoryRuntimePersistence } from "../../src/testing/in-memory-runtime-persistence.js";
@@ -34,7 +33,6 @@ describe("ST-07 abnormal output", () => {
   it("FR-15, FR-32, NFR-1: leaves no state side effects for invalid output, forbidden state, unknown tools, or foreign context", async () => {
     const input = agentCoreInputFixture(); const before = structuredClone(input.state); const harness = new DeepAgentHarness({ invoker: { invoke: () => Promise.resolve({ structuredResponse: { invalid: true } }) }, registeredToolNames: new Set(), maxRepairs: 1 });
     await expect(harness.run(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
-    expect(() => new AgentStatePatchService().apply("agent-b", input.state, undefined, input.run.eventId)).toThrow();
     await expect(new ToolRegistry([]).execute("unknown", {}, { agentId: "agent-a", runId: "run", idempotencyKey: "key" }, new AbortController().signal)).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(input.state).toEqual(before);
   });
