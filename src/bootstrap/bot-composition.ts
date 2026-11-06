@@ -53,8 +53,9 @@ export function createBotComposition(options: BotCompositionOptions) {
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 27, maxToolCalls: 25, maxHops: 4, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
   const retrievalService = new PostgresRetrievalService(pool, embeddingProvider);
+  const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, embeddingProvider, config.embedding.model);
   const predictionRepository = new PostgresPredictionRepository(pool);
-  const memoryUpdateHandler = new MemoryUpdateHandler(pool, ids, () => clock.now(), retrievalService);
+  const memoryUpdateHandler = new MemoryUpdateHandler(pool, ids, () => clock.now(), retrievalService, memoryEmbedding);
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
   const runtimeRef: { current?: AgentRuntime } = {};
   const fallbackG3Result = new MemoryG3ResultSink(memoryUpdateSink);
@@ -79,7 +80,6 @@ export function createBotComposition(options: BotCompositionOptions) {
   const g3Service = new G3Service(new PostgresG3TaskRepository(pool), createOllamaG3Model({ ...config.chat, toolRegistry }), g3ResultSink, ids, () => clock.now());
   const g3Sink = new DirectG3Sink(g3Service, 20_000);
   const prediction = new PredictionLoop({ repository: predictionRepository, model: createOllamaPredictionModel(config.chat, logger), ids, now: () => clock.now(), retrieval: retrievalService, memoryUpdateSink, g3Sink, limits: { deadlineMs: 180_000, maxAttempts: 1 }, logger });
-  const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, embeddingProvider, config.embedding.model);
   const contextLoader = new PostgresAgentContextLoader({
     pool, ids, tools: toolRegistry,
     embedding: embeddingProvider,
@@ -97,7 +97,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   });
   const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler });
   runtimeRef.current = runtime;
-  const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now(), memoryUpdateSink), new OllamaReflectionModel(config.chat, logger));
+  const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now(), memoryUpdateSink, memoryEmbedding), new OllamaReflectionModel(config.chat, logger));
   const router = new AgentEventRouter(runtime);
   const outbox = new OutboxDispatcher(persistence, queue, logger);
   return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, reflection, router, outbox };

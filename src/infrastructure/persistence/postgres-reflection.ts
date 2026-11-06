@@ -1,6 +1,6 @@
 import type { Pool, QueryResultRow } from "pg";
 
-import type { IdGenerator } from "../../application/ports.js";
+import type { IdGenerator, MemoryEmbeddingWriter } from "../../application/ports.js";
 import { MemoryWriteService } from "../../application/memory-write-service.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ReflectionInputSchema, ReflectionOutputSchema, ReflectionPlanSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository } from "../../application/reflection.js";
@@ -45,7 +45,7 @@ function applyRelationships(current: readonly Relationship[], changes: Reflectio
 }
 
 export class PostgresReflectionRepository implements ReflectionRepository {
-  constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryUpdateSink?: MemoryUpdateSink) {}
+  constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryUpdateSink?: MemoryUpdateSink, private readonly memoryEmbedding?: MemoryEmbeddingWriter) {}
 
   async load(reflectionId: string, agentId: string): Promise<ReflectionInput | undefined> {
     const existing = await this.pool.query<ReflectionRow>("SELECT status,input FROM reflection_runs WHERE id=$1 AND agent_id=$2", [reflectionId, agentId]);
@@ -105,14 +105,17 @@ export class PostgresReflectionRepository implements ReflectionRepository {
         await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-due',$3,$4)", [`concern:${concern.id}`, input.agentId, concern.whyItMatters, concern.reconsiderAt]);
       }
       const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
+      const writtenMemoryIds: string[] = [];
       if (this.memoryUpdateSink === undefined) {
         for (const [memoryIndex, memory] of output.memories.entries()) {
-          await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }) });
+          const result = await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }) });
+          if (result.memoryId !== undefined) writtenMemoryIds.push(result.memoryId);
         }
       }
       const plan = ReflectionPlanSchema.parse({ memory: "completed", self: "completed", relationship: "completed", concern: "completed", errors: [] });
       await client.query("UPDATE reflection_runs SET status='completed',plan=$2,output=$3,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.reflectionId, JSON.stringify(plan), JSON.stringify(output)]);
       await client.query("COMMIT");
+      if (writtenMemoryIds.length > 0 && this.memoryEmbedding !== undefined) await this.memoryEmbedding.embedMemoryIds(input.agentId, writtenMemoryIds);
       return "committed";
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
