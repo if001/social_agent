@@ -19,7 +19,7 @@ export const g3SystemPrompt = `あなたはAgentのG3担当です。ユーザー
 - hypothesisEvaluations: 前回仮説の支持、反証、判断不能。evidenceEventIdsとrationaleを含める
 - newHypotheses: 新しい仮説
 - findings: 調査結果
-- remember: MemoryIntent。content、reason、evidenceEventIds、confidence、target
+- remember: MemoryIntent。content、reason、evidenceEventIds、confidence、target、perspective、purpose。ユーザーについての確定事実はuser/user-context、自分の調査経験はself/self-guidanceにする
 
 制約:
 - Memoryを直接書き換えない

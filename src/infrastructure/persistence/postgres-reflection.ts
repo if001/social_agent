@@ -76,7 +76,7 @@ export class PostgresReflectionRepository implements ReflectionRepository {
 
   async commit(input: ReflectionInput, rawOutput: ReflectionOutput): Promise<"committed" | "duplicate"> {
     const output = ReflectionOutputSchema.parse(rawOutput);
-    const reflectionIntents = output.memories.map((memory) => ({ content: memory.summary, reason: memory.significance, evidenceEventIds: input.events.map(({ id: eventId }) => eventId), confidence: "medium" as const, target: "episodic" as const }));
+    const reflectionIntents = output.memories.map((memory) => ({ content: memory.summary, reason: memory.significance, evidenceEventIds: input.events.map(({ id: eventId }) => eventId), confidence: "medium" as const, target: "episodic" as const, perspective: memory.subjects.length > 0 ? "user" as const : "self" as const, purpose: memory.subjects.length > 0 ? "user-context" as const : "self-guidance" as const }));
     if (this.memoryUpdateSink !== undefined && reflectionIntents.length > 0) {
       const sinkInput = { agentId: input.agentId, sourceEventId: input.reflectionId, intents: reflectionIntents, subjectsByIntent: output.memories.map((memory) => memory.subjects), sourceAgentIds: output.memories.map((memory) => memory.source) };
       try {
@@ -111,7 +111,7 @@ export class PostgresReflectionRepository implements ReflectionRepository {
       const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
       if (this.memoryUpdateSink === undefined) {
         for (const [memoryIndex, memory] of output.memories.entries()) {
-          await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(memoryEmbeddings[memoryIndex] === undefined ? {} : { embedding: memoryEmbeddings[memoryIndex] }) });
+          await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic", perspective: memory.subjects.length > 0 ? "user" : "self", purpose: memory.subjects.length > 0 ? "user-context" : "self-guidance" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(memoryEmbeddings[memoryIndex] === undefined ? {} : { embedding: memoryEmbeddings[memoryIndex] }) });
         }
       }
       const plan = ReflectionPlanSchema.parse({ memory: "completed", self: "completed", relationship: "completed", concern: "completed", errors: [] });

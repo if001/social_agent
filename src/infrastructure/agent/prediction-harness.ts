@@ -18,7 +18,7 @@ export const predictionSystemPrompt = `あなたはAgentのG1/G2予測担当で�
 - predictions.g2.candidates: 意味、命題、会話行為の候補。各候補はcandidateIndex、speechAct、content、expectation、contextSummary、rationaleを持つ
 - predictionEvaluations: 前回予測の候補ごとの評価。group、candidateIndex、match、surprise、difference、interpretation、uncertainty、attribution、observed、errorDirection、effect、effectEvidenceを分ける
 - observationCandidates: 保存候補の観測事実。kind、content、subjectIds、importance、evidenceEventIds、rationale、explicitness
-- remember: MemoryIntent。content、reason、evidenceEventIds、confidence（high/medium/low）、target
+- remember: MemoryIntent。content、reason、evidenceEventIds、confidence（high/medium/low）、target、perspective（user/self）、purpose（user-context/self-guidance）。ユーザー事実はuser/user-context、自分の経験はself/self-guidanceにする
 - g3: needsG3、targetLayers（L4/L5/L6）、reason、priority（high/medium/low）
 
 制約:
@@ -71,7 +71,9 @@ function normalizePrediction(raw: unknown): PredictionOutput {
     if (typeof value.content !== "string" || value.content.trim().length === 0) return [];
     const target = ["episodic", "semantic", "self-related", "self-change", "common-ground"].includes(String(value.target)) ? value.target as "episodic" | "semantic" | "self-related" | "self-change" | "common-ground" : "episodic";
     const confidence = ["high", "medium", "low"].includes(String(value.confidence)) ? value.confidence as "high" | "medium" | "low" : "low";
-    return [{ content: value.content.trim(), reason: text(value.reason, "予測誤差から残す"), evidenceEventIds: stringArray(value.evidenceEventIds), confidence, target }];
+    const perspective = value.perspective === "user" ? "user" as const : "self" as const;
+    const purpose = perspective === "user" ? "user-context" as const : "self-guidance" as const;
+    return [{ content: value.content.trim(), reason: text(value.reason, "予測誤差から残す"), evidenceEventIds: stringArray(value.evidenceEventIds), confidence, target, perspective, purpose }];
   });
   const observationCandidates = (Array.isArray(root.observationCandidates) ? root.observationCandidates : []).slice(0, 6).flatMap((item) => {
     const value = objectOf(item);

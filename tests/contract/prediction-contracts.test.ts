@@ -8,7 +8,7 @@ const output = {
     g2: { candidates: [{ candidateIndex: 0, speechAct: "質問", content: "技術について質問する", expectation: "medium" as const, contextSummary: "技術の話題", rationale: "関心が続いている" }] }
   },
   predictionEvaluations: [{ group: "g2" as const, candidateIndex: 0, match: "primary" as const, surprise: "none" as const, difference: "大きなずれはない", interpretation: "話題を続けたい", uncertainty: "低い", observed: "技術の話題を続けた", errorDirection: "matched" as const, effect: "unchanged" as const }],
-  remember: [{ content: "相手は技術の話を好む", reason: "次の対話で再利用する", evidenceEventIds: ["event-1"], confidence: "medium" as const, target: "semantic" as const }],
+  remember: [{ content: "相手は技術の話を好む", reason: "次の対話で再利用する", evidenceEventIds: ["event-1"], confidence: "medium" as const, target: "semantic" as const, perspective: "user" as const, purpose: "user-context" as const }],
   observationCandidates: [{ kind: "semantic" as const, content: "技術の話題を好む", subjectIds: ["user-a"], importance: "普通", evidenceEventIds: ["event-1"], rationale: "会話で繰り返した", explicitness: "explicit" as const }],
   g3: { needsG3: false, targetLayers: [], priority: "medium" as const }
 };

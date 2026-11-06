@@ -11,7 +11,7 @@ const prediction: PredictionOutput = {
   g3: { needsG3: true, targetLayers: ["L4"], priority: "high" }
 };
 const input: G3Input = { agentId: "a", sourceEventId: "event-1", sourcePredictionId: "prediction-1", observation: { eventId: "event-1", summary: "技術の話", facts: [] } as never, prediction };
-const output: G3Output = { hypothesisEvaluations: [{ statement: "技術に関心がある", status: "supported", evidenceEventIds: ["event-1"], rationale: "話題が続いた" }], newHypotheses: ["次は実装の話を聞く"], findings: ["関心が継続"], remember: [{ content: "技術の話を好む", reason: "継続", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic" }] };
+const output: G3Output = { hypothesisEvaluations: [{ statement: "技術に関心がある", status: "supported", evidenceEventIds: ["event-1"], rationale: "話題が続いた" }], newHypotheses: ["次は実装の話を聞く"], findings: ["関心が継続"], remember: [{ content: "技術の話を好む", reason: "継続", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", perspective: "user", purpose: "user-context" }] };
 
 describe("FR-51, FR-52, AC-16: G3", () => {
   it("FR-51: completes a G3 task and passes MemoryIntent to the result sink", async () => {

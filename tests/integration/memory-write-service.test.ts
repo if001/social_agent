@@ -13,7 +13,7 @@ const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url
 const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
 const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
 
-const intent = (overrides: Partial<MemoryIntent> = {}): MemoryIntent => ({ content: "ユーザーAは技術の話を好む", reason: "次の対話で再利用する", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", ...overrides });
+const intent = (overrides: Partial<MemoryIntent> = {}): MemoryIntent => ({ content: "ユーザーAは技術の話を好む", reason: "次の対話で再利用する", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", perspective: "user", purpose: "user-context", ...overrides });
 
 describeDatabase("MemoryWriteService", () => {
   const schema = `test_${randomUUID().replaceAll("-", "")}`;
@@ -41,7 +41,7 @@ describeDatabase("MemoryWriteService", () => {
 
   it("FR-57, NFR-15, AC-12: creates, updates and records mutations", async () => {
     await service(async (_client, writer) => { await expect(writer.apply("a", intent())).resolves.toMatchObject({ operation: "update", memoryId: "existing", version: 1 }); });
-    expect((await pool.query<{ content: string; version: number }>("SELECT content,version FROM memories WHERE id='existing'")).rows[0]).toEqual({ content: "ユーザーAは技術の話を好む", version: 1 });
+    expect((await pool.query<{ content: string; version: number; perspective: string; purpose: string }>("SELECT content,version,perspective,purpose FROM memories WHERE id='existing'")).rows[0]).toEqual({ content: "ユーザーAは技術の話を好む", version: 1, perspective: "user", purpose: "user-context" });
     await service(async (_client, writer) => { await expect(writer.apply("a", intent({ content: "ユーザーAは静かな環境を好む", target: "semantic" }))).resolves.toMatchObject({ operation: "create", version: 0 }); });
     expect((await pool.query("SELECT operation FROM memory_mutations WHERE agent_id='a' ORDER BY created_at")).rows.map((row: { operation: string }) => row.operation)).toEqual(["update", "create"]);
     expect((await pool.query<{ version: number }>("SELECT version FROM memories WHERE id='other'")).rows[0]?.version).toBe(0);
@@ -59,6 +59,14 @@ describeDatabase("MemoryWriteService", () => {
     await service(async (_client, writer) => { await expect(writer.apply("a", idempotent, { sourceEventId: "idem-event", intentIndex: 0 })).resolves.toMatchObject({ operation: "create" }); });
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE content='冪等性を確認するMemory'")).rows[0]).toEqual({ count: 1 });
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memory_mutations WHERE source_event_id='idem-event'")).rows[0]).toEqual({ count: 1 });
+  });
+
+  it("stores an Agent experience as self-guidance without a user subject", async () => {
+    let memoryId: string | undefined;
+    await service(async (_client, writer) => { memoryId = (await writer.apply("a", intent({ content: "公式ページの404が続いたため検索語を変える", reason: "次の探索方法を選び直す", target: "episodic", perspective: "self", purpose: "self-guidance" }))).memoryId; });
+    if (memoryId === undefined) throw new Error("self-guidance memory was not created");
+    expect((await pool.query<{ perspective: string; purpose: string }>("SELECT perspective,purpose FROM memories WHERE id=$1", [memoryId])).rows[0]).toEqual({ perspective: "self", purpose: "self-guidance" });
+    expect((await pool.query("SELECT subject_id FROM memory_subjects WHERE memory_id=$1", [memoryId])).rowCount).toBe(0);
   });
 
   it("NFR-15, AC-12: does not deadlock with the bot-host process lock", async () => {

@@ -28,8 +28,15 @@ const AgentCoreFlatOutputSchema = z.object({
   relationshipOperation: z.enum(["upsert", "remove"]).optional().describe("Relationshipを変更する場合の操作。変更しない場合は省略"),
   relationshipSubjectId: z.string().min(1).optional().describe("Relationshipの相手ID。relationshipOperation指定時は必須"),
   relationshipDescription: z.string().trim().min(1).max(800).optional().describe("現在の関係性。プロフィール事実ではなく、信頼、共有の仕方、会話の深まりなど関係自体を書く。relationshipOperationがupsertの場合は必須"),
-  remember: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す要点。ユーザーの生活、仕事、趣味、経験、好みなど次回以降に価値がある具体的事実も対象とする。会話やTool結果を転載せず1〜2文で指定")
-}).strict().describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
+  rememberContent: z.string().trim().min(1).max(800).optional().describe("今回すぐ記憶候補に残す1〜2文の要点。ユーザー事実と自分の探索経験を混ぜない。単発のTool失敗は保存しない"),
+  rememberPerspective: z.enum(["user", "self"]).optional().describe("rememberContentの視点。userは対話相手について確認できた事実、selfは自分の探索・行動・判断から得た経験"),
+  rememberPurpose: z.enum(["user-context", "self-guidance"]).optional().describe("rememberContentの再利用先。userはuser-context、selfはself-guidanceを選ぶ")
+}).strict().superRefine((value, context) => {
+  const specified = [value.rememberContent, value.rememberPerspective, value.rememberPurpose].filter((item) => item !== undefined).length;
+  if (specified > 0 && specified < 3) context.addIssue({ code: "custom", path: ["rememberContent"], message: "rememberContent, rememberPerspective, and rememberPurpose must be specified together" });
+  if (value.rememberPerspective === "user" && value.rememberPurpose !== undefined && value.rememberPurpose !== "user-context") context.addIssue({ code: "custom", path: ["rememberPurpose"], message: "user perspective requires user-context purpose" });
+  if (value.rememberPerspective === "self" && value.rememberPurpose !== undefined && value.rememberPurpose !== "self-guidance") context.addIssue({ code: "custom", path: ["rememberPurpose"], message: "self perspective requires self-guidance purpose" });
+}).describe("Agent Coreの最終判断。必要なActionフィールドだけを埋め、状態変更がなければ状態フィールドを省略する");
 export const completeAgentCoreSystemPrompt = agentCoreSystemPrompt;
 
 function dispositionTendency(disposition: string): string {
@@ -53,8 +60,9 @@ function domainOutputFromFlat(value: unknown): unknown {
   const relationship = flat.relationshipOperation === "upsert"
     ? { operation: flat.relationshipOperation, relationship: { subjectId: flat.relationshipSubjectId, description: flat.relationshipDescription } }
     : flat.relationshipOperation === "remove" ? { operation: flat.relationshipOperation, subjectId: flat.relationshipSubjectId } : undefined;
-  const hasPatch = flat.mood !== undefined || relationship !== undefined || flat.remember !== undefined;
-  return { ...(flat.meaning === undefined ? {} : { meaning: flat.meaning }), ...(flat.feeling === undefined ? {} : { feeling: flat.feeling }), desire: flat.desire, action, ...(hasPatch ? { patch: { ...(flat.mood === undefined ? {} : { mood: flat.mood }), ...(relationship === undefined ? {} : { relationship }), ...(flat.remember === undefined ? {} : { remember: flat.remember }) } } : {}) };
+  const remember = flat.rememberContent === undefined ? undefined : { content: flat.rememberContent, perspective: flat.rememberPerspective, purpose: flat.rememberPurpose };
+  const hasPatch = flat.mood !== undefined || relationship !== undefined || remember !== undefined;
+  return { ...(flat.meaning === undefined ? {} : { meaning: flat.meaning }), ...(flat.feeling === undefined ? {} : { feeling: flat.feeling }), desire: flat.desire, action, ...(hasPatch ? { patch: { ...(flat.mood === undefined ? {} : { mood: flat.mood }), ...(relationship === undefined ? {} : { relationship }), ...(remember === undefined ? {} : { remember }) } } : {}) };
 }
 
 const AgentCoreDecisionSchema = AgentCoreOutputSchema.extend({

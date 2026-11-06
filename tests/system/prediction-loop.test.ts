@@ -15,7 +15,7 @@ const output: PredictionOutput = {
     g2: { candidates: [{ candidateIndex: 0, speechAct: "質問", content: "技術について質問する", expectation: "medium", contextSummary: "技術の話題", rationale: "関心が続く" }] }
   },
   predictionEvaluations: [{ group: "g2", candidateIndex: 0, match: "primary", surprise: "none", difference: "大きなずれはない", interpretation: "話題を続けたい", uncertainty: "低い", observed: "技術の話題を続けた", errorDirection: "matched", effect: "unchanged" }],
-  remember: [{ content: "相手は技術の話を好む", reason: "次の対話で再利用する", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic" }],
+  remember: [{ content: "相手は技術の話を好む", reason: "次の対話で再利用する", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", perspective: "user", purpose: "user-context" }],
   observationCandidates: [],
   g3: { needsG3: false, targetLayers: [], priority: "medium" }
 };
