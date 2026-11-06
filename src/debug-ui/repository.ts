@@ -56,6 +56,7 @@ export type EventTrace = {
   readonly predictions: readonly Record<string, unknown>[];
   readonly predictionEvaluations: readonly Record<string, unknown>[];
   readonly g3Tasks: readonly Record<string, unknown>[];
+  readonly experienceIntegrations: readonly Record<string, unknown>[];
   readonly scheduledTasks: readonly Record<string, unknown>[];
   readonly outbox: readonly Record<string, unknown>[];
   readonly derivedEvents: readonly Record<string, unknown>[];
@@ -114,7 +115,7 @@ export class DebugUiRepository {
     const runs = await this.query<QueryResultRow>(`SELECT id,agent_id AS "agentId",event_id AS "eventId",input_state_version AS "inputStateVersion",input_snapshot AS "inputSnapshot",result,failure_reason AS "failureReason",started_at AS "startedAt",finished_at AS "finishedAt"
       FROM agent_runs WHERE agent_id=$1 AND event_id=$2 ORDER BY started_at DESC,id DESC LIMIT 1`, [agentId, eventId]);
     const run = runs[0]; const runId = typeof run?.id === "string" ? run.id : undefined;
-    const [stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, scheduledTasks, outbox, derivedEvents] = await Promise.all([
+    const [stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents] = await Promise.all([
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,target,operation,before,after,reason,evidence_ids AS "evidenceIds",created_at AS "createdAt" FROM state_changes WHERE run_id=$1 ORDER BY created_at,id`, [runId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,error IS NULL AS ok,started_at AS "startedAt",finished_at AS "finishedAt",result_event_id AS "resultEventId" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId]),
       this.query<QueryResultRow>(`SELECT id,memory_id AS "memoryId",operation,candidate_memory_id AS "candidateMemoryId",intent_index AS "intentIndex",intent,created_at AS "createdAt" FROM memory_mutations WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
@@ -123,13 +124,14 @@ export class DebugUiRepository {
         FROM prediction_evaluations pe JOIN prediction_records pr ON pr.id=pe.prediction_id
         WHERE pe.agent_id=$1 AND pr.source_event_id=$2 ORDER BY pe.created_at,pe.id`, [agentId, eventId]),
       this.query<QueryResultRow>(`SELECT id,source_prediction_id AS "sourcePredictionId",status,input,output,failure_reason AS "failureReason",created_at AS "createdAt",completed_at AS "completedAt" FROM g3_tasks WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
+      this.query<QueryResultRow>(`SELECT id,status,input,output,applied,failure_reason AS "failureReason",created_at AS "createdAt",completed_at AS "completedAt" FROM experience_integrations WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 AND source_event_id=$2 AND source_run_id=$3 ORDER BY execute_at,id`, [agentId, eventId, runId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,status,attempt,available_at AS "availableAt",sent_at AS "sentAt",envelope FROM outbox_messages WHERE agent_id=$1 AND envelope#>>'{payload,action,id}'=$2 ORDER BY created_at,id`, [agentId, runId]),
       this.query<QueryResultRow>(`SELECT e.id,e.kind,e.status,e.source,e.observation,e.causation_id AS "causationId",e.correlation_id AS "correlationId",e.occurred_at AS "occurredAt",r.id AS "runId",r.failure_reason AS "failureReason"
         FROM events e LEFT JOIN LATERAL (SELECT id,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
         WHERE e.agent_id=$1 AND e.kind<>'tool-result' AND (e.causation_id=$2 OR ($3::text IS NOT NULL AND e.causation_id=$3)) ORDER BY e.occurred_at,e.id`, [agentId, eventId, runId ?? null])
     ]);
-    return { event, run, stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, scheduledTasks, outbox, derivedEvents };
+    return { event, run, stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents };
   }
 
   async getRun(agentId: string, runId: string): Promise<RunDetail | undefined> {

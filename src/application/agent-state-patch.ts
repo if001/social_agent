@@ -1,4 +1,4 @@
-import { DomainError, type AgentTurn, type ConcernProposal, type CurrentAgentState, type MemoryProposal } from "../domain/contracts.js";
+import { DomainError, type ConcernProposal, type CurrentAgentState } from "../domain/contracts.js";
 
 export type AgentStatePatchChange = {
   readonly target: "mood" | "concerns" | "relationships";
@@ -11,33 +11,12 @@ export type AgentStatePatchChange = {
 export type AgentStatePatchResult = {
   readonly state: CurrentAgentState;
   readonly changes: readonly AgentStatePatchChange[];
-  readonly remember?: MemoryProposal;
 };
 
 export class AgentStatePatchService {
-  apply(agentId: string, state: CurrentAgentState, patch: AgentTurn["patch"], eventId: string): AgentStatePatchResult {
+  initial(agentId: string, state: CurrentAgentState): AgentStatePatchResult {
     if (state.agentId !== agentId) throw new DomainError("VALIDATION", "Cannot update another agent's state");
-    if (patch === undefined) return { state, changes: [] };
-    let mood = state.mood;
-    const concerns = [...state.concerns];
-    let relationships = [...state.relationships];
-    const changes: AgentStatePatchChange[] = [];
-    if (patch.mood !== undefined && patch.mood !== mood) {
-      changes.push({ target: "mood", operation: "set", before: mood, after: patch.mood, eventId });
-      mood = patch.mood;
-    }
-    const relationshipChange = patch.relationship;
-    if (relationshipChange !== undefined) {
-      const before = relationships;
-      if (relationshipChange.operation === "remove") relationships = relationships.filter(({ subjectId }) => subjectId !== relationshipChange.subjectId);
-      else relationships = [...relationships.filter(({ subjectId }) => subjectId !== relationshipChange.relationship.subjectId), relationshipChange.relationship];
-      changes.push({ target: "relationships", operation: relationshipChange.operation, before, after: relationships, eventId });
-    }
-    return {
-      state: { ...state, ...(mood === undefined ? {} : { mood }), concerns, relationships },
-      changes,
-      ...(patch.remember === undefined ? {} : { remember: patch.remember })
-    };
+    return { state, changes: [] };
   }
 
   applyConcernProposals(result: AgentStatePatchResult, proposals: readonly ConcernProposal[], eventId: string, nextId: () => string): AgentStatePatchResult {

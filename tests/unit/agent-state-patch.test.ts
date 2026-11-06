@@ -4,29 +4,22 @@ import type { CurrentAgentState } from "../../src/domain/contracts.js";
 const state: CurrentAgentState = { agentId: "a", mood: "calm", concerns: [], relationships: [], updatedAt: "2026-01-01T00:00:00Z" };
 
 describe("AgentStatePatchService", () => {
-  it("FR-23: applies mood, relationship, and memory intent together", () => {
-    const result = new AgentStatePatchService().apply("a", state, {
-      mood: "hurt but composed",
-      relationship: { operation: "upsert", relationship: { subjectId: "user", description: "trust was damaged by a broken promise" } },
-      remember: { content: "The user broke an important promise.", perspective: "user", purpose: "user-context" }
-    }, "event-1");
-    expect(result.state).toMatchObject({ mood: "hurt but composed", concerns: [], relationships: [{ subjectId: "user" }] });
-    expect(result.changes.map(({ target }) => target)).toEqual(["mood", "relationships"]);
-    expect(result.remember).toEqual({ content: "The user broke an important promise.", perspective: "user", purpose: "user-context" });
+  it("FR-23: keeps ordinary persistent fields untouched until Experience Integration", () => {
+    const result = new AgentStatePatchService().initial("a", state);
+    expect(result).toEqual({ state, changes: [] });
   });
 
   it("FR-23, NFR-1: removes owned relationships and rejects another agent", () => {
     const populated: CurrentAgentState = { ...state, concerns: [{ id: "done", description: "done", whyItMatters: "was important", status: "satisfied" }], relationships: [{ subjectId: "old", description: "old context" }] };
-    const relationship = new AgentStatePatchService().apply("a", populated, { relationship: { operation: "remove", subjectId: "old" } }, "event-3");
-    expect(relationship.state.concerns).toMatchObject([{ id: "done" }]);
-    expect(relationship.state.relationships).toEqual([]);
-    expect(() => new AgentStatePatchService().apply("b", state, undefined, "event-4")).toThrow("another agent");
+    const initial = new AgentStatePatchService().initial("a", populated);
+    expect(initial.state.relationships).toEqual([{ subjectId: "old", description: "old context" }]);
+    expect(() => new AgentStatePatchService().initial("b", state)).toThrow("another agent");
   });
 
   it("FR-24: commits deferred Concern proposals only when the runtime applies a successful result", () => {
     const service = new AgentStatePatchService();
     const populated: CurrentAgentState = { ...state, concerns: [{ id: "focus", description: "調査する", whyItMatters: "判断するため", status: "active" }] };
-    const patched = service.apply("a", populated, undefined, "event-5");
+    const patched = service.initial("a", populated);
     const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", explorationMode: "deepen", transition: "replace", description: "検証方法を確認する", whyItMatters: "結果の信頼性を判断するため" }], "event-5", () => "successor");
     expect(committed.state.concerns).toMatchObject([{ id: "focus", status: "satisfied" }, { id: "successor", status: "active", description: "検証方法を確認する" }]);
     expect(committed.changes.at(-1)).toMatchObject({ target: "concerns", before: [{ id: "focus", status: "active" }] });
@@ -36,7 +29,7 @@ describe("AgentStatePatchService", () => {
   it("FR-67: keeps the source active when a derived Concern omits transition", () => {
     const service = new AgentStatePatchService();
     const populated: CurrentAgentState = { ...state, concerns: [{ id: "focus", description: "調査する", whyItMatters: "判断するため", status: "active" }] };
-    const patched = service.apply("a", populated, undefined, "event-6");
+    const patched = service.initial("a", populated);
     const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", explorationMode: "bridge", description: "別領域の比較対象を調べる", whyItMatters: "自分の関心がどこまで通じるか確かめるため" }], "event-6", () => "parallel");
     expect(committed.state.concerns).toMatchObject([{ id: "focus", status: "active" }, { id: "parallel", status: "active" }]);
   });

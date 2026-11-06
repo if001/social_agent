@@ -3,7 +3,6 @@ import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator, MemoryEmbeddingPreparer, RetrievalService } from "../../application/ports.js";
-import type { MemoryCandidate } from "../../application/memory-write-service.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
 import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
@@ -39,7 +38,7 @@ function decisionInputSnapshot(input: AgentCoreInput): Record<string, unknown> {
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingPreparer, tools?: ToolRegistry, private readonly agentId?: string, private readonly retrievalService?: RetrievalService) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, memoryEmbedding?: MemoryEmbeddingPreparer, tools?: ToolRegistry, private readonly agentId?: string, retrievalService?: RetrievalService) { void memoryEmbedding; void retrievalService; this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -57,24 +56,12 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
-    const actorSubject = input.observation.actor?.type === "human" || input.observation.actor?.type === "agent" ? [input.observation.actor.id] : [];
-    const memoryIntents = update.remember === undefined ? [] : [{ content: update.remember.content, reason: update.remember.purpose === "user-context" ? "対話相手について次回以降の関係と問いに使う事実" : "Agent自身が次のConcern・探索方法・判断に使う経験", evidenceEventIds: [event.id], confidence: "medium" as const, target: "episodic" as const, perspective: update.remember.perspective, purpose: update.remember.purpose }];
-    let memoryCandidates: readonly MemoryCandidate[] | undefined;
-    if (update.remember !== undefined && this.retrievalService !== undefined) {
-      try { memoryCandidates = (await this.retrievalService.retrieve({ agentId: event.agentId, query: update.remember.content, scope: "conversation", limit: 5 })).map((item) => ({ id: item.id, kind: item.kind, content: item.content, importance: item.importance })); }
-      catch { memoryCandidates = undefined; }
-    }
-    const memoryEmbeddings = update.remember === undefined || this.memoryEmbedding === undefined ? undefined : [await this.memoryEmbedding.prepareMemory(update.remember.content)];
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, inputSnapshot: decisionInputSnapshot(input), startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { mood: update.state.mood, concerns: update.state.concerns, relationships: update.state.relationships },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next(), reason: "AgentTurn patch", evidenceIds: [change.eventId] })),
-      memoryIntents,
-      memorySubjects: memoryIntents.map((intent) => intent.perspective === "user" ? actorSubject : []),
-      ...(memoryCandidates === undefined ? {} : { memoryCandidates }),
-      ...(memoryEmbeddings === undefined ? {} : { memoryEmbeddings }),
       toolExecutions: validatedTools,
       outbox: outgoing
     });

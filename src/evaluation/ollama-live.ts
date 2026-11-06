@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import type { AgentHarness } from "../application/ports.js";
-import { AgentStatePatchService } from "../application/agent-state-patch.js";
 import { DomainError, type AgentCoreInput, type AgentCoreOutput, type AgentRunResult, type ToolExecutionRecord } from "../domain/contracts.js";
 import { RubricRatingSchema, type BehaviorLabel, type EvaluationScenario, type EvaluatorAdapter, type ScenarioExecutor, type ScenarioResult } from "./types.js";
 
@@ -72,18 +71,19 @@ export class AgentCoreScenarioExecutor implements ScenarioExecutor {
         return { input: scenario.agentCoreInputs, output: { error: error instanceof Error ? error.message : "unknown" }, stateDiff: [], evidenceMemories: scenario.evidenceMemories, referencedEvidenceIds: [], evidenceOwnershipValid: false, toolTrace: [], involvedAgentIds: scenario.involvedAgentIds, dataOwnerAgentIds: [], proposedStateTargets: [], limitsRespected: kind !== "timeout", schemaValid: false, failureKind: kind, failureStage: "agent-core" };
       }
       outputs.push({ agentId: input.run.agentId, ...(result.assessment === undefined ? {} : { assessment: result.assessment }), output: result.output, toolExecutions: result.toolExecutions });
-      const applied = new AgentStatePatchService().apply(input.run.agentId, runtimeInput.state, result.output.patch, runtimeInput.run.eventId);
-      nextStates.set(input.run.agentId, applied.state);
+      // Persistent state is intentionally integrated after Agent Core; an
+      // evaluation of the Core alone must not pretend it has applied a patch.
+      nextStates.set(input.run.agentId, runtimeInput.state);
       if (result.output.action.type === "respond" || result.output.action.type === "refuse") deliveries.push({ agentId: input.run.agentId, destination: "evaluation-sink", actionType: result.output.action.type, content: result.output.action.content, delivered: true });
     }
-    const stateUpdates = outputs.flatMap(({ output }) => output.patch === undefined ? [] : Object.keys(output.patch).filter((target) => target !== "remember"));
+    const stateUpdates: string[] = [];
     const referencedEvidenceIds: string[] = [];
     const toolTrace = outputs.flatMap(({ agentId, toolExecutions }) => toolExecutions.map((execution) => ({ agentId, ...execution })));
     const dataOwnerAgentIds = outputs.map(({ agentId }) => agentId); const owners = new Set(dataOwnerAgentIds);
     const outputOwnersValid = outputs.every(({ agentId }) => owners.has(agentId));
     const evidenceOwnershipValid = true;
     const behaviorLabels = [...new Set(outputs.flatMap((result) => classifyBehaviors(result)))];
-    return { input: scenario.agentCoreInputs, output: outputs, stateDiff: outputs.map(({ agentId, output }) => ({ agentId, patch: output.patch })), evidenceMemories: scenario.evidenceMemories, referencedEvidenceIds, evidenceOwnershipValid, toolTrace, involvedAgentIds: scenario.involvedAgentIds, dataOwnerAgentIds, proposedStateTargets: stateUpdates, limitsRespected: outputOwnersValid && toolTrace.length <= scenario.maxToolCalls, schemaValid: true, behaviorLabels, ...(deliveries.length === 0 ? {} : { deliverySucceeded: deliveries.every((record) => typeof record === "object" && record !== null && "delivered" in record && record.delivered === true) }), deliveryRecords: deliveries, nextState: Object.fromEntries(nextStates) };
+    return { input: scenario.agentCoreInputs, output: outputs, stateDiff: outputs.map(({ agentId }) => ({ agentId, patch: undefined })), evidenceMemories: scenario.evidenceMemories, referencedEvidenceIds, evidenceOwnershipValid, toolTrace, involvedAgentIds: scenario.involvedAgentIds, dataOwnerAgentIds, proposedStateTargets: stateUpdates, limitsRespected: outputOwnersValid && toolTrace.length <= scenario.maxToolCalls, schemaValid: true, behaviorLabels, ...(deliveries.length === 0 ? {} : { deliverySucceeded: deliveries.every((record) => typeof record === "object" && record !== null && "delivered" in record && record.delivered === true) }), deliveryRecords: deliveries, nextState: Object.fromEntries(nextStates) };
   }
 }
 export class OllamaEvaluator implements EvaluatorAdapter {

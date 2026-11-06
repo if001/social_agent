@@ -22,16 +22,16 @@ flowchart LR
     BG[Background Experience Store] -. Common Retrieval .-> C
     C --> D[Desire<br/>error reduction]
     D --> X[Action]
-    C --> P[任意のState Patch]
     C --> Q[Concern proposal queue]
-    C --> MI[MemoryIntent / remember]
     X --> R[結果・相手の反応・Tool結果]
+    R --> EI[Experience Integration]
+    EI --> MW[MemoryWriteService]
+    EI --> ST
     R --> PE[G1/G2<br/>predictionEvaluation]
     PE --> PC
     PE --> G3[G3 Agent]
     G3 --> PC
     PE --> MU[MemoryUpdate Event]
-    MI --> MU
     MU --> MW[MemoryWriteService]
     MW --> M
     R --> RF[Event駆動Reflection]
@@ -40,9 +40,9 @@ flowchart LR
     RF --> ST
 ```
 
-通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。user-messageではself_getを公開し、concern_list、concern_get、concern_proposeは公開しない。Concernの生成・派生・消化は自律Eventに分け、許可する操作はRuntimeでも強制する。
+通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。応答commit後のExperience Integrationが同じContextと確定結果からMemory、Mood、Relationshipの候補だけを判断し、MemoryWriteServiceと楽観ロックを通じて適用する。Integrationは次のActionを決めず、失敗してもcommit済みの応答を巻き戻さない。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。user-messageではself_getを公開し、concern_list、concern_get、concern_proposeは公開しない。Concernの生成・派生・消化は自律Eventに分け、許可する操作はRuntimeでも強制する。
 
-予測Loopは通常応答の外側にある。G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。MainAgentは予測誤差をSelf、Disposition、Concern、Relationship、背景経験で appraisal し、Meaning / Feeling、誤差低減のDesire、Actionを決める。Actionの結果はRecentExperienceのAction結果へ記録し、必要なら`remember`としてMemoryIntentを出す。G1/G2/ReflectionのMemoryIntentは`memory-update` Eventで適用し、G3のMemoryIntentはMainAgentの`remember`としてそのEventのtransactionで適用する。会話由来MemoryはMemoryWriteServiceを通してcreate / update / no-opする。G3は必要時だけ別のDeepAgentとして遅延実行し、仮説評価とMemoryIntentをMainAgentへ渡す。Reflectionは複数EventをまたいでConversation Memory、Self、Relationship、Concernを整理する。
+予測Loopは通常応答の外側にある。G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。MainAgentは予測誤差をSelf、Disposition、Concern、Relationship、背景経験で appraisal し、Meaning / Feeling、誤差低減のDesire、Actionを決める。通常応答のMemory、Mood、RelationshipはExperience Integrationが初回commit後に判断して適用する。G1/G2/ReflectionのMemoryIntentは`memory-update` Eventで適用する。会話由来MemoryはMemoryWriteServiceを通してcreate / update / no-opする。G3は必要時だけ別のDeepAgentとして遅延実行し、仮説評価をMainAgentへ渡す。Reflectionは複数EventをまたいでConversation Memory、Self、Relationship、Concernを整理する。
 
 ## 要素と持続時間
 
@@ -63,7 +63,7 @@ flowchart LR
 | Desire | 今回のEvent | 今回の現在のコミットメントを自然言語で表す。Concernの言い換えではなく、対象と今回の行為を持つ |
 | Previous Desire | 直近Eventから一時的に継続 | 直前に成功したEventのDesireと時刻を1件だけ渡し、まだ現在の意図か判断する |
 | Action | 今回のEvent | 応答、拒否、非実行通知、または実行済みTool後の配送不要を表す |
-| State Patch | Eventをまたぐ必要がある場合のみ | Mood、Relationship、MemoryIntentの最小変更を提案する |
+| Experience Integration | 応答commit後 | Memory、Mood、Relationshipの持続的な候補を判断・適用する。失敗は応答へ伝播しない |
 | Concern proposal | Eventをまたぐ気に掛けていることが生じた場合のみ | `concern_propose`でrun-localに提案し、成功commit時だけ作成・派生する |
 | Reflection | Event駆動の保守処理 | 複数の経験を圧縮し、Conversation Memory、Self、Concern、Relationshipへ長期反映する。Conversation Memory、Self、Relationship、Concernごとに部分成功を持つ |
 | Scheduled Task | Runtime上の責務 | 指定時刻に新しいEventを発生させる。心理状態ではない |
@@ -122,11 +122,12 @@ flowchart TD
     CORE -->|今回だけ| DESIRE[Desire]
     CORE -->|Event終了時| ASSESS[Final Meaning / Feeling]
     CORE --> ACTION[Action / Tool]
-    CORE -->|任意の提案| PATCH[State Patch]
     CORE -->|Toolによる遅延提案| CQ[Concern proposal]
-    CORE -->|MemoryIntent / remember| MI[MemoryIntent]
-    PATCH -->|Runtimeが検証・commit| STATE
     CQ -->|成功時だけcommit| STATE
+    CORE --> RESULT[commit済みAssessment / Desire / Action / Tool trace]
+    RESULT --> EI[Experience Integration]
+    EI -->|MemoryIntent| MW[MemoryWriteService]
+    EI -->|Mood / Relationship| STATE
 
     EVT --> PE[G1/G2 predictionEvaluation]
     MEM -. Common Retrieval .-> PE
@@ -135,7 +136,6 @@ flowchart TD
     PE --> G3[G3 Agent]
     G3 --> PC
     PE --> MU[MemoryUpdate Event]
-    MI --> MU
     MU --> MW[MemoryWriteService]
     MW --> MEM
 
@@ -150,10 +150,10 @@ flowchart TD
 
 変更境界は次のとおりである。
 
-- MainAgent（Agent Core）は今回のMeaning、Feeling、Desire、Actionを決め、Mood、Relationship、即時MemoryIntentを提案できる。Concernは`concern_propose`で提案する。
+- MainAgent（Agent Core）は今回のMeaning、Feeling、Desire、Actionを決める。Concernは`concern_propose`で提案する。
 - G1/G2の`predictionEvaluation`は予測シグナルであり、Meaning / Feelingではない。Feelingを確定するのはMainAgentだけである。
-- RuntimeはPatchの所有権とversionを検証し、Event、Action、State変更、Outboxをtransactionで確定する。
-- MainAgentの`remember`は、そのEventのtransactionでMemoryWriteServiceが適用する。G1/G2/ReflectionのMemoryIntentは`memory-update` Eventで適用する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentの`remember`としてそのEventのtransactionで適用する。MemoryIntentのtargetはMemory kindに限り、RelationshipとConcernはPatchまたはConcern Proposalへ渡す。
+- RuntimeはEvent、Action、Concern変更、Outboxを初回transactionで確定する。
+- Experience Integrationは初回commit後、同じ入力Contextと確定結果からMemoryIntent、Mood、Relationshipを判断する。MemoryIntentはMemoryWriteServiceが適用し、RelationshipとMoodは楽観ロックで更新する。G1/G2/ReflectionのMemoryIntentは`memory-update` Eventで適用する。MemoryIntentのtargetはMemory kindに限り、ConcernはConcern ProposalまたはReflectionへ渡す。
 - MemoryWriteServiceは会話由来Memoryの唯一の書込み経路であり、RAG候補からcreate / update / no-opを決め、Memory versionを照合する。旧直接INSERTを残さない。
 - `memory-update` Eventは専用のMemoryUpdateHandlerが処理し、LLMを呼ばない。user-messageを優先し、強制中断はしない。
 - G3はMainAgentとは別のDeepAgentであり、仮説評価とMemoryIntentをMainAgentへ渡す。
@@ -175,8 +175,8 @@ sequenceDiagram
     Loop->>Loop: 最小Context + previousAssessmentを構築
     Loop->>Core: Event + 最小Context
     Core->>Core: 必要な永続ContextをToolで取得
-    Core-->>Loop: Final Assessment + Desire + Action + optional Patch / Concern proposal
-    Loop->>Store: Assessment・Action・Patch・proposal・Tool記録をcommit
+    Core-->>Loop: Final Assessment + Desire + Action + optional Concern proposal
+    Loop->>Store: Assessment・Action・proposal・Tool記録をcommit
     Store-->>Source: Outboxで配送
 ```
 
@@ -192,14 +192,13 @@ sequenceDiagram
     participant R as Reflection Event
 
     U->>C: Event
-    C-->>U: Action + optional remember
+    C-->>U: Action
     C->>P: 応答後の予測
     P-->>C: Prediction Context
     P->>MU: MemoryIntent
     MU->>MU: RAG候補 + MemoryWriteService
     P->>G3: needsG3
     G3-->>C: 仮説評価 + MemoryIntent
-    C->>MU: MemoryIntent
     R->>MU: MemoryIntent
 ```
 
@@ -221,7 +220,7 @@ sequenceDiagram
 - Meaning / FeelingはActionを正当化するために作らず、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価としてAgent Coreが確定する。
 - 怒りや悲しみは文体だけで表現する必要はないが、Actionの選択、Mood、必要なConcern proposal、Relationshipの少なくとも一つへ意味のある影響を持たせる。
 - 通常EventからSelfを直接変更しない。長期的なDispositionやSelf Storyの変化はReflectionで、複数経験とMemory根拠を用いて行う。
-- Patchは毎回必須ではない。そのEventを越えて残す意味がある変更だけを提案する。
+- Experience Integrationは毎回更新しない。Eventを越えて残す意味があるMemory、Mood、Relationshipだけを提案する。
 
 Eventには、入力経路を表すDomain Event `kind`と、Schedulerが発火した目的を表す`targetKind`がある。この二つを混同しない。
 
@@ -343,9 +342,9 @@ Conversation Memoryは元会話やTool結果の保管場所ではない。後の
 ## 運用上の不変条件
 
 - AgentごとにSelf、State、Conversation Memory、Background Experience、Tool権限を分離する。
-- Event、Prediction Evaluation、Assessment、Desire、Action、Patch、Tool実行、配送、MemoryIntent、MemoryUpdate、Reflectionを追跡可能にする。
-- Action、State Patch、MainAgentのremember、Outboxを同じtransaction境界で確定する。
-- G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用する。G3のMemoryIntentはMainAgentのrememberとして適用する。
+- Event、Prediction Evaluation、Assessment、Desire、Action、Concern proposal、Tool実行、配送、Experience Integration、MemoryIntent、MemoryUpdate、Reflectionを追跡可能にする。
+- Action、Concern proposal、Outboxを同じ初回transaction境界で確定する。Experience Integrationの入力・出力・適用結果または失敗は別の監査記録に残す。
+- G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用する。通常応答とG3再判断後のMemoryIntentはExperience Integrationが適用する。
 - Conversation Memoryの書込みはMemoryWriteServiceだけが行い、Memory versionを照合する。旧直接INSERTを残さない。
 - Background ExperienceはConversation Memoryと別Storeに保持し、起動後に更新しない。
 - predictionEvaluationはFeelingではなく、Meaning / Feelingを確定するのはMainAgentだけとする。

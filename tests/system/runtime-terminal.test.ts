@@ -50,7 +50,7 @@ describe("ST-01 Terminal round trip", () => {
     const terminal = new TerminalAdapter(queue, clock, new SequenceIdGenerator(["input-1", "input-2"]));
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.observation.eventId = event.id; return input; });
     const harness = new ScriptedAgentHarness([
-      { desire: "respond to this event", action: { type: "respond", content: "First" }, patch: { mood: "Engaged" } },
+      { desire: "respond to this event", action: { type: "respond", content: "First" } },
       { desire: "respond to this event", action: { type: "respond", content: "Second" } }
     ]);
     const logLines: string[] = []; const logger = createStdoutLogger({ botId: "agent-a" }, (line) => { logLines.push(line); }, () => clock.now());
@@ -62,7 +62,7 @@ describe("ST-01 Terminal round trip", () => {
     await queue.publish(messageFixture({ id: "input-1", destination: "agent-a", replyTo: "terminal", sentAt: "2026-01-01T00:00:00.000Z", availableAt: "2026-01-01T00:00:00.000Z", expiresAt: "2026-01-02T00:00:00.000Z", payload: { type: "user-message", text: "hello" } }));
     await new Promise((resolve) => setTimeout(resolve, 50)); expect(persistence.events).toHaveLength(1);
     await terminal.send("agent-a", "again"); await eventually(() => { expect(persistence.events).toHaveLength(2); }); await dispatcher.dispatch(); await eventually(() => { expect(responses).toEqual(["First", "Second"]); });
-    expect(persistence.updates[0]?.changes[0]?.target).toBe("mood");
+    expect(persistence.updates[0]?.changes).toEqual([]);
     const steps = logLines.map((line) => (JSON.parse(line) as { step: string }).step); expect(steps).toEqual(expect.arrayContaining(["message.received", "event.created", "context.loading", "context.loaded", "agent_core.started", "agent_core.completed", "event.committed", "outbox.delivery_started", "outbox.delivery_completed"]));
     controller.abort(); await Promise.all([running, receiving]); await runtime.drain(); await scope.close();
   });

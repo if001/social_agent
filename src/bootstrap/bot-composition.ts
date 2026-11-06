@@ -5,6 +5,7 @@ import { AgentEventRouter } from "../application/agent-event-router.js";
 import { AgentRuntime, OutboxDispatcher } from "../application/agent-runtime.js";
 import { PredictionLoop } from "../application/prediction-loop.js";
 import { DirectMemoryUpdateSink, MemoryUpdateHandler } from "../application/memory-update.js";
+import { DirectExperienceIntegrationSink, ExperienceIntegration } from "../application/experience-integration.js";
 import { DirectG3Sink, G3Service, MemoryG3ResultSink, type G3ResultSink } from "../application/g3.js";
 import { Reflection } from "../application/reflection.js";
 import type { Clock, IdGenerator, MessageQueue } from "../application/ports.js";
@@ -24,6 +25,8 @@ import { createOllamaPredictionModel } from "../infrastructure/agent/prediction-
 import { createOllamaG3Model } from "../infrastructure/agent/g3-harness.js";
 import { PostgresWebArchive } from "../infrastructure/persistence/postgres-web-archive.js";
 import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgres-runtime-persistence.js";
+import { PostgresExperienceIntegrationRepository } from "../infrastructure/persistence/postgres-experience-integration.js";
+import { createOllamaExperienceIntegrationModel } from "../infrastructure/agent/experience-integration-harness.js";
 import { PostgresReflectionRepository } from "../infrastructure/persistence/postgres-reflection.js";
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
 import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
@@ -57,6 +60,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const predictionRepository = new PostgresPredictionRepository(pool);
   const memoryUpdateHandler = new MemoryUpdateHandler(pool, ids, () => clock.now(), retrievalService, memoryEmbedding);
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
+  const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(pool, ids, () => clock.now(), memoryEmbedding), createOllamaExperienceIntegrationModel(config.chat, logger)), ids);
   const runtimeRef: { current?: AgentRuntime } = {};
   const fallbackG3Result = new MemoryG3ResultSink(memoryUpdateSink);
   const g3ResultSink: G3ResultSink = { async handle(output, g3Input) {
@@ -95,10 +99,10 @@ export function createBotComposition(options: BotCompositionOptions) {
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name)),
     maxRepairs: 2
   });
-  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler });
+  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler, experienceIntegration });
   runtimeRef.current = runtime;
   const reflection = new Reflection(new PostgresReflectionRepository(pool, ids, () => clock.now(), memoryUpdateSink, memoryEmbedding), new OllamaReflectionModel(config.chat, logger));
   const router = new AgentEventRouter(runtime);
   const outbox = new OutboxDispatcher(persistence, queue, logger);
-  return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, reflection, router, outbox };
+  return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, reflection, router, outbox, experienceIntegration };
 }
