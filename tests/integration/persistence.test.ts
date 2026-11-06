@@ -458,6 +458,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(inputSnapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "lookup" }] });
     expect(inputSnapshot?.availableTools[0]).not.toHaveProperty("inputSchema");
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([{ subject_id: "user-42" }]);
+    expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE id='integration-job'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "runtime-fake" });
   });
 
   it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {

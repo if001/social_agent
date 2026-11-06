@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
-import type { IdGenerator, RetrievalService } from "../../application/ports.js";
+import type { IdGenerator, MemoryEmbeddingWriter, RetrievalService } from "../../application/ports.js";
 import type { MemoryCandidate } from "../../application/memory-write-service.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
@@ -39,7 +39,7 @@ function decisionInputSnapshot(input: AgentCoreInput): Record<string, unknown> {
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, _legacyMemoryEmbedding?: unknown, tools?: ToolRegistry, private readonly agentId?: string, private readonly retrievalService?: RetrievalService) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryEmbedding?: MemoryEmbeddingWriter, tools?: ToolRegistry, private readonly agentId?: string, private readonly retrievalService?: RetrievalService) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -76,6 +76,11 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       toolExecutions: validatedTools,
       outbox: outgoing
     });
+    if (committed === "committed" && this.memoryEmbedding !== undefined) {
+      const written = await this.pool.query<{ memory_id: string | null }>("SELECT memory_id FROM memory_mutations WHERE agent_id=$1 AND source_event_id=$2 AND memory_id IS NOT NULL ORDER BY intent_index", [event.agentId, event.id]);
+      const memoryIds = written.rows.flatMap(({ memory_id }) => memory_id === null ? [] : [memory_id]);
+      if (memoryIds.length > 0) await this.memoryEmbedding.embedMemoryIds(event.agentId, memoryIds);
+    }
     return committed;
   }
 

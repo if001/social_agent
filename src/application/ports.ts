@@ -13,6 +13,10 @@ export interface MemoryRepository {
 export interface UnitOfWork { transaction<T>(work: () => Promise<T>): Promise<T>; }
 export interface AgentHarness { run(input: AgentCoreInput, signal: AbortSignal): Promise<AgentRunResult>; }
 export interface EmbeddingProvider { readonly dimension: number; embed(texts: readonly string[], signal: AbortSignal): Promise<readonly (readonly number[])[]>; }
+
+export interface MemoryEmbeddingWriter {
+  embedMemoryIds(agentId: string, memoryIds: readonly string[], signal?: AbortSignal): Promise<unknown>;
+}
 export interface MemoryRetriever { retrieve(agentId: string, query: string, limit: number): Promise<readonly Memory[]>; }
 export type RetrievalScope = "conversation" | "background" | "all";
 export type RetrievalInput = { readonly agentId: string; readonly query: string; readonly scope?: RetrievalScope; readonly kinds?: readonly string[]; readonly subjectIds?: readonly string[]; readonly subjectFilter?: boolean; readonly keywords?: readonly string[]; readonly embedding?: readonly number[]; readonly occurredAfter?: string; readonly limit: number; };
