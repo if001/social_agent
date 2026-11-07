@@ -11,7 +11,7 @@ describe("embedding and context", () => {
     input.state.concerns = concerns;
     const result = new ContextBuilder().build(input, { maxTokens: 2_000, maxMemories: 5, maxSocialContexts: 1 });
     expect(result.state.concerns).toHaveLength(13);
-    expect(result.state.concerns.at(-1)).toMatchObject({ id: "active-after-history", status: "active" });
+    expect(result.state.concerns.at(-1)).toMatchObject({ id: "active-after-history", status: "active", description: "a".repeat(800) });
   });
   it("NFR-3: returns deterministic fake vectors and validates local dimensions", async () => {
     const fake = new FakeEmbeddingProvider({ hello: [1, 0] });

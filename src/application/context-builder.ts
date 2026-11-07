@@ -26,7 +26,7 @@ export class ContextBuilder {
     // `state` is also the baseline for the Runtime's optimistic State update.
     // Selecting only its first entries here would turn an input-budget decision
     // into an implicit deletion on the next successful Event commit.
-    const state = { ...source.state, ...(source.state.mood === undefined ? {} : { mood: text(source.state.mood, 500) }), concerns: source.state.concerns.map((concern) => ({ ...concern, description: text(concern.description, 500), whyItMatters: text(concern.whyItMatters, 500) })), relationships: source.state.relationships.slice(0, 12).map((relationship) => ({ ...relationship, description: text(relationship.description, 600) })) };
+    const state = { ...source.state, ...(source.state.mood === undefined ? {} : { mood: text(source.state.mood, 500) }), concerns: source.state.concerns, relationships: source.state.relationships.slice(0, 12).map((relationship) => ({ ...relationship, description: text(relationship.description, 600) })) };
     const boundedPersona = persona(source.persona);
     const predictionContext: PredictionContext | undefined = source.predictionContext === undefined ? undefined : {
       ...source.predictionContext,

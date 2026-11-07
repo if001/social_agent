@@ -49,7 +49,7 @@ Concernは次のEventにも影響する持続状態であり、Context選択は�
 
 ## Tests
 
-- C-06, C-23, C-24：`tests/unit/memory-context.test.ts`で、12件を超える長文ConcernをContextBuilderが欠損させず、モデル用token budgetを超過させないことを検証する。
+- C-06, C-23, C-24：`tests/unit/memory-context.test.ts`で、12件を超える長文Concernの件数・本文をContextBuilderが欠損させず、モデル用token budgetを超過させないことを検証する。
 - C-06, C-24：`tests/integration/persistence.test.ts`で、12件より後ろのactive Concernを含む状態へ通常EventのConcern proposalをcommitし、全Concernが保持されることを検証する。
 
 ## 影響範囲
