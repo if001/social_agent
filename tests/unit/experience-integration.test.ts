@@ -1,4 +1,5 @@
 import { ExperienceIntegration, memorySubjectsForIntegration } from "../../src/application/experience-integration.js";
+import { experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 
 const input = () => {
@@ -8,6 +9,12 @@ const input = () => {
 };
 
 describe("ExperienceIntegration", () => {
+  it("C-03: states the complete MemoryIntent contract and the empty-memory form", () => {
+    for (const field of ["content", "reason", "evidenceEventIds", "confidence", "target", "perspective", "purpose", "high / medium / low", "episodic / semantic / self-related / self-change / common-ground", '{"memories":[]}']) expect(experienceIntegrationSystemPrompt).toContain(field);
+    expect(experienceIntegrationSystemPrompt).toContain("変化がなければ省略します");
+    expect(experienceIntegrationSystemPrompt).not.toContain("省略または空配列");
+  });
+
   it("AC-017-1: uses the committed Core context and saves user memory with only the current actor as subject", async () => {
     const request = input(); const applied: unknown[] = [];
     const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ memories: [{ content: "ユーザーは来週旅行に行く予定だと話した", reason: "次回の自然な問いかけに使う", evidenceEventIds: [request.sourceEvent.id], confidence: "high", target: "episodic", perspective: "user", purpose: "user-context" }] }) });
@@ -42,5 +49,26 @@ describe("ExperienceIntegration", () => {
     const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), claim: () => Promise.resolve(false), apply: () => Promise.resolve(), fail: () => Promise.resolve() }, { integrate: () => { invoked += 1; return Promise.resolve({ memories: [] }); } });
     await integration.processReserved(request, new AbortController().signal);
     expect(invoked).toBe(0);
+  });
+
+  it("C-03: repairs one invalid MemoryIntent output with its validation issues before applying it", async () => {
+    const request = input(); const applied: unknown[] = []; const repairs: unknown[] = [];
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, {
+      integrate: () => Promise.resolve({ memories: [{ content: "ユーザーは週末に展示へ行く予定", perspective: "user", purpose: "user-context" }] } as never),
+      repair: (_input, issues) => { repairs.push(issues); return Promise.resolve({ memories: [{ content: "ユーザーは週末に展示へ行く予定", reason: "週明けに結果を自然に尋ねられる", evidenceEventIds: [request.sourceEvent.id], confidence: "high", target: "episodic", perspective: "user", purpose: "user-context" }] }); }
+    });
+    await integration.process(request, new AbortController().signal);
+    expect(repairs).toHaveLength(1);
+    expect(applied).toHaveLength(1);
+  });
+
+  it("C-16: records a failed Integration when its one schema repair is still invalid", async () => {
+    const request = input(); const failed: unknown[] = [];
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: () => Promise.resolve(), fail: (_input, error) => { failed.push(error); return Promise.resolve(); } }, {
+      integrate: () => Promise.resolve({ memories: [{ content: "不完全な記憶" }] } as never),
+      repair: () => Promise.resolve({ memories: [{ content: "まだ不完全" }] } as never)
+    });
+    await expect(integration.process(request, new AbortController().signal)).rejects.toThrow();
+    expect(failed).toHaveLength(1);
   });
 });

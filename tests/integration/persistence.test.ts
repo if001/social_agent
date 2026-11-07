@@ -13,6 +13,7 @@ import { messageFixture } from "../../src/testing/contract-fixtures.js";
 import { PostgresMemoryRetriever } from "../../src/infrastructure/persistence/postgres-memory-retriever.js";
 import { PostgresScheduleRepository } from "../../src/infrastructure/persistence/postgres-schedule-repository.js";
 import { PostgresRuntimePersistence } from "../../src/infrastructure/persistence/postgres-runtime-persistence.js";
+import { PostgresExperienceIntegrationRepository } from "../../src/infrastructure/persistence/postgres-experience-integration.js";
 import { PostgresReflectionRepository } from "../../src/infrastructure/persistence/postgres-reflection.js";
 import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { agentCoreInputFixture, fixtureInstant } from "../../src/testing/contract-fixtures.js";
@@ -458,6 +459,24 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(inputSnapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "lookup" }] });
     expect(inputSnapshot?.availableTools[0]).not.toHaveProperty("inputSchema");
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([]);
+  });
+
+  it("C-03: restores pending Integration traces in both current and legacy snapshot formats", async () => {
+    const core = agentCoreInputFixture();
+    const makeInput = (eventId: string, runId: string) => ({ ...core, run: { ...core.run, eventId, runId, agentId: "a" }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId: "a" }, state: { ...core.state, agentId: "a" } });
+    const current = makeInput("integration-current-event", "integration-current-run");
+    const legacy = makeInput("integration-legacy-event", "integration-legacy-run");
+    for (const value of [current, legacy]) {
+      await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,'a','user-message',$2,'test','completed',$3)", [value.run.eventId, JSON.stringify(value.observation), fixtureInstant]);
+      await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$4,$4)", [value.run.runId, value.run.eventId, JSON.stringify({ output: { desire: "返す", action: { type: "respond", content: "了解" } }, toolExecutions: [] }), fixtureInstant]);
+    }
+    const toolExecutions = [{ callId: "stored-tool", runId: current.run.runId, eventId: current.run.eventId, name: "memory_search", input: { query: "予定" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }];
+    const currentTrace = { event: { id: current.run.eventId, kind: "user-message", occurredAt: fixtureInstant, payload: {} }, decisionInput: current, result: { assessment: { meaning: "予定を聞いた" }, output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions } };
+    const legacyTrace = { event: { id: legacy.run.eventId, kind: "user-message", occurredAt: fixtureInstant, payload: {} }, decisionInput: legacy, result: { output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } } }, toolExecutions: toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId })) };
+    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input) VALUES ('integration-current','a',$1,$2,'failed',$3),('integration-legacy','a',$4,$5,'failed',$6)", [current.run.eventId, current.run.runId, JSON.stringify(currentTrace), legacy.run.eventId, legacy.run.runId, JSON.stringify(legacyTrace)]);
+    const pending = await new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
+    expect(pending.find(({ integrationId }) => integrationId === "integration-current")?.result.toolExecutions).toEqual(toolExecutions);
+    expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTrace.toolExecutions);
   });
 
   it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {
