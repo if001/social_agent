@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parse } from "dotenv";
 import { Pool } from "pg";
 import { z } from "zod";
-import { DomainError } from "../../src/domain/contracts.js";
+import { DomainError, type Concern } from "../../src/domain/contracts.js";
 
 import { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "../../src/infrastructure/persistence/postgres.js";
 import { PostgresEventTransaction } from "../../src/infrastructure/persistence/event-transaction.js";
@@ -28,6 +28,8 @@ import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 import { createScheduledTaskTools } from "../../src/infrastructure/tools/scheduled-task-tools.js";
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { initializeAgent } from "../../src/operations/operations.js";
+import { ContextBuilder } from "../../src/application/context-builder.js";
+import { AgentStatePatchService } from "../../src/application/agent-state-patch.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
@@ -492,6 +494,23 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ content: string; importance: string }>("SELECT content,importance FROM memories WHERE id='reflection-memory'")).rows[0]).toEqual({ content: "約束を果たした", importance: "信頼が深まった" });
     expect((await pool.query<{ id: string; next_due_at: Date }>("SELECT id,next_due_at FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rows[0]).toMatchObject({ id: "concern:reflection-concern" });
     expect((await pool.query<{ status: string; plan: { memory: string } }>("SELECT status,plan FROM reflection_runs WHERE id='reflection-1'")).rows[0]).toMatchObject({ status: "completed", plan: { memory: "completed" } });
+  });
+
+  it("C-06, C-24: retains a Concern beyond the context selection boundary when a normal Event commits", async () => {
+    const concerns: Concern[] = [...Array.from({ length: 12 }, (_, index) => ({ id: `history-${String(index)}`, description: `解決済みの関心 ${String(index)}`, whyItMatters: "過去の記録", status: "satisfied" as const })), { id: "active-after-history", description: "次のEventにも残る関心", whyItMatters: "まだ確かめたい", status: "active" as const }];
+    await pool.query("UPDATE agent_states SET concerns=$2,version=version+1 WHERE agent_id=$1", ["a", JSON.stringify(concerns)]);
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version;
+    if (version === undefined) throw new Error("Agent state was not found");
+    const source = agentCoreInputFixture();
+    source.run = { runId: "context-boundary-run", eventId: "context-boundary-event", agentId: "a", occurredAt: fixtureInstant };
+    source.currentSelf = { ...source.currentSelf, agentId: "a", version };
+    source.state = { ...source.state, agentId: "a", concerns };
+    const input = new ContextBuilder().build(source, { maxTokens: 6_000, maxMemories: 1, maxSocialContexts: 1 });
+    const update = new AgentStatePatchService().applyConcernProposals(new AgentStatePatchService().initial("a", input.state), [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }], "context-boundary-event", () => "new-concern");
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["context-boundary-state-change"]), () => new Date(fixtureInstant));
+    await expect(persistence.commit(messageFixture({ id: "context-boundary-message", destination: "agent:a" }), { id: "context-boundary-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: { reason: "状態を継続する" } }, input, { output: { desire: "関心を維持する", action: { type: "no-external-action", reason: "内部状態を更新した" } }, toolExecutions: [], concernProposals: [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }] }, update, [])).resolves.toBe("committed");
+    const persisted = (await pool.query<{ concerns: { id: string; status: string }[] }>("SELECT concerns FROM agent_states WHERE agent_id='a'")).rows[0]?.concerns ?? [];
+    expect(persisted).toEqual(expect.arrayContaining([expect.objectContaining({ id: "active-after-history", status: "active" }), expect.objectContaining({ id: "new-concern", status: "active" })]));
   });
 
   it("FR-60, AC-15: records memory failure as blocked targets and leaves the reflection retryable", async () => {
