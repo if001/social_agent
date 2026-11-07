@@ -7,7 +7,7 @@ import { errorLogContext } from "../../observability/logger.js";
 import { AgentStateRepository, PostgresUnitOfWork } from "./postgres.js";
 import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent } from "../../domain/contracts.js";
 
-function snapshot(input: ExperienceIntegrationInput): Record<string, unknown> { return { event: { id: input.sourceEvent.id, kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, payload: input.sourceEvent.payload }, decisionInput: input.input, result: { assessment: input.result.assessment, output: input.result.output }, toolExecutions: input.result.toolExecutions }; }
+function snapshot(input: ExperienceIntegrationInput): Record<string, unknown> { return { event: { id: input.sourceEvent.id, kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, payload: input.sourceEvent.payload }, decisionInput: input.input, result: { assessment: input.result.assessment, output: input.result.output, toolExecutions: input.result.toolExecutions } }; }
 
 export class PostgresExperienceIntegrationRepository implements ExperienceIntegrationRepository {
   constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly embedding?: MemoryEmbeddingPreparer) {}
@@ -42,8 +42,8 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
   }
   async fail(input: ExperienceIntegrationInput, error: unknown): Promise<void> { await this.pool.query("UPDATE experience_integrations SET status='failed',failure_reason=$2,completed_at=now(),updated_at=now() WHERE id=$1", [input.integrationId, JSON.stringify(errorLogContext(error))]); }
   async pending(agentId?: string): Promise<readonly ExperienceIntegrationInput[]> {
-    const result = await this.pool.query<{ id: string; agent_id: string; source_event_id: string; source_run_id: string; input: { event: { id: string; kind: DomainEvent["kind"]; occurredAt: string; payload: Record<string, unknown> }; decisionInput: unknown; result: unknown } }>("SELECT id,agent_id,source_event_id,source_run_id,input FROM experience_integrations WHERE status IN ('pending','failed') AND ($1::text IS NULL OR agent_id=$1) ORDER BY created_at,id", [agentId ?? null]);
-    return result.rows.map((row) => ({ integrationId: row.id, agentId: row.agent_id, sourceEvent: { id: row.input.event.id, agentId: row.agent_id, kind: row.input.event.kind, occurredAt: row.input.event.occurredAt, payload: row.input.event.payload }, sourceRunId: row.source_run_id, input: AgentCoreInputSchema.parse(row.input.decisionInput), result: AgentRunResultSchema.parse(row.input.result) }));
+    const result = await this.pool.query<{ id: string; agent_id: string; source_event_id: string; source_run_id: string; input: { event: { id: string; kind: DomainEvent["kind"]; occurredAt: string; payload: Record<string, unknown> }; decisionInput: unknown; result: Record<string, unknown>; toolExecutions?: unknown } }>("SELECT id,agent_id,source_event_id,source_run_id,input FROM experience_integrations WHERE status IN ('pending','failed') AND ($1::text IS NULL OR agent_id=$1) ORDER BY created_at,id", [agentId ?? null]);
+    return result.rows.map((row) => ({ integrationId: row.id, agentId: row.agent_id, sourceEvent: { id: row.input.event.id, agentId: row.agent_id, kind: row.input.event.kind, occurredAt: row.input.event.occurredAt, payload: row.input.event.payload }, sourceRunId: row.source_run_id, input: AgentCoreInputSchema.parse(row.input.decisionInput), result: AgentRunResultSchema.parse({ ...row.input.result, toolExecutions: row.input.result.toolExecutions ?? row.input.toolExecutions ?? [] }) }));
   }
   async claim(integrationId: string): Promise<boolean> { return (await this.pool.query("UPDATE experience_integrations SET status='processing',updated_at=now() WHERE id=$1 AND status IN ('pending','failed')", [integrationId])).rowCount === 1; }
 }

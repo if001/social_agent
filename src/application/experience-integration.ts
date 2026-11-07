@@ -23,7 +23,8 @@ export type ExperienceIntegrationInput = {
 };
 
 export interface ExperienceIntegrationModel {
-  integrate(input: ExperienceIntegrationInput, signal: AbortSignal): Promise<ExperienceIntegrationOutput>;
+  integrate(input: ExperienceIntegrationInput, signal: AbortSignal): Promise<unknown>;
+  repair?(input: ExperienceIntegrationInput, validationIssues: readonly z.core.$ZodIssue[], signal: AbortSignal): Promise<unknown>;
 }
 
 export interface ExperienceIntegrationRepository {
@@ -47,7 +48,10 @@ export class ExperienceIntegration {
   async processReserved(input: ExperienceIntegrationInput, signal: AbortSignal): Promise<void> {
     if (this.repository.claim !== undefined && !await this.repository.claim(input.integrationId)) return;
     try {
-      const output = ExperienceIntegrationOutputSchema.parse(await this.model.integrate(input, signal));
+      const first = ExperienceIntegrationOutputSchema.safeParse(await this.model.integrate(input, signal));
+      const output = first.success ? first.data : this.model.repair === undefined
+        ? (() => { throw first.error; })()
+        : ExperienceIntegrationOutputSchema.parse(await this.model.repair(input, first.error.issues, signal));
       if (output.memories.some((intent) => intent.evidenceEventIds.some((eventId) => eventId !== input.sourceEvent.id))) throw new Error("Experience Integration referenced an Event outside its input");
       const actorId = input.input.observation.actor?.type === "human" || input.input.observation.actor?.type === "agent" ? input.input.observation.actor.id : undefined;
       if (output.relationship !== undefined) {
