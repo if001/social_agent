@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-08
-status: doing
+status: done
 type: fix
 plan: []
 requirements: [C-06, C-23, C-24]
@@ -43,9 +43,9 @@ Concernは次のEventにも影響する持続状態であり、Context選択は�
 
 ## Acceptance criteria
 
-- [ ] C-06：12件より後ろにあるactive Concernを含め、Concernが次Event後も持続する。
-- [ ] C-24：通常EventのConcern proposalは、Context選択で除外されたConcernを暗黙に削除または終了しない。
-- [ ] C-23：Context Builderが選択済みContextを構成しても、Runtime commitの基準となるConcern集合を欠損させない。
+- [x] C-06：12件より後ろにあるactive Concernを含め、Concernが次Event後も持続する。
+- [x] C-24：通常EventのConcern proposalは、Context選択で除外されたConcernを暗黙に削除または終了しない。
+- [x] C-23：Context Builderが選択済みContextを構成しても、Runtime commitの基準となるConcern集合を欠損させない。
 
 ## Tests
 
@@ -70,3 +70,11 @@ Concernは次のEventにも影響する持続状態であり、Context選択は�
 |---|---|---|
 | `spec/personal-agent-concept-design-restructured-v2.md` C-06 | 既存の持続状態の定義を実装修正が満たす | 不要 |
 | `spec/personal-agent-implementation-design-v2.md` C-23, C-24 | Context選択とRuntime検証の既存定義を実装修正が満たす | 不要 |
+
+## 実装メモ
+
+- ContextBuilderはConcern集合をRuntime commitの基準として完全に保持し、モデルへ送らない`state`はContext token budgetから除外した。
+- C-06, C-23, C-24の回帰を`tests/unit/memory-context.test.ts`と`tests/integration/persistence.test.ts`で検証した。
+- 検証: `pnpm test -- --runInBand`（199件）、PostgreSQL integration（29件）、`pnpm typecheck`、対象ESLint。
+- ID機械検査には既存の重複定義ERROR 5件とWARN 2件があるが、本Issueによる追加はない。
+- レビュー記録: `docs/work/reviews/2026-11-08-issue-019.md`。
