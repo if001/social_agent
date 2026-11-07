@@ -1,7 +1,7 @@
 import type { Pool, QueryResultRow } from "pg";
 import { errorLogContext } from "../../observability/logger.js";
 
-import type { PendingOutput, RuntimePersistence } from "../../application/agent-runtime.js";
+import type { PendingOutput, RuntimeExecutionInput, RuntimePersistence } from "../../application/agent-runtime.js";
 import type { IdGenerator, MemoryEmbeddingPreparer, RetrievalService } from "../../application/ports.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
@@ -9,7 +9,7 @@ import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent
 import { PostgresEventTransaction } from "./event-transaction.js";
 import { PostgresUnitOfWork } from "./postgres.js";
 
-type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput>;
+type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput | RuntimeExecutionInput>;
 type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
 /**

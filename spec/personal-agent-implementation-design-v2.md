@@ -553,6 +553,8 @@ type AgentCoreInput = {
 };
 ```
 
+`AgentCoreInput` はAgent Coreへ渡す選択済みContextである。Runtimeはこれと別に、versionを含む完全なPersistent Stateを保持し、Concern proposalの検証・commitだけに使う。Context BuilderがConcern本文を選択から除外しても、永続Stateを欠損・加工してはならない。
+
 Self、Concern、Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものを `self_get`、`concern_list`、`concern_get`、`memory_search`、`relationship_search`、`user_context_get` などのToolで取得する。ただしuser-messageでは`concern_list`、`concern_get`、`concern_propose`を公開せず、`self_get`、`memory_search`、`relationship_search`、`user_context_get`などを使う。
 
 ## 19. Agent Core Output

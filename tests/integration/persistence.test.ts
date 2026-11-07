@@ -506,7 +506,7 @@ describeDatabase("PostgreSQL persistence", () => {
     source.currentSelf = { ...source.currentSelf, agentId: "a", version };
     source.state = { ...source.state, agentId: "a", concerns };
     const input = new ContextBuilder().build(source, { maxTokens: 6_000, maxMemories: 1, maxSocialContexts: 1 });
-    const update = new AgentStatePatchService().applyConcernProposals(new AgentStatePatchService().initial("a", input.state), [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }], "context-boundary-event", () => "new-concern");
+    const update = new AgentStatePatchService().applyConcernProposals(new AgentStatePatchService().initial("a", { ...source.state, concerns }), [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }], "context-boundary-event", () => "new-concern");
     const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["context-boundary-state-change"]), () => new Date(fixtureInstant));
     await expect(persistence.commit(messageFixture({ id: "context-boundary-message", destination: "agent:a" }), { id: "context-boundary-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: { reason: "状態を継続する" } }, input, { output: { desire: "関心を維持する", action: { type: "no-external-action", reason: "内部状態を更新した" } }, toolExecutions: [], concernProposals: [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }] }, update, [])).resolves.toBe("committed");
     const persisted = (await pool.query<{ concerns: { id: string; status: string }[] }>("SELECT concerns FROM agent_states WHERE agent_id='a'")).rows[0]?.concerns ?? [];
