@@ -23,7 +23,10 @@ export class ContextBuilder {
     if (source.currentSelf.agentId !== source.run.agentId || source.state.agentId !== source.run.agentId) throw new Error("Context owner mismatch");
     if (source.predictionContext !== undefined && source.predictionContext.agentId !== source.run.agentId) throw new Error("Prediction context owner mismatch");
     const currentSelf = { ...source.currentSelf, identity: text(source.currentSelf.identity, 300), disposition: text(source.currentSelf.disposition, 1_200), selfStory: text(source.currentSelf.selfStory, 1_000), commitments: texts(source.currentSelf.commitments, 12, 400) };
-    const state = { ...source.state, ...(source.state.mood === undefined ? {} : { mood: text(source.state.mood, 500) }), concerns: source.state.concerns.slice(0, 12).map((concern) => ({ ...concern, description: text(concern.description, 500), whyItMatters: text(concern.whyItMatters, 500) })), relationships: source.state.relationships.slice(0, 12).map((relationship) => ({ ...relationship, description: text(relationship.description, 600) })) };
+    // `state` is also the baseline for the Runtime's optimistic State update.
+    // Selecting only its first entries here would turn an input-budget decision
+    // into an implicit deletion on the next successful Event commit.
+    const state = { ...source.state, ...(source.state.mood === undefined ? {} : { mood: text(source.state.mood, 500) }), concerns: source.state.concerns.map((concern) => ({ ...concern, description: text(concern.description, 500), whyItMatters: text(concern.whyItMatters, 500) })), relationships: source.state.relationships.slice(0, 12).map((relationship) => ({ ...relationship, description: text(relationship.description, 600) })) };
     const boundedPersona = persona(source.persona);
     const predictionContext: PredictionContext | undefined = source.predictionContext === undefined ? undefined : {
       ...source.predictionContext,

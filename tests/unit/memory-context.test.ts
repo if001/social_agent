@@ -1,15 +1,17 @@
 import { ContextBuilder, estimateTokens } from "../../src/application/context-builder.js";
 import { FakeEmbeddingProvider, OllamaEmbeddingProvider } from "../../src/infrastructure/embedding/ollama-embedding.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
-import type { Memory } from "../../src/domain/contracts.js";
+import type { Concern, Memory } from "../../src/domain/contracts.js";
 import { buildRelevantMemoryQuery } from "../../src/application/memory-query.js";
 
 describe("embedding and context", () => {
-  it("FR-8, NFR-3: bounds concerns in the canonical state", () => {
+  it("C-06, C-24: preserves every Concern in the canonical state used for Runtime commit", () => {
     const input = agentCoreInputFixture();
-    input.state.concerns = Array.from({ length: 14 }, (_, index) => ({ id: `c${String(index)}`, description: `concern-${String(index)}`, whyItMatters: "important", status: "active" as const }));
+    const concerns: Concern[] = [...Array.from({ length: 12 }, (_, index) => ({ id: `satisfied-${String(index)}`, description: `satisfied-${String(index)}`, whyItMatters: "already resolved", status: "satisfied" as const })), { id: "active-after-history", description: "still matters", whyItMatters: "it must affect the next Event", status: "active" as const }];
+    input.state.concerns = concerns;
     const result = new ContextBuilder().build(input, { maxTokens: 6_000, maxMemories: 5, maxSocialContexts: 1 });
-    expect(result.state.concerns).toHaveLength(12);
+    expect(result.state.concerns).toHaveLength(13);
+    expect(result.state.concerns.at(-1)).toMatchObject({ id: "active-after-history", status: "active" });
   });
   it("NFR-3: returns deterministic fake vectors and validates local dimensions", async () => {
     const fake = new FakeEmbeddingProvider({ hello: [1, 0] });
