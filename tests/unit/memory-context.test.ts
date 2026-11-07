@@ -5,11 +5,11 @@ import type { Concern, Memory } from "../../src/domain/contracts.js";
 import { buildRelevantMemoryQuery } from "../../src/application/memory-query.js";
 
 describe("embedding and context", () => {
-  it("C-06, C-24: preserves every Concern in the canonical state used for Runtime commit", () => {
+  it("C-06, C-23, C-24: preserves every Concern in the canonical state used for Runtime commit without spending model budget", () => {
     const input = agentCoreInputFixture();
-    const concerns: Concern[] = [...Array.from({ length: 12 }, (_, index) => ({ id: `satisfied-${String(index)}`, description: `satisfied-${String(index)}`, whyItMatters: "already resolved", status: "satisfied" as const })), { id: "active-after-history", description: "still matters", whyItMatters: "it must affect the next Event", status: "active" as const }];
+    const concerns: Concern[] = [...Array.from({ length: 12 }, (_, index) => ({ id: `satisfied-${String(index)}`, description: "s".repeat(800), whyItMatters: "already resolved", status: "satisfied" as const })), { id: "active-after-history", description: "a".repeat(800), whyItMatters: "it must affect the next Event", status: "active" as const }];
     input.state.concerns = concerns;
-    const result = new ContextBuilder().build(input, { maxTokens: 6_000, maxMemories: 5, maxSocialContexts: 1 });
+    const result = new ContextBuilder().build(input, { maxTokens: 2_000, maxMemories: 5, maxSocialContexts: 1 });
     expect(result.state.concerns).toHaveLength(13);
     expect(result.state.concerns.at(-1)).toMatchObject({ id: "active-after-history", status: "active" });
   });

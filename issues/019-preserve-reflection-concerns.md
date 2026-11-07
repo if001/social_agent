@@ -49,7 +49,7 @@ Concernは次のEventにも影響する持続状態であり、Context選択は�
 
 ## Tests
 
-- C-06, C-23, C-24：`tests/unit/memory-context.test.ts`で、12件を超えるConcernをContextBuilderが欠損させないことを検証する。
+- C-06, C-23, C-24：`tests/unit/memory-context.test.ts`で、12件を超える長文ConcernをContextBuilderが欠損させず、モデル用token budgetを超過させないことを検証する。
 - C-06, C-24：`tests/integration/persistence.test.ts`で、12件より後ろのactive Concernを含む状態へ通常EventのConcern proposalをcommitし、全Concernが保持されることを検証する。
 
 ## 影響範囲
@@ -69,4 +69,4 @@ Concernは次のEventにも影響する持続状態であり、Context選択は�
 | 文書 | 反映内容 | 状態 |
 |---|---|---|
 | `spec/personal-agent-concept-design-restructured-v2.md` C-06 | 既存の持続状態の定義を実装修正が満たす | 不要 |
-| `spec/personal-agent-implementation-design-v2.md` C-23, C-24, C-25 | Context選択とRuntime検証の既存定義を実装修正が満たす | 不要 |
+| `spec/personal-agent-implementation-design-v2.md` C-23, C-24 | Context選択とRuntime検証の既存定義を実装修正が満たす | 不要 |

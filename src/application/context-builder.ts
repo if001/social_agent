@@ -49,7 +49,11 @@ export class ContextBuilder {
       })
     };
     const required = { run: source.run, observation: observation(source.observation), ...(predictionContext === undefined ? {} : { predictionContext }), ...(source.previousAssessment === undefined ? {} : { previousAssessment: source.previousAssessment }), ...(source.previousDesire === undefined ? {} : { previousDesire: { ...source.previousDesire, desire: text(source.previousDesire.desire, 800) } }), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), currentSelf, state, runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
-    let used = estimateTokens(required);
+    // DeepAgentHarness does not serialize `state` into the model prompt. Keep
+    // the complete state for Runtime persistence, but budget only the values
+    // that can actually reach the model.
+    const requiredForModelBudget = { ...required, state: undefined };
+    let used = estimateTokens(requiredForModelBudget);
     if (used > budget.maxTokens) throw new Error(`Context budget is too small for required state: required=${String(used)}, max=${String(budget.maxTokens)}`);
     const recentCandidates = source.recentExperiences.filter(({ agentId }) => agentId === source.run.agentId).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId)).slice(-2);
     const recentExperiences: RecentExperience[] = [...recentCandidates];
