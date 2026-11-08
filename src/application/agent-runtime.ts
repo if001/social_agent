@@ -109,7 +109,12 @@ export class AgentRuntime {
     }
     eventLogger.log("info", "context.loading");
     const loaded = await this.options.persistence.loadInput(event);
-    const input = loaded;
+    // Runtime-only state must never cross the Agent Core boundary.  In
+    // particular, Experience Integration persists and later strictly parses
+    // `input` as AgentCoreInput when retrying a pending integration.
+    const input: AgentCoreInput = "persistentState" in loaded
+      ? (({ persistentState: _persistentState, ...coreInput }) => coreInput)(loaded)
+      : loaded;
     const persistentState = "persistentState" in loaded ? loaded.persistentState : input.state;
     const logger = eventLogger.child({ runId: input.run.runId });
     logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, relationshipCount: input.state.relationships.length, availableToolCount: input.availableTools.length });
