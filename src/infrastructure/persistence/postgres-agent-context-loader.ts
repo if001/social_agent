@@ -1,6 +1,7 @@
 import type { Pool, QueryResultRow } from "pg";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
+import type { RuntimeExecutionInput } from "../../application/agent-runtime.js";
 import type { EmbeddingProvider, IdGenerator, RetrievalService } from "../../application/ports.js";
 import type { PredictionRepository } from "../../application/prediction.js";
 import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, G3OutputSchema, ObservationSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
@@ -99,7 +100,7 @@ export class PostgresAgentContextLoader {
   readonly #builder: ContextBuilder;
   constructor(private readonly options: PostgresAgentContextLoaderOptions) { this.#builder = new ContextBuilder(options.logger); }
 
-  async load(event: DomainEvent): Promise<AgentCoreInput> {
+  async load(event: DomainEvent): Promise<RuntimeExecutionInput> {
     const observation = observationFromEvent(event);
     const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
       s.disposition,s.self_story,s.commitments,s.concerns,s.relationships,s.mood,s.version,s.updated_at AS state_updated_at,
@@ -154,7 +155,7 @@ export class PostgresAgentContextLoader {
       runtimeConstraints: [agent.base_instruction.trim(), "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),
       limits: this.options.limits
     }, this.options.budget));
-    return built;
+    return { ...built, persistentState: state };
   }
 
 }

@@ -4,7 +4,7 @@ import type { AgentHarness, IdGenerator, MessageQueue, PredictionService } from 
 import type { MemoryUpdateHandler } from "./memory-update.js";
 import type { ExperienceIntegrationSink } from "./experience-integration.js";
 import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
-import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
+import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type CurrentAgentState, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
@@ -16,9 +16,10 @@ const IncomingPayload = z.discriminatedUnion("type", [
 ]);
 
 export type PendingOutput = { readonly envelope: MessageEnvelope };
+export type RuntimeExecutionInput = AgentCoreInput & { readonly persistentState: CurrentAgentState };
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
-  loadInput(event: DomainEvent): Promise<AgentCoreInput>;
+  loadInput(event: DomainEvent): Promise<AgentCoreInput | RuntimeExecutionInput>;
   commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
   recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
@@ -107,7 +108,14 @@ export class AgentRuntime {
       return { type: "no-external-action", reason: "MemoryUpdate was applied without an Agent Action" };
     }
     eventLogger.log("info", "context.loading");
-    const input = await this.options.persistence.loadInput(event);
+    const loaded = await this.options.persistence.loadInput(event);
+    // Runtime-only state must never cross the Agent Core boundary.  In
+    // particular, Experience Integration persists and later strictly parses
+    // `input` as AgentCoreInput when retrying a pending integration.
+    const input: AgentCoreInput = "persistentState" in loaded
+      ? (({ persistentState: _persistentState, ...coreInput }) => coreInput)(loaded)
+      : loaded;
+    const persistentState = "persistentState" in loaded ? loaded.persistentState : input.state;
     const logger = eventLogger.child({ runId: input.run.runId });
     logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, relationshipCount: input.state.relationships.length, availableToolCount: input.availableTools.length });
     let result: AgentRunResult;
@@ -123,7 +131,7 @@ export class AgentRuntime {
     }
     const output = result.output;
     logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: result.concernProposals?.length ?? 0 });
-    const patched = this.#updates.initial(event.agentId, input.state);
+    const patched = this.#updates.initial(event.agentId, persistentState);
     const update = this.#updates.applyConcernProposals(patched, result.concernProposals ?? [], event.id, () => this.options.ids.next());
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);

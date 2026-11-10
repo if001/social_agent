@@ -28,8 +28,7 @@ import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 import { createScheduledTaskTools } from "../../src/infrastructure/tools/scheduled-task-tools.js";
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { initializeAgent } from "../../src/operations/operations.js";
-import { ContextBuilder } from "../../src/application/context-builder.js";
-import { AgentStatePatchService } from "../../src/application/agent-state-patch.js";
+import { AgentRuntime } from "../../src/application/agent-runtime.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
@@ -473,7 +472,7 @@ describeDatabase("PostgreSQL persistence", () => {
       await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$4,$4)", [value.run.runId, value.run.eventId, JSON.stringify({ output: { desire: "返す", action: { type: "respond", content: "了解" } }, toolExecutions: [] }), fixtureInstant]);
     }
     const toolExecutions = [{ callId: "stored-tool", runId: current.run.runId, eventId: current.run.eventId, name: "memory_search", input: { query: "予定" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }];
-    const currentTrace = { event: { id: current.run.eventId, kind: "user-message", occurredAt: fixtureInstant, payload: {} }, decisionInput: current, result: { assessment: { meaning: "予定を聞いた" }, output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions } };
+    const currentTrace = { event: { id: current.run.eventId, kind: "user-message", occurredAt: fixtureInstant, payload: {} }, decisionInput: { ...current, persistentState: current.state }, result: { assessment: { meaning: "予定を聞いた" }, output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions } };
     const legacyTrace = { event: { id: legacy.run.eventId, kind: "user-message", occurredAt: fixtureInstant, payload: {} }, decisionInput: legacy, result: { output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } } }, toolExecutions: toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId })) };
     await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input) VALUES ('integration-current','a',$1,$2,'failed',$3),('integration-legacy','a',$4,$5,'failed',$6)", [current.run.eventId, current.run.runId, JSON.stringify(currentTrace), legacy.run.eventId, legacy.run.runId, JSON.stringify(legacyTrace)]);
     const pending = await new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
@@ -499,16 +498,23 @@ describeDatabase("PostgreSQL persistence", () => {
   it("C-06, C-24: retains a Concern beyond the context selection boundary when a normal Event commits", async () => {
     const concerns: Concern[] = [...Array.from({ length: 12 }, (_, index) => ({ id: `history-${String(index)}`, description: `解決済みの関心 ${String(index)}`, whyItMatters: "過去の記録", status: "satisfied" as const })), { id: "active-after-history", description: "次のEventにも残る関心", whyItMatters: "まだ確かめたい", status: "active" as const }];
     await pool.query("UPDATE agent_states SET concerns=$2,version=version+1 WHERE agent_id=$1", ["a", JSON.stringify(concerns)]);
-    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version;
-    if (version === undefined) throw new Error("Agent state was not found");
-    const source = agentCoreInputFixture();
-    source.run = { runId: "context-boundary-run", eventId: "context-boundary-event", agentId: "a", occurredAt: fixtureInstant };
-    source.currentSelf = { ...source.currentSelf, agentId: "a", version };
-    source.state = { ...source.state, agentId: "a", concerns };
-    const input = new ContextBuilder().build(source, { maxTokens: 6_000, maxMemories: 1, maxSocialContexts: 1 });
-    const update = new AgentStatePatchService().applyConcernProposals(new AgentStatePatchService().initial("a", input.state), [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }], "context-boundary-event", () => "new-concern");
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["context-boundary-state-change"]), () => new Date(fixtureInstant));
-    await expect(persistence.commit(messageFixture({ id: "context-boundary-message", destination: "agent:a" }), { id: "context-boundary-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: { reason: "状態を継続する" } }, input, { output: { desire: "関心を維持する", action: { type: "no-external-action", reason: "内部状態を更新した" } }, toolExecutions: [], concernProposals: [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }] }, update, [])).resolves.toBe("committed");
+    const tools = new ToolRegistry(createAgentContextTools(pool));
+    const loader = new PostgresAgentContextLoader({
+      pool, ids: new SequenceIdGenerator(["context-boundary-run"]), embedding: new FakeEmbeddingProvider({}), tools,
+      budget: { maxTokens: 6_000, maxMemories: 1, maxSocialContexts: 1 },
+      limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
+    });
+    const persistence = new PostgresRuntimePersistence(pool, (event) => loader.load(event), new SequenceIdGenerator(["context-boundary-state-change"]), () => new Date(fixtureInstant));
+    const runtime = new AgentRuntime({
+      destination: "a", defaultOutputDestination: "terminal", persistence,
+      queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
+      ids: new SequenceIdGenerator(["new-concern"]), now: () => new Date(fixtureInstant),
+      harness: { run: (input) => {
+        expect(input.state.concerns).toEqual([]);
+        return Promise.resolve({ output: { desire: "関心を維持する", action: { type: "no-external-action", reason: "内部状態を更新した" } }, toolExecutions: [], concernProposals: [{ operation: "create", description: "新しい関心", whyItMatters: "今回の経験から残ったため" }] });
+      } }
+    });
+    await expect(runtime.process({ id: "context-boundary-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: { reason: "状態を継続する", destination: "terminal" } }, new AbortController().signal)).resolves.toMatchObject({ type: "no-external-action" });
     const persisted = (await pool.query<{ concerns: { id: string; status: string }[] }>("SELECT concerns FROM agent_states WHERE agent_id='a'")).rows[0]?.concerns ?? [];
     expect(persisted).toEqual(expect.arrayContaining([expect.objectContaining({ id: "active-after-history", status: "active" }), expect.objectContaining({ id: "new-concern", status: "active" })]));
   });
