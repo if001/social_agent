@@ -311,7 +311,7 @@ Concernの寿命と飽和は、新しい数値counterをモデルへ出力させ
 - `abandoned`: 現在のSelfにとっての価値、または進展可能性を失った。
 - `reconsiderAt`: 次に判断できる具体的な時機がある場合だけ設定する。単なる延命には使わない。
 - 同じConcernへの進展のない試行が反復した場合、同じ内容のまま更新しない。問い・対象・方法を変えるか、満足・放棄・削除で閉じる。
-- 一律の経過時間やConcern数だけでは終了させない。
+- 一律の経過時間やConcern数だけでは終了させない。Concern Activityで十分な取得・再検討機会を確認した後、当該Reflection Sessionでreview / focus / progress / derive / status変更のないstale ConcernだけをRuntimeが`abandoned`へ移す。future `reconsiderAt`と明示的継続reviewは除外し、未返信は根拠にしない。
 - 予測誤差はConcernの作成・維持・具体化・終了の材料になり得るが、更新を強制しない。MainAgentがSelf、Relationship、Memory根拠と合わせて決める。
 
 ## 経験と個体化
@@ -335,7 +335,7 @@ flowchart LR
 
 予測誤差は、MainAgentのMeaning / Feeling、誤差低減のDesire、Actionを変え得る。Actionの結果はRecentExperienceへ記録し、MemoryIntentとしてMemoryWriteServiceへ渡す。MemoryWriteServiceはRAG候補からcreate / update / no-opを決め、会話由来Memoryを更新する。更新後のMemoryと背景経験は、次のPredictionとMainAgentのContextで再利用する。予測誤差が減ることは保証せず、誤ったMemory更新、信念維持、no-opも許容する。
 
-Reflectionは、入力時点のSelf、State、対象Event、参照したConversation Memoryを監査可能な形で保存する。Self変更には理由と入力に含まれるConversation Memory IDを必須とし、一度の弱い経験で大きく人格を変えない。既存Concernの整理・統合・具体化・終了に加え、Conversation Memoryの根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。ReflectionはConversation Memory、Self、Relationship、Concernごとにpending / completed / failed / blockedを持ち、Conversation Memory更新後の状態を根拠に長期更新する。通常runとReflection runはそれぞれ一つの正規永続化経路を持ち、旧Post-processやCandidate経路を併存させない。
+Reflectionは通常Action・外部探索・日常的Concern消化を行わない。SessionはMemory、Concern / Relationship、Self / Moodの順に対象別Reflectorを実行し、初期要約から必要なEvent、Memory、Concern Activity、Relationshipを読み取りToolで得る。Self変更には理由とConversation Memory IDを必須とし、一度の弱い経験で大きく人格を変えない。Concern Activityは作成、focus、progress、derive、review、status変更をID単位で記録する正本であり、Runtime採番IDとReflection / Memory根拠を対応付ける。通常runとReflection runはそれぞれ一つの正規永続化経路を持ち、旧Post-processやCandidate経路を併存させない。
 
 Conversation Memoryは元会話やTool結果の保管場所ではない。後の検索で状況と判断への影響を復元できる、具体的な経験の要点を1〜2文で持つ。完全な本文が必要な場合は、Recent Experienceを肥大化させず、保存済みsnapshot IDやpathをToolで再参照する。Background ExperienceはConversation Memoryとは別Storeに保持し、起動後に更新しない。
 

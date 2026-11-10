@@ -522,7 +522,7 @@ Situation
 
 ## 19. 感情と状態の時間変化
 
-- C-15：Feeling、Mood、Desire、Concern、Selfは時間経過、新しいEvent、Memory想起、経験蓄積で変化する。
+- C-15：Feeling、Mood、Desire、Concern、Selfは時間経過、新しいEvent、Memory想起、経験蓄積で変化する。Concernは時間だけで閉じないが、十分な取得・再検討機会後も維持・進展・派生・明示的reviewに至らない場合は、Runtimeが決定論的に`abandoned`へ移してよい。
 
 Feeling、Mood、Desire、Concern、Selfは保存されたまま固定されない。
 

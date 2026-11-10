@@ -34,7 +34,7 @@
 | ADR-4 | Deep AgentsのresponseFormatとtoolStrategyで構造化出力を取得し、Runtimeで厳密に再検証してrepairする。 | FR-11, FR-12, FR-13, FR-14, FR-15, FR-16 |
 | ADR-5 | 最終Actionをrespond、refuse、notify-no-execution、no-external-actionに限定し、Patch対象を限定する。 | FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23 |
 | ADR-6 | ToolはDeep Agent内のloopで実行し、登録、権限、回数、冪等性、結果投影をRuntimeが管理する。 | FR-4, FR-32, FR-33, FR-35, FR-36, FR-37, FR-38 |
-| ADR-7 | 自律EventはRuntimeが生成し、Reflectionを通常Action選択から分離したmaintenance処理とする。 | FR-24, FR-39, FR-40, FR-41, FR-42, NFR-6 |
+| ADR-7 | 自律EventはRuntimeが生成し、Reflectionを通常Action選択から分離した、Memory→Concern / Relationship→Self / Moodの対象別maintenance Sessionとする。 | FR-24, FR-39, FR-40, FR-41, FR-42, NFR-6 |
 | ADR-8 | PostgreSQLを正本とし、Event、State、Conversation Memory、Prediction、MemoryMutation、Outboxをtransactionとadvisory lockで確定する。 | NFR-7, NFR-8, NFR-9, NFR-10, NFR-11 |
 | ADR-9 | Debug UIは読取り専用とし、secretは実行時だけ読み込む。 | NFR-12, NFR-13 |
 | ADR-10 | 概念語彙をSelf、State、Conversation Memory、Background Experience、Prediction、Reflectionの境界へ簡略化し、予測LoopとMemoryUpdateに必要な最小のtableとmoduleだけを追加する。それ以外の個別tableや認知moduleを増やさない。 | FR-5, FR-6, FR-7, NFR-11 |
@@ -44,7 +44,7 @@
 | ADR-14 | Conversation MemoryとBackground Experienceを別Storeに保持し、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。 | FR-53, FR-54, FR-55, NFR-19 |
 | ADR-15 | MemoryIntentのtargetはMemory kindに限定し、MemoryWriteServiceを唯一の書込み経路としてversion楽観ロックを行う。G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用し、G3のMemoryIntentはMainAgentのrememberとして適用する。 | FR-56, FR-57, FR-58, NFR-15 |
 | ADR-16 | Event優先順位はuser-message、memory-update、G3、reflectionの順とし、協調的スケジューリングでuser-messageを待たせない。 | FR-59, NFR-18 |
-| ADR-17 | ReflectionはMemory、Self、Relationship、Concernごとのstatusを持つplanで適用し、部分成功と失敗対象の再試行を許容する。 | FR-60, NFR-17 |
+| ADR-17 | Reflectionは対象別statusとSession / Reflector attemptを保存し、選択Contextを読み取りToolで拡張しつつ完全Stateへ差分commitする。Concern Activityを正本として部分成功、失敗対象の再試行、決定論的closeを許容する。 | FR-25, FR-60, NFR-7, NFR-17 |
 | ADR-18 | 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、deadlineとcall予算を持つ。 | FR-63, FR-64, NFR-16 |
 | ADR-19 | 予測、G3 Task、Memory mutationは監査・集計のため専用tableに保存し、Conversation MemoryとBackground Experienceは別Storeにする。既存Run/Event/StateChangeは意味判断と行動の監査に限定する。 | FR-50, FR-57, FR-60, FR-61, NFR-17 |
 | ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。 | FR-65, NFR-20 |
@@ -164,9 +164,9 @@ G3とMainAgentのConversation Memory・Background Experienceの検索は`retriev
 
 Event優先順位はuser-message、memory-update、G3、reflectionの順とする。user-messageが待っている間は下位Eventを開始せず、実行中でも強制中断せず短いtransaction単位で完了させる。`memory-update`は専用MemoryUpdateHandlerが処理し、LLMを呼ばない。G3は別DeepAgent、Reflectionは専用LLM処理であり、MainAgentのAgentHarnessを通らない。
 
-Reflectionは蓄積EventをConversation Memoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理である。既存Concernの整理・統合・具体化・終了に加え、Conversation Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。Conversation Memoryは会話やTool結果の保存場所ではなく、後の検索と判断で再利用する具体的な要点を1〜2文で生成する。通常Action選択とは分離し、Self変更にはConversation Memory根拠と明示的理由を要求する。ReflectionもDeep Agentsの`toolStrategy`による説明付き構造化出力を使い、モデル向けの単純な変更recordを厳密なDomain outputへ変換する。入力はEvent / Conversation Memory各32件と8,000推定token、1回の出力はConversation Memory / Concern / Relationship各4件までに制限する。連続失敗時のscheduleは5分を起点に指数backoffし、最大24時間まで延長する。
+Reflectionは通常Action・外部探索・日常的Concern消化を行わないmaintenance Sessionである。Memory ReflectorがEvent根拠をMemoryとして確定し、Concern ReflectorとRelationship Reflectorが確定Memoryと読み取りToolで得た必要最小限の記録を用いて差分を決め、最後にSelfMood Reflectorが今回の確定要点を統合する。各Reflectorは必要な小さな読み取りToolを反復利用できるが、Session外の探索、外部Tool、発話は公開しない。選択Contextは完全なcommit基準Stateと分離する。
 
-ReflectionはConversation Memory、Self、Relationship、Concernごとのpending / completed / failed / blockedを持つreflection planで適用する。Conversation Memory更新はmemory-update Eventで先に行い、その結果を根拠にSelf、Relationship、Concernを更新する。失敗またはblockedの対象だけを次回Reflectionで再試行し、部分成功を許容する。
+Sessionと各Reflectorはpending / completed / failed / blocked、入力・出力・retryを保存する。失敗またはblockedの対象だけを次回Sessionで再試行し、部分成功を許容する。Concern Activityは作成、focus、progress、derive、review、status変更をID単位で記録し、stale closeも同じ監査境界で確定する。
 
 Agent Coreの8,000推定tokenはproviderのcontext上限ではなく観測用の警告閾値とする。超過時も呼び出しを継続し、実際の受付可否はproviderへ委ねる。ToolのJSON SchemaはDeep AgentのTool定義だけに保持し、Agent Coreのuser messageへTool名・説明・Schemaを重複して埋め込まない。
 
