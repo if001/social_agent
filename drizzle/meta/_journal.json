@@ -204,6 +204,13 @@
       "when": 1793600000006,
       "tag": "0028_experience_integration_trace",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793600000007,
+      "tag": "0029_concern_activities",
+      "breakpoints": true
     }
   ]
 }

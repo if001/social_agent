@@ -56,12 +56,24 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
+    const focusedConcerns = validatedTools.flatMap((execution) => {
+      if (!execution.ok || (execution.name !== "concern_get" && execution.name !== "concern_history") || typeof execution.input !== "object" || execution.input === null || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
+      return [{ concernId: execution.input.concernId, kind: "focused" as const, eventId: event.id }];
+    });
+    // A generic successful Tool call is not necessarily about the selected
+    // Concern. concern_history is the narrow read seam that carries both the
+    // Concern ID and the evidence it retrieved, so only it proves progress.
+    const progressedConcerns = validatedTools.flatMap((execution) => {
+      if (!execution.ok || execution.name !== "concern_history" || typeof execution.input !== "object" || execution.input === null || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
+      return [{ concernId: execution.input.concernId, kind: "progressed" as const, eventId: event.id }];
+    });
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, inputSnapshot: decisionInputSnapshot(input), startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { mood: update.state.mood, concerns: update.state.concerns, relationships: update.state.relationships },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next(), reason: "AgentTurn patch", evidenceIds: [change.eventId] })),
+      concernActivities: [...update.concernActivities, ...focusedConcerns, ...progressedConcerns].map((activity, index) => ({ ...activity, id: `runtime:${input.run.runId}:${String(index)}:${activity.kind}:${activity.concernId}` })),
       toolExecutions: validatedTools,
       outbox: outgoing
     });

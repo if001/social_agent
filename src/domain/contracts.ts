@@ -27,6 +27,20 @@ export const ConcernSchema = z.object({
 }).describe("Agentが複数Eventにわたり持続して気に掛ける事項");
 export type Concern = z.infer<typeof ConcernSchema>;
 
+export const ConcernActivityKindSchema = z.enum(["baseline", "created", "derived", "reviewed", "focused", "progressed", "status-changed", "presented", "removed", "closed"]);
+export type ConcernActivityKind = z.infer<typeof ConcernActivityKindSchema>;
+
+/**
+ * Runtime-owned audit intent. The model never supplies activity IDs or
+ * timestamps: persistence attaches those only when the State change commits.
+ */
+export const ConcernActivityIntentSchema = z.object({
+  concernId: Id,
+  kind: ConcernActivityKindSchema,
+  eventId: Id
+}).strict();
+export type ConcernActivityIntent = z.infer<typeof ConcernActivityIntentSchema>;
+
 export const ConcernProposalSchema = z.object({
   operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern。createはconcern-formationまたはidle、deriveはconcern-dueまたはexternal-changeでのみ使う"),
   description: z.string().trim().min(1).max(400).describe("次に何を明らかにする、試す、または確認するかを、対象と行為が分かる一文で書く"),

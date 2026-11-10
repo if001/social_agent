@@ -71,7 +71,7 @@ describe("ST-01 Terminal round trip", () => {
     const lines: string[] = []; const logger = createStdoutLogger({}, (line) => { lines.push(line); });
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
-    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { desire: "finish after tool work", action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().state, changes: [] }, [message]);
+    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { desire: "finish after tool work", action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().state, changes: [], concernActivities: [] }, [message]);
     const queue = { publish: () => Promise.reject(new Error("down")), subscribe: () => Promise.resolve() };
     await expect(new OutboxDispatcher(persistence, queue, logger).dispatch()).rejects.toThrow("down");
     expect(await persistence.pendingOutbox(10)).toHaveLength(1);
@@ -95,7 +95,7 @@ describe("ST-01 Terminal round trip", () => {
     const lines: string[] = []; const logger = createStdoutLogger({}, (line) => { lines.push(line); });
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const message = { id: "out", destination: "terminal", source: "agent-a", sentAt: "2026-01-01T00:00:00Z", availableAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-02T00:00:00Z", attempt: 0, hop: 0, payload: {} };
-    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { desire: "finish", action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().state, changes: [] }, [message]);
+    await persistence.commit(message, { id: "e", agentId: "agent-a", kind: "internal", occurredAt: "2026-01-01T00:00:00Z", payload: {} }, agentCoreInputFixture(), { output: { desire: "finish", action: { type: "no-external-action", reason: "test" } }, toolExecutions: [] }, { state: agentCoreInputFixture().state, changes: [], concernActivities: [] }, [message]);
     const updateTimeout = Object.assign(new Error("read ETIMEDOUT"), { code: "ETIMEDOUT" });
     persistence.markOutboxSent = () => Promise.reject(updateTimeout);
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };

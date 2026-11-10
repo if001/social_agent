@@ -12,6 +12,7 @@ export type CommitEventInput = {
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly inputSnapshot?: unknown; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly { readonly id: string; readonly target: string; readonly operation: string; readonly before: unknown; readonly after: unknown; readonly reason: string; readonly evidenceIds: readonly string[] }[];
+  readonly concernActivities?: readonly { readonly id: string; readonly concernId: string; readonly kind: string; readonly eventId: string; readonly evidenceMemoryIds?: readonly string[] }[];
   readonly memoryIntents?: readonly MemoryIntent[];
   readonly memorySubjects?: readonly (readonly string[])[];
   readonly memoryCandidates?: readonly MemoryCandidate[];
@@ -35,6 +36,7 @@ export class PostgresEventTransaction {
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
       await this.#syncConcernSchedules(client, input.event.agentId, input.stateValues.concerns);
       for (const change of input.changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [change.id, input.run.id, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), change.reason, JSON.stringify(change.evidenceIds)]);
+      for (const activity of input.concernActivities ?? []) await client.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,event_id,run_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING", [activity.id, input.event.agentId, activity.concernId, activity.kind, activity.eventId, input.run.id, JSON.stringify(activity.evidenceMemoryIds ?? []), input.event.occurredAt]);
       for (const [index, intent] of (input.memoryIntents ?? []).entries()) {
         if (this.ids === undefined || this.now === undefined) throw new Error("MemoryWriteService requires ids and now");
         await new MemoryWriteService(client, this.ids, this.now).apply(input.event.agentId, intent, { subjectIds: input.memorySubjects?.[index] ?? [], sourceEventId: input.event.id, intentIndex: index, ...(input.memoryCandidates === undefined ? {} : { candidates: input.memoryCandidates }), ...(input.memoryEmbeddings?.[index] === undefined ? {} : { embedding: input.memoryEmbeddings[index] }) });
