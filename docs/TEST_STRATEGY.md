@@ -26,6 +26,8 @@
 - 共通RetrievalServiceのvector、keyword、subject、recency順位付けとadapter
 - memory-update Eventのpayload、intentIndex冪等性、部分commit禁止
 - Reflection planのMemory、Self、Relationship、Concernごとのstatus
+- Concern ActivityのID対応、baseline migration、stale候補の除外条件、決定論的`abandoned`移行
+- Reflection Sessionと対象別Reflectorの読み取りTool境界、完全State差分commit、対象別retry
 - G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
 - 通常OllamaとDeepAgentへ渡すJSON Schemaのfield description保持
 
@@ -50,13 +52,13 @@
 - user-message、memory-update、G3、reflectionの優先順位と強制中断なしの協調制御
 - memory-update Eventの冪等性、部分commit禁止、失敗時の応答非巻き戻し
 - G3の遅延実行、MainAgent再判断、通知必須の例外
-- Reflectionの部分成功、blocked、失敗対象だけの再試行
+- Reflectionの部分成功、blocked、失敗対象だけの再試行、Sessionの対象別順序
 
 ここでいうシナリオtestは複数componentを通すSystem testであり、実Ollama、実PostgreSQL、外部Discordをすべて使うEnd-to-End testとは区別する。
 
 ### PostgreSQL integration
 
-実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern schedule、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。
+実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern Activity、baseline migration、stale close、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。
 
 接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。testは専用schemaだけを作成・破棄し、共有schemaの検証データへ依存しない。
 

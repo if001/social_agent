@@ -656,7 +656,7 @@ Self変更の監査Memory
 
 - C-25：長期状態の変更はCandidateを経由せず、Event駆動のReflectionがMemory根拠と理由を伴って確定する。
 
-Reflectionは、一定量の経験が蓄積したこと自体をEventとして発行するmaintenance処理である。旧Candidate DetectionとLong-term Reviewの二段階処理は持たない。
+Reflectionは、一定量の経験が蓄積したこと自体をEventとして発行するmaintenance処理である。通常Action、外部探索、日常的なConcern消化は担わない。旧Candidate DetectionとLong-term Reviewの二段階処理は持たない。
 
 ```ts
 type ReflectionInput = {
@@ -670,7 +670,7 @@ type ReflectionInput = {
 };
 ```
 
-入力はEventとMemoryを各32件までとし、モデル入力は8,000推定token以内に制限する。全履歴は渡さず、前回Reflection以降の経験と関連Memoryを中心にする。
+Reflection Sessionは根拠窓だけを保存する。各Reflectorへ全State・全履歴を一括投入せず、最小のSession要約から開始し、Event、Memory、Concern、Relationship、Activityを読み取りToolで必要なだけ取得する。選択Contextは完全なcommit基準Stateと分離し、選択しなかったConcernをcommitで失わせない。
 
 ## 23. Reflection
 
@@ -694,7 +694,13 @@ Self / Concern / Relationship / Memory
 
 ### 23.1 Reflectionの判断
 
-Reflectionは次を一度に扱う。
+Reflection Sessionは次の順で対象別Reflectorを実行する。
+
+1. Memory：Event根拠を整理してMemoryを確定する。
+2. Concern と Relationship：確定Memoryと既存記録を読み、必要な対象だけを更新する。互いの今回変更を再帰的な根拠にはしない。
+3. Self / Mood：今回確定したMemory、Concern、Relationshipの要点だけを根拠に統合する。
+
+ConcernとRelationship Reflectorは、必要な小さな読み取りToolを反復利用してよい。同一入力の無意味な反復、Session外の探索、外部Web、ユーザーへの発話はRuntimeが禁止する。
 
 - 重要な事実ログのMemory化・圧縮
 - 重複Memoryの統合
@@ -710,7 +716,7 @@ Selfの変更は単発の弱い経験では行わず、反復、強い経験、�
 
 - 入力にない事実、ID、日時、関係を作らない。
 - 入力Eventを網羅的に要約しない。
-- 新しいConcernを作成できる。Memory根拠と`whyItMatters`を必須とし、1回1〜3件までに制限する。既存Concernの整理、統合、具体化、終了も行う。
+- 新しいConcernを作成できる。Memory根拠と`whyItMatters`を必須とし、1回1〜3件までに制限する。Runtimeが採番したConcern IDとReflection Session / Memory根拠の対応を監査記録へ残す。既存Concernの整理、統合、具体化、終了も行う。
 - Self変更には、入力に含まれるMemory IDと明示的な理由を必須とする。
 - 変更がなければ空のmaintenance結果を返してよい。
 - 1回の出力はMemory、Concern、Relationshipを各4件までに制限する。
@@ -731,6 +737,14 @@ Selfを変更した場合、その変化自体を監査可能なMemoryとして�
 ### 23.4 Compaction
 
 ReflectionはState追加だけでなく、再整理も行う。似たMemory、Concern、Relationship、Self Storyの記述を統合し、肥大化を防ぐ。
+
+### 23.5 Concern Activity と減衰
+
+Concern本体は現在値のままとし、作成、focus、progress、derive、review、status変更、決定論的closeをcommit層がConcern ID単位のActivityとして保存する。ActivityはConcern ID、種類、時刻、因果となるEvent / Run / Reflection Session ID、任意の根拠Memory IDだけを持つ。LLMはActivityのID・時刻を生成しない。
+
+Concern Reflectorは全active Concernをページングで一覧し、stale候補と必要なConcernだけを詳細・Activity・関連Memory・Eventへ掘り下げる。`CONCERN_STALE_AFTER_MS`（既定30日）を超え、`CONCERN_STALE_MIN_REFLECTION_SESSIONS`（既定2）回以上stale候補としてSessionに提示され、同一Sessionでreview / focus / progress / derive / status変更のいずれも記録されなかったConcernだけをRuntimeが`abandoned`へ移す。future `reconsiderAt`または今回明示的に継続reviewされたConcernはcloseしない。ユーザーの未返信、Concern件数、単なる固定間隔は根拠にしない。後の経験で必要になれば、過去Concernを暗黙に復活させず新しいConcernとして形成する。
+
+Activity導入前からあるConcernは、過去のsnapshotを推測して履歴化しない。migration時点のbaseline Activityを記録し、stale期間はその時点から開始する。
 
 ## 24. Internal Event
 

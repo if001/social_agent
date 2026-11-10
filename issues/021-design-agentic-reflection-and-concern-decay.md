@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-10
-status: stop
+status: done
 type: change
 plan: []
 requirements: [C-06, C-15, C-25, FR-25, FR-41, FR-42, FR-44, FR-60, NFR-7, NFR-17, 追加]
@@ -92,13 +92,13 @@ Reflection Session（根拠窓を保存）
 
 ## Acceptance criteria
 
-- [ ] 追加：現行の保存データと保存経路が、Reflection Session、Memory / Concern / Relationship / SelfMood Reflector、Concernの減衰・クローズに必要な情報を満たすか、実DBを含む読み取り専用監査で確認し、結果を記録する。
-- [ ] 追加：監査結果により保存設計、抽出方法、migration、クローズ規則の変更が必要なら、実装前にユーザーへ選択肢と影響を確認する。
-- [ ] C-25：Reflectionの責務を、長期的なMemory、Concern、Relationship、Self、Moodの統合・確定と定義し、通常Action・外部探索・日常的なConcern消化を対象外として一次文書へ反映する。
-- [ ] C-06, C-15：Concernの時間減衰、agent的な履歴取得、決定論的な`abandoned`移行の条件を一次文書へ反映する。
-- [ ] FR-25, FR-41, FR-42, FR-44, FR-60：対象別Reflector、順序、Tool境界、対象別retry、完全Stateへの差分commitをRequirementsとArchitectureへ反映する。
-- [ ] NFR-7, NFR-17：Concern Activityと決定論的クローズが監査・再試行可能であることをRequirementsとTest Strategyへ反映する。
-- [ ] 一次文書の承認後、後続の実装Issue 022、023の上流への反映を「反映済み」に更新する。
+- [x] 追加：現行の保存データと保存経路を、実DBを含む読み取り専用監査で確認した。`docs/work/analyze/2026-11-10-reflection-concern-activity-audit.md`。
+- [x] 追加：保存設計、baseline migration、C-15更新の選択肢と影響を提示し、ユーザー承認を得た。
+- [x] C-25：Reflectionの責務を、長期的なMemory、Concern、Relationship、Self、Moodの統合・確定と定義し、通常Action・外部探索・日常的なConcern消化を対象外として一次文書へ反映した。
+- [x] C-06, C-15：C-06のDesireとConcernの区別は既存定義を維持し、C-15へActivity、migration baseline、agent的な履歴取得、環境設定可能な決定論的`abandoned`移行の条件を反映した。
+- [x] FR-25, FR-41, FR-42, FR-44, FR-60：対象別Reflector、順序、Tool境界、対象別retry、完全Stateへの差分commitをRequirementsとArchitectureへ反映した。
+- [x] NFR-7, NFR-17：Concern Activityと決定論的クローズが監査・再試行可能であることをRequirementsとTest Strategyへ反映した。
+- [x] 一次文書の承認後、後続の実装Issue 022、023の上流への反映を「反映済み」に更新した。
 
 ## Tests
 
@@ -109,7 +109,6 @@ Reflection Session（根拠窓を保存）
 
 | 種別 | ID | 内容 | 文書 |
 |---|---|---|---|
-| MODIFIED | C-06 | Concernのactivity、減衰、決定論的クローズと再形成の位置付けを追加する | `spec/personal-agent-implementation-design-v2.md` |
 | MODIFIED | C-15 | 一律時間だけでの削除を禁止する記述を、十分な取得・再検討機会後の決定論的クローズを許容する記述へ変更する | `spec/personal-agent-implementation-design-v2.md` |
 | MODIFIED | C-25 | 一括Reflectionを対象別Reflectorと根拠Sessionへ分ける | `spec/personal-agent-implementation-design-v2.md` |
 | MODIFIED | FR-25, FR-41, FR-42, FR-44, FR-60 | Concern lifecycleとReflectionの処理・検証を更新する | `docs/REQUIREMENTS.md` |
@@ -140,11 +139,12 @@ Reflection Session（根拠窓を保存）
 
 | 文書 | 反映内容 | 状態 |
 |---|---|---|
-| `spec/personal-agent-implementation-design-v2.md` C-06, C-15, C-25 | 分割Reflection、agent的取得、Concern Activity、決定論的クローズ | 承認待ち |
-| `docs/REQUIREMENTS.md` | 上記を実装要件・受け入れ条件へ展開 | 承認待ち |
-| `docs/ARCHITECTURE.md` | Session、Reflector、commit、retry、Tool境界 | 承認待ち |
-| `docs/AGENT_MOTIVATION_MODEL.md` | Reflectionの責務とConcern減衰 | 承認待ち |
-| `docs/TEST_STRATEGY.md` | Activityと対象別処理のテスト方針 | 承認待ち |
+| `spec/personal-agent-concept-design-restructured-v2.md` C-15 | 十分な再検討後の決定論的closeを許容 | 反映済み |
+| `spec/personal-agent-implementation-design-v2.md` C-25 | 分割Reflection、agent的取得、Concern Activity、決定論的クローズ | 反映済み |
+| `docs/REQUIREMENTS.md` | 上記を実装要件・受け入れ条件へ展開 | 反映済み |
+| `docs/ARCHITECTURE.md` | Session、Reflector、commit、retry、Tool境界 | 反映済み |
+| `docs/AGENT_MOTIVATION_MODEL.md` | Reflectionの責務とConcern減衰 | 反映済み |
+| `docs/TEST_STRATEGY.md` | Activityと対象別処理のテスト方針 | 反映済み |
 
 ## 設計監査（2026-11-10）
 
@@ -152,4 +152,11 @@ Reflection Session（根拠窓を保存）
 - shiroの既存DBでは、current Concern 66件（active 53）にIDはあるが、Concern単位の作成・更新・review・最終活動の時刻・因果は保存されていない。Reflection create 77件にもRuntime採番後のConcern ID対応が残らない。
 - Memory根拠Event、Memory mutation、直接観測Eventのactor / causationは部分的に利用できる。一方、Relationship履歴と対象別Reflection retry / auditは新設が必要である。
 - **停止理由**: Concern Activity table、既存Concernのbaseline migration、C-15の決定論的`abandoned`移行には実質的な方針選択と一次文書の承認が必要である。推測による既存履歴の補完は行わない。
-- ユーザーがbaseline方針とC-15更新を承認するまで、022 / 023を開始しない。
+- ユーザーはmigration baselineとC-15更新を承認済み。既存active Concernはmigration時点からstale時計を開始し、過去履歴を推測しない。
+
+## 実装メモ
+
+- 設計承認: 既存active Concernにはmigration時点のbaseline Activityを記録する。過去snapshotから作成・最終活動を推測しない。
+- 後続実装: 022がConcern Activity / baseline / closeを、023がReflection Session / 対象別Reflectorを実装する。
+- stale closeの環境設定は`CONCERN_STALE_AFTER_MS`（既定2,592,000,000ms = 30日）と`CONCERN_STALE_MIN_REFLECTION_SESSIONS`（既定2）とする。022が設定parse、`.env.sample`、migration、close testを実装する。
+- 検証: `trace_check.py` は既存の重複ID 5件・未参照2件を報告するが、本Issue起因のCRITICAL / HIGHはない。独立仕様分析: `docs/work/analyze/2026-11-10-change-issue-021.md`。独立レビュー: `docs/work/reviews/2026-11-10-issue-021.md`。

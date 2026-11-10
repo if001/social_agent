@@ -149,7 +149,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-22：設定された夜間時間帯はidle Eventを発生させず、次の許可時刻へ再スケジュールする。他のEventや配送は禁止しない。（C-17）
 - FR-23：Patchはmood、Relationship 1件、即時Memory意図に限定する。Concernは`concern_propose`で提案する。（C-24）
 - FR-24：Concernのupsert/removeと`reconsiderAt` scheduleを同期する。（C-06, C-08, C-24）
-- FR-25：Concernは進展、満足点、現在のSelfにとっての価値に基づいて継続・変更・満足・放棄・削除する。進展のない同一内容を機械的に延長せず、一律の時間だけでも削除しない。（C-06, C-15）
+- FR-25：Concernは進展、満足点、現在のSelfにとっての価値に基づいて継続・変更・満足・放棄・削除する。Concern Activityで作成、focus、progress、derive、review、status変更を監査し、`CONCERN_STALE_AFTER_MS`（既定30日）と`CONCERN_STALE_MIN_REFLECTION_SESSIONS`（既定2）を満たすstale候補が、当該Sessionでreview / focus / progress / derive / status変更に至らず、future `reconsiderAt`も明示的継続reviewもない場合だけRuntimeが`abandoned`へ移す。ユーザー未返信、Concern件数、一律の時間だけでは終了させない。導入前のConcernはmigration時点をbaselineとし、過去履歴を推測しない。（C-06, C-15）
 - FR-26：`idle` Eventは既存active Concernを1件Focusとして選び、探索・考察・共有を行う。`deepen`、`bridge`、`distant`は`concern_propose`の探索モードであり、永続的なmodeやcursor、固定順の巡回は持たない。（C-11, C-14, C-17）
 - FR-68：`concern-formation`は一定間隔で起動する内部Eventであり、ユーザーへの発話ではなく関心地図の形成を担う。Self、Memory、Background Experience、Relationshipから根拠のある独立Concernをcreateできるほか、`exploration-domains` の候補を用いて既存Concernだけでは生まれにくい異領域のConcernをcreateできる。件数だけを根拠に作らず、createできない場合はno-external-actionで終える。（C-06, C-11, C-14, C-17）
 - FR-69：`concern-due`は具体的な`reconsiderAt`、新しいMemory、又はexternal-changeを契機に既存Concernを再評価する。継続・方法変更・終了に加え、別の問い・対象・方法が残ればderive + forkする。不進展・予測誤差は、起動済みEventでの再評価材料として使う。独立Concernの幅を作る責務は持たない。（C-06, C-14, C-17）
@@ -183,14 +183,14 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-39：自律性は`idle`、`concern-due`等のEvent sourceで起動し、常時polling型の認知loopに依存しない。`idle`の再開間隔はActionに依存しない。（C-06, C-17）
 - FR-40：明示的Scheduled Taskは利用者との約束としてConcernやMemoryと分離する。`executeAt`は実行日時、`instruction`は期限到来時に実行する1,000文字以内の仕事、`reason`は予約理由、`destination`は明示的な配送先だけを保持する。`instruction`には日時、予約理由、配送先、Toolの使い方、共通動作規則を重複させない。（C-08）
 - NFR-6：Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。（C-08, C-27）
-- FR-41：ReflectionはEvent logをMemoryへ圧縮し、Concern、Relationship、Selfを整理するmaintenance処理とする。（C-03, C-25）
-- FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与する。（C-25）
-- FR-42：Reflectionは説明付きのモデル向け構造化出力、厳密なDomain検証、repair、入力上限を持ち、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
+- FR-41：Reflectionは通常Action・外部探索・日常的Concern消化を行わず、Memory、Concern、Relationship、Self、Moodを長期統合するmaintenance処理とする。SessionはMemory、Concern / Relationship、Self / Moodの順で対象別Reflectorを実行する。（C-03, C-25）
+- FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与し、作成ActivityへReflection Sessionと根拠Memoryを対応付ける。（C-25）
+- FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
 
 ## R8. 永続化、配送、運用
 
-- NFR-7：Event、Run、Assessment、Tool execution、State change、Memory、Receipt、Outboxを監査可能にする。（C-24, C-27）
+- NFR-7：Event、Run、Assessment、Tool execution、State change、Memory、Receipt、Outbox、Concern Activity、Reflection Session / Reflector attemptを監査可能にする。（C-24, C-27）
 - NFR-8：Action、State Patch、MainAgentのremember、Outboxを一つのDB transactionで確定する。G1/G2/ReflectionのMemoryIntentはmemory-update Eventのtransactionで確定する。G3のMemoryIntentはMainAgentのrememberとして同じEventのtransactionで確定する。（C-24, C-59, C-63）
 - NFR-9：Queue、Outbox、Tool実行はretryと重複実行に耐える。（C-20, C-27）
 - NFR-10：Agent単位advisory lock、state version、Tool権限、TTL、hop、rate limitを通常コードで保証する。（C-27, C-28）
@@ -212,7 +212,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補からcreate、update、no-opを決め、Memory versionを照合する。（C-55, C-57, C-58, C-63, C-67）
 - FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。（C-59, C-60, C-63, C-66, C-69）
 - FR-59：Event優先順位はuser-message、memory-update、G3、reflectionの順とし、user-messageを待たせず、強制中断しない。（C-61, C-69）
-- FR-60：ReflectionはMemory、Self、Relationship、Concernごとのstatusを持ち、Memory更新後に長期更新し、失敗対象だけ再試行する。（C-64, C-68）
+- FR-60：ReflectionはMemory、Self / Mood、Relationship、Concernごとのstatusを持ち、Memory確定後にConcern / Relationship、最後にSelf / Moodを更新し、失敗対象だけ再試行する。選択Contextと完全commit基準Stateは分離する。（C-64, C-68）
 - FR-61：memory-update EventはsourceEventIdとintentIndexで冪等にし、部分的なintentだけをcommitしない。（C-50, C-52）
 - FR-62：predictionContextは前回予測、誤差評価、G3要約とmemoryIntents、RecentExperienceのeffect、memoryCandidatesを持つ。（C-51, C-62, C-66）
 - FR-63：G1/G2の追加LLM callはNFRの例外とし、deadlineとcall予算を持つ。（C-70）
@@ -221,7 +221,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-14：predictionContextと背景経験はAgent所有権とContext budgetの対象にする。（C-51）
 - NFR-15：MemoryWriteServiceはAgent単位で直列化し、Memory versionの楽観ロックと冪等性を保証する。（C-67）
 - NFR-16：G1/G2の追加callはdeadline、最大試行回数、call予算を持ち、失敗しても通常会話を継続する。（C-52, C-70）
-- NFR-17：Prediction Evaluation、MemoryIntent、memory-update Event、Reflection statusを監査可能にし、再試行に耐える。（C-50, C-64, C-69）
+- NFR-17：Prediction Evaluation、MemoryIntent、memory-update Event、Reflection Session / Reflector status、Concern Activityと決定論的closeを監査可能にし、再試行に耐える。（C-50, C-64, C-69）
 - NFR-18：user-messageが待っている間はmemory-update、G3、reflectionを開始しない。（C-61, C-69）
 - NFR-19：背景経験のYAMLはSchema、段階と日時の順序、AI・作成者if001・経験範囲のプロフィール矛盾、現在のユーザーとの共有経験の不在、実在人物の特定可能性、タグ・感情・テーマ・段階の分布を検証する。起動前の初期化時だけ置換し、会話Memoryを上書きしない。（C-45, C-47）
 - FR-69：Background Experience YAMLは`background:load <path>`で対象AgentのBackground Experience Storeへ単独で置換投入できる。YAMLのagentIdと対象を一致させ、会話Memory、Self、Stateを変更しない。Embedding設定が有効なら投入後にBackground ExperienceのEmbeddingを作成する。（C-45, C-46）
