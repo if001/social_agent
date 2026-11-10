@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-10
-status: created
+status: done
 type: change
 plan: []
 requirements: [FR-25, FR-69, NFR-7, NFR-17, 追加]
@@ -44,10 +44,10 @@ Concernの現在Stateだけでは、作成・進展・レビュー・派生・st
 
 ## Acceptance criteria
 
-- [ ] FR-25：Concernごとの作成、進展、レビュー、派生、status変更を監査可能にする。
-- [ ] FR-69：Concern再評価が必要な履歴・関連根拠をToolで取得できる。
-- [ ] 追加：stale期間を超え、同一Reflection Sessionで維持・進展・派生・レビューされなかったConcernを決定論的に`abandoned`へ変更する。
-- [ ] NFR-7, NFR-17：Activityとクローズはretryで重複確定せず、Debug UIから因果を追跡できる。
+- [x] FR-25：Concernごとの作成、進展、レビュー、派生、status変更を監査可能にする。
+- [x] FR-69：Concern再評価が必要な履歴・関連根拠をToolで取得できる。
+- [x] 追加：stale期間を超え、同一Reflection Sessionで維持・進展・派生・レビューされなかったConcernを決定論的に`abandoned`へ変更する。
+- [x] NFR-7, NFR-17：Activityとクローズはretryで重複確定せず、Debug UIから因果を追跡できる。
 
 ## Tests
 
@@ -66,7 +66,7 @@ Issue 021で承認するFR / AC / ADRに従う。一次文書の変更はこのI
 |---|---|---|
 | `src/domain/contracts.ts` | Concern Activity、close契約 | 更新する |
 | `src/application/agent-state-patch.ts` | 通常EventのConcern差分 | 更新する |
-| `src/application/scheduler.ts` | stale review / closeの起動 | 更新する |
+| `src/application/scheduler.ts` | stale review / closeの起動 | 不要（Reflection commit終端で判定） |
 | `src/infrastructure/persistence/schema.ts` | Activity table | 更新する |
 | `src/infrastructure/persistence/event-transaction.ts` | Runtime commitとActivityの原子性 | 更新する |
 | `src/infrastructure/persistence/postgres-reflection.ts` | Reflection Concern変更のActivity | 更新する |
@@ -79,3 +79,11 @@ Issue 021で承認するFR / AC / ADRに従う。一次文書の変更はこのI
 | 文書 | 反映内容 | 状態 |
 |---|---|---|
 | Issue 021 | Concern Activityと決定論的クローズ設計 | 反映済み |
+
+## 実装メモ
+
+- `concern_activities` は通常RuntimeとReflectionのState更新と同じtransactionで記録する。Activity IDはRun / Reflection IDから決定的に生成するため、retryで重複しない。
+- 既存Concernにはmigration適用時点の`baseline`を一度だけ記録する。過去の操作履歴は既存データから復元できないため、推測して補完しない。
+- `progressed`は対象Concernを明示する`concern_history`の成功時だけに記録する。無関係なToolの成功でstale判定を延命しない。
+- stale判定では、過去に`completed`になったReflectionと、原子的に完了する現在のReflectionだけを提示Sessionとして数える。future `reconsiderAt`と同Sessionで変更されたConcernは閉じない。
+- `pnpm typecheck`、`pnpm test`（201件）、`pnpm lint`、PostgreSQL integration（32件）を通過。独立レビューとspec照合の最終Critical / Highは0件。詳細は`docs/work/reviews/2026-11-11-issue-022.md`と`docs/work/analyze/2026-11-11-change-issue-022.md`を参照。

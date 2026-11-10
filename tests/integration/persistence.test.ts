@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +62,39 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
     expect((await repository.find<{ commitments: string[]; concerns: unknown[] }>("a"))).toMatchObject({ commitments: ["Care"], concerns: [] });
+  });
+
+  it("FR-25, NFR-17: baselines existing Concerns once when the Concern Activity migration is applied", async () => {
+    const migrationRoot = await mkdtemp(join(tmpdir(), "concern-activity-migration-"));
+    const migrationMeta = join(migrationRoot, "meta"); const sourceRoot = new URL("../../drizzle/", import.meta.url);
+    const baselineSchema = `baseline_${randomUUID().replaceAll("-", "")}`;
+    const baselinePool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${baselineSchema},public,ext`, max: 2 });
+    try {
+      await mkdir(migrationMeta);
+      for (const name of await readdir(sourceRoot)) if (/^00(?:0\d|1\d|2[0-8])_.*\.sql$/u.test(name)) await copyFile(new URL(name, sourceRoot), join(migrationRoot, name));
+      const journal = JSON.parse(await readFile(new URL("meta/_journal.json", sourceRoot), "utf8")) as { entries: { idx: number }[] };
+      await writeFile(join(migrationMeta, "_journal.json"), JSON.stringify({ ...journal, entries: journal.entries.filter(({ idx }) => idx < 29) }));
+      await control.query(`CREATE SCHEMA ${baselineSchema}`);
+      await migrate(baselinePool, migrationRoot);
+      await baselinePool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('baseline-family','Family','Curious','Help')");
+      await baselinePool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('baseline-agent','baseline-family','Agent','Calm')");
+      await baselinePool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ('baseline-agent','Careful','Story','[]',$1,'[]','Calm')", [JSON.stringify([
+        { id: "preexisting-active", description: "既存active", whyItMatters: "移行確認", status: "active" },
+        { id: "preexisting-satisfied", description: "既存satisfied", whyItMatters: "履歴確認", status: "satisfied" }
+      ])]);
+      const before = new Date();
+      await copyFile(new URL("0029_concern_activities.sql", sourceRoot), join(migrationRoot, "0029_concern_activities.sql"));
+      await copyFile(new URL("meta/_journal.json", sourceRoot), join(migrationMeta, "_journal.json"));
+      await migrate(baselinePool, migrationRoot);
+      await migrate(baselinePool, migrationRoot);
+      const rows = (await baselinePool.query<{ concern_id: string; kind: string; occurred_at: Date }>("SELECT concern_id,kind,occurred_at FROM concern_activities WHERE agent_id='baseline-agent' ORDER BY concern_id")).rows;
+      expect(rows.map(({ concern_id, kind }) => ({ concern_id, kind }))).toEqual([{ concern_id: "preexisting-active", kind: "baseline" }, { concern_id: "preexisting-satisfied", kind: "baseline" }]);
+      expect(rows.every(({ occurred_at }) => occurred_at.getTime() >= before.getTime() - 1_000)).toBe(true);
+    } finally {
+      await baselinePool.end();
+      await control.query(`DROP SCHEMA IF EXISTS ${baselineSchema} CASCADE`);
+      await rm(migrationRoot, { recursive: true, force: true });
+    }
   });
 
   it("FR-6, FR-7: initializes configured Self and preserves acquired experience on reapply", async () => {
@@ -290,7 +323,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(JSON.stringify(input.recentExperiences)).not.toContain("raw input must not enter recent experiences".repeat(5));
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
-    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_propose", "user_context_get", "memory_search", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
+    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_propose", "user_context_get", "memory_search", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
     const toolContext = { agentId: "a", runId: "context-run", eventId: "context-event", idempotencyKey: "context-tool" };
     const memorySearch = await contextToolRegistry.execute("memory_search", { query: "agent", limit: 3 }, toolContext, new AbortController().signal);
     expect(memorySearch.ok).toBe(true); expect(typeof memorySearch.value === "object" && memorySearch.value !== null && "memories" in memorySearch.value && Array.isArray(memorySearch.value.memories)).toBe(true);
@@ -430,16 +463,16 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(pendingB.map(({ envelope }) => envelope.id)).not.toContain(envelopeA.id);
   });
 
-  it("FR-31, NFR-7: materializes normal Core proposals and Tool execution records with Runtime-owned metadata", async () => {
+  it("FR-25, NFR-7: materializes normal Core proposals, Concern Activity, and Tool execution records with Runtime-owned metadata", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('proposal-evidence','a','self-related','Repeated follow-through','Relevant',now(),'[]')");
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();
     input.run = { runId: "runtime-run", eventId: "runtime-event", agentId: "a", occurredAt: fixtureInstant };
     input.observation = { ...input.observation, actor: { id: "user-42", type: "human" } };
     input.currentSelf = { ...input.currentSelf, agentId: "a", version };
-    input.state = { ...input.state, agentId: "a" };
+    input.state = { ...input.state, agentId: "a", concerns: [{ id: "runtime-concern", description: "実行時に調べるConcern", whyItMatters: "結果を判断へ使うため", status: "active" }] };
     input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
-    input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
+    input.availableTools = [{ name: "concern_get", description: "Concern", inputSchema: {} }, { name: "concern_history", description: "Concern history", inputSchema: {} }, { name: "lookup", description: "Lookup", inputSchema: {} }];
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
     const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
@@ -448,16 +481,26 @@ describeDatabase("PostgreSQL persistence", () => {
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
       output: { desire: "respond to this event", action: { type: "respond" as const, content: "Hello" } },
-      toolExecutions: [{ callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]
+      toolExecutions: [
+        { callId: "tool-focus", runId: "runtime-run", eventId: "runtime-event", name: "concern_get", input: { concernId: "runtime-concern" }, ok: true, result: { concernId: "runtime-concern" }, startedAt: fixtureInstant, finishedAt: fixtureInstant },
+        { callId: "tool-progress", runId: "runtime-run", eventId: "runtime-event", name: "concern_history", input: { concernId: "runtime-concern" }, ok: true, result: { concernId: "runtime-concern", evidenceMemories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant },
+        { callId: "tool-1", runId: "runtime-run", eventId: "runtime-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }
+      ]
     };
-    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [] }, [])).resolves.toBe("committed");
-    expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "lookup" });
+    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [], concernActivities: [{ concernId: "runtime-concern", kind: "created", eventId: "runtime-event" }] }, [])).resolves.toBe("committed");
+    expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "concern_get" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
     expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
-    expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-1");
+    expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-focus");
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
+    expect((await pool.query<{ concern_id: string; kind: string; event_id: string; run_id: string }>("SELECT concern_id,kind,event_id,run_id FROM concern_activities WHERE agent_id='a' AND concern_id='runtime-concern' ORDER BY kind")).rows).toEqual([
+      { concern_id: "runtime-concern", kind: "created", event_id: "runtime-event", run_id: "runtime-run" },
+      { concern_id: "runtime-concern", kind: "focused", event_id: "runtime-event", run_id: "runtime-run" },
+      { concern_id: "runtime-concern", kind: "focused", event_id: "runtime-event", run_id: "runtime-run" },
+      { concern_id: "runtime-concern", kind: "progressed", event_id: "runtime-event", run_id: "runtime-run" }
+    ]);
     const inputSnapshot = (await pool.query<{ input_snapshot: { version: number; observation: { summary: string }; currentSelf: { version: number }; availableTools: { name: string; inputSchema?: unknown }[]; memories: { id: string }[] } }>("SELECT input_snapshot FROM agent_runs WHERE id='runtime-run'")).rows[0]?.input_snapshot;
-    expect(inputSnapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "lookup" }] });
+    expect(inputSnapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "concern_get" }, { name: "concern_history" }, { name: "lookup" }] });
     expect(inputSnapshot?.availableTools[0]).not.toHaveProperty("inputSchema");
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([]);
   });
@@ -493,6 +536,11 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ content: string; importance: string }>("SELECT content,importance FROM memories WHERE id='reflection-memory'")).rows[0]).toEqual({ content: "約束を果たした", importance: "信頼が深まった" });
     expect((await pool.query<{ id: string; next_due_at: Date }>("SELECT id,next_due_at FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rows[0]).toMatchObject({ id: "concern:reflection-concern" });
     expect((await pool.query<{ status: string; plan: { memory: string } }>("SELECT status,plan FROM reflection_runs WHERE id='reflection-1'")).rows[0]).toMatchObject({ status: "completed", plan: { memory: "completed" } });
+    expect((await pool.query<{ concern_id: string; kind: string; reflection_id: string; evidence_memory_ids: string[] }>("SELECT concern_id,kind,reflection_id,evidence_memory_ids FROM concern_activities WHERE agent_id='a' AND reflection_id='reflection-1' ORDER BY concern_id,kind")).rows).toEqual([
+      { concern_id: "concern-1", kind: "presented", reflection_id: "reflection-1", evidence_memory_ids: [] },
+      { concern_id: "concern-1", kind: "reviewed", reflection_id: "reflection-1", evidence_memory_ids: ["reflection-evidence"] },
+      { concern_id: "reflection-concern", kind: "created", reflection_id: "reflection-1", evidence_memory_ids: ["reflection-evidence"] }
+    ]);
   });
 
   it("C-06, C-24: retains a Concern beyond the context selection boundary when a normal Event commits", async () => {
@@ -517,6 +565,29 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(runtime.process({ id: "context-boundary-event", agentId: "a", kind: "internal", occurredAt: fixtureInstant, payload: { reason: "状態を継続する", destination: "terminal" } }, new AbortController().signal)).resolves.toMatchObject({ type: "no-external-action" });
     const persisted = (await pool.query<{ concerns: { id: string; status: string }[] }>("SELECT concerns FROM agent_states WHERE agent_id='a'")).rows[0]?.concerns ?? [];
     expect(persisted).toEqual(expect.arrayContaining([expect.objectContaining({ id: "active-after-history", status: "active" }), expect.objectContaining({ id: "new-concern", status: "active" })]));
+  });
+
+  it("FR-69, NFR-1: pages owned active Concerns and returns only their Activity evidence", async () => {
+    await pool.query("UPDATE agent_states SET concerns=$2 WHERE agent_id=$1", ["a", JSON.stringify([
+      { id: "history-old", description: "古いConcern", whyItMatters: "比較するため", status: "active" },
+      { id: "history-new", description: "新しいConcern", whyItMatters: "比較するため", status: "active" }
+    ])]);
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('history-evidence','a','episodic','Concernの根拠','確認したい',now(),'pending') ON CONFLICT DO NOTHING");
+    await pool.query(`INSERT INTO concern_activities(id,agent_id,concern_id,kind,evidence_memory_ids,occurred_at) VALUES
+      ('history-old-created','a','history-old','created','["history-evidence"]','2026-01-01T00:00:00.000Z'),
+      ('history-old-reviewed','a','history-old','reviewed','[]','2026-01-01T00:00:00.000Z'),
+      ('history-new-created','a','history-new','created','[]','2026-02-01T00:00:00.000Z'),
+      ('history-foreign','b','history-old','created','[]','2026-03-01T00:00:00.000Z')`);
+    const registry = new ToolRegistry(createAgentContextTools(pool)); const context = { agentId: "a", runId: "history-run", idempotencyKey: "history-list" }; const signal = new AbortController().signal;
+    await expect(registry.execute("concern_list", { limit: 1, cursor: 0, order: "stale" }, context, signal)).resolves.toEqual({ ok: true, value: { count: 2, concerns: [expect.objectContaining({ id: "history-old" })], nextCursor: 1 } });
+    await expect(registry.execute("concern_list", { limit: 1, cursor: 1, order: "stale" }, { ...context, idempotencyKey: "history-list-2" }, signal)).resolves.toEqual({ ok: true, value: { count: 2, concerns: [expect.objectContaining({ id: "history-new" })] } });
+    await expect(registry.execute("concern_history", { concernId: "history-old" }, { ...context, idempotencyKey: "history-detail" }, signal)).resolves.toMatchObject({ ok: true, value: { concernId: "history-old", history: [expect.objectContaining({ kind: "reviewed" }), expect.objectContaining({ kind: "created", evidenceMemoryIds: ["history-evidence"] })], evidenceMemories: [expect.objectContaining({ id: "history-evidence" })] } });
+    const firstPage = await registry.execute("concern_history", { concernId: "history-old", limit: 1 }, { ...context, idempotencyKey: "history-page-1" }, signal);
+    if (!firstPage.ok) throw new Error("Concern history was not available");
+    const nextCursor = (firstPage.value as { nextCursor: { occurredAt: string; id: string } }).nextCursor;
+    const secondPage = await registry.execute("concern_history", { concernId: "history-old", limit: 1, cursor: nextCursor }, { ...context, idempotencyKey: "history-page-2" }, signal);
+    expect(secondPage).toEqual({ ok: true, value: expect.objectContaining({ history: [expect.any(Object)] }) });
+    await pool.query("UPDATE agent_states SET concerns='[]' WHERE agent_id='a'");
   });
 
   it("FR-60, AC-15: records memory failure as blocked targets and leaves the reflection retryable", async () => {
@@ -570,6 +641,34 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(state.rows[0]?.concerns.some(({ id }) => id === "concern-removed")).toBe(false);
     await pool.query("UPDATE agent_states SET concerns='[]' WHERE agent_id='a'");
     await pool.query("DELETE FROM reflection_runs WHERE id='reflection-lifecycle'");
+  });
+
+  it("FR-25, NFR-7: closes only stale, repeatedly presented Concerns at Reflection completion", async () => {
+    const concerns = [
+      { id: "stale-close", description: "長く進展のない関心", whyItMatters: "以前は重要だった", status: "active" },
+      { id: "future-due", description: "予定時刻まで待つ関心", whyItMatters: "予定がある", status: "active", reconsiderAt: "2026-02-16T00:00:00.000Z" },
+      { id: "reviewed-now", description: "今回見直す関心", whyItMatters: "まだ判断する", status: "active" }
+    ];
+    await pool.query("UPDATE agent_states SET concerns=$2,version=version+1 WHERE agent_id=$1", ["a", JSON.stringify(concerns)]);
+    for (const id of ["stale-session-1", "stale-session-2"]) await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,completed_at) VALUES ($1,'a',0,'completed','{}','2026-01-10T00:00:00.000Z')", [id]);
+    await pool.query(`INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES
+      ('stale-baseline','a','stale-close','baseline',NULL,'[]','2025-12-01T00:00:00.000Z'),
+      ('stale-presented-1','a','stale-close','presented','stale-session-1','[]','2026-01-01T00:00:00.000Z'),
+      ('stale-presented-2','a','stale-close','presented','stale-session-2','[]','2026-01-10T00:00:00.000Z')`);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('stale-close-event','a','internal',$1,'test','completed','2026-02-10T00:00:00.000Z')", [{ summary: "Concernを再検討する" }]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
+    const input = await repository.load("stale-close-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
+    const output = { memories: [], concernChanges: [{ operation: "upsert" as const, concern: { id: "reviewed-now", description: "今回見直す関心", whyItMatters: "まだ判断する", status: "active" as const } }], relationshipChanges: [], evidenceMemoryIds: [] };
+    await expect(repository.commit(input, output)).resolves.toBe("committed");
+    await expect(repository.commit(input, output)).resolves.toBe("duplicate");
+    expect((await pool.query<{ concerns: { id: string; status: string }[] }>("SELECT concerns FROM agent_states WHERE agent_id='a'")).rows[0]?.concerns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "stale-close", status: "abandoned" }),
+      expect.objectContaining({ id: "future-due", status: "active" }),
+      expect.objectContaining({ id: "reviewed-now", status: "active" })
+    ]));
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM concern_activities WHERE agent_id='a' AND concern_id='stale-close' AND kind='closed'")).rows[0]?.count).toBe("1");
+    await pool.query("UPDATE agent_states SET concerns='[]' WHERE agent_id='a'");
+    await pool.query("DELETE FROM reflection_runs WHERE id=ANY($1::text[])", [["stale-session-1", "stale-session-2", "stale-close-reflection"]]);
   });
 
   it("FR-15, NFR-8: records Tool side effects when final Agent output fails without marking the message complete", async () => {

@@ -10,6 +10,8 @@ type StateRow = QueryResultRow & { concerns: unknown; relationships: unknown; mo
 type SelfRow = QueryResultRow & { identity: string; disposition: string; self_story: string; commitments: unknown; mood: string };
 type EventRow = QueryResultRow & { id: string; observation: unknown };
 type ActionRow = QueryResultRow & { result: unknown };
+type ConcernActivityRow = QueryResultRow & { concern_id: string; kind: string; occurred_at: Date; event_id: string | null; run_id: string | null; reflection_id: string | null; evidence_memory_ids: unknown };
+type ConcernActivitySummaryRow = QueryResultRow & { concern_id: string; last_meaningful_at: Date | null };
 
 const compact = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
 const success = (value: unknown) => Promise.resolve({ ok: true as const, value });
@@ -54,18 +56,20 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
     },
     {
       name: "concern_list",
-      description: "自分のactive ConcernをFocus選択用の短い一覧で取得する。自律Eventではまずこれで1件を選ぶ。",
-      schema: z.object({ limit: z.number().int().min(1).max(12).default(8).describe("返す最大件数") }).strict(),
+      description: "自分のactive ConcernをFocus選択用の短い一覧で取得する。必要ならcursorで次ページを読む。stale順は長く進展していないもの、recent-progress順は最近動いたものを優先する。自律Eventではまずこれで1件を選ぶ。",
+      schema: z.object({ limit: z.number().int().min(1).max(12).default(8).describe("返す最大件数"), cursor: z.number().int().min(0).default(0).describe("前回のnextCursor。最初は0"), order: z.enum(["stale", "recent-progress"]).default("stale").describe("一覧の並び順") }).strict(),
       resultPolicy: { kind: "standard" },
-      execute: async ({ limit }: { limit: number }, context) => {
+      execute: async ({ limit, cursor, order }: { limit: number; cursor: number; order: "stale" | "recent-progress" }, context) => {
         const row = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
-        const now = Date.now();
-        const concerns = z.array(ConcernSchema).parse(row?.concerns ?? []).filter(({ status }) => status === "active").sort((a, b) => {
-          const aDue = a.reconsiderAt !== undefined && Date.parse(a.reconsiderAt) <= now ? 0 : 1;
-          const bDue = b.reconsiderAt !== undefined && Date.parse(b.reconsiderAt) <= now ? 0 : 1;
-          return aDue - bDue || (a.reconsiderAt ?? "9999").localeCompare(b.reconsiderAt ?? "9999");
-        }).slice(0, limit).map(({ id, description, reconsiderAt }) => ({ id, description: compact(description, 240), ...(reconsiderAt === undefined ? {} : { reconsiderAt }) }));
-        return success({ count: concerns.length, concerns });
+        const active = z.array(ConcernSchema).parse(row?.concerns ?? []).filter(({ status }) => status === "active");
+        const activity = active.length === 0 ? [] : (await pool.query<ConcernActivitySummaryRow>("SELECT concern_id,max(occurred_at) FILTER (WHERE kind=ANY($2::text[])) AS last_meaningful_at FROM concern_activities WHERE agent_id=$1 AND concern_id=ANY($3::text[]) GROUP BY concern_id", [context.agentId, ["created", "derived", "reviewed", "focused", "progressed", "status-changed", "baseline"], active.map(({ id }) => id)])).rows;
+        const lastMeaningful = new Map(activity.map((value) => [value.concern_id, value.last_meaningful_at?.toISOString()]));
+        const concerns = active.sort((a, b) => {
+          const aAt = lastMeaningful.get(a.id) ?? ""; const bAt = lastMeaningful.get(b.id) ?? "";
+          return order === "stale" ? aAt.localeCompare(bAt) || a.id.localeCompare(b.id) : bAt.localeCompare(aAt) || a.id.localeCompare(b.id);
+        });
+        const values = concerns.slice(cursor, cursor + limit).map(({ id, description, reconsiderAt }) => ({ id, description: compact(description, 240), ...(reconsiderAt === undefined ? {} : { reconsiderAt }), ...(lastMeaningful.get(id) === undefined ? {} : { lastMeaningfulAt: lastMeaningful.get(id) }) }));
+        return success({ count: active.length, concerns: values, ...(cursor + values.length < active.length ? { nextCursor: cursor + values.length } : {}) });
       }
     },
     {
@@ -77,6 +81,24 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
         const row = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
         const concern = z.array(ConcernSchema).parse(row?.concerns ?? []).find(({ id }) => id === concernId);
         return concern === undefined ? { ok: false, error: "Concern not found" } : { ok: true, value: { ...concern, description: compact(concern.description, 400), whyItMatters: compact(concern.whyItMatters, 400) } };
+      }
+    },
+    {
+      name: "concern_history",
+      description: "Focus候補のConcernについて、作成・派生・レビュー・進展・status変更・Reflectionでの提示という監査履歴と、その根拠Memoryを取得する。短い一覧で足りないときだけ使う。",
+      schema: z.object({ concernId: z.string().min(1).describe("concern_listまたはconcern_getで得たConcern ID"), limit: z.number().int().min(1).max(20).default(12).describe("返す履歴の最大件数"), cursor: z.object({ occurredAt: z.iso.datetime({ offset: true }), id: z.string().min(1) }).strict().optional().describe("前回のnextCursor。同じ時刻のActivityも取りこぼさないため、そのまま渡す") }).strict(),
+      resultPolicy: { kind: "standard" },
+      execute: async ({ concernId, limit, cursor }: { concernId: string; limit: number; cursor?: { occurredAt: string; id: string } }, context) => {
+        const state = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
+        if (!z.array(ConcernSchema).parse(state?.concerns ?? []).some(({ id }) => id === concernId)) return { ok: false, error: "Concern not found" };
+        const activities = (await pool.query<ConcernActivityRow & { id: string }>(`SELECT id,concern_id,kind,occurred_at,event_id,run_id,reflection_id,evidence_memory_ids
+          FROM concern_activities WHERE agent_id=$1 AND concern_id=$2 AND ($3::timestamptz IS NULL OR occurred_at<$3 OR (occurred_at=$3 AND id<$4))
+          ORDER BY occurred_at DESC,id DESC LIMIT $5`, [context.agentId, concernId, cursor?.occurredAt ?? null, cursor?.id ?? null, limit])).rows;
+        const evidenceIds = [...new Set(activities.flatMap(({ evidence_memory_ids }) => Array.isArray(evidence_memory_ids) ? evidence_memory_ids.filter((id): id is string => typeof id === "string") : []))];
+        const memories = evidenceIds.length === 0 ? [] : (await pool.query<{ id: string; content: string; importance: string; occurred_at: Date }>("SELECT id,content,importance,occurred_at FROM memories WHERE agent_id=$1 AND id=ANY($2::text[]) ORDER BY occurred_at DESC,id LIMIT 20", [context.agentId, evidenceIds])).rows.map((memory) => ({ id: memory.id, summary: compact(memory.content, 320), importance: compact(memory.importance, 180), occurredAt: memory.occurred_at.toISOString() }));
+        const history = activities.map((activity) => ({ kind: activity.kind, occurredAt: activity.occurred_at.toISOString(), ...(activity.event_id === null ? {} : { eventId: activity.event_id }), ...(activity.run_id === null ? {} : { runId: activity.run_id }), ...(activity.reflection_id === null ? {} : { reflectionId: activity.reflection_id }), evidenceMemoryIds: Array.isArray(activity.evidence_memory_ids) ? activity.evidence_memory_ids.filter((id): id is string => typeof id === "string") : [] }));
+        const last = activities.at(-1);
+        return success({ concernId, history, evidenceMemories: memories, ...(last === undefined ? {} : { nextCursor: { occurredAt: last.occurred_at.toISOString(), id: last.id } }) });
       }
     },
     {

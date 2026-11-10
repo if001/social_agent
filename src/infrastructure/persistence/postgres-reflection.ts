@@ -4,12 +4,20 @@ import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/por
 import { MemoryWriteService } from "../../application/memory-write-service.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ReflectionInputSchema, ReflectionOutputSchema, ReflectionPlanSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository } from "../../application/reflection.js";
-import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type Relationship } from "../../domain/contracts.js";
+import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type ConcernActivityKind, type Relationship } from "../../domain/contracts.js";
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
 type StateRow = QueryResultRow & { identity: string; disposition: string; self_story: string; commitments: unknown; mood: string; concerns: unknown; relationships: unknown; version: number };
 type EventRow = QueryResultRow & { id: string; occurred_at: Date; observation: unknown };
 type MemoryRow = QueryResultRow & { id: string; content: string; importance: string; occurred_at: Date; created_at: Date; source_agent_id: string | null; subjects: unknown };
+type StaleConcernRow = QueryResultRow & { last_meaningful_at: Date | null; reflection_sessions: string };
+
+export type ConcernLifecycleSettings = {
+  readonly staleAfterMs: number;
+  readonly minReflectionSessions: number;
+};
+
+const defaultConcernLifecycleSettings: ConcernLifecycleSettings = { staleAfterMs: 2_592_000_000, minReflectionSessions: 2 };
 
 function failureReason(error: unknown): string {
   if (!(error instanceof Error)) return "Reflection failed";
@@ -28,14 +36,20 @@ const summaryOf = (observation: unknown): string => {
   return "記録された出来事";
 };
 
-function applyConcerns(current: readonly Concern[], changes: ReflectionOutput["concernChanges"], nextId: () => string): Concern[] {
+type AppliedConcerns = { readonly concerns: readonly Concern[]; readonly activities: readonly { readonly concernId: string; readonly kind: ConcernActivityKind }[] };
+
+function applyConcerns(current: readonly Concern[], changes: ReflectionOutput["concernChanges"], nextId: () => string): AppliedConcerns {
   const values = new Map(current.map((value) => [value.id, value]));
+  const activities: { concernId: string; kind: ConcernActivityKind }[] = [];
   for (const change of changes) {
-    if (change.operation === "remove") { values.delete(change.id); continue; }
-    if (change.operation === "create") { const id = nextId(); values.set(id, { ...change.concern, id }); continue; }
+    if (change.operation === "remove") { values.delete(change.id); activities.push({ concernId: change.id, kind: "removed" }); continue; }
+    if (change.operation === "create") { const id = nextId(); values.set(id, { ...change.concern, id }); activities.push({ concernId: id, kind: "created" }); continue; }
+    const previous = values.get(change.concern.id);
     values.set(change.concern.id, change.concern);
+    activities.push({ concernId: change.concern.id, kind: "reviewed" });
+    if (previous !== undefined && previous.status !== change.concern.status) activities.push({ concernId: change.concern.id, kind: "status-changed" });
   }
-  return [...values.values()];
+  return { concerns: [...values.values()], activities };
 }
 
 function applyRelationships(current: readonly Relationship[], changes: ReflectionOutput["relationshipChanges"]): Relationship[] {
@@ -45,7 +59,7 @@ function applyRelationships(current: readonly Relationship[], changes: Reflectio
 }
 
 export class PostgresReflectionRepository implements ReflectionRepository {
-  constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryUpdateSink?: MemoryUpdateSink, private readonly memoryEmbedding?: MemoryEmbeddingPreparer) {}
+  constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryUpdateSink?: MemoryUpdateSink, private readonly memoryEmbedding?: MemoryEmbeddingPreparer, private readonly concernLifecycle: ConcernLifecycleSettings = defaultConcernLifecycleSettings) {}
 
   async load(reflectionId: string, agentId: string): Promise<ReflectionInput | undefined> {
     const existing = await this.pool.query<ReflectionRow>("SELECT status,input FROM reflection_runs WHERE id=$1 AND agent_id=$2", [reflectionId, agentId]);
@@ -98,7 +112,12 @@ export class PostgresReflectionRepository implements ReflectionRepository {
       const run = await client.query<{ status: string }>("SELECT status FROM reflection_runs WHERE id=$1 AND agent_id=$2 FOR UPDATE", [input.reflectionId, input.agentId]);
       if (run.rows[0]?.status === "completed") { await client.query("COMMIT"); return "duplicate"; }
       if (run.rows[0] === undefined) throw new DomainError("NOT_FOUND", "Reflection run was not found");
-      const state = AgentStateSchema.parse({ ...input.state, ...(output.mood === undefined ? {} : { mood: output.mood }), concerns: applyConcerns(input.state.concerns, output.concernChanges, () => this.ids.next()), relationships: applyRelationships(input.state.relationships, output.relationshipChanges) });
+      const appliedConcerns = applyConcerns(input.state.concerns, output.concernChanges, () => this.ids.next());
+      const occurredAt = this.now();
+      for (const [index, activity] of appliedConcerns.activities.entries()) await client.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:change:${String(index)}:${activity.kind}:${activity.concernId}`, input.agentId, activity.concernId, activity.kind, input.reflectionId, JSON.stringify(output.evidenceMemoryIds), occurredAt]);
+      for (const [index, concern] of input.state.concerns.filter(({ status }) => status === "active").entries()) await client.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,'presented',$4,'[]',$5) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:presented:${String(index)}:${concern.id}`, input.agentId, concern.id, input.reflectionId, occurredAt]);
+      const closedConcerns = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, appliedConcerns.concerns, new Set(appliedConcerns.activities.map(({ concernId }) => concernId)), occurredAt);
+      const state = AgentStateSchema.parse({ ...input.state, ...(output.mood === undefined ? {} : { mood: output.mood }), concerns: closedConcerns, relationships: applyRelationships(input.state.relationships, output.relationshipChanges) });
       const self = output.self ?? input.self;
       const updated = await client.query("UPDATE agent_states SET disposition=$3,self_story=$4,commitments=$5,concerns=$6,relationships=$7,mood=COALESCE($8,mood),version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2 RETURNING version", [input.agentId, input.expectedVersion, self.disposition, self.selfStory, JSON.stringify(self.commitments), JSON.stringify(state.concerns), JSON.stringify(state.relationships), state.mood ?? null]);
       if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection state version conflict");
@@ -123,5 +142,31 @@ export class PostgresReflectionRepository implements ReflectionRepository {
 
   async fail(input: ReflectionInput, error: unknown): Promise<void> {
     await this.pool.query("UPDATE reflection_runs SET status='failed',failure_reason=$2,updated_at=now() WHERE id=$1 AND status<>'completed'", [input.reflectionId, failureReason(error)]);
+  }
+
+  async #closeStaleConcerns(client: Pick<Pool, "query">, agentId: string, reflectionId: string, concerns: readonly Concern[], changedConcernIds: ReadonlySet<string>, now: Date): Promise<readonly Concern[]> {
+    const next = [...concerns];
+    for (const [index, concern] of concerns.entries()) {
+      if (concern.status !== "active" || changedConcernIds.has(concern.id)) continue;
+      if (concern.reconsiderAt !== undefined && Date.parse(concern.reconsiderAt) > now.getTime()) continue;
+      const row = (await client.query<StaleConcernRow>(`WITH marker AS (
+          SELECT max(occurred_at) AS occurred_at FROM concern_activities
+          WHERE agent_id=$1 AND concern_id=$2 AND kind=ANY($3::text[])
+        )
+        SELECT marker.occurred_at AS last_meaningful_at,
+          count(DISTINCT activity.reflection_id) FILTER (WHERE session.id IS NOT NULL)::text AS reflection_sessions
+        FROM marker LEFT JOIN concern_activities activity
+          ON activity.agent_id=$1 AND activity.concern_id=$2 AND activity.kind='presented'
+          AND activity.reflection_id IS NOT NULL AND activity.occurred_at>=marker.occurred_at
+        LEFT JOIN reflection_runs session ON session.id=activity.reflection_id AND session.agent_id=$1
+          AND (session.status='completed' OR session.id=$4)
+        GROUP BY marker.occurred_at`, [agentId, concern.id, ["baseline", "created", "derived", "reviewed", "focused", "progressed", "status-changed"], reflectionId])).rows[0];
+      if (row?.last_meaningful_at === null || row?.last_meaningful_at === undefined) continue;
+      if (now.getTime() - row.last_meaningful_at.getTime() < this.concernLifecycle.staleAfterMs) continue;
+      if (Number(row.reflection_sessions) < this.concernLifecycle.minReflectionSessions) continue;
+      next[index] = { ...concern, status: "abandoned", reconsiderAt: undefined };
+      for (const kind of ["status-changed", "closed"] as const) await client.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,'[]',$6) ON CONFLICT (id) DO NOTHING", [`reflection:${reflectionId}:close:${String(index)}:${kind}:${concern.id}`, agentId, concern.id, kind, reflectionId, now]);
+    }
+    return next;
   }
 }
