@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-08
-status: doing
+status: done
 type: change
 plan: []
 requirements: [C-06, C-23, C-24]
@@ -42,9 +42,9 @@ Concern本文は初期Contextへ一括投入せず、`concern_list` / `concern_g
 
 ## Acceptance criteria
 
-- [ ] C-23：ContextBuilderがConcern本文を含まない選択済みContextを返す。
-- [ ] C-06：既存active ConcernはAgent Core Contextから省かれても、次Eventのcommit後に保持される。
-- [ ] C-24：Concern proposalはRuntime専用の完全Stateへ適用され、Agent Core Context由来の欠損で既存Concernを削除しない。
+- [x] C-23：ContextBuilderがConcern本文を含まない選択済みContextを返す。`tests/unit/memory-context.test.ts`。
+- [x] C-06：既存active ConcernはAgent Core Contextから省かれても、次Eventのcommit後に保持される。`tests/integration/persistence.test.ts`。
+- [x] C-24：Concern proposalはRuntime専用の完全Stateへ適用され、Agent Core Context由来の欠損で既存Concernを削除しない。`tests/integration/persistence.test.ts`。
 
 ## Tests
 
@@ -75,3 +75,10 @@ Concern本文は初期Contextへ一括投入せず、`concern_list` / `concern_g
 | 文書 | 反映内容 | 状態 |
 |---|---|---|
 | `spec/personal-agent-implementation-design-v2.md` C-23 | ContextとRuntime専用完全Stateの分離 | 反映済み |
+
+## 実装メモ
+
+- `RuntimeExecutionInput` にRuntime専用の完全Stateを持たせ、Agent Core、Debug UI、Experience Integrationへ渡す入力は常に `AgentCoreInput` とした。過去に保存された `persistentState` 付きIntegration snapshotは読込時に互換的に除去する。
+- `C-06, C-24` のPostgreSQL回帰テストは `AgentRuntime.process`、`PostgresAgentContextLoader`、`PostgresRuntimePersistence` を通し、HarnessにConcernが渡らないことと、commit後に既存・新規Concernが共存することを検証する。
+- 検証: `pnpm typecheck`、unit test 200件、`pnpm exec vitest run --config vitest.integration.config.ts tests/integration/persistence.test.ts` 29件。
+- 仕様照合: `docs/work/analyze/2026-11-10-change.md`（CRITICAL/HIGH なし）。独立レビュー: `docs/work/reviews/2026-11-10-issue-020-final.md`（問題なし）。
