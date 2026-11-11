@@ -1,9 +1,10 @@
 import type { Pool, QueryResultRow } from "pg";
+import type { z } from "zod";
 
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
 import { MemoryWriteService } from "../../application/memory-write-service.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
-import { ReflectionInputSchema, ReflectionOutputSchema, ReflectionPlanSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository } from "../../application/reflection.js";
+import { ConcernReflectorOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type ConcernActivityKind, type Relationship } from "../../domain/contracts.js";
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
@@ -29,6 +30,11 @@ function failureReason(error: unknown): string {
     return [{ ...(Array.isArray(issue.path) ? { path: issue.path.map(String) } : {}), ...(typeof issue.message === "string" ? { message: issue.message } : {}), ...(typeof issue.code === "string" ? { code: issue.code } : {}) }];
   });
   return issues.length === 0 ? error.message : `${error.message}: ${JSON.stringify(issues)}`;
+}
+
+function toolExecutionsFromFailure(error: unknown): readonly unknown[] {
+  if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause)) return [];
+  return Array.isArray(error.cause.toolExecutions) ? error.cause.toolExecutions : [];
 }
 
 const summaryOf = (observation: unknown): string => {
@@ -58,12 +64,14 @@ function applyRelationships(current: readonly Relationship[], changes: Reflectio
   return [...values.values()];
 }
 
-export class PostgresReflectionRepository implements ReflectionRepository {
+export class PostgresReflectionRepository implements ReflectionRepository, TargetedReflectionRepository {
   constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly memoryUpdateSink?: MemoryUpdateSink, private readonly memoryEmbedding?: MemoryEmbeddingPreparer, private readonly concernLifecycle: ConcernLifecycleSettings = defaultConcernLifecycleSettings) {}
 
   async load(reflectionId: string, agentId: string): Promise<ReflectionInput | undefined> {
     const existing = await this.pool.query<ReflectionRow>("SELECT status,input FROM reflection_runs WHERE id=$1 AND agent_id=$2", [reflectionId, agentId]);
     if (existing.rows[0] !== undefined) return ReflectionInputSchema.parse(existing.rows[0].input);
+    const retry = await this.pool.query<ReflectionRow>("SELECT status,input FROM reflection_runs WHERE agent_id=$1 AND status='pending' AND failure_reason='Reflection has retryable target failures' ORDER BY updated_at ASC,id ASC LIMIT 1", [agentId]);
+    if (retry.rows[0] !== undefined) return ReflectionInputSchema.parse(retry.rows[0].input);
     const stateResult = await this.pool.query<StateRow>(`SELECT a.identity,s.disposition,s.self_story,s.commitments,s.mood,s.concerns,s.relationships,s.version
       FROM agents a JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1 AND a.active=true`, [agentId]);
     const row = stateResult.rows[0]; if (row === undefined) return undefined;
@@ -86,6 +94,33 @@ export class PostgresReflectionRepository implements ReflectionRepository {
     await this.pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input) VALUES ($1,$2,$3,'pending',$4) ON CONFLICT (id) DO NOTHING", [reflectionId, agentId, input.expectedVersion, JSON.stringify(input)]);
     const stored = await this.pool.query<ReflectionRow>("SELECT status,input FROM reflection_runs WHERE id=$1 AND agent_id=$2", [reflectionId, agentId]);
     return stored.rows[0] === undefined ? undefined : ReflectionInputSchema.parse(stored.rows[0].input);
+  }
+
+  /**
+   * A Session is deliberately refreshed after each committed target.  This is
+   * not a new selection window: its Event window stays fixed, while later
+   * Reflectors can ground their changes in the Memory/State just committed by
+   * an earlier target in the same Session.
+   */
+  async refresh(input: ReflectionInput): Promise<ReflectionInput> {
+    const [stateResult, memoriesResult] = await Promise.all([
+      this.pool.query<StateRow>(`SELECT a.identity,s.disposition,s.self_story,s.commitments,s.mood,s.concerns,s.relationships,s.version
+        FROM agents a JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1 AND a.active=true`, [input.agentId]),
+      this.pool.query<MemoryRow>(`SELECT m.id,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,
+        COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects
+        FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id WHERE m.agent_id=$1 GROUP BY m.id ORDER BY m.occurred_at DESC,m.id LIMIT 32`, [input.agentId])
+    ]);
+    const state = stateResult.rows[0];
+    if (state === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
+    return ReflectionInputSchema.parse({
+      reflectionId: input.reflectionId,
+      agentId: input.agentId,
+      expectedVersion: state.version,
+      self: SelfSchema.parse({ identity: state.identity, disposition: state.disposition, selfStory: state.self_story, commitments: state.commitments }),
+      state: AgentStateSchema.parse({ mood: state.mood, concerns: state.concerns, relationships: state.relationships }),
+      events: input.events,
+      memories: memoriesResult.rows.map((memory) => EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) }))
+    });
   }
 
   async commit(input: ReflectionInput, rawOutput: ReflectionOutput): Promise<"committed" | "duplicate"> {
@@ -142,6 +177,111 @@ export class PostgresReflectionRepository implements ReflectionRepository {
 
   async fail(input: ReflectionInput, error: unknown): Promise<void> {
     await this.pool.query("UPDATE reflection_runs SET status='failed',failure_reason=$2,updated_at=now() WHERE id=$1 AND status<>'completed'", [input.reflectionId, failureReason(error)]);
+  }
+
+  async beginTarget(input: ReflectionInput, target: ReflectionTarget): Promise<"pending" | "completed"> {
+    const existing = await this.pool.query<{ status: string }>("SELECT status FROM reflection_attempts WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target]);
+    if (existing.rows[0]?.status === "completed") return "completed";
+    await this.pool.query(`INSERT INTO reflection_attempts(id,reflection_id,agent_id,target,status,input,started_at)
+      VALUES ($1,$2,$3,$4,'pending',$5,now())
+      ON CONFLICT (reflection_id,target) DO UPDATE SET status='pending',failure_reason=NULL,started_at=now(),updated_at=now()`, [`${input.reflectionId}:${target}`, input.reflectionId, input.agentId, target, JSON.stringify(this.#targetInput(input, target))]);
+    return "pending";
+  }
+
+  async commitTarget(input: ReflectionInput, target: ReflectionTarget, result: ReflectorResult): Promise<void> {
+    if (target === "memory") await this.#commitMemoryTarget(input, MemoryReflectorOutputSchema.parse(result.output));
+    if (target === "concern") await this.#commitConcernTarget(input, ConcernReflectorOutputSchema.parse(result.output));
+    if (target === "relationship") await this.#commitRelationshipTarget(input, RelationshipReflectorOutputSchema.parse(result.output));
+    if (target === "self-mood") await this.#commitSelfMoodTarget(input, SelfMoodReflectorOutputSchema.parse(result.output));
+    await this.pool.query("UPDATE reflection_attempts SET status='completed',output=$3,tool_executions=$4,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target, JSON.stringify(result.output), JSON.stringify(result.toolExecutions)]);
+  }
+
+  async failTarget(input: ReflectionInput, target: ReflectionTarget, error: unknown): Promise<void> {
+    await this.pool.query("UPDATE reflection_attempts SET status='failed',failure_reason=$3,tool_executions=$4,updated_at=now() WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target, failureReason(error), JSON.stringify(toolExecutionsFromFailure(error))]);
+  }
+
+  async blockTarget(input: ReflectionInput, target: ReflectionTarget): Promise<void> {
+    await this.pool.query(`INSERT INTO reflection_attempts(id,reflection_id,agent_id,target,status,input,completed_at)
+      VALUES ($1,$2,$3,$4,'blocked',$5,now())
+      ON CONFLICT (reflection_id,target) DO UPDATE SET status='blocked',updated_at=now()`, [`${input.reflectionId}:${target}`, input.reflectionId, input.agentId, target, JSON.stringify(this.#targetInput(input, target))]);
+  }
+
+  async complete(input: ReflectionInput): Promise<void> {
+    const rows = await this.pool.query<{ target: string; status: string; failure_reason: string | null }>("SELECT target,status,failure_reason FROM reflection_attempts WHERE reflection_id=$1 ORDER BY target", [input.reflectionId]);
+    const attempts = new Map(rows.rows.map((row) => [row.target, row]));
+    const plan = ReflectionPlanSchema.parse({
+      memory: attempts.get("memory")?.status ?? "pending",
+      concern: attempts.get("concern")?.status ?? "pending",
+      relationship: attempts.get("relationship")?.status ?? "pending",
+      self: attempts.get("self-mood")?.status ?? "pending",
+      errors: rows.rows.filter((row) => row.status === "failed" && row.failure_reason !== null).map((row) => ({ target: row.target === "self-mood" ? "self" : row.target, message: row.failure_reason ?? "Reflection target failed" }))
+    });
+    const retryable = rows.rows.some((row) => row.status === "failed" || row.status === "blocked");
+    if (attempts.get("concern")?.status === "completed") {
+      const state = await this.pool.query<{ concerns: unknown; relationships: unknown; version: number }>("SELECT concerns,relationships,version FROM agent_states WHERE agent_id=$1", [input.agentId]);
+      const current = state.rows[0];
+      if (current !== undefined) {
+        const activity = await this.pool.query<{ concern_id: string }>("SELECT DISTINCT concern_id FROM concern_activities WHERE agent_id=$1 AND reflection_id=$2", [input.agentId, input.reflectionId]);
+        const parsed = AgentStateSchema.parse({ concerns: current.concerns, relationships: current.relationships });
+        const closed = await this.#closeStaleConcerns(this.pool, input.agentId, input.reflectionId, parsed.concerns, new Set(activity.rows.map(({ concern_id }) => concern_id)), this.now());
+        if (JSON.stringify(closed) !== JSON.stringify(parsed.concerns)) await this.pool.query("UPDATE agent_states SET concerns=$3,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, current.version, JSON.stringify(closed)]);
+      }
+    }
+    await this.pool.query("UPDATE reflection_runs SET status=$2,plan=$3,failure_reason=$4,completed_at=CASE WHEN $2='completed' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1", [input.reflectionId, retryable ? "pending" : "completed", JSON.stringify(plan), plan.errors[0]?.message ?? null]);
+    if (retryable) throw new DomainError("EXTERNAL", "Reflection has retryable target failures");
+  }
+
+  #targetInput(input: ReflectionInput, target: ReflectionTarget): unknown {
+    if (target === "memory") return { events: input.events, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
+    if (target === "concern") return { memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), concerns: input.state.concerns };
+    if (target === "relationship") return { events: input.events, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), relationships: input.state.relationships };
+    return { self: input.self, mood: input.state.mood, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
+  }
+
+  async #commitConcernTarget(input: ReflectionInput, output: z.infer<typeof ConcernReflectorOutputSchema>): Promise<void> {
+    const state = await this.pool.query<{ concerns: unknown; version: number }>("SELECT concerns,version FROM agent_states WHERE agent_id=$1", [input.agentId]);
+    const row = state.rows[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
+    const applied = applyConcerns(AgentStateSchema.parse({ concerns: row.concerns, relationships: [] }).concerns, output.concernChanges, () => this.ids.next());
+    const updated = await this.pool.query("UPDATE agent_states SET concerns=$3,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, row.version, JSON.stringify(applied.concerns)]);
+    if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");
+    const at = this.now();
+    for (const [index, activity] of applied.activities.entries()) await this.pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, input.agentId, activity.concernId, activity.kind, input.reflectionId, JSON.stringify(output.evidenceMemoryIds), at]);
+  }
+
+  async #commitMemoryTarget(input: ReflectionInput, output: z.infer<typeof MemoryReflectorOutputSchema>): Promise<void> {
+    const intents = output.memories.map((memory) => ({ content: memory.summary, reason: memory.significance, evidenceEventIds: input.events.map(({ id }) => id), confidence: "medium" as const, target: "episodic" as const, perspective: memory.subjects.length > 0 ? "user" as const : "self" as const, purpose: memory.subjects.length > 0 ? "user-context" as const : "self-guidance" as const }));
+    if (this.memoryUpdateSink !== undefined && intents.length > 0) {
+      const sinkInput = { agentId: input.agentId, sourceEventId: input.reflectionId, intents, subjectsByIntent: output.memories.map(({ subjects }) => subjects), sourceAgentIds: output.memories.map(({ source }) => source) };
+      if (this.memoryUpdateSink.enqueueAndWait !== undefined) await this.memoryUpdateSink.enqueueAndWait(sinkInput); else await this.memoryUpdateSink.enqueue(sinkInput);
+      return;
+    }
+    const embeddingPreparer = this.memoryEmbedding;
+    const embeddings = embeddingPreparer === undefined ? [] : await Promise.all(output.memories.map((memory) => embeddingPreparer.prepareMemory(memory.summary)));
+    const candidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
+    const client = await this.pool.connect();
+    try {
+      for (const [index, memory] of output.memories.entries()) {
+        const intent = intents[index]; if (intent === undefined) throw new DomainError("VALIDATION", "Reflection Memory intent was not created");
+        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: index, candidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+      }
+    } finally { client.release(); }
+  }
+
+  async #commitRelationshipTarget(input: ReflectionInput, output: z.infer<typeof RelationshipReflectorOutputSchema>): Promise<void> {
+    const state = await this.pool.query<{ relationships: unknown; version: number }>("SELECT relationships,version FROM agent_states WHERE agent_id=$1", [input.agentId]);
+    const row = state.rows[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
+    const relationships = applyRelationships(AgentStateSchema.parse({ concerns: [], relationships: row.relationships }).relationships, output.relationshipChanges);
+    const updated = await this.pool.query("UPDATE agent_states SET relationships=$3,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, row.version, JSON.stringify(relationships)]);
+    if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection Relationship state version conflict");
+  }
+
+  async #commitSelfMoodTarget(input: ReflectionInput, output: z.infer<typeof SelfMoodReflectorOutputSchema>): Promise<void> {
+    const state = await this.pool.query<{ disposition: string; self_story: string; commitments: unknown; mood: string; version: number }>("SELECT disposition,self_story,commitments,mood,version FROM agent_states WHERE agent_id=$1", [input.agentId]);
+    const row = state.rows[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
+    const self = output.self;
+    const updated = await this.pool.query("UPDATE agent_states SET disposition=$3,self_story=$4,commitments=$5,mood=$6,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, row.version, self?.disposition ?? row.disposition, self?.selfStory ?? row.self_story, JSON.stringify(self?.commitments ?? row.commitments), output.mood ?? row.mood]);
+    if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection Self/Mood state version conflict");
+    if (self !== undefined) await this.pool.query("UPDATE agents SET identity=$2,updated_at=now() WHERE id=$1", [input.agentId, self.identity]);
   }
 
   async #closeStaleConcerns(client: Pick<Pool, "query">, agentId: string, reflectionId: string, concerns: readonly Concern[], changedConcernIds: ReadonlySet<string>, now: Date): Promise<readonly Concern[]> {

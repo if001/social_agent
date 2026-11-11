@@ -3,10 +3,12 @@ import { toolStrategy, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
 
 import { estimateTokens } from "../../application/context-builder.js";
-import { ReflectionInputSchema, ReflectionOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput } from "../../application/reflection.js";
+import { ConcernReflectorOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
 import { DomainError } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
+import { ToolRegistry } from "../../application/tool-registry.js";
+import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunContextSchema } from "./deep-agent-tools.js";
 import { concernLifecyclePrompt } from "./concern-lifecycle-prompt.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 
@@ -120,7 +122,7 @@ function domainOutputFromModel(raw: unknown): unknown {
 }
 
 export interface ReflectionInvoker {
-  invoke(messages: readonly { readonly role: "user"; readonly content: string }[], options: { readonly signal: AbortSignal; readonly recursionLimit: number }): Promise<{ readonly structuredResponse?: unknown }>;
+  invoke(messages: readonly { readonly role: "user"; readonly content: string }[], options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId?: string; readonly reflectionId?: string }): Promise<{ readonly structuredResponse?: unknown; readonly toolExecutions?: readonly import("../../domain/contracts.js").ToolExecutionRecord[] }>;
 }
 
 export const MAX_REFLECTION_MODEL_INPUT_TOKENS = 8_000;
@@ -130,7 +132,7 @@ export const MAX_REFLECTION_MODEL_INPUT_TOKENS = 8_000;
 export const REFLECTION_RECURSION_LIMIT = 25;
 
 export class StructuredReflectionModel implements ReflectionModel {
-  constructor(private readonly invoker: ReflectionInvoker, private readonly logger: Logger = noopLogger, private readonly maxRepairs = 1) {}
+  constructor(private readonly invoker: ReflectionInvoker, private readonly logger: Logger = noopLogger, private readonly maxRepairs = 1, private readonly systemPrompt: string = reflectionSystemPrompt) {}
 
   async reflect(rawInput: ReflectionInput, signal: AbortSignal): Promise<ReflectionOutput> {
     const input = ReflectionInputSchema.parse(rawInput);
@@ -147,10 +149,10 @@ export class StructuredReflectionModel implements ReflectionModel {
           validationIssues,
           invalidOutput: raw
         });
-      const inputTokens = estimateTokens([{ role: "system", content: reflectionSystemPrompt }, { role: "user", content }]) + estimateTokens(ReflectionModelOutputJsonSchema);
+      const inputTokens = estimateTokens([{ role: "system", content: this.systemPrompt }, { role: "user", content }]) + estimateTokens(ReflectionModelOutputJsonSchema);
       if (inputTokens > MAX_REFLECTION_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Reflection model input exceeds estimated ${String(MAX_REFLECTION_MODEL_INPUT_TOKENS)} token budget: ${String(inputTokens)}`);
       try {
-        const result = await this.invoker.invoke([{ role: "user", content }], { signal, recursionLimit: REFLECTION_RECURSION_LIMIT });
+        const result = await this.invoker.invoke([{ role: "user", content }], { signal, recursionLimit: REFLECTION_RECURSION_LIMIT, agentId: input.agentId, reflectionId: input.reflectionId });
         raw = domainOutputFromModel(result.structuredResponse);
       } catch (error) {
         throw providerFailure("Reflection", error, signal);
@@ -164,17 +166,28 @@ export class StructuredReflectionModel implements ReflectionModel {
   }
 }
 
-export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: Logger = noopLogger): ReflectionInvoker {
+const reflectionReadToolNames = new Set(["skill_read", "memory_search", "retrieval_search", "concern_list", "concern_get", "concern_history", "relationship_search", "self_get", "user_context_get"]);
+
+export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: Logger = noopLogger, systemPrompt: string = reflectionSystemPrompt, toolRegistry?: ToolRegistry, outputSchema: z.ZodType = ReflectionModelOutputSchema): ReflectionInvoker {
   const model = createOllamaChatModel({ ...config, think: "high" });
-  const responseFormat = toolStrategy(ReflectionModelOutputJsonSchema, { handleError: (error) => {
+  const responseFormat = toolStrategy(modelJsonSchema(outputSchema), { handleError: (error) => {
     logger.log("warn", "reflection.structured_output_invalid", errorLogContext(error));
     return reflectionStructuredOutputRepairMessage;
   } }) as unknown as ReflectionResponseFormat;
-  const agent = createDeepAgent({ model, tools: [], systemPrompt: reflectionSystemPrompt, responseFormat });
+  const selected = (toolRegistry?.registered() ?? []).filter(({ name }) => reflectionReadToolNames.has(name));
+  const tools = createDeepAgentTools(new ToolRegistry(selected), () => new Date(), logger);
+  const agent = createDeepAgent({ model, tools, systemPrompt, responseFormat, ...(tools.length === 0 ? {} : { contextSchema: DeepAgentToolRunContextSchema }) });
   return {
     async invoke(messages, options) {
-      const result = await agent.invoke({ messages: [...messages] }, { signal: options.signal, recursionLimit: options.recursionLimit });
-      return { structuredResponse: result.structuredResponse };
+      const context = createDeepAgentToolRunContext({ agentId: options.agentId ?? "reflection", runId: options.reflectionId ?? "reflection", eventId: options.reflectionId ?? "reflection", eventKind: "internal", maxModelCalls: 5, maxToolCalls: 12, signal: options.signal });
+      try {
+        const result = await agent.invoke({ messages: [...messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
+        return { structuredResponse: result.structuredResponse, toolExecutions: context.collector.executions };
+      } catch (error) {
+        // Preserve read-only tool audit records even when the model graph or
+        // schema strategy fails after a tool call.
+        throw new DomainError("EXTERNAL", "Reflector invocation failed", { cause: { error, toolExecutions: context.collector.executions } });
+      }
     }
   };
 }
@@ -182,5 +195,61 @@ export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: 
 export class OllamaReflectionModel extends StructuredReflectionModel {
   constructor(config: OllamaChatConfig, logger: Logger = noopLogger) {
     super(createOllamaReflectionInvoker(config, logger), logger);
+  }
+}
+
+class TargetStructuredReflectionModel {
+  constructor(private readonly invoker: ReflectionInvoker, private readonly schema: z.ZodType, private readonly prompt: string, private readonly logger: Logger) {}
+  async reflect(input: unknown, signal: AbortSignal, agentId: string, reflectionId: string): Promise<ReflectorResult> {
+    let raw: unknown; let issues: unknown;
+    let toolExecutions: readonly import("../../domain/contracts.js").ToolExecutionRecord[] = [];
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const content = attempt === 0 ? JSON.stringify(input) : JSON.stringify({ instruction: "直前の出力をこのReflector専用schemaへ修正する。本文やMarkdownではなく構造化出力だけを返す。", validationIssues: issues, invalidOutput: raw });
+      if (estimateTokens([{ role: "system", content: this.prompt }, { role: "user", content }]) + estimateTokens(modelJsonSchema(this.schema)) > MAX_REFLECTION_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Reflector input exceeds estimated ${String(MAX_REFLECTION_MODEL_INPUT_TOKENS)} token budget`);
+      let result: Awaited<ReturnType<ReflectionInvoker["invoke"]>>;
+      try {
+        result = await this.invoker.invoke([{ role: "user", content }], { signal, recursionLimit: REFLECTION_RECURSION_LIMIT, agentId, reflectionId });
+      } catch (error) {
+        throw new DomainError("EXTERNAL", "Reflector invocation failed", { cause: { error, toolExecutions: [...toolExecutions, ...toolExecutionsFrom(error)] } });
+      }
+      toolExecutions = [...toolExecutions, ...(result.toolExecutions ?? [])];
+      raw = result.structuredResponse;
+      const parsed = this.schema.safeParse(raw);
+      if (parsed.success) return { output: parsed.data, toolExecutions };
+      issues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
+      this.logger.log("warn", "reflector.output_invalid", { attempt: attempt + 1, issueCount: parsed.error.issues.length });
+    }
+    throw new DomainError("VALIDATION", "Reflector output failed schema validation", { cause: { validationIssues: issues, toolExecutions } });
+  }
+}
+
+function toolExecutionsFrom(error: unknown): readonly import("../../domain/contracts.js").ToolExecutionRecord[] {
+  if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause)) return [];
+  const records = error.cause.toolExecutions;
+  return Array.isArray(records) ? records as readonly import("../../domain/contracts.js").ToolExecutionRecord[] : [];
+}
+
+/**
+ * Transitional target adapter: each maintenance pass commits only the delta for
+ * its target.  It deliberately strips every other field before persistence.
+ * The next slice replaces the shared prompt with target-specific prompts.
+ */
+export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
+  readonly #models: Readonly<Record<ReflectionTarget, TargetStructuredReflectionModel>>;
+  constructor(config: OllamaChatConfig, logger: Logger = noopLogger, toolRegistry?: ToolRegistry) {
+    const prompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。通常Action、ユーザーへの発話、Web検索、外部副作用は行わず、指定された構造化差分だけを返します。`;
+    const schemas: Record<ReflectionTarget, z.ZodType> = { memory: MemoryReflectorOutputSchema, concern: ConcernReflectorOutputSchema, relationship: RelationshipReflectorOutputSchema, "self-mood": SelfMoodReflectorOutputSchema };
+    this.#models = Object.fromEntries((["memory", "concern", "relationship", "self-mood"] as const).map((target) => [target, new TargetStructuredReflectionModel(createOllamaReflectionInvoker(config, logger, prompt(target), toolRegistry, schemas[target]), schemas[target], prompt(target), logger)])) as Record<ReflectionTarget, TargetStructuredReflectionModel>;
+  }
+  async reflect(target: ReflectionTarget, input: ReflectionInput, signal: AbortSignal): Promise<ReflectorResult> {
+    const memories = input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt }));
+    const scoped = target === "memory"
+      ? { reflectionId: input.reflectionId, events: input.events, memories }
+      : target === "concern"
+        ? { reflectionId: input.reflectionId, memories, concerns: input.state.concerns }
+        : target === "relationship"
+          ? { reflectionId: input.reflectionId, events: input.events, memories, relationships: input.state.relationships }
+          : { reflectionId: input.reflectionId, self: input.self, mood: input.state.mood, memories };
+    return this.#models[target].reflect(scoped, signal, input.agentId, input.reflectionId);
   }
 }

@@ -20,6 +20,14 @@ const input: ReflectionInput = {
 };
 
 describe("structured Reflection model", () => {
+  it("FR-60, NFR-3: keeps target-specific maintenance instructions in runtime Skills", () => {
+    const skill = (name: string) => readFileSync(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
+    expect(skill("reflection-memory")).toContain("Memoryだけを扱う");
+    expect(skill("reflection-concern")).toContain("evidenceMemoryIds");
+    expect(skill("reflection-relationship")).toContain("Relationship");
+    expect(skill("reflection-self-mood")).toContain("SelfとMood");
+  });
+
   it("FR-42: repairs an invalid first output and converts flat changes to the strict Domain output", async () => {
     const prompts: string[] = [];
     const recursionLimits: number[] = [];
@@ -132,3 +140,5 @@ describe("structured Reflection model", () => {
     expect(invoked).toBe(false);
   });
 });
+import { readFileSync } from "node:fs";
+import { join } from "node:path";

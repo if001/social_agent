@@ -84,6 +84,7 @@ describeDatabase("PostgreSQL persistence", () => {
       ])]);
       const before = new Date();
       await copyFile(new URL("0029_concern_activities.sql", sourceRoot), join(migrationRoot, "0029_concern_activities.sql"));
+      await copyFile(new URL("0030_reflection_attempts.sql", sourceRoot), join(migrationRoot, "0030_reflection_attempts.sql"));
       await copyFile(new URL("meta/_journal.json", sourceRoot), join(migrationMeta, "_journal.json"));
       await migrate(baselinePool, migrationRoot);
       await migrate(baselinePool, migrationRoot);
@@ -440,6 +441,22 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(row?.delay_ms).toBe(4_000);
   });
 
+  it("FR-42, FR-60: increases backoff when one retryable Reflection Session fails repeatedly", async () => {
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('reflection:retry-one','b','reflection','maintenance',now())");
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,failure_reason) VALUES ('reflection-retry-one','b',0,'pending','{}','Reflection has retryable target failures')");
+    const repository = new PostgresScheduleRepository(pool, 60_000, "b", 1_000);
+    const target = { id: "reflection:retry-one", agentId: "b", kind: "reflection" as const, reason: "maintenance" };
+    await repository.release(target);
+    let row = (await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='reflection:retry-one'" )).rows[0];
+    expect(row?.delay_ms).toBe(1_000);
+    await repository.release(target);
+    row = (await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='reflection:retry-one'" )).rows[0];
+    expect(row?.delay_ms).toBe(2_000);
+    expect((await pool.query<{ retry_count: number }>("SELECT retry_count FROM reflection_runs WHERE id='reflection-retry-one'")).rows[0]?.retry_count).toBe(2);
+    await pool.query("DELETE FROM reflection_runs WHERE id='reflection-retry-one'");
+    await pool.query("DELETE FROM autonomous_schedules WHERE id='reflection:retry-one'");
+  });
+
   it("NFR-10: shares correlation-loop and rate limits across Runtime instances", async () => {
     const first = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const second = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
@@ -669,6 +686,27 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM concern_activities WHERE agent_id='a' AND concern_id='stale-close' AND kind='closed'")).rows[0]?.count).toBe("1");
     await pool.query("UPDATE agent_states SET concerns='[]' WHERE agent_id='a'");
     await pool.query("DELETE FROM reflection_runs WHERE id=ANY($1::text[])", [["stale-session-1", "stale-session-2", "stale-close-reflection"]]);
+  });
+
+  it("FR-60, NFR-17: persists target attempts and leaves only failed targets retryable", async () => {
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('target-attempt-event','a','internal',$1,'test','completed',now())", [{ summary: "対象別に統合する" }]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
+    const input = await repository.load("target-attempt-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
+    await expect(repository.beginTarget(input, "memory")).resolves.toBe("pending");
+    await repository.commitTarget(input, "memory", { output: { memories: [] }, toolExecutions: [{ callId: "reflector-tool-1", runId: input.reflectionId, eventId: input.reflectionId, name: "memory_search", input: { query: "約束" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }] });
+    await repository.beginTarget(input, "concern");
+    await repository.failTarget(input, "concern", new Error("Concern evidence unavailable"));
+    await repository.blockTarget(input, "relationship");
+    await repository.blockTarget(input, "self-mood");
+    await expect(repository.complete(input)).rejects.toMatchObject({ code: "EXTERNAL" });
+    expect((await pool.query<{ target: string; status: string; input: unknown; output: unknown; tool_executions: { name: string }[] }>("SELECT target,status,input,output,tool_executions FROM reflection_attempts WHERE reflection_id='target-attempt-reflection' ORDER BY target")).rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ target: "memory", status: "completed", output: { memories: [] }, tool_executions: [expect.objectContaining({ name: "memory_search" })] }),
+      expect.objectContaining({ target: "concern", status: "failed" }),
+      expect.objectContaining({ target: "relationship", status: "blocked" }),
+      expect.objectContaining({ target: "self-mood", status: "blocked" })
+    ]));
+    expect((await pool.query<{ status: string; plan: { memory: string; concern: string } }>("SELECT status,plan FROM reflection_runs WHERE id='target-attempt-reflection'")).rows[0]).toMatchObject({ status: "pending", plan: { memory: "completed", concern: "failed" } });
+    await pool.query("DELETE FROM reflection_runs WHERE id='target-attempt-reflection'");
   });
 
   it("FR-15, NFR-8: records Tool side effects when final Agent output fails without marking the message complete", async () => {
