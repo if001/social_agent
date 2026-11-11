@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-10
-status: created
+status: done
 type: change
 plan: []
 requirements: [C-25, FR-41, FR-42, FR-44, FR-60, NFR-3, NFR-5, NFR-7, NFR-17, 追加]
@@ -47,11 +47,11 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] FR-41：Reflectionが対象別の長期統合処理として動作し、通常Actionや外部探索を行わない。
-- [ ] FR-42, NFR-3, NFR-5：各Reflectorは小さい入力、説明付きschema、repair、適切なTool loop予算を持つ。
-- [ ] FR-44：Concern ReflectorはMemory根拠のあるcreateと既存Concernの整理を行い、022の決定論的closeと競合しない。
-- [ ] FR-60, NFR-17：対象別にpending / completed / failed / blockedを保存し、失敗対象だけ再試行する。
-- [ ] NFR-7：Session、Reflector、Tool、根拠、State差分をDebug UIで追跡できる。
+- [x] FR-41：Reflectionが対象別の長期統合処理として動作し、通常Actionや外部探索を行わない。
+- [x] FR-42, NFR-3, NFR-5：各Reflectorは小さい入力、説明付きschema、repair、適切なTool loop予算を持つ。
+- [x] FR-44：Concern ReflectorはMemory根拠のあるcreateと既存Concernの整理を行い、022の決定論的closeと競合しない。
+- [x] FR-60, NFR-17：対象別にpending / completed / failed / blockedを保存し、失敗対象だけ再試行する。
+- [x] NFR-7：Session、Reflector、Tool、根拠、State差分をDebug UIで追跡できる。
 
 ## Tests
 
@@ -71,7 +71,7 @@ Issue 021で承認するFR / AC / ADRに従う。一次文書の変更はこのI
 |---|---|---|
 | `src/application/reflection.ts` | Sessionと対象別orchestrator | 更新する |
 | `src/infrastructure/agent/reflection-harness.ts` | 一括ReflectionからReflector harnessへ分割 | 更新する |
-| `src/infrastructure/agent/skills/*` | Reflector別Skill | 更新する |
+| `skills/reflection-*` | Reflector別Skill | 更新済み |
 | `src/infrastructure/tools/*` | Reflector用読み取りTool公開 | 更新する |
 | `src/infrastructure/persistence/postgres-reflection.ts` | Session、対象別input / output / commit / retry | 更新する |
 | `src/bootstrap/bot-composition.ts` | Reflector構成 | 更新する |
@@ -83,3 +83,10 @@ Issue 021で承認するFR / AC / ADRに従う。一次文書の変更はこのI
 | 文書 | 反映内容 | 状態 |
 |---|---|---|
 | Issue 021 | 分割Reflectionとagent的取得の設計 | 反映済み |
+
+## 実装結果
+
+- `reflection_attempts`に対象別の入力・出力・Tool trace・状態を保存し、同一SessionではMemory確定後にState/Memoryを再読込して下流へ渡す。retryでも完了済みtargetの後に再読込する。
+- retryable Sessionには`retry_count`を保存し、同じSessionの反復失敗でも指数backoffする。
+- 各Reflectorは対象別の最小入力・専用schema・`skills/reflection-*`の指示を用い、`skill_read`とread-onlyの状態照会だけを許可する。
+- Debug UIでReflection attemptとそのTool traceをSession単位で追える。
