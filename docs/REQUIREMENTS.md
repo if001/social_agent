@@ -185,7 +185,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-6：Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。（C-08, C-27）
 - FR-41：Reflectionは通常Action・外部探索・日常的Concern消化を行わず、Memory、Concern、Relationship、Self、Moodを長期統合するmaintenance処理とする。Session開始時に対象Event範囲を固定し、Memoryは古い順に最大32 Eventずつ処理してから、Concern / Relationship、Self / Moodの順で対象別Reflectorを実行する。（C-03, C-25）
 - FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与し、作成ActivityへReflection Sessionと根拠Memoryを対応付ける。（C-25）
-- FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
+- FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・許可ID・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
 
 ## R8. 永続化、配送、運用
@@ -210,7 +210,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-55：Conversation Memoryと背景経験は、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。（C-46, C-56）
 - FR-56：MemoryIntentのtargetはMemory kindに限定し、RelationshipとConcernは既存PatchまたはConcern Proposalへ渡す。（C-66）
 - FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補からcreate、update、no-opを決め、Memory versionを照合する。（C-55, C-57, C-58, C-63, C-67）
-- FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。（C-59, C-60, C-63, C-66, C-69）
+- FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。Reflection Memory Reflectorは経験・理由・根拠Event・種別・視点・検索主体だけを選び、confidenceとpurposeはcommit層が導出する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。（C-59, C-60, C-63, C-66, C-69）
 - FR-59：Event優先順位はuser-message、memory-update、G3、reflectionの順とし、user-messageを待たせず、強制中断しない。（C-61, C-69）
 - FR-60：ReflectionはMemory、Self / Mood、Relationship、Concernごとのstatusを持ち、Memory確定後にConcern / Relationship、最後にSelf / Moodを更新する。Memory batchと失敗対象だけを再試行し、完了batchを重複確定しない。選択Contextと完全commit基準Stateは分離する。（C-64, C-68）
 - FR-61：memory-update EventはsourceEventIdとintentIndexで冪等にし、部分的なintentだけをcommitしない。（C-50, C-52）

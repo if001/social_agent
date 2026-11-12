@@ -287,9 +287,9 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   }
 
   async #commitMemoryTarget(input: ReflectionInput, output: z.infer<typeof MemoryReflectorOutputSchema>, sourceEventId = input.reflectionId): Promise<void> {
-    const intents = output.memories.map((memory) => ({ content: memory.content, reason: memory.reason, evidenceEventIds: memory.evidenceEventIds, confidence: memory.confidence, target: memory.target, perspective: memory.perspective, purpose: memory.purpose }));
+    const intents = output.memories.map((memory) => ({ content: memory.content, reason: memory.reason, evidenceEventIds: memory.evidenceEventIds, confidence: "medium" as const, target: memory.target, perspective: memory.perspective, purpose: memory.perspective === "user" ? "user-context" as const : "self-guidance" as const }));
     if (this.memoryUpdateSink !== undefined && intents.length > 0) {
-      const sinkInput = { agentId: input.agentId, sourceEventId, intents, subjectsByIntent: output.memories.map(({ subjects }) => subjects), sourceAgentIds: output.memories.map(({ source }) => source) };
+      const sinkInput = { agentId: input.agentId, sourceEventId, intents, subjectsByIntent: output.memories.map(({ subjects }) => subjects) };
       if (this.memoryUpdateSink.enqueueAndWait !== undefined) await this.memoryUpdateSink.enqueueAndWait(sinkInput); else await this.memoryUpdateSink.enqueue(sinkInput);
       return;
     }
@@ -300,7 +300,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     try {
       for (const [index, memory] of output.memories.entries()) {
         const intent = intents[index]; if (intent === undefined) throw new DomainError("VALIDATION", "Reflection Memory intent was not created");
-        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds: memory.subjects, sourceEventId, intentIndex: index, candidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds: memory.subjects, sourceEventId, intentIndex: index, candidates, ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
       }
     } finally { client.release(); }
   }

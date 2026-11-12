@@ -726,17 +726,15 @@ describeDatabase("PostgreSQL persistence", () => {
           content: "ユーザーは展示を訪れる予定を話した",
           reason: "次回に訪問できたか尋ねるため",
           evidenceEventIds: [eventIds[2] ?? "", eventIds[29] ?? ""],
-          confidence: "high",
           target: "episodic",
-          perspective: "self",
-          purpose: "self-guidance",
+          perspective: "user",
           subjects: []
         }]
       },
       toolExecutions: []
     });
     expect((await pool.query<{ evidence_event_ids: string[] }>("SELECT evidence_event_ids FROM memories WHERE id='reflection-memory-evidence-id'")).rows[0]?.evidence_event_ids).toEqual([eventIds[2], eventIds[29]]);
-    expect((await pool.query<{ intent: { evidenceEventIds: string[] } }>("SELECT intent FROM memory_mutations WHERE agent_id=$1 AND source_event_id='reflection-memory-evidence'", [agentId])).rows[0]?.intent.evidenceEventIds).toEqual([eventIds[2], eventIds[29]]);
+    expect((await pool.query<{ intent: { evidenceEventIds: string[]; confidence: string; purpose: string } }>("SELECT intent FROM memory_mutations WHERE agent_id=$1 AND source_event_id='reflection-memory-evidence'", [agentId])).rows[0]?.intent).toMatchObject({ evidenceEventIds: [eventIds[2], eventIds[29]], confidence: "medium", purpose: "user-context" });
   });
 
   it("C-10, FR-41: persists and resumes two 32 Event Memory batches without duplicating their writes", async () => {
@@ -755,7 +753,7 @@ describeDatabase("PostgreSQL persistence", () => {
     for (const batch of batches) {
       await repository.beginMemoryBatch(input, batch);
       const evidenceEventId = batch.events[0]?.id; if (evidenceEventId === undefined) throw new Error("batch has no event");
-      await repository.commitMemoryBatch(input, batch, { output: { memories: [{ content: `Memory for batch ${String(batch.batchIndex)}`, reason: "batch evidence", evidenceEventIds: [evidenceEventId], confidence: "medium", target: "episodic", perspective: "self", purpose: "self-guidance", subjects: [] }] }, toolExecutions: [] });
+      await repository.commitMemoryBatch(input, batch, { output: { memories: [{ content: `Memory for batch ${String(batch.batchIndex)}`, reason: "batch evidence", evidenceEventIds: [evidenceEventId], target: "episodic", perspective: "self", subjects: [] }] }, toolExecutions: [] });
     }
     await repository.completeMemoryTarget(input);
     const firstBatch = batches[0]; if (firstBatch === undefined) throw new Error("first batch was not created");
