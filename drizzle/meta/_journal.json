@@ -218,6 +218,13 @@
       "when": 1793600000008,
       "tag": "0030_reflection_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793600000009,
+      "tag": "0031_reflection_memory_batches",
+      "breakpoints": true
     }
   ]
 }

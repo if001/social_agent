@@ -11,6 +11,7 @@ export type AgentOverview = {
   readonly schedules: readonly Record<string, unknown>[];
   readonly reflections: readonly Record<string, unknown>[];
   readonly reflectionAttempts: readonly Record<string, unknown>[];
+  readonly reflectionMemoryBatches: readonly Record<string, unknown>[];
   readonly concernActivities: readonly Record<string, unknown>[];
 };
 
@@ -81,15 +82,16 @@ export class DebugUiRepository {
       FROM agents a JOIN agent_families f ON f.id=a.family_id LEFT JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1`, [agentId]);
     const agent = agents[0];
     if (agent === undefined) return undefined;
-    const [states, scheduledTasks, schedules, reflections, reflectionAttempts, concernActivities] = await Promise.all([
+    const [states, scheduledTasks, schedules, reflections, reflectionAttempts, reflectionMemoryBatches, concernActivities] = await Promise.all([
       this.query<QueryResultRow>(`SELECT mood,concerns,relationships,version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 ORDER BY execute_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,kind,reason,next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,input_state_version AS "inputStateVersion",status,input,output,failure_reason AS "failureReason",completed_at AS "completedAt",created_at AS "createdAt",updated_at AS "updatedAt" FROM reflection_runs WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 50`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,reflection_id AS "reflectionId",target,status,input,output,tool_executions AS "toolExecutions",failure_reason AS "failureReason",started_at AS "startedAt",completed_at AS "completedAt",updated_at AS "updatedAt" FROM reflection_attempts WHERE agent_id=$1 ORDER BY updated_at DESC,id LIMIT 200`, [agentId]),
+      this.query<QueryResultRow>(`SELECT id,reflection_id AS "reflectionId",batch_index AS "batchIndex",status,input,output,tool_executions AS "toolExecutions",failure_reason AS "failureReason",started_at AS "startedAt",completed_at AS "completedAt",updated_at AS "updatedAt" FROM reflection_memory_batches WHERE agent_id=$1 ORDER BY updated_at DESC,id LIMIT 200`, [agentId]),
       this.query<QueryResultRow>(`SELECT concern_id AS "concernId",kind,event_id AS "eventId",run_id AS "runId",reflection_id AS "reflectionId",evidence_memory_ids AS "evidenceMemoryIds",occurred_at AS "occurredAt" FROM concern_activities WHERE agent_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 100`, [agentId])
     ]);
-    return { agent, state: states[0] ?? {}, scheduledTasks, schedules, reflections, reflectionAttempts, concernActivities };
+    return { agent, state: states[0] ?? {}, scheduledTasks, schedules, reflections, reflectionAttempts, reflectionMemoryBatches, concernActivities };
   }
 
   async listRuns(agentId: string, limit = 30): Promise<readonly RunListItem[]> {

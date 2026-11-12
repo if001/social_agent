@@ -85,6 +85,7 @@ describeDatabase("PostgreSQL persistence", () => {
       const before = new Date();
       await copyFile(new URL("0029_concern_activities.sql", sourceRoot), join(migrationRoot, "0029_concern_activities.sql"));
       await copyFile(new URL("0030_reflection_attempts.sql", sourceRoot), join(migrationRoot, "0030_reflection_attempts.sql"));
+      await copyFile(new URL("0031_reflection_memory_batches.sql", sourceRoot), join(migrationRoot, "0031_reflection_memory_batches.sql"));
       await copyFile(new URL("meta/_journal.json", sourceRoot), join(migrationMeta, "_journal.json"));
       await migrate(baselinePool, migrationRoot);
       await migrate(baselinePool, migrationRoot);
@@ -707,6 +708,65 @@ describeDatabase("PostgreSQL persistence", () => {
     ]));
     expect((await pool.query<{ status: string; plan: { memory: string; concern: string } }>("SELECT status,plan FROM reflection_runs WHERE id='target-attempt-reflection'")).rows[0]).toMatchObject({ status: "pending", plan: { memory: "completed", concern: "failed" } });
     await pool.query("DELETE FROM reflection_runs WHERE id='target-attempt-reflection'");
+  });
+
+  it("C-10, C-55, FR-10, FR-57: commits only the Memory Reflector's selected evidence from a 32 Event Session", async () => {
+    const agentId = "reflection-memory-evidence-agent";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Evidence Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Evidence story','[]','[]','[]','Calm')", [agentId]);
+    const eventIds = Array.from({ length: 32 }, (_, index) => `reflection-evidence-event-${String(index + 1).padStart(2, "0")}`);
+    for (const [index, eventId] of eventIds.entries()) await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary: `経験 ${String(index + 1)}` }, new Date(Date.UTC(2026, 2, 1, 0, index, 0))]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-memory-evidence-id"]), () => new Date("2026-03-02T00:00:00Z"));
+    const input = await repository.load("reflection-memory-evidence", agentId); if (input === undefined) throw new Error("Reflection input was not created");
+    expect(input.events).toHaveLength(32);
+    await repository.beginTarget(input, "memory");
+    await repository.commitTarget(input, "memory", {
+      output: {
+        memories: [{
+          content: "ユーザーは展示を訪れる予定を話した",
+          reason: "次回に訪問できたか尋ねるため",
+          evidenceEventIds: [eventIds[2] ?? "", eventIds[29] ?? ""],
+          confidence: "high",
+          target: "episodic",
+          perspective: "self",
+          purpose: "self-guidance",
+          subjects: []
+        }]
+      },
+      toolExecutions: []
+    });
+    expect((await pool.query<{ evidence_event_ids: string[] }>("SELECT evidence_event_ids FROM memories WHERE id='reflection-memory-evidence-id'")).rows[0]?.evidence_event_ids).toEqual([eventIds[2], eventIds[29]]);
+    expect((await pool.query<{ intent: { evidenceEventIds: string[] } }>("SELECT intent FROM memory_mutations WHERE agent_id=$1 AND source_event_id='reflection-memory-evidence'", [agentId])).rows[0]?.intent.evidenceEventIds).toEqual([eventIds[2], eventIds[29]]);
+  });
+
+  it("C-10, FR-41: persists and resumes two 32 Event Memory batches without duplicating their writes", async () => {
+    const agentId = "reflection-memory-batch-agent";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Batch Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Batch story','[]','[]','[]','Calm')", [agentId]);
+    const eventIds = Array.from({ length: 64 }, (_, index) => `reflection-batch-event-${String(index + 1).padStart(2, "0")}`);
+    for (const [index, eventId] of eventIds.entries()) await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary: `batch experience ${String(index + 1)}` }, new Date(Date.UTC(2026, 2, 3, 0, index, 0))]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["memory-batch-0", "memory-batch-1"]), () => new Date("2026-03-04T00:00:00Z"));
+    const input = await repository.load("reflection-memory-batches", agentId); if (input === undefined) throw new Error("Reflection input was not created");
+    expect(input.events).toHaveLength(64);
+    await repository.beginTarget(input, "memory");
+    const batches = await repository.memoryBatches(input);
+    expect(batches.map(({ events }) => events)).toHaveLength(2);
+    expect(batches.map(({ events }) => events.length)).toEqual([32, 32]);
+    for (const batch of batches) {
+      await repository.beginMemoryBatch(input, batch);
+      const evidenceEventId = batch.events[0]?.id; if (evidenceEventId === undefined) throw new Error("batch has no event");
+      await repository.commitMemoryBatch(input, batch, { output: { memories: [{ content: `Memory for batch ${String(batch.batchIndex)}`, reason: "batch evidence", evidenceEventIds: [evidenceEventId], confidence: "medium", target: "episodic", perspective: "self", purpose: "self-guidance", subjects: [] }] }, toolExecutions: [] });
+    }
+    await repository.completeMemoryTarget(input);
+    const firstBatch = batches[0]; if (firstBatch === undefined) throw new Error("first batch was not created");
+    expect(await repository.beginMemoryBatch(input, firstBatch)).toBe("completed");
+    const persistedBatches = (await pool.query<{ batch_index: number; status: string; input: { events: unknown[] } }>("SELECT batch_index,status,input FROM reflection_memory_batches WHERE reflection_id='reflection-memory-batches' ORDER BY batch_index")).rows;
+    expect(persistedBatches.map(({ batch_index, status, input: batchInput }) => ({ batchIndex: batch_index, status, eventCount: batchInput.events.length }))).toEqual([{ batchIndex: 0, status: "completed", eventCount: 32 }, { batchIndex: 1, status: "completed", eventCount: 32 }]);
+    const mutations = (await pool.query<{ source_event_id: string; intent: { evidenceEventIds: string[] } }>("SELECT source_event_id,intent FROM memory_mutations WHERE agent_id=$1 ORDER BY source_event_id", [agentId])).rows;
+    expect(mutations.map(({ source_event_id, intent }) => ({ sourceEventId: source_event_id, evidenceEventIds: intent.evidenceEventIds }))).toEqual([
+      { sourceEventId: "reflection-memory-batches:memory:0", evidenceEventIds: [eventIds[0]] },
+      { sourceEventId: "reflection-memory-batches:memory:1", evidenceEventIds: [eventIds[32]] }
+    ]);
   });
 
   it("FR-15, NFR-8: records Tool side effects when final Agent output fails without marking the message complete", async () => {

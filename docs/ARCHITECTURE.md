@@ -44,7 +44,7 @@
 | ADR-14 | Conversation MemoryとBackground Experienceを別Storeに保持し、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。 | FR-53, FR-54, FR-55, NFR-19 |
 | ADR-15 | MemoryIntentのtargetはMemory kindに限定し、MemoryWriteServiceを唯一の書込み経路としてversion楽観ロックを行う。G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用し、G3のMemoryIntentはMainAgentのrememberとして適用する。 | FR-56, FR-57, FR-58, NFR-15 |
 | ADR-16 | Event優先順位はuser-message、memory-update、G3、reflectionの順とし、協調的スケジューリングでuser-messageを待たせない。 | FR-59, NFR-18 |
-| ADR-17 | Reflectionは対象別statusとSession / Reflector attemptを保存し、選択Contextを読み取りToolで拡張しつつ完全Stateへ差分commitする。Concern Activityを正本として部分成功、失敗対象の再試行、決定論的closeを許容する。 | FR-25, FR-60, NFR-7, NFR-17 |
+| ADR-17 | Reflectionは開始時にEvent範囲を固定し、Memoryを最大32 Eventずつ永続batchで処理してからConcern / Relationship / Self / Moodを一度ずつ統合する。対象別statusとSession / Reflector attemptを保存し、完了batchを重複せず失敗batchだけ再試行する。 | FR-25, FR-41, FR-60, NFR-7, NFR-17 |
 | ADR-18 | 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、deadlineとcall予算を持つ。 | FR-63, FR-64, NFR-16 |
 | ADR-19 | 予測、G3 Task、Memory mutationは監査・集計のため専用tableに保存し、Conversation MemoryとBackground Experienceは別Storeにする。既存Run/Event/StateChangeは意味判断と行動の監査に限定する。 | FR-50, FR-57, FR-60, FR-61, NFR-17 |
 | ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。 | FR-65, NFR-20 |
@@ -164,9 +164,9 @@ G3とMainAgentのConversation Memory・Background Experienceの検索は`retriev
 
 Event優先順位はuser-message、memory-update、G3、reflectionの順とする。user-messageが待っている間は下位Eventを開始せず、実行中でも強制中断せず短いtransaction単位で完了させる。`memory-update`は専用MemoryUpdateHandlerが処理し、LLMを呼ばない。G3は別DeepAgent、Reflectionは専用LLM処理であり、MainAgentのAgentHarnessを通らない。
 
-Reflectionは通常Action・外部探索・日常的Concern消化を行わないmaintenance Sessionである。Memory ReflectorがEvent根拠をMemoryとして確定し、Concern ReflectorとRelationship Reflectorが確定Memoryと読み取りToolで得た必要最小限の記録を用いて差分を決め、最後にSelfMood Reflectorが今回の確定要点を統合する。各Reflectorは必要な小さな読み取りToolを反復利用できるが、Session外の探索、外部Tool、発話は公開しない。選択Contextは完全なcommit基準Stateと分離する。
+Reflectionは通常Action・外部探索・日常的Concern消化を行わないmaintenance Sessionである。開始時に前回成功範囲の末尾から現在までのEvent範囲を固定し、Memory Reflectorは古い順に最大32 Eventずつ処理する。Memoryごとに直接支持・確認・修正する根拠Eventだけを選んだMemoryIntentを確定し、根拠を選べないMemoryは保存しない。全Memory batchの確定後、Concern ReflectorとRelationship Reflectorが確定Memoryと読み取りToolで得た必要最小限の記録を用いて差分を決め、最後にSelfMood Reflectorが今回の確定要点を統合する。各Reflectorは必要な小さな読み取りToolを反復利用できるが、Session外の探索、外部Tool、発話は公開しない。選択Contextは完全なcommit基準Stateと分離する。
 
-Sessionと各Reflectorはpending / completed / failed / blocked、入力・出力・retryを保存する。失敗またはblockedの対象だけを次回Sessionで再試行し、部分成功を許容する。Concern Activityは作成、focus、progress、derive、review、status変更をID単位で記録し、stale closeも同じ監査境界で確定する。
+Session、Reflector、Memory batchはpending / completed / failed / blocked、入力・出力・retryを保存する。失敗またはblockedの対象と失敗batchだけを次回Sessionで再試行し、完了batchのMemoryを重複確定しない。成功したSessionの範囲末尾だけを次回の起点に進め、実行中に到着したEventは次回Sessionへ渡す。Concern Activityは作成、focus、progress、derive、review、status変更をID単位で記録し、stale closeも同じ監査境界で確定する。
 
 Agent Coreの8,000推定tokenはproviderのcontext上限ではなく観測用の警告閾値とする。超過時も呼び出しを継続し、実際の受付可否はproviderへ委ねる。ToolのJSON SchemaはDeep AgentのTool定義だけに保持し、Agent Coreのuser messageへTool名・説明・Schemaを重複して埋め込まない。
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, MemoryIntentSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
 const Text = z.string().trim().min(1).max(16_000);
@@ -8,6 +8,11 @@ const Text = z.string().trim().min(1).max(16_000);
 export const ReflectionInputSchema = z.object({
   reflectionId: Id,
   agentId: Id,
+  // The exclusive upper bound is captured before selecting Events.  It is
+  // retained with the Session so retry and the next Session cannot mix in
+  // Events that arrived while Reflection was running.  Older stored Sessions
+  // predate this field and remain readable.
+  eventWindowEnd: z.iso.datetime({ offset: true }).optional(),
   expectedVersion: z.number().int().nonnegative(),
   self: SelfSchema,
   state: AgentStateSchema,
@@ -15,6 +20,11 @@ export const ReflectionInputSchema = z.object({
   memories: z.array(EpisodicMemorySchema)
 });
 export type ReflectionInput = z.infer<typeof ReflectionInputSchema>;
+export const ReflectionMemoryBatchSchema = z.object({
+  batchIndex: z.number().int().nonnegative(),
+  events: z.array(z.object({ id: Id, occurredAt: z.iso.datetime({ offset: true }), summary: Text })).min(1).max(32)
+}).strict();
+export type ReflectionMemoryBatch = z.infer<typeof ReflectionMemoryBatchSchema>;
 
 export const ReflectionOutputSchema = z.object({
   memories: z.array(EpisodicMemorySchema.omit({ id: true, createdAt: true })),
@@ -82,8 +92,15 @@ export const ReflectionTargetSchema = z.enum(["memory", "concern", "relationship
 export type ReflectionTarget = z.infer<typeof ReflectionTargetSchema>;
 const targetOrder: readonly ReflectionTarget[] = ["memory", "concern", "relationship", "self-mood"];
 
+export const ReflectionMemoryIntentSchema = MemoryIntentSchema.safeExtend({
+  evidenceEventIds: z.array(Id).min(1).max(16).describe("このMemoryを直接支持する今回のReflection Session内Event ID。網羅的な要約ではなく、事実・経験・傾向を述べる、確認する、または修正するEventだけを発生順で選ぶ"),
+  subjects: z.array(Id).max(16).describe("このMemoryが主に関わる主体ID。今回の経験に現れない主体を補わない"),
+  source: Text.optional().describe("このMemoryの由来となるAgent ID。必要な場合だけ入力済みの主体を使う")
+}).strict().superRefine((value, context) => {
+  if (new Set(value.evidenceEventIds).size !== value.evidenceEventIds.length) context.addIssue({ code: "custom", path: ["evidenceEventIds"], message: "Memory evidence Event IDs must be distinct" });
+});
 export const MemoryReflectorOutputSchema = z.object({
-  memories: z.array(EpisodicMemorySchema.omit({ id: true, createdAt: true })).max(4).describe("今後の判断に再利用する経験。保存不要なら空配列")
+  memories: z.array(ReflectionMemoryIntentSchema).max(4).describe("今後の判断に再利用する、根拠Eventを選別済みのMemoryIntent。保存不要なら空配列")
 }).strict();
 export const ConcernReflectorOutputSchema = z.object({
   concernChanges: z.array(ConcernChangeSchema).max(4).describe("Memory根拠に基づくConcern差分。変更不要なら空配列"),
@@ -115,6 +132,11 @@ export interface TargetedReflectionRepository {
   load(reflectionId: string, agentId: string): Promise<ReflectionInput | undefined>;
   refresh(input: ReflectionInput): Promise<ReflectionInput>;
   beginTarget(input: ReflectionInput, target: ReflectionTarget): Promise<"pending" | "completed">;
+  memoryBatches(input: ReflectionInput): Promise<readonly ReflectionMemoryBatch[]>;
+  beginMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch): Promise<"pending" | "completed">;
+  commitMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch, result: ReflectorResult): Promise<void>;
+  failMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch, error: unknown): Promise<void>;
+  completeMemoryTarget(input: ReflectionInput): Promise<void>;
   commitTarget(input: ReflectionInput, target: ReflectionTarget, output: unknown): Promise<void>;
   failTarget(input: ReflectionInput, target: ReflectionTarget, error: unknown): Promise<void>;
   blockTarget(input: ReflectionInput, target: ReflectionTarget): Promise<void>;
@@ -143,6 +165,25 @@ export class TargetedReflection {
         input = await this.repository.refresh(input);
         continue;
       }
+      if (target === "memory") {
+        for (const batch of await this.repository.memoryBatches(input)) {
+          if (await this.repository.beginMemoryBatch(input, batch) === "completed") continue;
+          const batchInput = { ...input, events: batch.events };
+          try {
+            const result = await this.model.reflect("memory", batchInput, signal);
+            this.#validateTargetOutput("memory", result.output, batchInput);
+            await this.repository.commitMemoryBatch(input, batch, result);
+            input = await this.repository.refresh(input);
+          } catch (error) {
+            await this.repository.failMemoryBatch(input, batch, error);
+            await this.repository.failTarget(input, "memory", error);
+            memoryReady = false;
+            break;
+          }
+        }
+        if (memoryReady) { await this.repository.completeMemoryTarget(input); input = await this.repository.refresh(input); }
+        continue;
+      }
       try {
         const result = await this.model.reflect(target, input, signal);
         this.#validateTargetOutput(target, result.output, input);
@@ -150,7 +191,6 @@ export class TargetedReflection {
         input = await this.repository.refresh(input);
       } catch (error) {
         await this.repository.failTarget(input, target, error);
-        if (target === "memory") memoryReady = false;
         if (target === "concern" || target === "relationship") integrationReady = false;
       }
     }
@@ -171,7 +211,11 @@ export class TargetedReflection {
     } else if (target === "self-mood") {
       const output = SelfMoodReflectorOutputSchema.parse(raw);
       if (output.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Self/Mood Reflector referenced Memory outside its Session");
-    } else if (target === "memory") MemoryReflectorOutputSchema.parse(raw);
+    } else if (target === "memory") {
+      const output = MemoryReflectorOutputSchema.parse(raw);
+      const eventIds = new Set(input.events.map(({ id }) => id));
+      for (const memory of output.memories) if (memory.evidenceEventIds.some((id) => !eventIds.has(id))) throw new DomainError("VALIDATION", "Memory Reflector referenced Event outside its Session");
+    }
     else RelationshipReflectorOutputSchema.parse(raw);
   }
 }
