@@ -1,6 +1,7 @@
 import type { ReflectionInput } from "../../src/application/reflection.js";
 import {
   MAX_REFLECTION_MODEL_INPUT_TOKENS,
+  REFLECTION_MAX_MODEL_CALLS,
   REFLECTION_RECURSION_LIMIT,
   ReflectionModelOutputJsonSchema,
   ReflectionModelOutputSchema,
@@ -20,6 +21,10 @@ const input: ReflectionInput = {
 };
 
 describe("structured Reflection model", () => {
+  it("NFR-5: reserves a 20-call model budget for evidence reads and the final Reflector output", () => {
+    expect(REFLECTION_MAX_MODEL_CALLS).toBe(20);
+  });
+
   it("FR-60, NFR-3: keeps target-specific maintenance instructions in runtime Skills", () => {
     const skill = (name: string) => readFileSync(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
     expect(skill("reflection-memory")).toContain("Memoryだけを扱う");

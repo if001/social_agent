@@ -126,6 +126,12 @@ export interface ReflectionInvoker {
 }
 
 export const MAX_REFLECTION_MODEL_INPUT_TOKENS = 8_000;
+/**
+ * A Reflector may read its Skill and several small evidence slices before it
+ * returns its one structured delta.  This budget deliberately leaves room for
+ * that final response instead of treating the fifth read as a terminal step.
+ */
+export const REFLECTION_MAX_MODEL_CALLS = 20;
 // Reflection has no operational Tool loop, but the structured-output strategy
 // may use several graph nodes while asking the model to repair invalid output.
 // Keep this graph safety limit separate from the outer repair-attempt limit.
@@ -179,7 +185,7 @@ export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: 
   const agent = createDeepAgent({ model, tools, systemPrompt, responseFormat, ...(tools.length === 0 ? {} : { contextSchema: DeepAgentToolRunContextSchema }) });
   return {
     async invoke(messages, options) {
-      const context = createDeepAgentToolRunContext({ agentId: options.agentId ?? "reflection", runId: options.reflectionId ?? "reflection", eventId: options.reflectionId ?? "reflection", eventKind: "internal", maxModelCalls: 5, maxToolCalls: 12, signal: options.signal });
+      const context = createDeepAgentToolRunContext({ agentId: options.agentId ?? "reflection", runId: options.reflectionId ?? "reflection", eventId: options.reflectionId ?? "reflection", eventKind: "internal", maxModelCalls: REFLECTION_MAX_MODEL_CALLS, maxToolCalls: 12, signal: options.signal });
       try {
         const result = await agent.invoke({ messages: [...messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
         return { structuredResponse: result.structuredResponse, toolExecutions: context.collector.executions };
@@ -214,6 +220,11 @@ class TargetStructuredReflectionModel {
       }
       toolExecutions = [...toolExecutions, ...(result.toolExecutions ?? [])];
       raw = result.structuredResponse;
+      if (raw === undefined) {
+        issues = [{ code: "custom", path: [], message: "Reflector returned no structured output after its Tool loop" }];
+        this.logger.log("warn", "reflector.output_missing", { attempt: attempt + 1, toolExecutionCount: toolExecutions.length });
+        continue;
+      }
       const parsed = this.schema.safeParse(raw);
       if (parsed.success) return { output: parsed.data, toolExecutions };
       issues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
