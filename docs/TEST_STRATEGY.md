@@ -27,7 +27,7 @@
 - memory-update Eventのpayload、intentIndex冪等性、部分commit禁止
 - Reflection planのMemory、Self、Relationship、Concernごとのstatus
 - Concern ActivityのID対応、baseline migration、stale候補の除外条件、決定論的`abandoned`移行
-- Reflection Sessionと対象別Reflectorの読み取りTool境界、完全State差分commit、対象別retry
+- Reflection Sessionの固定Event範囲、最大32 EventのMemory batch、選別済み根拠、対象別 / batch別retry
 - G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
 - 通常OllamaとDeepAgentへ渡すJSON Schemaのfield description保持
 
@@ -117,7 +117,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-8 | Unit | `tests/unit/memory-context.test.ts`, `tests/unit/domain-contracts.test.ts` | Concern の契約と上限 |
 | FR-43 | Unit, Contract, Integration, Evaluation | `tests/unit/memory-context.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | previousDesire の引き継ぎ、上限、時間差scenario |
 | FR-9 | Contract, Unit, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/memory-context.test.ts`, `tests/live/ollama-user-response.test.ts` | Feeling の短期性と Assessment 引継ぎ |
-| FR-10 | Unit, Integration | `tests/unit/domain-contracts.test.ts`, `tests/integration/persistence.test.ts` | Memory の契約と検索 |
+| FR-10 | Unit, Integration | `tests/unit/domain-contracts.test.ts`, `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | Memory の契約と検索、Reflection Memoryごとの根拠Event選別 |
 | FR-46 | Unit | `tests/unit/agent-prompts.test.ts` | 共通の社会基盤、深さ、質問0件、機微の境界 |
 | FR-47 | Unit | `tests/unit/agent-prompts.test.ts` | Event skillの読み込み、skill_read、ルーティング |
 | FR-11 | Contract, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/live/ollama-user-response.test.ts` | Deep Agents 本番経路 |
@@ -152,7 +152,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-38 | Contract | `tests/contract/agent-harness.contract.test.ts` | Tool 成否と通知判断の非結合 |
 | FR-39 | Unit, System | `tests/unit/scheduler.test.ts`, `tests/system/internal-event.test.ts`, `tests/system/self-drive-autonomy.test.ts` | Event-driven な自律起動 |
 | FR-40 | Unit, Integration | `tests/unit/scheduled-task-tools.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Scheduled Task の分離 |
-| FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理 |
+| FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理と固定Session内根拠の検証 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
 | FR-45 | Unit, System, Contract | `tests/unit/scheduler.test.ts`, `tests/system/internal-event.test.ts`, `tests/contract/agent-harness.contract.test.ts` | idleのno-external拒否、再開間隔、夜間idle抑制 |
 | FR-48 | System | `tests/system/prediction-loop.test.ts` | 応答後の予測、1ターン遅れの誤差評価 |

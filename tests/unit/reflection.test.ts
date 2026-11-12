@@ -1,4 +1,4 @@
-import { Reflection, ReflectionOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
+import { MemoryReflectorOutputSchema, Reflection, ReflectionOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
 
 const input: ReflectionInput = {
   reflectionId: "reflection-1", agentId: "agent-a", expectedVersion: 2,
@@ -9,6 +9,88 @@ const input: ReflectionInput = {
 };
 
 describe("Reflection", () => {
+  it("C-10, FR-10: requires each Reflection Memory to select one to sixteen distinct evidence Events", () => {
+    const memory = {
+      content: "ユーザーは展示を訪れる予定を話した",
+      reason: "次回に訪問できたか自然に尋ねるため",
+      evidenceEventIds: ["event-1"],
+      confidence: "high" as const,
+      target: "episodic" as const,
+      perspective: "user" as const,
+      purpose: "user-context" as const,
+      subjects: ["user"]
+    };
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [memory] }).success).toBe(true);
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: [] }] }).success).toBe(false);
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: Array.from({ length: 17 }, (_, index) => `event-${String(index)}`) }] }).success).toBe(false);
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: ["event-1", "event-1"] }] }).success).toBe(false);
+  });
+
+  it("C-10, FR-10: rejects a Memory Reflector result that cites an Event outside its fixed Session", async () => {
+    const failures: unknown[] = [];
+    const reflection = new TargetedReflection({
+      load: () => Promise.resolve(input), refresh: (value) => Promise.resolve(value),
+      beginTarget: (_input, target) => Promise.resolve(target === "memory" ? "pending" : "completed"),
+      memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
+      commitTarget: () => Promise.resolve(), failTarget: (_input, _target, error) => { failures.push(error); return Promise.resolve(); },
+      blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
+    }, {
+      reflect: () => Promise.resolve({ output: { memories: [{ content: "根拠外の記憶", reason: "test", evidenceEventIds: ["foreign-event"], confidence: "medium", target: "episodic", perspective: "self", purpose: "self-guidance", subjects: [] }] }, toolExecutions: [] })
+    });
+    await reflection.process("reflection-1", "agent-a", new AbortController().signal);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("C-10, FR-41: processes a fixed 64 Event Session as two bounded Memory batches before one integration pass", async () => {
+    const events = Array.from({ length: 64 }, (_, index) => ({ id: `event-${String(index + 1)}`, occurredAt: `2026-01-01T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}Z`, summary: `Event ${String(index + 1)}` }));
+    const calls: { target: string; eventIds: readonly string[] }[] = [];
+    const committed: number[] = [];
+    const completeMemory: string[] = [];
+    const reflection = new TargetedReflection({
+      load: () => Promise.resolve({ ...input, events }), refresh: (value) => Promise.resolve(value),
+      beginTarget: () => Promise.resolve("pending"),
+      memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events.slice(0, 32) }, { batchIndex: 1, events: value.events.slice(32) }]),
+      beginMemoryBatch: () => Promise.resolve("pending"),
+      commitMemoryBatch: (_input, batch) => { committed.push(batch.batchIndex); return Promise.resolve(); },
+      failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: (value) => { completeMemory.push(value.reflectionId); return Promise.resolve(); },
+      commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
+    }, { reflect: (target, value) => {
+      calls.push({ target, eventIds: value.events.map(({ id }) => id) });
+      if (target === "memory") return Promise.resolve({ output: { memories: [{ content: `Memory ${String(value.events[0]?.id)}`, reason: "batch", evidenceEventIds: [value.events[0]?.id ?? "event-1"], confidence: "medium", target: "episodic", perspective: "self", purpose: "self-guidance", subjects: [] }] }, toolExecutions: [] });
+      if (target === "concern") return Promise.resolve({ output: { concernChanges: [], evidenceMemoryIds: [] }, toolExecutions: [] });
+      if (target === "relationship") return Promise.resolve({ output: { relationshipChanges: [] }, toolExecutions: [] });
+      return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });
+    } });
+    await reflection.process("reflection-1", "agent-a", new AbortController().signal);
+    expect(calls.filter(({ target }) => target === "memory").map(({ eventIds }) => eventIds.length)).toEqual([32, 32]);
+    expect(calls.map(({ target }) => target)).toEqual(["memory", "memory", "concern", "relationship", "self-mood"]);
+    expect(committed).toEqual([0, 1]);
+    expect(completeMemory).toEqual(["reflection-1"]);
+  });
+
+  it("FR-60, NFR-17: retries only the failed Memory batch and leaves a completed batch untouched", async () => {
+    const events = Array.from({ length: 64 }, (_, index) => ({ id: `retry-event-${String(index + 1)}`, occurredAt: "2026-01-01T00:00:00Z", summary: `Event ${String(index + 1)}` }));
+    const retried: string[][] = [];
+    const calls: string[] = [];
+    const reflection = new TargetedReflection({
+      load: () => Promise.resolve({ ...input, events }), refresh: (value) => Promise.resolve(value), beginTarget: () => Promise.resolve("pending"),
+      memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events.slice(0, 32) }, { batchIndex: 1, events: value.events.slice(32) }]),
+      beginMemoryBatch: (_input, batch) => Promise.resolve(batch.batchIndex === 0 ? "completed" : "pending"),
+      commitMemoryBatch: (_input, batch) => { retried.push(batch.events.map(({ id }) => id)); return Promise.resolve(); }, failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
+      commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
+    }, { reflect: (target, value) => {
+      calls.push(target);
+      if (target === "memory") return Promise.resolve({ output: { memories: [{ content: "Retry memory", reason: "batch", evidenceEventIds: [value.events[0]?.id ?? "retry-event-33"], confidence: "medium", target: "episodic", perspective: "self", purpose: "self-guidance", subjects: [] }] }, toolExecutions: [] });
+      if (target === "concern") return Promise.resolve({ output: { concernChanges: [], evidenceMemoryIds: [] }, toolExecutions: [] });
+      if (target === "relationship") return Promise.resolve({ output: { relationshipChanges: [] }, toolExecutions: [] });
+      return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });
+    } });
+    await reflection.process("reflection-1", "agent-a", new AbortController().signal);
+    expect(calls.filter((target) => target === "memory")).toEqual(["memory"]);
+    expect(retried).toEqual([["retry-event-33", ...Array.from({ length: 31 }, (_, index) => `retry-event-${String(index + 34)}`)]]);
+  });
+
   it("FR-41, FR-60: executes target Reflectors in dependency order and blocks downstream targets after Memory fails", async () => {
     const calls: string[] = [];
     const statuses: string[] = [];
@@ -16,6 +98,7 @@ describe("Reflection", () => {
       load: () => Promise.resolve(input),
       refresh: (value) => Promise.resolve(value),
       beginTarget: (_input, target) => { statuses.push(`begin:${target}`); return Promise.resolve("pending"); },
+      memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
       commitTarget: (_input, target) => { statuses.push(`completed:${target}`); return Promise.resolve(); },
       failTarget: (_input, target, error) => { statuses.push(`failed:${target}:${error instanceof Error ? error.message : "unknown"}`); return Promise.resolve(); },
       blockTarget: (_input, target) => { statuses.push(`blocked:${target}`); return Promise.resolve(); },
@@ -40,6 +123,7 @@ describe("Reflection", () => {
       load: () => Promise.resolve(input),
       refresh: (value) => { refreshed.push(value.reflectionId); return Promise.resolve(value); },
       beginTarget: (_input, target) => Promise.resolve(target === "memory" || target === "relationship" ? "completed" : "pending"),
+      memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
       commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
     }, { reflect: (target) => { calls.push(target); return Promise.resolve({ output: target === "concern" ? { concernChanges: [], evidenceMemoryIds: [] } : { mood: "落ち着いている", evidenceMemoryIds: [] }, toolExecutions: [] }); } });
     await reflection.process("reflection-1", "agent-a", new AbortController().signal);
@@ -53,10 +137,10 @@ describe("Reflection", () => {
     const reflection = new TargetedReflection({
       load: () => Promise.resolve(input),
       refresh: (value) => Promise.resolve({ ...value, memories: [...value.memories, committedMemory] }),
-      beginTarget: () => Promise.resolve("pending"), commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
+      beginTarget: () => Promise.resolve("pending"), memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(), commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
     }, {
       reflect: (target, value) => {
-        if (target === "memory") return Promise.resolve({ output: { memories: [{ summary: committedMemory.summary, significance: committedMemory.significance, subjects: committedMemory.subjects, occurredAt: committedMemory.occurredAt }] }, toolExecutions: [] });
+        if (target === "memory") return Promise.resolve({ output: { memories: [{ content: committedMemory.summary, reason: committedMemory.significance, evidenceEventIds: [value.events[0]?.id ?? "event-1"], confidence: "medium", target: "episodic", perspective: "user", purpose: "user-context", subjects: committedMemory.subjects }] }, toolExecutions: [] });
         if (target === "concern") { concernInputs.push(value); return Promise.resolve({ output: { concernChanges: [{ operation: "create", concern: { description: "新しい関心", whyItMatters: "経験に由来する", status: "active" } }], evidenceMemoryIds: [committedMemory.id] }, toolExecutions: [] }); }
         if (target === "relationship") return Promise.resolve({ output: { relationshipChanges: [] }, toolExecutions: [] });
         return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });

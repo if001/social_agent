@@ -4,7 +4,7 @@ import type { z } from "zod";
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
 import { MemoryWriteService } from "../../application/memory-write-service.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
-import { ConcernReflectorOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
+import { ConcernReflectorOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type ConcernActivityKind, type Relationship } from "../../domain/contracts.js";
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
@@ -75,17 +75,22 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const stateResult = await this.pool.query<StateRow>(`SELECT a.identity,s.disposition,s.self_story,s.commitments,s.mood,s.concerns,s.relationships,s.version
       FROM agents a JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1 AND a.active=true`, [agentId]);
     const row = stateResult.rows[0]; if (row === undefined) return undefined;
-    const last = await this.pool.query<{ completed_at: Date | null }>("SELECT completed_at FROM reflection_runs WHERE agent_id=$1 AND status='completed' ORDER BY completed_at DESC,id DESC LIMIT 1", [agentId]);
-    const since = last.rows[0]?.completed_at ?? new Date(0);
+    const last = await this.pool.query<{ completed_at: Date | null; event_window_end: string | null }>("SELECT completed_at,input->>'eventWindowEnd' AS event_window_end FROM reflection_runs WHERE agent_id=$1 AND status='completed' ORDER BY completed_at DESC,id DESC LIMIT 1", [agentId]);
+    const since = last.rows[0]?.event_window_end === null || last.rows[0]?.event_window_end === undefined
+      ? last.rows[0]?.completed_at ?? new Date(0)
+      : new Date(last.rows[0].event_window_end);
+    const window = await this.pool.query<{ event_window_end: Date }>("SELECT now() AS event_window_end");
+    const eventWindowEnd = window.rows[0]?.event_window_end;
+    if (eventWindowEnd === undefined) throw new DomainError("EXTERNAL", "Could not determine Reflection Event window");
     const [eventsResult, memoriesResult] = await Promise.all([
-      this.pool.query<EventRow>("SELECT id,occurred_at,observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' AND occurred_at>$2 ORDER BY occurred_at,id LIMIT 32", [agentId, since]),
+      this.pool.query<EventRow>("SELECT id,occurred_at,observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' AND occurred_at>$2 AND occurred_at<=$3 ORDER BY occurred_at,id", [agentId, since, eventWindowEnd]),
       this.pool.query<MemoryRow>(`SELECT m.id,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects
         FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id WHERE m.agent_id=$1 GROUP BY m.id ORDER BY m.occurred_at DESC,m.id LIMIT 32`, [agentId])
     ]);
     if (eventsResult.rows.length === 0) return undefined;
     const input = ReflectionInputSchema.parse({
-      reflectionId, agentId, expectedVersion: row.version,
+      reflectionId, agentId, eventWindowEnd: eventWindowEnd.toISOString(), expectedVersion: row.version,
       self: SelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.self_story, commitments: row.commitments }),
       state: AgentStateSchema.parse({ mood: row.mood, concerns: row.concerns, relationships: row.relationships }),
       events: eventsResult.rows.map((event) => ({ id: event.id, occurredAt: event.occurred_at.toISOString(), summary: summaryOf(event.observation) })),
@@ -115,6 +120,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     return ReflectionInputSchema.parse({
       reflectionId: input.reflectionId,
       agentId: input.agentId,
+      ...(input.eventWindowEnd === undefined ? {} : { eventWindowEnd: input.eventWindowEnd }),
       expectedVersion: state.version,
       self: SelfSchema.parse({ identity: state.identity, disposition: state.disposition, selfStory: state.self_story, commitments: state.commitments }),
       state: AgentStateSchema.parse({ mood: state.mood, concerns: state.concerns, relationships: state.relationships }),
@@ -188,6 +194,35 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     return "pending";
   }
 
+  async memoryBatches(input: ReflectionInput): Promise<readonly ReflectionMemoryBatch[]> {
+    const batches = Array.from({ length: Math.ceil(input.events.length / 32) }, (_, batchIndex) => ReflectionMemoryBatchSchema.parse({ batchIndex, events: input.events.slice(batchIndex * 32, (batchIndex + 1) * 32) }));
+    for (const batch of batches) await this.pool.query(`INSERT INTO reflection_memory_batches(id,reflection_id,agent_id,batch_index,status,input)
+      VALUES ($1,$2,$3,$4,'pending',$5) ON CONFLICT (reflection_id,batch_index) DO NOTHING`, [`${input.reflectionId}:memory:${String(batch.batchIndex)}`, input.reflectionId, input.agentId, batch.batchIndex, JSON.stringify(batch)]);
+    return batches;
+  }
+
+  async beginMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch): Promise<"pending" | "completed"> {
+    const existing = await this.pool.query<{ status: string }>("SELECT status FROM reflection_memory_batches WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex]);
+    if (existing.rows[0]?.status === "completed") return "completed";
+    await this.pool.query("UPDATE reflection_memory_batches SET status='pending',failure_reason=NULL,started_at=now(),updated_at=now() WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex]);
+    return "pending";
+  }
+
+  async commitMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch, result: ReflectorResult): Promise<void> {
+    await this.#commitMemoryTarget({ ...input, events: batch.events }, MemoryReflectorOutputSchema.parse(result.output), `${input.reflectionId}:memory:${String(batch.batchIndex)}`);
+    await this.pool.query("UPDATE reflection_memory_batches SET status='completed',output=$3,tool_executions=$4,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex, JSON.stringify(result.output), JSON.stringify(result.toolExecutions)]);
+  }
+
+  async failMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch, error: unknown): Promise<void> {
+    await this.pool.query("UPDATE reflection_memory_batches SET status='failed',failure_reason=$3,tool_executions=$4,updated_at=now() WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex, failureReason(error), JSON.stringify(toolExecutionsFromFailure(error))]);
+  }
+
+  async completeMemoryTarget(input: ReflectionInput): Promise<void> {
+    const batches = await this.pool.query<{ batch_index: number; status: string; output: unknown }>("SELECT batch_index,status,output FROM reflection_memory_batches WHERE reflection_id=$1 ORDER BY batch_index", [input.reflectionId]);
+    if (batches.rows.length === 0 || batches.rows.some(({ status }) => status !== "completed")) throw new DomainError("CONFLICT", "Reflection Memory batches are not all completed");
+    await this.pool.query("UPDATE reflection_attempts SET status='completed',output=$2,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND target='memory'", [input.reflectionId, JSON.stringify({ batches: batches.rows.map(({ batch_index, output }) => ({ batchIndex: batch_index, output })) })]);
+  }
+
   async commitTarget(input: ReflectionInput, target: ReflectionTarget, result: ReflectorResult): Promise<void> {
     if (target === "memory") await this.#commitMemoryTarget(input, MemoryReflectorOutputSchema.parse(result.output));
     if (target === "concern") await this.#commitConcernTarget(input, ConcernReflectorOutputSchema.parse(result.output));
@@ -232,9 +267,12 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   }
 
   #targetInput(input: ReflectionInput, target: ReflectionTarget): unknown {
-    if (target === "memory") return { events: input.events, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
+    // Memory batch inputs are persisted in reflection_memory_batches.  Keeping
+    // only their count here prevents a maintenance-attempt audit row from
+    // accidentally becoming a second, unbounded model input.
+    if (target === "memory") return { eventCount: input.events.length, batchCount: Math.ceil(input.events.length / 32), memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
     if (target === "concern") return { memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), concerns: input.state.concerns };
-    if (target === "relationship") return { events: input.events, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), relationships: input.state.relationships };
+    if (target === "relationship") return { events: input.events.slice(-32), memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), relationships: input.state.relationships };
     return { self: input.self, mood: input.state.mood, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
   }
 
@@ -248,21 +286,21 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     for (const [index, activity] of applied.activities.entries()) await this.pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, input.agentId, activity.concernId, activity.kind, input.reflectionId, JSON.stringify(output.evidenceMemoryIds), at]);
   }
 
-  async #commitMemoryTarget(input: ReflectionInput, output: z.infer<typeof MemoryReflectorOutputSchema>): Promise<void> {
-    const intents = output.memories.map((memory) => ({ content: memory.summary, reason: memory.significance, evidenceEventIds: input.events.map(({ id }) => id), confidence: "medium" as const, target: "episodic" as const, perspective: memory.subjects.length > 0 ? "user" as const : "self" as const, purpose: memory.subjects.length > 0 ? "user-context" as const : "self-guidance" as const }));
+  async #commitMemoryTarget(input: ReflectionInput, output: z.infer<typeof MemoryReflectorOutputSchema>, sourceEventId = input.reflectionId): Promise<void> {
+    const intents = output.memories.map((memory) => ({ content: memory.content, reason: memory.reason, evidenceEventIds: memory.evidenceEventIds, confidence: memory.confidence, target: memory.target, perspective: memory.perspective, purpose: memory.purpose }));
     if (this.memoryUpdateSink !== undefined && intents.length > 0) {
-      const sinkInput = { agentId: input.agentId, sourceEventId: input.reflectionId, intents, subjectsByIntent: output.memories.map(({ subjects }) => subjects), sourceAgentIds: output.memories.map(({ source }) => source) };
+      const sinkInput = { agentId: input.agentId, sourceEventId, intents, subjectsByIntent: output.memories.map(({ subjects }) => subjects), sourceAgentIds: output.memories.map(({ source }) => source) };
       if (this.memoryUpdateSink.enqueueAndWait !== undefined) await this.memoryUpdateSink.enqueueAndWait(sinkInput); else await this.memoryUpdateSink.enqueue(sinkInput);
       return;
     }
     const embeddingPreparer = this.memoryEmbedding;
-    const embeddings = embeddingPreparer === undefined ? [] : await Promise.all(output.memories.map((memory) => embeddingPreparer.prepareMemory(memory.summary)));
+    const embeddings = embeddingPreparer === undefined ? [] : await Promise.all(output.memories.map(({ content }) => embeddingPreparer.prepareMemory(content)));
     const candidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
     const client = await this.pool.connect();
     try {
       for (const [index, memory] of output.memories.entries()) {
         const intent = intents[index]; if (intent === undefined) throw new DomainError("VALIDATION", "Reflection Memory intent was not created");
-        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: index, candidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds: memory.subjects, sourceEventId, intentIndex: index, candidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
       }
     } finally { client.release(); }
   }

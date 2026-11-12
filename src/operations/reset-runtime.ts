@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import type { InitialSelfConfig } from "../domain/contracts.js";
 import type { SchedulerTimings } from "../config/config.js";
 
-const historyTables = ["state_changes", "tool_executions", "concern_activities", "reflection_attempts", "agent_runs", "events", "reflection_runs", "memory_web_evidence", "memory_subjects", "memory_mutations", "memories", "web_snapshots", "web_resources", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
+const historyTables = ["state_changes", "tool_executions", "concern_activities", "reflection_attempts", "reflection_memory_batches", "agent_runs", "events", "reflection_runs", "memory_web_evidence", "memory_subjects", "memory_mutations", "memories", "web_snapshots", "web_resources", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
 
 // Move runtime-owned data out of the active roots; never recursively delete a configured path.
 type ResetTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> & Partial<Pick<SchedulerTimings, "concernFormationIntervalMs">>;

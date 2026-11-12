@@ -259,7 +259,7 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
       : target === "concern"
         ? { reflectionId: input.reflectionId, memories, concerns: input.state.concerns }
         : target === "relationship"
-          ? { reflectionId: input.reflectionId, events: input.events, memories, relationships: input.state.relationships }
+          ? { reflectionId: input.reflectionId, events: input.events.slice(-32), memories, relationships: input.state.relationships }
           : { reflectionId: input.reflectionId, self: input.self, mood: input.state.mood, memories };
     return this.#models[target].reflect(scoped, signal, input.agentId, input.reflectionId);
   }
