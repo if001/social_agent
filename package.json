@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run --config vitest.config.ts",
-    "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
+    "test:integration": "node --env-file=.env.db.test ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts --passWithNoTests",
     "test:system": "vitest run --config vitest.system.config.ts --passWithNoTests",
     "test:evaluation": "vitest run --config vitest.evaluation.config.ts --passWithNoTests",
     "test:live": "node --env-file=.env ./node_modules/vitest/vitest.mjs run --config vitest.live.config.ts",
