@@ -189,6 +189,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与し、作成ActivityへReflection Sessionと根拠Memoryを対応付ける。（C-25）
 - FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・許可ID・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
+- FR-76：発話は`user-message`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`は発話またはrefuseを必須とするが、他の許可EventはAgent自身の動機により発話しないこともできる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、ユーザーへ発話しない。（C-06, C-16, C-17、追加）
 
 ## R8. 永続化、配送、運用
 
