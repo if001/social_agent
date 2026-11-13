@@ -11,3 +11,5 @@ description: Reflection Sessionで経験を再利用可能なMemoryだけへ整�
 - Eventの網羅的な要約、単発のTool失敗、実行手順、ユーザー向けの文章はMemoryにしない。
 - 入力にない事実、日時、主体、関係を補わない。既存Memoryと同じ内容は重複して作らない。
 - このReflectorはMemoryだけを扱う。Concern、Relationship、Self、Moodを変更しない。
+- 根拠を読み終えたら、最終の構造化出力Toolを必ず1回呼んで完了する。本文、Markdown、途中経過は返さない。
+- 保存するMemoryがなければ、必ず正確に`{"memories":[]}`を返す。空の結果は失敗ではない。

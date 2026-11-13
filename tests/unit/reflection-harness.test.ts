@@ -1,4 +1,4 @@
-import type { ReflectionInput } from "../../src/application/reflection.js";
+import { MemoryReflectorOutputSchema, type ReflectionInput } from "../../src/application/reflection.js";
 import {
   MAX_REFLECTION_MODEL_INPUT_TOKENS,
   REFLECTION_MAX_MODEL_CALLS,
@@ -6,9 +6,12 @@ import {
   ReflectionModelOutputJsonSchema,
   ReflectionModelOutputSchema,
   StructuredReflectionModel,
+  TargetStructuredReflectionModel,
   reflectionSystemPrompt,
+  targetedReflectorRepairInput,
   type ReflectionInvoker
 } from "../../src/infrastructure/agent/reflection-harness.js";
+import { noopLogger } from "../../src/observability/logger.js";
 
 const input: ReflectionInput = {
   reflectionId: "reflection-1",
@@ -31,6 +34,33 @@ describe("structured Reflection model", () => {
     expect(skill("reflection-concern")).toContain("evidenceMemoryIds");
     expect(skill("reflection-relationship")).toContain("Relationship");
     expect(skill("reflection-self-mood")).toContain("SelfとMood");
+    expect(skill("reflection-memory")).toContain("構造化出力Toolを必ず1回");
+    expect(skill("reflection-memory")).toContain('{"memories":[]}');
+  });
+
+  it("FR-42, FR-65: retries a target Reflector with the original scoped input and no read invoker", async () => {
+    const firstMessages: string[] = [];
+    const repairMessages: string[] = [];
+    const first: ReflectionInvoker = { invoke: (messages) => { firstMessages.push(messages[0]?.content ?? ""); return Promise.resolve({}); } };
+    const repair: ReflectionInvoker = { invoke: (messages) => { repairMessages.push(messages[0]?.content ?? ""); return Promise.resolve({ structuredResponse: { memories: [] } }); } };
+    const scoped = { reflectionId: input.reflectionId, events: input.events, memories: input.memories };
+
+    await expect(new TargetStructuredReflectionModel(first, repair, MemoryReflectorOutputSchema, "memory prompt", noopLogger).reflect(scoped, new AbortController().signal, input.agentId, input.reflectionId)).resolves.toEqual({ output: { memories: [] }, toolExecutions: [] });
+
+    expect(firstMessages).toHaveLength(1);
+    expect(repairMessages).toHaveLength(1);
+    const payload = JSON.parse(repairMessages[0] ?? "{}") as Record<string, unknown>;
+    expect(payload.input).toEqual(scoped);
+    expect(payload.allowedEventIds).toEqual(["event-1"]);
+    expect(payload.allowedMemoryIds).toEqual(["memory-1"]);
+    expect(payload.outputSchema).toBeDefined();
+    expect(payload.validationIssues).toEqual([{ code: "custom", path: [], message: "Reflector returned no structured output after its Tool loop" }]);
+    expect(payload.invalidOutput).toBeNull();
+  });
+
+  it("FR-42: includes fixed input, allowed IDs, schema, and validation details in a repair payload", () => {
+    const payload = targetedReflectorRepairInput({ events: [{ id: "event-1" }], memories: [{ id: "memory-1" }] }, MemoryReflectorOutputSchema, [{ path: ["memories"] }], { unexpected: true });
+    expect(payload).toMatchObject({ allowedEventIds: ["event-1"], allowedMemoryIds: ["memory-1"], validationIssues: [{ path: ["memories"] }], invalidOutput: { unexpected: true } });
   });
 
   it("FR-42: repairs an invalid first output and converts flat changes to the strict Domain output", async () => {

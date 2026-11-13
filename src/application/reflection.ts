@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, MemoryIntentSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
 const Text = z.string().trim().min(1).max(16_000);
@@ -92,10 +92,18 @@ export const ReflectionTargetSchema = z.enum(["memory", "concern", "relationship
 export type ReflectionTarget = z.infer<typeof ReflectionTargetSchema>;
 const targetOrder: readonly ReflectionTarget[] = ["memory", "concern", "relationship", "self-mood"];
 
-export const ReflectionMemoryIntentSchema = MemoryIntentSchema.safeExtend({
+/**
+ * A Memory Reflector chooses reusable experience and its direct evidence.
+ * Storage policy (confidence / purpose) is intentionally derived by the
+ * commit layer rather than asking the model to repeat it.
+ */
+export const ReflectionMemoryIntentSchema = z.object({
+  content: MemoryIntentSchema.shape.content.describe("今後の検索と判断に再利用する、固定Event窓から分かる具体的で短い経験の要点"),
+  reason: MemoryIntentSchema.shape.reason.describe("この経験を残すことで次回以降に変わる判断・問いかけ・探索を具体的に書く"),
   evidenceEventIds: z.array(Id).min(1).max(16).describe("このMemoryを直接支持する今回のReflection Session内Event ID。網羅的な要約ではなく、事実・経験・傾向を述べる、確認する、または修正するEventだけを発生順で選ぶ"),
+  target: MemoryIntentTargetSchema.describe("この経験を保存するMemory kind。RelationshipやConcernは選ばない"),
+  perspective: MemoryPerspectiveSchema.describe("userは対話相手について確認できた事実、selfはAgent自身の探索・行動・判断から得た経験として保存する"),
   subjects: z.array(Id).max(16).describe("このMemoryが主に関わる主体ID。今回の経験に現れない主体を補わない"),
-  source: Text.optional().describe("このMemoryの由来となるAgent ID。必要な場合だけ入力済みの主体を使う")
 }).strict().superRefine((value, context) => {
   if (new Set(value.evidenceEventIds).size !== value.evidenceEventIds.length) context.addIssue({ code: "custom", path: ["evidenceEventIds"], message: "Memory evidence Event IDs must be distinct" });
 });
