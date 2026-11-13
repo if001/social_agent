@@ -622,7 +622,7 @@ Action:
 
 - C-17：自律性は定期実行ではなくRuntime発のEventで起動し、Tool利用と外部発話を独立に判断する。
 
-Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否、非実行通知、または今回は発話しない選択ができる。
+Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否、非実行通知、または今回は発話しない選択ができる。ただし対話製品として、`idle` と `concern-due` は各Eventで必ず `respond` または `refuse` を配送する。これは未返信や連投回避による抑制を許さず、Agentが継続して外へ現れるための配送方針であり、何を話すかというDesireの選択とは分ける。
 
 代表的なEvent sourceは、ユーザーまたは他AgentからのMessage、Concernの `reconsiderAt` 到来、一定期間の無活動、外部サービスの変化、ToolやScheduled Taskの結果、定期Reflectionの完了、起動・停止・権限変更などのSystem Eventである。
 

@@ -672,7 +672,7 @@ type ReflectionInput = {
 };
 ```
 
-Reflection Sessionは根拠窓だけを保存する。各Reflectorへ全State・全履歴を一括投入せず、最小のSession要約から開始し、Event、Memory、Concern、Relationship、Activityを読み取りToolで必要なだけ取得する。選択Contextは完全なcommit基準Stateと分離し、選択しなかったConcernをcommitで失わせない。
+この型はRuntime内部の完全commit契約であり、LLM向け入力ではない。LLMへ渡すReflection viewはRecord ID、局所参照、cursorを除く。Reflection Sessionは根拠窓だけを保存する。各Reflectorへ全State・全履歴を一括投入せず、最小のSession要約から開始し、Event、Memory、Concern、Relationship、Activityを読み取りToolで必要なだけ取得する。選択Contextは完全なcommit基準Stateと分離し、選択しなかったConcernをcommitで失わせない。
 
 ## 23. Reflection
 
@@ -714,12 +714,30 @@ ConcernとRelationship Reflectorは、必要な小さな読み取りToolを反�
 
 Selfの変更は単発の弱い経験では行わず、反復、強い経験、既存Selfとの明確な矛盾を根拠にする。
 
+### 23.1.1 Memoryの根拠・対象をRuntimeで解決する
+
+Reflectorは自然言語の意味づけだけを担う。canonical ID、局所参照、対象RecordのIDを入力・出力に含めない。Runtimeが候補取得、対象束縛、根拠選択、時系列、所有権、commitを担う。
+
+- Memory Formationは固定Session batchのEvent Experienceを最大16件読み、`content`、`reason`、`kind`、`perspective`だけを持つ最大4件の候補をLLMが出す。Runtimeは候補の自然言語をqueryに、同じbatchのEvent projectionをHybrid Retrievalし、versioned score閾値・subject・種別規則を満たすEventだけを`evidenceEventIds`として保存する。Memoryのsubjectsは採用根拠EventからRuntimeが導出する。
+- 根拠Eventが得られない候補は保存しない。これはモデル再試行ではなく、監査付きの正常なno-opである。検索基盤障害だけがbatch再試行になる。
+- Memory Reconciliationは、Formation影響、利用・Concern根拠、未再検討、遠い連想からRuntimeが候補を取得し、embedding近傍・subject・時刻でcluster化する。clusterは読取範囲の重複を抑えるためだけに使い、更新対象は代表anchor 1件に固定する。
+- anchorごとに起動するReflectorは`keep`、`update`、`split`と本文・理由・種別を返す。Runtimeはanchorの`occurredAt`と既存根拠Eventの最大`occurredAt`より後のEvent projectionだけを検索して根拠を決める。同時刻または過去のEventでは更新しない。episodicはkeepだけ、semantic / common-groundは後続Eventによる確認・訂正だけ、self-related / self-changeは少なくとも2件の独立Eventを根拠にするときだけ変更できる。
+- `split`は束縛anchorを狭い内容へ更新し、分離内容を新規Memoryとして作る。LLMは新旧MemoryのIDを出力しない。
+
+### 23.1.2 Reflection Toolと失敗分類
+
+Reflectorに公開するread-only ToolはReflection専用adapterとする。検索query、時間範囲、種別などの自然言語・非ID入力だけを受け、結果本文からRecord ID、局所参照、cursorを除く。Runtimeは非公開handleで検索結果、anchor、監査対象を保持する。詳細・履歴・ページングは、束縛された現在対象または新しい自然言語queryで行い、LLMへIDを再提示しない。
+
+各候補の結果は`committed`、`no-op`、`retryable`、`conflict`に分類する。未支持、変更不要、解決不能は`no-op`として対象を完了する。検索・Embedding基盤などの技術障害は`retryable`として対象別backoffへ渡す。version競合は最新Stateを再読込して1回だけ再評価し、残れば`retryable`にする。Formation cursorは完了batchだけ進める。
+
+Runtimeはresolver version、query要約、候補数、採用・却下根拠、score、時系列判定、最終分類を監査する。軽量Reflector callはSession共有の設定可能な予算を持ち、既定32、上限96、並列数は既定4とする。候補が尽きた場合は予算を使い切らず終了する。
+
 ### 23.2 Reflectionの制約
 
 - 入力にない事実、ID、日時、関係を作らない。
 - 入力Eventを網羅的に要約しない。
 - 新しいConcernを作成できる。Memory根拠と`whyItMatters`を必須とし、1回1〜3件までに制限する。Runtimeが採番したConcern IDとReflection Session / Memory根拠の対応を監査記録へ残す。既存Concernの整理、統合、具体化、終了も行う。
-- Self変更には、入力に含まれるMemory IDと明示的な理由を必須とする。
+- Self変更には、Runtimeが解決したMemory根拠と明示的な理由を必須とする。LLMはMemory IDを出力しない。
 - 変更がなければ空のmaintenance結果を返してよい。
 - 1回の出力はMemory、Concern、Relationshipを各4件までに制限する。
 - 連続失敗時は指数backoffし、最大24時間まで延長する。

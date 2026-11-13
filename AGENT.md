@@ -121,3 +121,9 @@ mergeはnon fast-forwardとする。
 ## 制限
 .env.sampleは参照可能です。.env.* は参照しないでください。
 .evn.aoなどを読み込みDBに接続するのは許可します。readは許可しますが、writeする場合はユーザーに許可を取ること。
+
+DBのマイグレーションは、drizzle kitを使って管理してます。
+pnpm run db:generate
+pnpm run db:migrate
+
+sqlを直接書くことは禁止します。

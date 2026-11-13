@@ -49,7 +49,8 @@ flowchart TD
 | `user-message` | ユーザー発話、前回の評価・欲求、必要に応じて取得した文脈 | 応答、今回の Meaning / Feeling / Desire、Experience Integration による Memory・Mood・Relationship 候補 | 会話に応答する |
 | `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 気に掛かっている事柄を進める |
 | `concern-formation` | Self、Memory、Relationship、背景経験、探索候補 | 新しい Concern、または外部 Action なし | 継続して気に掛ける問いを形成する |
-| `concern-due` / `external-change` | 再検討時刻、外部変化、既存 Concern | Concern の再評価・派生、Agent自身に共有・質問する動機があれば発話 | 変化に応じて関心を更新する |
+| `concern-due` | 再検討時刻、新しいMemory、既存 Concern | Concern の再評価・派生、発話または拒否 | 継続して気に掛ける対象を外へ表し直す |
+| `external-change` | 外部変化、既存 Concern | Concern の再評価・派生、共有する動機があれば発話 | 変化に応じて関心を更新する |
 | `scheduled-task` | 予約内容と時刻 | 通常 Loop の Action / Outbox / 監査 | 約束・予約を実行する |
 | `memory-update` | 決定済みの MemoryIntent と RAG 候補 | Conversation Memory の create / update / no-op | LLM を呼ばず記憶だけを安全に適用する |
 | `prediction-g3` | G1/G2 が示した要調査の仮説 | 仮説の支持・反証・判断不能、MainAgent 向け調査結果 | 意図・信念・関係など深い層を調べる |
@@ -58,14 +59,14 @@ flowchart TD
 
 ### 発話するEvent／しないEvent
 
-`idle`だけが自律発話の契機ではない。`concern-due`は、継続して気に掛けていた対象を再評価した結果として、ユーザーへ質問・報告・話題提供を行える。`external-change`も、変化がConcernに影響して共有する理由があれば発話できる。いずれも「未返信だから待つ」「連投を避ける」ことを発話しない理由にはしない。
+`idle`だけが自律発話の契機ではない。`concern-due`は、継続して気に掛けていた対象を再評価した結果として、各Eventで必ずユーザーへ質問・報告・話題提供または拒否を返す。`external-change`も、変化がConcernに影響して共有する理由があれば発話できる。未返信・返答待ち・連投回避は、`idle`と`concern-due`で発話を抑制する理由にしない。
 
 | 区分 | Event |
 |---|---|
 | 発話を返せる通常Loop | `user-message`、`idle`、`concern-due`、`external-change`、配送先を持つ`scheduled-task`、`prediction-g3-result` |
 | 発話を返さないmaintenance | `concern-formation`、`memory-update`、`reflection` |
 
-`idle`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
+`idle`と`concern-due`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
 
 優先順位は `user-message`、`memory-update`、G3、`reflection` の順である。低優先度処理は、ユーザーへの応答を待たせない。なお `tool-result` は Tool 実行結果を監査可能に残す Domain Event であり、上表の判断 Event を補助する。
 

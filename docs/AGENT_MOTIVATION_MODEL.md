@@ -20,7 +20,7 @@ flowchart LR
     ST[State] -. Concern / Relationship .-> C
     M[Conversation Memory] -. Common Retrieval .-> C
     BG[Background Experience Store] -. Common Retrieval .-> C
-    C --> D[Desire<br/>error reduction]
+    C --> D[Desire<br/>今回やりたいこと]
     D --> X[Action]
     C --> Q[Concern proposal queue]
     X --> R[結果・相手の反応・Tool結果]
@@ -72,7 +72,7 @@ Commitmentは長期的に大切にする原則、Concernは現在気に掛けて
 
 ## 予測誤差と感情・動機
 
-予測誤差は感情そのものではない。MainAgentがSelf、Disposition、Concern、Relationship、Background Experienceを用いて appraisal し、Meaning / Feeling、誤差低減のDesire、Actionを決める。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。
+予測誤差は感情そのものでも、Desireそのものでもない。MainAgentがSelf、Disposition、Concern、Relationship、Background Experienceを用いて appraisal し、Meaning / Feeling、今回のDesire、Actionを決める。予測誤差はDesireを変え得る入力の一つであり、常に誤差低減を目的化しない。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。
 
 | 誤差の状況 | 生じ得るFeeling | 生じ得るDesire | Actionの例 |
 |---|---|---|---|
@@ -82,7 +82,7 @@ Commitmentは長期的に大切にする原則、Concernは現在気に掛けて
 | 予測が当たり、相手が期待通りに進んだ | 安堵、満足、退屈 | このまま続けたい、別の話題へ移りたい | 続ける、要約する、話題を変える |
 
 - 同じ誤差でも、Self、Disposition、Concern、Relationship、Background Experienceが違えば、FeelingとDesireは変わる。
-- 誤差低減のDesireは、他のConcernやCommitmentと競合する。常に最優先ではない。
+- 予測誤差に反応するDesireは、他のConcernやCommitmentと競合する。常に最優先ではない。
 - 誤差を減らす方法は、相手への迎合だけではない。自分の記憶を疑う、相手に確認する、信念を維持する、話題を変える、何もしないことも含む。
 - Actionの結果はRecentExperienceのAction結果へ記録する。Memory更新はMemoryIntentとしてMemoryWriteServiceへ渡し、RAG候補からcreate / update / no-opを決める。
 - 予測誤差が減ることは保証しない。誤ったMemory更新、誤った原因帰属、信念維持、no-opも許容する。
@@ -372,9 +372,9 @@ flowchart LR
     N --> NX[異なるDesire / Action]
 ```
 
-予測誤差は、MainAgentのMeaning / Feeling、誤差低減のDesire、Actionを変え得る。Actionの結果はRecentExperienceへ記録し、MemoryIntentとしてMemoryWriteServiceへ渡す。MemoryWriteServiceはRAG候補からcreate / update / no-opを決め、会話由来Memoryを更新する。更新後のMemoryと背景経験は、次のPredictionとMainAgentのContextで再利用する。予測誤差が減ることは保証せず、誤ったMemory更新、信念維持、no-opも許容する。
+予測誤差は、MainAgentのMeaning / Feeling、Desire、Actionを変え得る入力の一つである。Actionの結果はRecentExperienceへ記録し、MemoryIntentとしてMemoryWriteServiceへ渡す。MemoryWriteServiceはRAG候補からcreate / update / no-opを決め、会話由来Memoryを更新する。更新後のMemoryと背景経験は、次のPredictionとMainAgentのContextで再利用する。予測誤差が減ることは保証せず、誤ったMemory更新、信念維持、no-opも許容する。
 
-Reflectionは通常Action・外部探索・日常的Concern消化を行わない。SessionはMemory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順に対象別Reflectorを実行する。Formationは未統合Eventから新しい経験だけを作る。Reconciliationは、新規Formation、Concern根拠、未再検討、遠い連想から理由ごとに最大1件（合計最大4件）を再活性化し、関連MemoryとEvent projectionをread-only Toolで局所取得して補強・訂正・分割・維持する。episodicは不変であり、古いEventで新しい理解を巻き戻さない。Event projectionは検索用の派生データで、元EventとMemory mutationが監査の正本である。各Reflectorは専用Skillとread-only Toolで必要な根拠だけを取り、完全なStateへ差分commitする。Concern ActivityはConcernごとの因果を記録し、選択Contextに含まれないConcernを消さない。
+Reflectionは通常Action・外部探索・日常的Concern消化を行わない。SessionはMemory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順に対象別Reflectorを実行する。Formationは未統合Eventから新しい経験だけを作る。Reconciliationは、新規Formation、Concern根拠、未再検討、遠い連想からRuntimeが候補を集め、embedding近傍・subject・時刻でcluster化した代表anchorごとに局所再統合する。候補が尽きるか軽量Reflector callの共有予算に達するまで処理する。episodicは不変であり、古いEventで新しい理解を巻き戻さない。Reflectorは解釈・理由・種別だけを出力し、Event・Memory等のIDや局所参照を出力しない。Event projectionは検索用の派生データで、Runtimeが固定Session範囲、anchorより後のEvent、検索結果から根拠を解決し、元EventとMemory mutationが監査の正本である。各ReflectorはIDを隠す専用read-only Toolで必要な根拠だけを取り、完全なStateへ差分commitする。Concern ActivityはConcernごとの因果を記録し、選択Contextに含まれないConcernを消さない。
 
 Conversation Memoryは元会話やTool結果の保管場所ではない。後の検索で状況と判断への影響を復元できる、具体的な経験の要点を1〜2文で持つ。完全な本文が必要な場合は、Recent Experienceを肥大化させず、保存済みsnapshot IDやpathをToolで再参照する。Background ExperienceはConversation Memoryとは別Storeに保持し、起動後に更新しない。
 

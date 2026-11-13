@@ -46,3 +46,16 @@ pnpm debug:ui --env-file .env.ao
 ``` shell
 pnpm page-ingest:start --env-file .env.page-ingest
 ```
+
+
+background-experiencesのinsert
+``` shell
+node --env-file=.env.shiro --import tsx src/cli.ts \
+  background:load config/background-experiences/shiro.yaml
+```
+
+
+memoriesのembeddingのmigratin
+``` shell
+pnpm memory:embed:migrate -- --agent-id shiro
+```

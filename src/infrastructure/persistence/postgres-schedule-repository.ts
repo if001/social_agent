@@ -37,7 +37,8 @@ export class PostgresScheduleRepository implements ScheduleRepository {
         WHERE r.agent_id=$1 AND (r.status='failed' OR (r.status='pending' AND r.failure_reason='Reflection has retryable target failures'))
         AND r.created_at>COALESCE((SELECT max(completed_at) FROM reflection_runs WHERE agent_id=$1 AND status='completed'),'-infinity'::timestamptz)`, [target.agentId]);
       const consecutiveFailures = Math.max(Number.parseInt(failures.rows[0]?.count ?? "1", 10), Number.parseInt(failures.rows[0]?.retries ?? "1", 10));
-      const delayMs = Math.min(86_400_000, this.retryDelayMs * 2 ** Math.min(8, Math.max(0, consecutiveFailures - 1)));
+      // const delayMs = Math.min(86_400_000, this.retryDelayMs * 2 ** Math.min(8, Math.max(0, consecutiveFailures - 1)));
+      const delayMs = 0;
       await this.pool.query("UPDATE autonomous_schedules SET lease_until=NULL,next_due_at=now()+$2*interval '1 millisecond',updated_at=now() WHERE id=$1", [target.id, delayMs]);
       return;
     }
