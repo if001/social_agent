@@ -1070,7 +1070,6 @@
             }
           ],
           "isUnique": true,
-          "where": null,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2614,7 +2613,6 @@
             }
           ],
           "isUnique": false,
-          "where": null,
           "concurrently": false,
           "method": "btree",
           "with": {}

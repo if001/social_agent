@@ -1,0 +1,2 @@
+ALTER TABLE "reflection_attempts" DROP CONSTRAINT "reflection_attempts_target_check";--> statement-breakpoint
+ALTER TABLE "reflection_attempts" ADD CONSTRAINT "reflection_attempts_target_check" CHECK ("reflection_attempts"."target" IN ('memory', 'reconciliation', 'concern', 'relationship', 'self-mood'));

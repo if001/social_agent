@@ -1070,7 +1070,6 @@
             }
           ],
           "isUnique": true,
-          "where": null,
           "concurrently": false,
           "method": "btree",
           "with": {}
