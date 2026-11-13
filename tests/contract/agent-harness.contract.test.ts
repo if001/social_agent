@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { AgentCoreModelOutputJsonSchema, DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelCallInputBudget, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { agentCoreModelView, AgentCoreModelOutputJsonSchema, DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelCallInputBudget, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { modelJsonSchema } from "../../src/infrastructure/agent/model-json-schema.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-history.js";
@@ -17,6 +17,9 @@ const output: AgentCoreOutput = { desire: "respond to this event", action: { typ
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
+  it("FR-77: uses the shared ID-free view for repair payloads and Tool evidence", () => {
+    expect(agentCoreModelView({ id: "event-1", eventId: "event-1", value: { memoryId: "memory-1", content: "根拠" } })).toEqual({ value: { content: "根拠" } });
+  });
   it("FR-5, FR-12: rejects the removed legacy output shape", () => {
     expect(() => AgentCoreOutputSchema.parse({ interpretation: { activeMotive: { description: "legacy" } }, action: output.action })).toThrow();
   });
@@ -64,7 +67,7 @@ describe("AgentHarness contract", () => {
         createdAt: fixtureInstant,
         output: {
           predictions: { g1: { candidates: [{ candidateIndex: 0, feature: "語彙", content: "prediction marker", expectation: "medium", contextSummary: "文脈", rationale: "根拠" }] }, g2: { candidates: [] } },
-          predictionEvaluations: [], remember: [], observationCandidates: [],
+          predictionEvaluations: [],
           g3: { needsG3: false, targetLayers: [], priority: "medium" }
         }
       },
@@ -72,7 +75,7 @@ describe("AgentHarness contract", () => {
       memoryCandidates: []
     };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(prompt).toContain("prediction-1");
+    expect(prompt).not.toContain("prediction-1");
     expect(prompt).toContain("prediction marker");
   });
 

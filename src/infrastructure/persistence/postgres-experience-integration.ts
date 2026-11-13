@@ -5,7 +5,7 @@ import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/por
 import { MemoryWriteService } from "../../application/memory-write-service.js";
 import { errorLogContext } from "../../observability/logger.js";
 import { AgentStateRepository, PostgresUnitOfWork } from "./postgres.js";
-import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent, type MemoryIntent } from "../../domain/contracts.js";
 
 function snapshot(input: ExperienceIntegrationInput): Record<string, unknown> { return { event: { id: input.sourceEvent.id, kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, payload: input.sourceEvent.payload }, decisionInput: input.input, result: { assessment: input.result.assessment, output: input.result.output, toolExecutions: input.result.toolExecutions } }; }
 
@@ -36,17 +36,29 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       let nextRelationships = relationships; let nextMood = row.mood;
       const changes: { target: string; operation: string; before: unknown; after: unknown }[] = [];
       if (output.mood !== undefined && output.mood !== row.mood) { nextMood = output.mood; changes.push({ target: "mood", operation: "set", before: row.mood, after: nextMood }); }
-      if (output.relationship !== undefined) {
+      const actor = input.input.observation.actor;
+      const actorId = actor?.type === "human" || actor?.type === "agent" ? actor.id : undefined;
+      if (output.relationship !== undefined && actorId !== undefined) {
         const before = relationships;
         const relationship = output.relationship;
-        if (relationship.operation === "remove") nextRelationships = relationships.filter(({ subjectId }) => subjectId !== relationship.subjectId);
-        else nextRelationships = [...relationships.filter(({ subjectId }) => subjectId !== relationship.relationship.subjectId), relationship.relationship];
-        changes.push({ target: "relationships", operation: relationship.operation, before, after: nextRelationships });
+        const current = relationships.find(({ subjectId }) => subjectId === actorId);
+        if (relationship.operation === "remove") {
+          if (current !== undefined && relationship.currentDescription === current.description) {
+            nextRelationships = relationships.filter(({ subjectId }) => subjectId !== actorId);
+            changes.push({ target: "relationships", operation: relationship.operation, before, after: nextRelationships });
+          }
+        } else if (relationship.description !== undefined && (relationship.currentDescription === undefined || relationship.currentDescription === current?.description)) {
+          nextRelationships = [...relationships.filter(({ subjectId }) => subjectId !== actorId), { subjectId: actorId, description: relationship.description }];
+          changes.push({ target: "relationships", operation: relationship.operation, before, after: nextRelationships });
+        }
       }
       if (changes.length > 0) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships });
       for (const change of changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [this.ids.next(), input.sourceRunId, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), "Experience Integration", JSON.stringify([input.sourceEvent.id])]);
       const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories);
-      for (const [index, intent] of output.memories.entries()) await memory.apply(input.agentId, intent, { sourceEventId: input.sourceEvent.id, intentIndex: 10_000 + index, subjectIds: subjects[index] ?? [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+      for (const [index, candidate] of output.memories.entries()) {
+        const intent: MemoryIntent = { ...candidate, evidenceEventIds: [input.sourceEvent.id], confidence: "medium", purpose: candidate.perspective === "user" ? "user-context" : "self-guidance" };
+        await memory.apply(input.agentId, intent, { sourceEventId: input.sourceEvent.id, intentIndex: 10_000 + index, subjectIds: subjects[index] ?? [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+      }
       if (output.experience !== null) {
         const actor = input.input.observation.actor;
         const subjectsForExperience = actor?.type === "human" || actor?.type === "agent" ? [actor.id] : [];

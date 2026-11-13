@@ -192,7 +192,11 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。LLM出力は永続ID・局所参照を含めず、根拠と更新対象はRuntimeが入力範囲と検索結果から解決する。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
 - FR-76：発話は`user-message`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`と`concern-due`は発話またはrefuseを必須とする。これは未返信・返答待ち・連投回避を抑制理由にしない配送方針であり、話題とDesireはAgent自身が選ぶ。他の許可EventはAgent自身の動機により発話しないこともできる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、ユーザーへ発話しない。（C-06, C-16, C-17、追加）
-- FR-77：LLMは永続canonical ID、局所参照、その他の永続Recordを指すIDを出力、生成、または直接指定しない。Runtimeだけが入力範囲、検索結果、所有権、時刻、種別を用いて根拠と更新対象を解決し、ID付与、検索、更新、永続化を担う。解決できない候補はcommitしない。（追加：LLMのID幻覚を永続化・参照・更新へ伝播させず、根拠選択を再現可能なRuntimeの責務にするため）
+- FR-77：全LLM経路は、永続canonical ID、局所参照、cursor、その他の永続Recordを指すIDを入力・出力・repair payload・Tool結果へ含めず、自然言語上のviewと候補だけを扱う。Runtimeだけが固定範囲、検索結果、所有権、時刻、種別を用いて根拠と更新対象を解決し、ID付与、検索、更新、永続化を担う。解決できない、曖昧な、又は対象外の候補はcommitしない。（追加：LLMのID幻覚を永続化・参照・更新へ伝播させず、根拠選択を再現可能なRuntimeの責務にするため）
+- FR-82：Experience Integrationは完了済みsource Eventを唯一の直接根拠として、Event固有経験、Memory候補、actorに束縛されたRelationship候補、Mood候補を意味づける。LLMは`content`、`reason`、種別、視点、Relationship本文だけを返し、Runtimeがsource Event、actor、既存Relationshipからcanonical根拠・subject・更新対象を解決する。actor不在、対象不一致、複数一致はno-opとする。（追加）
+- FR-83：G1/G2は予測候補、予測誤差の解釈、G3起動判断だけを出力し、Memory候補、観測候補、subject又は根拠Recordを出力しない。長期経験の保存はExperience Integration又はG3後の通常Agent Loopが担う。（追加）
+- FR-84：G3は仮説、発見、Memory候補を自然言語で返す。Runtimeはsource EventとG3実行中の非公開Tool evidence poolに限定して候補`content + reason`をHybrid Retrievalし、根拠Event・subject・更新可否を解決する。仮説評価の根拠もRuntimeが対応付け、根拠なしのMemory候補はno-op、根拠なしの仮説はundecidableとする。（追加）
+- FR-85：Agent CoreはAssessment、Desire、Actionだけを確定し、Memory、Relationship、Mood又は永続Record更新を直接出力しない。repairは初回と同一のID-free view、ID-free Tool evidence、検証エラー、ID-free invalid outputだけを用い、通常Toolを無効にする。ConcernはRuntime検証されるTool経由だけで提案できる。（追加）
 - FR-78：Memory Formationは固定batch内のEvent Experienceを入力として、LLMが`content`、`reason`、`kind`、`perspective`だけを持つ最大4件のMemory候補を出力する。Runtimeは候補の自然言語をqueryに固定batch内だけをHybrid Retrievalし、所有権、subject、種別規則、versioned score閾値を満たすEventを根拠として付与する。Memoryのsubjectsは解決済み根拠EventからRuntimeが導出する。根拠なし・候補不支持は正常なno-opとしてbatchを完了し、検索基盤障害・transaction競合だけをbatch再試行にする。（C-10, C-25、追加：意味づけと根拠選択を分離するため）
 - FR-79：Memory ReconciliationはRuntimeが再活性化理由ごとにHybrid Retrievalとcluster化で候補を集約し、選んだanchor Memoryごとに小さなReflectorを起動する。Reflectorは暗黙に束縛されたanchorだけについて`keep`、`update`、`split`と本文・理由・種別を出力し、他のMemoryを直接指定しない。Runtimeはanchorの`occurredAt`と既存根拠Eventの最大`occurredAt`の後に発生した関連Eventだけを検索して根拠と時系列を検証し、同時刻または過去のEventでは更新しない。episodicはkeepのみ、semantic / common-groundは後続Eventによる確認・訂正だけ、self-related / self-changeは少なくとも2件の独立した根拠Eventを満たす場合だけ更新・統合・分割できる。（C-03, C-10, C-15、追加：LLMの対象指定をなくしつつ局所的な再統合を行うため）
 - FR-80：ReflectionでLLMへ公開するread-only ToolはReflection専用とし、検索query、時間範囲、種別等の自然言語・非ID入力だけを受け取る。Tool結果からcanonical ID、局所参照、cursorその他の永続Record識別子を除き、Runtimeだけが非公開handleで検索結果・anchor・監査Recordを対応付ける。対象の詳細・履歴・ページングはRuntime束縛または自然言語queryで行い、LLMにRecord IDを再入力させない。（C-16, C-25、追加：Tool経由のID露出を防ぐため）
@@ -201,7 +205,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 ## R8. 永続化、配送、運用
 
 - NFR-7：Event、Run、Assessment、Tool execution、State change、Memory、Receipt、Outbox、Concern Activity、Reflection Session / Reflector attempt / Memory batchを監査可能にする。（C-24, C-27）
-- NFR-8：Action、State Patch、MainAgentのremember、Outboxを一つのDB transactionで確定する。G1/G2/ReflectionのMemoryIntentはmemory-update Eventのtransactionで確定する。G3のMemoryIntentはMainAgentのrememberとして同じEventのtransactionで確定する。（C-24, C-59, C-63）
+- NFR-8：Action、State Patch、Outboxを一つのDB transactionで確定する。G1/G2/ReflectionのMemoryIntentはmemory-update Eventのtransactionで確定する。G3結果に由来する長期経験は通常Agent Loop後のExperience Integration transactionで確定し、G3又はMainAgentの出力だけでは確定しない。（C-24, C-59, C-63、更新）
 - NFR-9：Queue、Outbox、Tool実行はretryと重複実行に耐える。（C-20, C-27）
 - NFR-10：Agent単位advisory lock、state version、Tool権限、TTL、hop、rate limitを通常コードで保証する。（C-27, C-28）
 - NFR-11：PostgreSQL schemaは現行Domain契約だけを保持し、削除した旧互換tableや列を戻さない。（C-18）
@@ -211,16 +215,16 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 ## R9. 予測・予測誤差・背景経験
 
 - FR-48：G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。（C-30, C-32, C-33, C-48）
-- FR-49：G1/G2は1回のLLM callで、予測候補、predictionEvaluation、観測候補、remember、G3起動判断を返す。（C-34, C-35, C-36, C-37, C-38）
+- FR-49：G1/G2は1回のLLM callで、予測候補、predictionEvaluation、G3起動判断を返す。観測候補とrememberは返さず、長期経験の統合を担わない。（C-34, C-35, C-36, C-37, C-38、更新）
 - FR-50：G1/G2はFeelingを出力せず、Meaning / FeelingはMainAgentだけが確定する。（C-65）
-- FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価とMemoryIntentをMainAgentへ渡す。（C-39, C-40, C-42）
+- FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。G3自身はMemoryIntent又は永続Recordを直接指定しない。（C-39, C-40, C-42、更新）
 - FR-52：G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` Eventは通知必須の例外とする。`prediction-g3`はActionを生成しない。（C-41）
 - FR-53：背景経験はConversation Memoryと別Storeに保持し、起動前の初期化時だけYAMLで置換し、プロセス起動中は変更しない。（C-43, C-45）
 - FR-54：背景経験は、AIである自身と作成者if001のプロフィール、曖昧な段階、状況、複数ユーザーやif001との対話・探索、感じたこと、結果、学びを持ち、今回のユーザーとの共有経験を含めない。年齢、出身地、家族構成を持たない。（C-44, C-47）
 - FR-55：Conversation Memoryと背景経験は、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。（C-46, C-56）
 - FR-56：MemoryIntentのtargetはMemory kindに限定し、RelationshipとConcernは既存PatchまたはConcern Proposalへ渡す。（C-66）
 - FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補と種別規則からcreate、update、no-op、splitを決め、Memory versionを照合する。splitは元Memoryを狭い内容へ更新し、分離した内容を元Memoryへの根拠を持つ新規Memoryとして同一transactionで作る複合操作である。（C-55, C-57, C-58, C-63, C-67、追加：Reconciliationで意味を失わず分離するため）
-- FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。Reflection Memory Reflectorは経験の解釈、理由、種別、視点、検索主体だけを出力する。根拠Event、関連Memory、更新対象はcommit層が固定Session範囲とHybrid Retrievalから解決し、confidenceとpurposeも導出する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。（C-59, C-60, C-63, C-66, C-69）
+- FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。Reflection Memory Reflectorは経験の解釈、理由、種別、視点、検索主体だけを出力する。根拠Event、関連Memory、更新対象はcommit層が固定Session範囲とHybrid Retrievalから解決し、confidenceとpurposeも導出する。G3結果は通常Agent Loop後のExperience Integrationがsource EventとRuntime evidenceから長期経験を統合し、G3又はMainAgentがMemoryIntentを直接指定しない。（C-59, C-60, C-63, C-66, C-69、更新）
 - FR-59：Event優先順位はuser-message、memory-update、G3、reflectionの順とし、user-messageを待たせず、強制中断しない。（C-61, C-69）
 - FR-60：ReflectionはMemory、Self / Mood、Relationship、Concernごとのstatusを持ち、Memory確定後にConcern / Relationship、最後にSelf / Moodを更新する。Memory batchと失敗対象だけを再試行し、完了batchを重複確定しない。選択Contextと完全commit基準Stateは分離する。（C-64, C-68）
 - FR-71：Memory Formationは、固定Reflection Session内の未統合Eventを古い順に最大16件ずつ扱い、各Eventから直接支持できる新しいConversation Memoryだけを形成する。初期入力へ既存Memory集合を含めず、保存不要なら空出力にする。Formationが既存Memoryとの重複を疑う場合だけ、限定された読み取りで確認する。古いEventを根拠に、内容一致だけで後から形成されたMemoryを更新または時系列的に巻き戻してはならない。（C-03, C-10, C-15、追加）

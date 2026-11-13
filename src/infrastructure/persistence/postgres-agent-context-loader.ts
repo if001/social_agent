@@ -139,7 +139,7 @@ export class PostgresAgentContextLoader {
       agentId: event.agentId,
       ...(basePredictionContext?.previousPrediction === undefined ? {} : { previousPrediction: basePredictionContext.previousPrediction }),
       g3Summary: [...g3Output.data.newHypotheses, ...g3Output.data.findings].join("\n").slice(0, 4_000),
-      g3MemoryIntents: g3Output.data.remember,
+      g3MemoryIntents: [],
       memoryCandidates: basePredictionContext?.memoryCandidates ?? []
     } : basePredictionContext;
     const recentExperiencesWithEffect = predictionContext?.recentExperienceEffect === undefined ? recentExperiences : recentExperiences.map((item) => item.eventId === predictionContext.recentExperienceEffect?.eventId ? { ...item, effect: predictionContext.recentExperienceEffect.effect } : item);

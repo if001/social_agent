@@ -15,8 +15,6 @@ const output: PredictionOutput = {
     g2: { candidates: [{ candidateIndex: 0, speechAct: "質問", content: "技術について質問する", expectation: "medium", contextSummary: "技術の話題", rationale: "関心が続く" }] }
   },
   predictionEvaluations: [{ group: "g2", candidateIndex: 0, match: "primary", surprise: "none", difference: "大きなずれはない", interpretation: "話題を続けたい", uncertainty: "低い", observed: "技術の話題を続けた", errorDirection: "matched", effect: "unchanged" }],
-  remember: [{ content: "相手は技術の話を好む", reason: "次の対話で再利用する", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", perspective: "user", purpose: "user-context" }],
-  observationCandidates: [],
   g3: { needsG3: false, targetLayers: [], priority: "medium" }
 };
 
@@ -39,12 +37,10 @@ describe("FR-48, FR-49, FR-63, NFR-16, AC-11, AC-18: G1/G2 prediction loop", () 
   it("FR-48, FR-49: saves one prediction after a user response and filters evaluations to the previous record", async () => {
     const previous: PredictionRecord = { id: "previous", agentId: "a", sourceEventId: "old", sourceRunId: "old-run", output: { ...output, predictionEvaluations: [] }, createdAt: "2026-10-30T00:00:00+00:00" };
     const { repo, saved } = repository(previous);
-    const enqueue = vi.fn(() => Promise.resolve());
-    const loop = new PredictionLoop({ repository: repo, model: model(output), ids: { next: () => "new-prediction" }, now: () => new Date("2026-10-31T01:00:00+00:00"), memoryUpdateSink: { enqueue }, limits: { deadlineMs: 1_000, maxAttempts: 1 } });
+    const loop = new PredictionLoop({ repository: repo, model: model(output), ids: { next: () => "new-prediction" }, now: () => new Date("2026-10-31T01:00:00+00:00"), limits: { deadlineMs: 1_000, maxAttempts: 1 } });
     await loop.afterResponse({ event, input, result: {} as never }, new AbortController().signal);
     expect(saved).toHaveLength(1);
     expect(saved[0]?.output.predictionEvaluations).toEqual(output.predictionEvaluations);
-    expect(enqueue).toHaveBeenCalledWith({ agentId: "a", sourceEventId: "event-1", intents: output.remember });
   });
 
   it("FR-63, AC-11: skips non-user events and does not throw when the model fails", async () => {
