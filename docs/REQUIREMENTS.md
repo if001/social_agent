@@ -11,6 +11,8 @@
 - `memory-update` Event：MemoryIntentを適用するEvent。
 - `predictionEvaluation`：G1/G2が返す予測誤差評価。
 - `reflection plan`：Reflectionの対象別statusを持つ更新計画。
+- Memory Formation：固定された未統合Event群から、将来再利用する新しいConversation Memoryを形成するReflection内の処理。
+- Memory Reconciliation：再活性化された既存Conversation Memoryを、関連Memory・Eventとの局所的な照合で補強、訂正、分割または維持するReflection内の処理。
 
 ## 目的
 
@@ -183,7 +185,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-39：自律性は`idle`、`concern-due`等のEvent sourceで起動し、常時polling型の認知loopに依存しない。`idle`の再開間隔はActionに依存しない。（C-06, C-17）
 - FR-40：明示的Scheduled Taskは利用者との約束としてConcernやMemoryと分離する。`executeAt`は実行日時、`instruction`は期限到来時に実行する1,000文字以内の仕事、`reason`は予約理由、`destination`は明示的な配送先だけを保持する。`instruction`には日時、予約理由、配送先、Toolの使い方、共通動作規則を重複させない。（C-08）
 - NFR-6：Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。（C-08, C-27）
-- FR-41：Reflectionは通常Action・外部探索・日常的Concern消化を行わず、Memory、Concern、Relationship、Self、Moodを長期統合するmaintenance処理とする。Session開始時に対象Event範囲を固定し、Memoryは古い順に最大32 Eventずつ処理してから、Concern / Relationship、Self / Moodの順で対象別Reflectorを実行する。（C-03, C-25）
+- FR-41：Reflectionは通常Action・外部探索・日常的Concern消化を行わず、Memory、Concern、Relationship、Self、Moodを長期統合するmaintenance処理とする。Session開始時に対象Event範囲を固定し、Memory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順で対象別Reflectorを実行する。（C-03, C-25）
 - FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与し、作成ActivityへReflection Sessionと根拠Memoryを対応付ける。（C-25）
 - FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・許可ID・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
@@ -209,10 +211,14 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-54：背景経験は、AIである自身と作成者if001のプロフィール、曖昧な段階、状況、複数ユーザーやif001との対話・探索、感じたこと、結果、学びを持ち、今回のユーザーとの共有経験を含めない。年齢、出身地、家族構成を持たない。（C-44, C-47）
 - FR-55：Conversation Memoryと背景経験は、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。（C-46, C-56）
 - FR-56：MemoryIntentのtargetはMemory kindに限定し、RelationshipとConcernは既存PatchまたはConcern Proposalへ渡す。（C-66）
-- FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補からcreate、update、no-opを決め、Memory versionを照合する。（C-55, C-57, C-58, C-63, C-67）
+- FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補と種別規則からcreate、update、no-op、splitを決め、Memory versionを照合する。splitは元Memoryを狭い内容へ更新し、分離した内容を元Memoryへの根拠を持つ新規Memoryとして同一transactionで作る複合操作である。（C-55, C-57, C-58, C-63, C-67、追加：Reconciliationで意味を失わず分離するため）
 - FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。Reflection Memory Reflectorは経験・理由・根拠Event・種別・視点・検索主体だけを選び、confidenceとpurposeはcommit層が導出する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。（C-59, C-60, C-63, C-66, C-69）
 - FR-59：Event優先順位はuser-message、memory-update、G3、reflectionの順とし、user-messageを待たせず、強制中断しない。（C-61, C-69）
 - FR-60：ReflectionはMemory、Self / Mood、Relationship、Concernごとのstatusを持ち、Memory確定後にConcern / Relationship、最後にSelf / Moodを更新する。Memory batchと失敗対象だけを再試行し、完了batchを重複確定しない。選択Contextと完全commit基準Stateは分離する。（C-64, C-68）
+- FR-71：Memory Formationは、固定Reflection Session内の未統合Eventを古い順に最大16件ずつ扱い、各Eventから直接支持できる新しいConversation Memoryだけを形成する。初期入力へ既存Memory集合を含めず、保存不要なら空出力にする。Formationが既存Memoryとの重複を疑う場合だけ、限定された読み取りで確認する。古いEventを根拠に、内容一致だけで後から形成されたMemoryを更新または時系列的に巻き戻してはならない。（C-03, C-10, C-15、追加）
+- FR-72：Memory Reconciliationは、全Memoryの定期全件走査をせず、新規Formationによる影響、利用・Concernの根拠、未再検討、遠い連想のいずれかを理由として選ばれたアンカーMemoryまたは局所クラスターだけを扱う。1 Sessionでは理由ごとに最大1件、合計最大4件のアンカーを選び、理由間をround-robinして最新順だけに偏らないようにする。各アンカーは関連Memory最大6件と関連Event最大16件までを取得できる。Reflectorは再活性化理由、参照した根拠、結果を監査する。（C-03, C-10, C-15、追加：全件走査を避けつつ再活性化の選択を検証可能にするため）
+- FR-73：Reconciliationでは、episodic Memoryを内容更新しない。semantic / common-groundは後続経験による確認・訂正がある場合だけ更新し、矛盾は新旧の根拠と時刻を保持して整理する。self-related / self-changeは複数経験の反復を根拠に統合、弱化、更新または分割できる。単なる内容一致、古い根拠、または根拠なしで既存Memoryを上書きしない。（C-03, C-10, C-15、追加）
+- FR-74：Conversation MemoryとBackground Experienceの既存Hybrid Retrievalは共通RetrievalServiceで継続する。Reconciliation用の関連Event検索は、Event IDによる直接参照とは別に、agent所有権、時刻、Event種別、subject、keyword、vectorを持つEvent projectionを検索対象とし、同じhybrid rankingの契約へ追加する。元Eventは監査の正本として保持し、projectionは検索専用の派生データとする。（C-10, C-20, C-27、追加）
 - FR-61：memory-update EventはsourceEventIdとintentIndexで冪等にし、部分的なintentだけをcommitしない。（C-50, C-52）
 - FR-62：predictionContextは前回予測、誤差評価、G3要約とmemoryIntents、RecentExperienceのeffect、memoryCandidatesを持つ。（C-51, C-62, C-66）
 - FR-63：G1/G2の追加LLM callはNFRの例外とし、deadlineとcall予算を持つ。（C-70）

@@ -41,10 +41,10 @@
 | ADR-11 | モジュールはAgent Loop、Prediction、MemoryUpdate、Retrieval、Autonomy、Reflection、Model、Persistence、Tools、Eventsの境界に留める。 | FR-1, FR-2, NFR-10 |
 | ADR-12 | 予測LoopをMainAgentの外側に置き、G1/G2は応答後に1回のLLM callで次ターンのユーザー発話を予測する。predictionEvaluationはMeaning / Feelingではなく、FeelingはMainAgentだけが確定する。 | FR-48, FR-49, FR-50, NFR-16 |
 | ADR-13 | G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価とMemoryIntentをMainAgentへ渡す。`prediction-g3-result` Eventは通知必須の例外とし、`prediction-g3`はActionを生成しない。 | FR-51, FR-52 |
-| ADR-14 | Conversation MemoryとBackground Experienceを別Storeに保持し、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。 | FR-53, FR-54, FR-55, NFR-19 |
+| ADR-14 | Conversation MemoryとBackground Experienceを別Storeに保持し、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。Reflectionの関連Event検索は、元Eventから作る検索専用Event projectionを同じ契約へ追加する。 | FR-53, FR-54, FR-55, FR-74, NFR-19 |
 | ADR-15 | MemoryIntentのtargetはMemory kindに限定し、MemoryWriteServiceを唯一の書込み経路としてversion楽観ロックを行う。G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用し、G3のMemoryIntentはMainAgentのrememberとして適用する。 | FR-56, FR-57, FR-58, NFR-15 |
 | ADR-16 | Event優先順位はuser-message、memory-update、G3、reflectionの順とし、協調的スケジューリングでuser-messageを待たせない。 | FR-59, NFR-18 |
-| ADR-17 | Reflectionは開始時にEvent範囲を固定し、Memoryを最大32 Eventずつ永続batchで処理してからConcern / Relationship / Self / Moodを一度ずつ統合する。対象別statusとSession / Reflector attemptを保存し、完了batchを重複せず失敗batchだけ再試行する。 | FR-25, FR-41, FR-60, NFR-7, NFR-17 |
+| ADR-17 | Reflectionは開始時にEvent範囲を固定し、最大16 EventのMemory Formation、有限予算のMemory Reconciliation、Concern / Relationship / Self / Moodの順で統合する。対象別statusとSession / Reflector attemptを保存し、完了batchを重複せず失敗対象だけ再試行する。 | FR-25, FR-41, FR-60, FR-71, FR-72, NFR-7, NFR-17 |
 | ADR-18 | 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、deadlineとcall予算を持つ。 | FR-63, FR-64, NFR-16 |
 | ADR-19 | 予測、G3 Task、Memory mutationは監査・集計のため専用tableに保存し、Conversation MemoryとBackground Experienceは別Storeにする。既存Run/Event/StateChangeは意味判断と行動の監査に限定する。 | FR-50, FR-57, FR-60, FR-61, NFR-17 |
 | ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。 | FR-65, NFR-20 |
@@ -164,7 +164,13 @@ G3とMainAgentのConversation Memory・Background Experienceの検索は`retriev
 
 Event優先順位はuser-message、memory-update、G3、reflectionの順とする。user-messageが待っている間は下位Eventを開始せず、実行中でも強制中断せず短いtransaction単位で完了させる。`memory-update`は専用MemoryUpdateHandlerが処理し、LLMを呼ばない。G3は別DeepAgent、Reflectionは専用LLM処理であり、MainAgentのAgentHarnessを通らない。
 
-Reflectionは通常Action・外部探索・日常的Concern消化を行わないmaintenance Sessionである。開始時に前回成功範囲の末尾から現在までのEvent範囲を固定し、Memory Reflectorは古い順に最大32 Eventずつ処理する。Memory Reflectorは経験・保存理由・直接支持・確認・修正する根拠Event・Memory種別・視点・検索主体だけを選び、根拠を選べないMemoryは保存しない。confidenceとpurposeはcommit層が導出し、Reflectorへ保存方針の再出力を求めない。全Memory batchの確定後、Concern ReflectorとRelationship Reflectorが確定Memoryと読み取りToolで得た必要最小限の記録を用いて差分を決め、最後にSelfMood Reflectorが今回の確定要点を統合する。各Reflectorは必要な小さな読み取りToolを反復利用できるが、Session外の探索、外部Tool、発話は公開しない。選択Contextは完全なcommit基準Stateと分離する。
+Reflectionは通常Action・外部探索・日常的Concern消化を行わないmaintenance Sessionである。開始時に前回成功範囲の末尾から現在までのEvent範囲を固定し、Memory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順で長期状態を扱う。各Reflectorは必要な小さな読み取りToolを反復利用できるが、Session外の探索、外部Tool、発話は公開しない。選択Contextは完全なcommit基準Stateと分離する。
+
+Memory Formationは、未統合Eventを古い順に最大16件ずつ扱い、直接根拠を持つ新しいMemoryだけを形成する。既存Memory集合を初期入力へ複写せず、重複が疑われるときだけ限定した検索を使う。Formationは古いEventによって、後から形成された既存Memoryを内容一致だけで更新しない。commit層はReflection用のconfidenceとpurposeを導出するが、既存Memoryを更新する権限はReconciliationに限る。
+
+Memory Reconciliationは、全Memoryを走査せず、Formationによる影響、利用・Concernの根拠、未再検討、遠い連想を再活性化理由として少数のアンカーMemoryまたは局所クラスターを選ぶ。1 Sessionでは理由ごとに最大1件、合計最大4件のアンカーをround-robinし、各アンカーから関連Memory最大6件、関連Event最大16件だけを取得する。ReflectorはMemoryとEventの検索Toolでこの近傍だけを読み、種別ごとに補強、訂正、分割、維持を判断する。episodicは不変、semantic / common-groundは後続根拠による訂正だけ、self-related / self-changeは反復経験に基づく統合・弱化・更新・分割だけを許す。矛盾は新旧の根拠と時刻を残し、古い経験で新しい理解を巻き戻さない。splitは、元Memoryを狭い内容へ更新し、分離内容を元Memoryを根拠にした新規Memoryとして同一transactionで作るMemoryWriteServiceの複合操作である。
+
+`events` は監査の正本であり、現状の時刻・種別・観測JSONだけでは関連Eventをhybrid RAGできない。Reconciliationには、agent所有権、Event ID、時刻、種別、抽出subject、検索本文、embeddingを持つEvent projectionを追加し、既存RetrievalServiceのvector / keyword / subject / recency rankingを流用する。Event IDによる直接根拠参照はprojectionを経由しない。projectionの作成失敗は元Eventを失わせず、検索可能性だけを低下させる。
 
 Session、Reflector、Memory batchはpending / completed / failed / blocked、入力・出力・retryを保存する。失敗またはblockedの対象と失敗batchだけを次回Sessionで再試行し、完了batchのMemoryを重複確定しない。成功したSessionの範囲末尾だけを次回の起点に進め、実行中に到着したEventは次回Sessionへ渡す。Concern Activityは作成、focus、progress、derive、review、status変更をID単位で記録し、stale closeも同じ監査境界で確定する。
 
@@ -183,7 +189,7 @@ Selfは`identity`、`disposition`、`selfStory`、`commitments`を持つ。State
 | Relationship | Patchで1件提案する | 整理・変更してよい | 所有権とversionを検証してcommitする |
 | Concern | `concern_propose`で提案する | 継続・満足・放棄・整理し、Conversation Memory根拠付きで新規作成する（1回1〜3件） | 成功commit時だけ作成・派生し、新規IDを付与する |
 | Prediction | G1/G2/G3が生成する | 変更しない | Event / Runへ保存し、predictionEvaluationをMainAgentへ渡す |
-| Conversation Memory | `remember`またはMemoryIntentで提案する | 圧縮・統合し、MemoryIntentを生成する | MemoryWriteServiceがcreate / update / no-op、ID、時刻、根拠、所有権、versionを付与する |
+| Conversation Memory | `remember`またはMemoryIntentで提案する | Formationで新規形成し、Reconciliationで種別規則に従って既存Memoryを再統合する | MemoryWriteServiceがcreate / update / no-op / split、ID、時刻、根拠、所有権、versionを付与する |
 | Background Experience | 変更しない | 変更しない | 初期化時にYAMLから置換し、会話で更新しない |
 | Scheduled Task | Toolで登録・参照・取消する | 変更しない | 期限到来時にSystem Eventを生成する |
 | Scheduler | 状態を変更しない | 状態を変更しない | Event生成、claim、lease、retryを行う |
@@ -214,7 +220,7 @@ application/
   agent-loop.ts     Event -> Context -> MainAgent -> Commit
   prediction.ts     G1/G2 predictionEvaluation と Prediction Context
   memory-update.ts  MemoryUpdateHandler と MemoryWriteService
-  retrieval.ts      Conversation Memory / Background Experience の共通Retrieval
+  retrieval.ts      Conversation Memory / Background Experience / Event projection の共通Retrieval
   autonomy.ts       Event sourceと自律Action契約
   reflection.ts     経験の圧縮と長期更新
 

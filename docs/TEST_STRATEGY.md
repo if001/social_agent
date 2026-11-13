@@ -27,7 +27,7 @@
 - memory-update Eventのpayload、intentIndex冪等性、部分commit禁止
 - Reflection planのMemory、Self、Relationship、Concernごとのstatus
 - Concern ActivityのID対応、baseline migration、stale候補の除外条件、決定論的`abandoned`移行
-- Reflection Sessionの固定Event範囲、最大32 EventのMemory batch、選別済み根拠、対象別 / batch別retry
+- Reflection Sessionの固定Event範囲、最大16 EventのMemory Formation batch、再活性化選定、種別ごとのReconciliation、対象別 / batch別retry
 - G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
 - 通常OllamaとDeepAgentへ渡すJSON Schemaのfield description保持
 
@@ -118,6 +118,10 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-43 | Unit, Contract, Integration, Evaluation | `tests/unit/memory-context.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts`, `tests/evaluation/evaluation-runner.test.ts` | previousDesire の引き継ぎ、上限、時間差scenario |
 | FR-9 | Contract, Unit, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/memory-context.test.ts`, `tests/live/ollama-user-response.test.ts` | Feeling の短期性と Assessment 引継ぎ |
 | FR-10 | Unit, Integration | `tests/unit/domain-contracts.test.ts`, `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | Memory の契約と検索、Reflection Memoryごとの根拠Event選別 |
+| FR-71 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | 古い順の16 Event Formation、既存Memory非複写、古い根拠による更新禁止 |
+| FR-72 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | 再活性化理由と有限予算、局所クラスターだけを扱うReconciliation |
+| FR-73 | Unit, Integration | `tests/unit/memory-write-service.test.ts`, `tests/integration/persistence.test.ts` | kind別の維持・訂正・統合・分割、時系列の巻き戻し禁止 |
+| FR-74 | Unit, Integration | `tests/unit/retrieval-service.test.ts`, `tests/integration/persistence.test.ts` | Event projectionの所有権・時刻filterとhybrid ranking、正本Eventの保持 |
 | FR-46 | Unit | `tests/unit/agent-prompts.test.ts` | 共通の社会基盤、深さ、質問0件、機微の境界 |
 | FR-47 | Unit | `tests/unit/agent-prompts.test.ts` | Event skillの読み込み、skill_read、ルーティング |
 | FR-11 | Contract, Live | `tests/contract/agent-harness.contract.test.ts`, `tests/live/ollama-user-response.test.ts` | Deep Agents 本番経路 |
@@ -223,7 +227,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | AC-18 | Contract, System | `tests/contract/prediction-contracts.test.ts`, `tests/system/prediction-loop.test.ts` | ownership、budget、旧後処理不在、call予算 |
 | AC-19 | Contract | `tests/contract/structured-output-description.test.ts` | 通常OllamaとDeepAgentのdescription伝播 |
 
-FR-48〜FR-64、NFR-14〜NFR-19、AC-11〜AC-18は追加設計の受入要件である。対応するtest fileは実装時に追加するため、実装完了まではtrace_checkで未参照の警告が残る。
+FR-48〜FR-64、FR-71〜FR-74、NFR-14〜NFR-19、AC-11〜AC-18は追加設計の受入要件である。対応するtest fileは実装時に追加するため、実装完了まではtrace_checkで未参照の警告が残る。
 
 ## Standard verification
 
