@@ -190,6 +190,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・許可ID・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
 - FR-76：発話は`user-message`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`は発話またはrefuseを必須とするが、他の許可EventはAgent自身の動機により発話しないこともできる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、ユーザーへ発話しない。（C-06, C-16, C-17、追加）
+- FR-77：LLMは永続canonical IDを出力、生成、または直接指定しない。Runtimeは入力ごとの局所参照を割り当て、LLMが選んだ局所参照だけを許可範囲で検証してcanonical IDへ解決し、ID付与、検索、更新、永続化を担う。局所参照の不正または未解決はcommitしない。（追加：LLMのID幻覚を永続化・参照・更新へ伝播させないため）
 
 ## R8. 永続化、配送、運用
 
