@@ -1,17 +1,11 @@
-import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-
-import { parse } from "dotenv";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { MemoryUpdateHandler } from "../../src/application/memory-update.js";
 import type { DomainEvent } from "../../src/domain/contracts.js";
-import { migrate } from "../../src/infrastructure/persistence/postgres.js";
+import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 
-const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
-const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
-const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
+const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
 
 const event = (ids: string[]): DomainEvent => ({
   id: "memory-update-event",
@@ -28,21 +22,18 @@ const event = (ids: string[]): DomainEvent => ({
 });
 
 describeDatabase("memory-update Event", () => {
-  const schema = `test_${randomUUID().replaceAll("-", "")}`;
-  const control = new Pool({ connectionString: databaseUrl, max: 2 });
-  const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public,ext`, max: 4 });
+  let database: ReturnType<typeof createIntegrationDatabase>;
+  let pool: Pool;
   let sequence = 0;
   beforeAll(async () => {
-    await control.query(`CREATE SCHEMA ${schema}`);
-    await migrate(pool);
+    database = createIntegrationDatabase(); pool = database.pool;
+    await database.prepare();
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm')");
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ('a','Careful','Growing','[]','[]','[]','Calm')");
   });
   afterAll(async () => {
-    await pool.end();
-    await control.query(`DROP SCHEMA ${schema} CASCADE`);
-    await control.end();
+    await database.close();
   });
 
   it("FR-58, FR-61, AC-13: applies intents without an LLM and is idempotent", async () => {

@@ -1,17 +1,11 @@
-import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-
-import { parse } from "dotenv";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { PredictionRecord } from "../../src/application/prediction.js";
 import { PostgresPredictionRepository } from "../../src/infrastructure/persistence/postgres-prediction-repository.js";
-import { migrate } from "../../src/infrastructure/persistence/postgres.js";
+import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 
-const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
-const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
-const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
+const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
 
 const record = (id: string, sourceEventId = "event-1", createdAt = "2026-10-31T00:00:00.000Z"): PredictionRecord => ({
   id, agentId: "a", sourceEventId, sourceRunId: "run-1",
@@ -27,20 +21,17 @@ const record = (id: string, sourceEventId = "event-1", createdAt = "2026-10-31T0
 });
 
 describeDatabase("Prediction persistence", () => {
-  const schema = `test_${randomUUID().replaceAll("-", "")}`;
-  const control = new Pool({ connectionString: databaseUrl, max: 2 });
-  const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public,ext`, max: 4 });
+  let database: ReturnType<typeof createIntegrationDatabase>;
+  let pool: Pool;
   beforeAll(async () => {
-    await control.query(`CREATE SCHEMA ${schema}`);
-    await migrate(pool);
+    database = createIntegrationDatabase(); pool = database.pool;
+    await database.prepare();
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ('a','Careful','Growing','[]','[]','[]','Calm'),('b','Bold','Growing','[]','[]','[]','Calm')");
   });
   afterAll(async () => {
-    await pool.end();
-    await control.query(`DROP SCHEMA ${schema} CASCADE`);
-    await control.end();
+    await database.close();
   });
 
   it("FR-48, FR-62, NFR-14: stores and loads prediction history per agent", async () => {
@@ -54,5 +45,20 @@ describeDatabase("Prediction persistence", () => {
     expect(context?.recentExperienceEffect?.eventId).toBe("event-1");
     expect(context?.agentId).toBe("a");
     expect(await repository.latest("b")).toBeUndefined();
+  });
+
+  it("normalizes obsolete stored fields from a real database record", async () => {
+    const legacy = {
+      ...record("prediction-legacy", "event-legacy", "2026-11-01T00:00:00.000Z"),
+      output: { ...record("prediction-legacy").output, remember: [{ content: "obsolete" }], observationCandidates: [{ summary: "obsolete" }] }
+    };
+    await pool.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [legacy.id, legacy.agentId, legacy.sourceEventId, legacy.sourceRunId, legacy.output, legacy.createdAt]);
+    const repository = new PostgresPredictionRepository(pool);
+    const loaded = await repository.latest("a");
+    const context = await repository.context("a");
+    expect(loaded?.id).toBe("prediction-legacy");
+    expect(loaded?.output).not.toHaveProperty("remember");
+    expect(loaded?.output).not.toHaveProperty("observationCandidates");
+    expect(context?.previousPrediction?.id).toBe("prediction-legacy");
   });
 });

@@ -1,26 +1,27 @@
-import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, access, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Pool } from "pg";
+import type { PoolClient } from "pg";
+import { describe, expect, it } from "vitest";
 import { loadInitialSelfFile } from "../../src/config/initial-self.js";
-import { migrate } from "../../src/infrastructure/persistence/postgres.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 import { resetRuntime } from "../../src/operations/reset-runtime.js";
+import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 
-it("NFR-11: resets isolated data, preserves bot config, and refuses a running bot", async () => {
-  const url = process.env.POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://");
-  if (!url) throw new Error("POSTGRES_URL is required");
-  const schema = `test_reset_${randomUUID().replaceAll("-", "")}`;
-  const control = new Pool({ connectionString: url });
-  const pool = new Pool({ connectionString: url, options: `-c search_path=${schema},public,ext` });
+const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
+
+describeDatabase("reset runtime", () => {
+  it("NFR-11: resets isolated data, preserves bot config, and refuses a running bot", async () => {
+  const database = createIntegrationDatabase();
+  const { pool } = database;
   await mkdir("var", { recursive: true });
   const root = await mkdtemp(resolve("var/reset-test-"));
   let archived: string[] = [];
   const config = await loadInitialSelfFile("config/initial-self/ao.yaml");
-  const lock = await pool.connect();
+  let lock: PoolClient | undefined;
   try {
-    await control.query(`CREATE SCHEMA ${schema}`);
-    await migrate(pool);
+    await database.prepare();
+    lock = await pool.connect();
+    if (lock === undefined) throw new Error("Test lock was not acquired");
     await initializeAgent(pool, config);
     await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,output,completed_at) VALUES ('old-reflection',$1,0,'completed','{}','{}',now())", [config.agent.id]);
     await pool.query("UPDATE agents SET config='{\"persona\":\"keep\"}'");
@@ -40,8 +41,9 @@ it("NFR-11: resets isolated data, preserves bot config, and refuses a running bo
     expect((await pool.query<{ count: string }>("SELECT count(*) FROM reflection_runs")).rows[0]?.count).toBe("0");
     await expect(access(root)).rejects.toThrow();
   } finally {
-    await lock.query("SELECT pg_advisory_unlock_all()"); lock.release();
-    await pool.end(); await control.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await control.end();
+    if (lock !== undefined) { await lock.query("SELECT pg_advisory_unlock_all()"); lock.release(); }
+    await database.close();
     await Promise.all([root, ...archived].map(path => rm(path, { recursive: true, force: true })));
   }
+  });
 });

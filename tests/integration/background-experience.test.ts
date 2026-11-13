@@ -1,22 +1,16 @@
-import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-
-import { parse } from "dotenv";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { BackgroundExperienceFile } from "../../src/domain/contracts.js";
 import { PostgresRetrievalService } from "../../src/infrastructure/persistence/postgres-retrieval-service.js";
-import { migrate } from "../../src/infrastructure/persistence/postgres.js";
 import { replaceBackgroundExperiences } from "../../src/operations/background-experiences.js";
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { FakeEmbeddingProvider } from "../../src/infrastructure/embedding/ollama-embedding.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 import { loadBackgroundExperienceFile } from "../../src/config/background-experience.js";
+import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 
-const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
-const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
-const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
+const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
 
 const file = (experiences: BackgroundExperienceFile["experiences"]): BackgroundExperienceFile => ({
   version: 1,
@@ -30,21 +24,18 @@ const experience = (id: string, occurredAt: string, phase: "最初期" | "初期
 });
 
 describeDatabase("Background Experience persistence and retrieval", () => {
-  const schema = `test_${randomUUID().replaceAll("-", "")}`;
-  const control = new Pool({ connectionString: databaseUrl, max: 2 });
-  const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public,ext`, max: 4 });
+  let database: ReturnType<typeof createIntegrationDatabase>;
+  let pool: Pool;
 
   beforeAll(async () => {
-    await control.query(`CREATE SCHEMA ${schema}`);
-    await migrate(pool);
+    database = createIntegrationDatabase(); pool = database.pool;
+    await database.prepare();
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold'),('aka','family','Aka','Calm'),('shiro','family','Shiro','Calm')");
     for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful learner','Growing continuously','[]','[]','[]','Calm')", [agentId]);
   });
   afterAll(async () => {
-    await pool.end();
-    await control.query(`DROP SCHEMA ${schema} CASCADE`);
-    await control.end();
+    await database.close();
   });
 
   it("FR-53, FR-54, NFR-19: replaces only background experiences and preserves conversation memory", async () => {

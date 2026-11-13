@@ -61,7 +61,7 @@
 
 実migrationを一時的な隔離databaseの`app` schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern Activity、baseline migration、stale close、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。
 
-接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。DDLとmigrationは`ADMIN_POSTGRES_URL`、runtime検証は`POSTGRES_URL`を使う。testは専用databaseだけを作成・破棄し、共有databaseの検証データへ依存しない。
+接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。統合テストは`.env.db.test`の`TEST_ADMIN_POSTGRES_URL`でDDLとmigrationを行い、`TEST_POSTGRES_URL`でruntime検証を行う。専用の共有test databaseを再利用し、各test fileの前後で`app` schemaの検証データだけを消去するため、通常databaseの検証データへ依存しない。共有databaseを使うため、integration test fileは並列実行しない。
 
 ### Live Ollama
 
@@ -252,7 +252,7 @@ pnpm test:evaluation
 隔離PostgreSQLを使うintegration suite:
 
 ```sh
-node --env-file=.env ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts --passWithNoTests
+node --env-file=.env.db.test ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts --passWithNoTests
 ```
 
 実Ollamaと隔離PostgreSQLを使うlive suite:
