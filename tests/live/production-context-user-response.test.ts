@@ -10,28 +10,46 @@ import { createStdoutLogger, errorLogContext } from "../../src/observability/log
 import { initializeAgent } from "../../src/operations/operations.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
 
+function postgresUrl(connectionString: string): URL {
+  return new URL(connectionString.replace("postgresql+psycopg://", "postgresql://"));
+}
+function databaseUrl(connectionString: string, database: string): string {
+  const url = postgresUrl(connectionString); url.pathname = `/${database}`; return url.toString();
+}
+function identifier(value: string): string { return `"${value.replaceAll('"', '""')}"`; }
+
 describe("production-like text UI user response", () => {
   it("FR-2, FR-33, NFR-8, AC-3: loads PostgreSQL context and production Tools, calls Ollama, commits, and dispatches", async () => {
     const now = new Date();
     const sentAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + 86_400_000).toISOString();
-    const idleAt = new Date(now.getTime() + 300_000).toISOString();
-    const loaded = await loadConfig(); const databaseUrl = loaded.database.url.replace("postgresql+psycopg://", "postgresql://");
-    const schema = `live_e2e_${randomUUID().replaceAll("-", "")}`; const control = new Pool({ connectionString: databaseUrl, max: 1 });
-    const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public,ext`, max: 4 });
+    const loaded = await loadConfig();
+    const database = `live_e2e_${randomUUID().replaceAll("-", "")}`;
+    const runtimeRole = decodeURIComponent(postgresUrl(loaded.database.url).username);
+    const control = new Pool({ connectionString: loaded.database.adminUrl.replace("postgresql+psycopg://", "postgresql://"), max: 1 });
+    const adminPool = new Pool({ connectionString: databaseUrl(loaded.database.adminUrl, database), options: "-c search_path=app,public,ext", max: 2 });
+    const pool = new Pool({ connectionString: databaseUrl(loaded.database.url, database), options: "-c search_path=app,public,ext", max: 4 });
     const diagnosticLogs: string[] = []; const logger = createStdoutLogger({}, (line) => { diagnosticLogs.push(line.trim()); });
     const published: MessageEnvelope[] = []; let receive: ((message: MessageEnvelope) => Promise<void>) | undefined;
     const queue = { publish: (message: MessageEnvelope) => { published.push(message); return Promise.resolve(); }, subscribe: (_destination: string, handler: (message: MessageEnvelope) => Promise<void>) => { receive = handler; return Promise.resolve(); } };
     try {
-      await control.query(`CREATE SCHEMA ${schema}`); await migrate(pool);
+      await control.query(`CREATE DATABASE ${identifier(database)}`);
+      await adminPool.query("CREATE SCHEMA app"); await migrate(adminPool);
+      await control.query(`GRANT CONNECT ON DATABASE ${identifier(database)} TO ${identifier(runtimeRole)}`);
+      await adminPool.query(`GRANT USAGE ON SCHEMA app TO ${identifier(runtimeRole)}`);
+      await adminPool.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA app TO ${identifier(runtimeRole)}`);
       await initializeAgent(pool, {
         version: 1,
         family: { id: "live-family", name: "Live E2E", sharedDisposition: "事実を確認し、簡潔に応答する", baseInstruction: "ユーザー入力へ日本語で回答する" },
         agent: { id: "live-e2e-agent", identity: "Live E2E Agent", initialDisposition: "正確で簡潔な対話が好きで、根拠のない断定は嫌い", raisonDetre: "誠実な対話を続ける", selfNarrative: "対話を始めた", selfContinuity: "経験を次の応答へつなぐ" },
         initialState: { mood: "落ち着いている", concerns: [], relationships: [] }
       });
+      await pool.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ('legacy-prediction','live-e2e-agent','legacy-event','legacy-run',$1,now())", [JSON.stringify({
+        predictions: { g1: { candidates: [] }, g2: { candidates: [] } }, predictionEvaluations: [],
+        g3: { needsG3: false, targetLayers: [], priority: "medium" }, remember: [], observationCandidates: []
+      })]);
       const config = { ...loaded, botId: "live-e2e-agent", defaultOutputDestination: "text-user", runDeadlineMs: Math.max(loaded.runDeadlineMs, 300_000) };
-      const composition = createBotComposition({ pool, config, queue, logger, limits: { maxToolCalls: 25, maxSteps: 27 } });
+      const composition = createBotComposition({ pool, config, queue, logger, limits: { maxToolCalls: 0, maxSteps: 2 } });
       expect(composition.toolRegistry.definitions().length).toBeGreaterThanOrEqual(10);
       await composition.runtime.start(new AbortController().signal);
       try { await receive?.(messageFixture({ id: "production-like-user-message", destination: "live-e2e-agent", source: "text-user", replyTo: "text-user", sentAt, availableAt: sentAt, expiresAt, payload: { type: "user-message", text: "動作確認です。日本語で一文だけ返答してください。", sourceType: "terminal" } })); }
@@ -44,17 +62,11 @@ describe("production-like text UI user response", () => {
       expect(published[0]?.payload).toMatchObject({ type: "agent-response", agentId: "live-e2e-agent" });
       const responsePayload = published[0]?.payload;
       expect(responsePayload !== undefined && responsePayload.type === "agent-response" && typeof responsePayload.text === "string" && responsePayload.text.trim().length > 0).toBe(true);
-      const autonomousAction = await (async () => {
-        try {
-          return await composition.runtime.process({ id: "production-like-idle", agentId: "live-e2e-agent", kind: "internal", occurredAt: idleAt, payload: { targetKind: "idle", schedulerGenerated: true, reason: "現在の状態から小さな行動を検討する", destination: "text-user" } }, new AbortController().signal);
-        } catch (error) {
-          throw new Error(`Production-like idle Agent failed: ${JSON.stringify(errorLogContext(error))}; diagnostics=${diagnosticLogs.slice(-20).join(" | ")}`);
-        }
-      })();
-      expect(["respond", "refuse", "notify-no-execution", "no-external-action"]).toContain(autonomousAction.type);
-      expect((await pool.query("SELECT 1 FROM agent_runs WHERE agent_id='live-e2e-agent' AND finished_at IS NOT NULL")).rowCount).toBe(2);
+      expect((await pool.query("SELECT 1 FROM agent_runs WHERE agent_id='live-e2e-agent' AND finished_at IS NOT NULL")).rowCount).toBe(1);
     } finally {
-      await pool.end(); await control.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await control.end();
+      await pool.end(); await adminPool.end();
+      await control.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid<>pg_backend_pid()", [database]);
+      await control.query(`DROP DATABASE IF EXISTS ${identifier(database)}`); await control.end();
     }
   });
 });

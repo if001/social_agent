@@ -59,9 +59,9 @@
 
 ### PostgreSQL integration
 
-実migrationを一時的な隔離schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern Activity、baseline migration、stale close、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。
+実migrationを一時的な隔離databaseの`app` schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern Activity、baseline migration、stale close、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。
 
-接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。testは専用schemaだけを作成・破棄し、共有schemaの検証データへ依存しない。
+接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。DDLとmigrationは`ADMIN_POSTGRES_URL`、runtime検証は`POSTGRES_URL`を使う。testは専用databaseだけを作成・破棄し、共有databaseの検証データへ依存しない。
 
 ### Live Ollama
 
@@ -72,11 +72,11 @@
 
 `tests/live/ollama-reflection.test.ts`は、実OllamaがReflectionのproduction構造化出力経路から有効なmaintenance結果を返すことを確認する。
 
-`tests/live/ollama-prediction.test.ts`は、実OllamaがG1/G2のproduction構造化出力経路から予測候補、predictionEvaluation、rememberを返し、Feelingを出力しないことを確認する。G3が有効な場合は仮説評価とmemoryIntentsを返すことも確認する。
+`tests/live/ollama-prediction.test.ts`は、実OllamaがG1/G2のproduction構造化出力経路から予測候補、predictionEvaluation、G3起動判断を返し、Feeling、remember、observationCandidatesを返さないことを確認する。
 
 ### Production-like text UI E2E
 
-`tests/live/production-context-user-response.test.ts`は外部Discordを使わず、UI非依存のユーザー入力経路を検証する。隔離PostgreSQLへ実migrationとAgent初期値を投入し、本番composition、Context Builder、本番Tool群、Deep Agent、実Ollama、Runtime transaction、Outbox dispatcherを通す。
+`tests/live/production-context-user-response.test.ts`は外部Discordを使わず、UI非依存のユーザー入力経路を検証する。`ADMIN_POSTGRES_URL`で隔離PostgreSQL databaseと`app` schemaへ実migrationとAgent初期値を投入し、`POSTGRES_URL`で本番composition、Context Builder、本番Tool群、Deep Agent、実Ollama、Runtime transaction、Outbox dispatcherを通す。廃止済みPrediction fieldを含む既存recordも投入し、Context読取りが現行契約へ正規化することを確認する。
 
 入力は「動作確認です。日本語で一文だけ返答してください。」で、空でない`agent-response`、Message receipt、完了Run、未送信Outbox、配送先を確認する。続けて`idle` Eventを入力し、自律Actionと2件目のcommitを確認する。このtestとDiscord本番の差は外部adapterとDiscord APIだけであり、ContextとToolの有無ではない。予測を有効にした構成では、応答後のG1/G2、memory-update Event、Background Experienceの検索、MainAgentのrememberが同じproduction compositionで動くことも確認する。
 
