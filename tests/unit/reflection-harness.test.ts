@@ -36,6 +36,15 @@ describe("structured Reflection model", () => {
     expect(skill("reflection-self-mood")).toContain("SelfとMood");
     expect(skill("reflection-memory")).toContain("構造化出力Toolを必ず1回");
     expect(skill("reflection-memory")).toContain('{"memories":[]}');
+    expect(skill("reflection-memory")).toContain("既存Memoryを更新しない");
+  });
+
+  it("FR-71: gives a Formation Reflector only its bounded Event batch, not existing Memory bodies", async () => {
+    const seen: string[] = [];
+    const invoker: ReflectionInvoker = { invoke: (messages) => { seen.push(messages[0]?.content ?? ""); return Promise.resolve({ structuredResponse: { memories: [] } }); } };
+    await new TargetStructuredReflectionModel(invoker, invoker, MemoryReflectorOutputSchema, "formation", noopLogger)
+      .reflect({ reflectionId: "reflection-1", events: input.events }, new AbortController().signal, input.agentId, input.reflectionId);
+    expect(seen[0]).not.toContain("memory-1");
   });
 
   it("FR-42, FR-65: retries a target Reflector with the original scoped input and no read invoker", async () => {

@@ -450,7 +450,8 @@ export type G3EvaluationOutput = z.infer<typeof G3OutputSchema>;
 export const MemoryUpdatePayloadSchema = z.looseObject({
   intents: z.array(MemoryIntentSchema).min(1).max(10),
   subjectsByIntent: z.array(z.array(Id)).optional(),
-  sourceAgentIds: z.array(Id.optional()).optional()
+  sourceAgentIds: z.array(Id.optional()).optional(),
+  formation: z.literal(true).optional()
 });
 export type MemoryUpdatePayload = z.infer<typeof MemoryUpdatePayloadSchema>;
 

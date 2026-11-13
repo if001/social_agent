@@ -22,7 +22,7 @@ export const ReflectionInputSchema = z.object({
 export type ReflectionInput = z.infer<typeof ReflectionInputSchema>;
 export const ReflectionMemoryBatchSchema = z.object({
   batchIndex: z.number().int().nonnegative(),
-  events: z.array(z.object({ id: Id, occurredAt: z.iso.datetime({ offset: true }), summary: Text })).min(1).max(32)
+  events: z.array(z.object({ id: Id, occurredAt: z.iso.datetime({ offset: true }), summary: Text })).min(1).max(16)
 }).strict();
 export type ReflectionMemoryBatch = z.infer<typeof ReflectionMemoryBatchSchema>;
 
