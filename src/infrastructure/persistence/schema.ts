@@ -1,8 +1,11 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, vector } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, index, integer, jsonb, pgSchema, primaryKey, text, timestamp, uniqueIndex, vector } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 const timestamps = { createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow() };
+// Runtime tables live in the `app` schema.  Declaring it here keeps generated
+// foreign keys schema-qualified consistently with the deployed database.
+const pgTable = pgSchema("app").table;
 
 export const agentFamilies = pgTable("agent_families", { id: text("id").primaryKey(), name: text("name").notNull(), sharedDisposition: text("shared_disposition").notNull(), baseInstruction: text("base_instruction").notNull(), ...timestamps });
 export const agents = pgTable("agents", { id: text("id").primaryKey(), familyId: text("family_id").notNull().references(() => agentFamilies.id), identity: text("identity").notNull(), initialDisposition: text("initial_disposition").notNull(), config: jsonb("config").notNull().default({}), active: boolean("active").notNull().default(true), ...timestamps }, (table) => [index("agents_family_idx").on(table.familyId)]);
