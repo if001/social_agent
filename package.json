@@ -21,6 +21,7 @@
     "db:migrate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "ops": "tsx src/cli.ts",
     "memory:embed:migrate": "node --env-file=.env --import tsx scripts/backfill-memory-embeddings.ts",
+    "event:embed:migrate": "node --env-file=.env --import tsx scripts/backfill-event-projection-embeddings.ts",
     "start:all": "bash scripts/start-all.sh",
     "bot:start": "tsx src/bot.ts",
     "page-ingest:start": "tsx src/page-ingest.ts",
