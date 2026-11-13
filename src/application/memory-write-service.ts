@@ -19,6 +19,7 @@ export type MemoryWriteResult = { readonly operation: MemoryWriteOperation; read
 export type MemoryReconciliationWrite = { readonly memoryId: string; readonly operation: "keep" | "update" | "split"; readonly content?: string | undefined; readonly reason: string; readonly evidenceEventIds: readonly string[]; readonly split?: readonly { readonly content: string; readonly reason: string }[] | undefined; };
 
 const normalize = (value: string): string => value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase("ja");
+const boundedEvidenceEventIds = (existing: readonly string[], incoming: readonly string[]) => [...new Set([...incoming, ...existing])].slice(0, 16);
 const sameMemory = (left: string, right: string): boolean => {
   const a = normalize(left); const b = normalize(right);
   return a === b || (a.length >= 8 && b.length >= 8 && (a.includes(b) || b.includes(a)));
@@ -46,7 +47,7 @@ export class MemoryWriteService {
     const embedding = options.embedding ?? { status: "pending" as const };
     const vector = embedding.vector === undefined ? null : `[${embedding.vector.join(",")}]`;
     if (candidate !== undefined) {
-      const evidence = [...new Set([...candidate.evidence_event_ids, ...intent.evidenceEventIds])];
+      const evidence = boundedEvidenceEventIds(candidate.evidence_event_ids, intent.evidenceEventIds);
       const updated = await this.client.query<{ version: number }>(
         "UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,version=version+1,embedding=$7::vector,embedding_model=$8,embedding_dimension=$9,embedding_status=$10,embedding_error=$11,source_agent_id=COALESCE(source_agent_id,$12),perspective=$13,purpose=$14,updated_at=now() WHERE id=$1 AND agent_id=$2 AND version=$6 RETURNING version",
         [candidate.id, agentId, intent.content, intent.reason, JSON.stringify(evidence), candidate.version, vector, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null, options.sourceAgentId ?? null, intent.perspective, intent.purpose]
@@ -86,7 +87,7 @@ export class MemoryWriteService {
     if (change.evidenceEventIds.length === 0) throw new Error("Memory reconciliation requires Event evidence");
     if (change.operation === "update") {
       if (change.content === undefined) throw new Error("Memory reconciliation update requires content");
-      await this.client.query("UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,embedding=NULL,embedding_status='pending',version=version+1,updated_at=now() WHERE agent_id=$1 AND id=$2", [agentId, row.id, change.content, change.reason, JSON.stringify([...new Set([...row.evidence_event_ids, ...change.evidenceEventIds])])]);
+      await this.client.query("UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,embedding=NULL,embedding_status='pending',version=version+1,updated_at=now() WHERE agent_id=$1 AND id=$2", [agentId, row.id, change.content, change.reason, JSON.stringify(boundedEvidenceEventIds(row.evidence_event_ids, change.evidenceEventIds))]);
       await this.#record(agentId, row.id, "update", row.id, { content: change.content, reason: change.reason, evidenceEventIds: [...change.evidenceEventIds], confidence: "medium", target: row.kind as MemoryIntent["target"], perspective: "self", purpose: "self-guidance" }, options);
       return;
     }
@@ -95,7 +96,7 @@ export class MemoryWriteService {
     if (retained === undefined || derived === undefined) throw new Error("Memory reconciliation split requires two parts");
     // Split is one atomic composite: narrow the original, then create the
     // derived part while retaining an explicit link back to that original.
-    await this.client.query("UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,embedding=NULL,embedding_status='pending',version=version+1,updated_at=now() WHERE agent_id=$1 AND id=$2", [agentId, row.id, retained.content, retained.reason, JSON.stringify([...new Set([...row.evidence_event_ids, ...change.evidenceEventIds])])]);
+    await this.client.query("UPDATE memories SET content=$3,importance=$4,evidence_event_ids=$5,embedding=NULL,embedding_status='pending',version=version+1,updated_at=now() WHERE agent_id=$1 AND id=$2", [agentId, row.id, retained.content, retained.reason, JSON.stringify(boundedEvidenceEventIds(row.evidence_event_ids, change.evidenceEventIds))]);
     await this.#record(agentId, row.id, "update", row.id, { content: retained.content, reason: retained.reason, evidenceEventIds: [...change.evidenceEventIds], confidence: "medium", target: row.kind as MemoryIntent["target"], perspective: "self", purpose: "self-guidance" }, options);
     const result = await this.apply(agentId, { content: derived.content, reason: derived.reason, evidenceEventIds: [...change.evidenceEventIds], confidence: "medium", target: row.kind as MemoryIntent["target"], perspective: "self", purpose: "self-guidance" }, { ...(options.sourceEventId === undefined ? {} : { sourceEventId: options.sourceEventId }), intentIndex: (options.intentIndex ?? 0) * 10 + 1, subjectIds: [...row.subjects], candidates: [] });
     if (result.memoryId !== undefined) await this.client.query("UPDATE memories SET evidence_memory_ids=$3,updated_at=now() WHERE agent_id=$1 AND id=$2", [agentId, result.memoryId, JSON.stringify([row.id])]);
