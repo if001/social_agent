@@ -282,8 +282,22 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
           ? { reflectionId: input.reflectionId, events: input.events.slice(-32), memories, relationships: input.state.relationships }
           : { reflectionId: input.reflectionId, self: input.self, mood: input.state.mood, memories };
     // Tool call counters restart for each Reflector.  Scope the tool-run key by
-    // target so `tool-1` in Formation cannot collide with `tool-1` in a later
-    // Reflector while retaining the Session id in the model input/audit row.
-    return this.#models[target].reflect(scoped, signal, input.agentId, `${input.reflectionId}:${target}`);
+    // target and, for each Memory formation batch, by its stable first Event.
+    // Otherwise `tool-1` in two different batches would reuse the same
+    // idempotency key with different inputs.
+    return this.#models[target].reflect(scoped, signal, input.agentId, reflectionToolRunScope(target, input));
   }
+}
+
+/**
+ * Returns the idempotency namespace shared by all read tools in one Reflector
+ * invocation.  A Memory target runs once per Event batch, whereas the other
+ * targets run only once per Reflection Session.
+ */
+export function reflectionToolRunScope(target: ReflectionTarget, input: Pick<ReflectionInput, "reflectionId" | "events">): string {
+  if (target !== "memory") return `${input.reflectionId}:${target}`;
+  const batchAnchorEventId = input.events[0]?.id;
+  return batchAnchorEventId === undefined
+    ? `${input.reflectionId}:${target}:empty`
+    : `${input.reflectionId}:${target}:${batchAnchorEventId}`;
 }

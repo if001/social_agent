@@ -7,6 +7,7 @@ import {
   ReflectionModelOutputSchema,
   StructuredReflectionModel,
   TargetStructuredReflectionModel,
+  reflectionToolRunScope,
   reflectionSystemPrompt,
   targetedReflectorRepairInput,
   type ReflectionInvoker
@@ -24,6 +25,17 @@ const input: ReflectionInput = {
 };
 
 describe("structured Reflection model", () => {
+  it("FR-71: gives each Memory Event batch an independent stable tool idempotency scope", () => {
+    const firstBatch = { ...input, events: [{ ...input.events[0]!, id: "event-1" }] };
+    const secondBatch = { ...input, events: [{ ...input.events[0]!, id: "event-33" }] };
+
+    expect(reflectionToolRunScope("memory", firstBatch)).toBe("reflection-1:memory:event-1");
+    expect(reflectionToolRunScope("memory", firstBatch)).toBe(reflectionToolRunScope("memory", firstBatch));
+    expect(reflectionToolRunScope("memory", secondBatch)).toBe("reflection-1:memory:event-33");
+    expect(reflectionToolRunScope("memory", secondBatch)).not.toBe(reflectionToolRunScope("memory", firstBatch));
+    expect(reflectionToolRunScope("concern", secondBatch)).toBe("reflection-1:concern");
+  });
+
   it("NFR-5: reserves a 20-call model budget for evidence reads and the final Reflector output", () => {
     expect(REFLECTION_MAX_MODEL_CALLS).toBe(20);
   });
