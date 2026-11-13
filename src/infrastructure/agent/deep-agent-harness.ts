@@ -3,6 +3,7 @@ import { createAgentCoreMiddleware } from "./deep-agent-middleware.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunContextSchema, type DeepAgentToolRunContext } from "./deep-agent-tools.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { modelJsonSchema } from "./model-json-schema.js";
+import { toModelRecordView } from "./model-record-view.js";
 import { createDeepAgent, FilesystemBackend } from "deepagents";
 import { resolve } from "node:path";
 import { toolStrategy, type TypedToolStrategy } from "langchain";
@@ -144,6 +145,9 @@ function repairToolEvidence(executions: readonly ToolExecutionRecord[]): readonl
       : { error: execution.error ?? "Tool failed" })
   }));
 }
+/** All Agent Core model-facing values use a natural-language view. Runtime
+ * identifiers remain in the collector and persistence layers only. */
+export const agentCoreModelView = toModelRecordView;
 const USER_RESPONSE_FALLBACK = "申し訳ありません。応答の形式を処理できませんでした。もう一度お試しください。";
 function recoverUserStringAction(raw: unknown, input: AgentCoreInput): AgentRunResult["output"] | undefined {
   if (input.observation.kind !== "user-message" || typeof raw !== "object" || raw === null || !("action" in raw) || typeof raw.action !== "string") return undefined;
@@ -184,7 +188,7 @@ export class DeepAgentHarness implements AgentHarness {
     const maxAttempts = this.#maxRepairs + 1;
     const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
     const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
-    const promptInput = {
+    const promptInput = agentCoreModelView({
       event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: input.observation },
       identity: input.currentSelf.identity,
       dispositionTendency: dispositionTendency(input.currentSelf.disposition),
@@ -194,13 +198,13 @@ export class DeepAgentHarness implements AgentHarness {
       ...(input.previousAssessment === undefined ? {} : { previousAssessment: input.previousAssessment }),
       ...(input.previousDesire === undefined ? {} : { previousDesire: input.previousDesire }),
       ...(input.predictionContext === undefined ? {} : { predictionContext: input.predictionContext })
-    };
+    });
     attempts: for (let attempt = 0; attempt < maxAttempts && consumedModelCalls < input.limits.maxSteps; attempt += 1) {
       try {
         logger.log("info", "agent_core.model_attempt_started", { attempt: attempt + 1, repair: attempt > 0 });
         const content = attempt === 0
           ? JSON.stringify({ promptVersion: "agent-core-v3-ja", input: promptInput })
-          : JSON.stringify({ instruction: "元の入力Contextと今回のTool結果を根拠に、直前の無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。新しい調査や通常Tool呼び出しは行わず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。Memory、Relationship、Moodは出力しません。Contextを推測せず、与えられた内容だけを使ってください。", input: promptInput, toolEvidence: repairToolEvidence(observedToolExecutions), allowedEvidenceIds: [input.run.eventId, ...input.memories.map(({ id }) => id)], outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: raw });
+          : JSON.stringify({ instruction: "元の入力Contextと今回のTool結果を根拠に、直前の無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。新しい調査や通常Tool呼び出しは行わず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。Memory、Relationship、Moodは出力しません。Contextを推測せず、与えられた内容だけを使ってください。", input: promptInput, toolEvidence: repairToolEvidence(observedToolExecutions), outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: agentCoreModelView(raw) });
         const modelBudget = modelInputBudget(input, content);
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "agent_core.model_input_budget_exceeded", { estimatedTokens: modelBudget.total, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(modelBudget.components) });
         const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;
@@ -311,7 +315,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
   const model = (config.modelFactory ?? createOllamaChatModel)({ ...config, think: "high" });
   const logger = config.logger ?? noopLogger;
   const now = config.now ?? (() => new Date());
-  const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger);
+  const tools = config.toolRegistry === undefined ? [] : createDeepAgentTools(config.toolRegistry, now, logger, toModelRecordView);
   const middleware = [createAgentCoreMiddleware(config.toolRegistry, logger, now)];
   const factory: ReusableDeepAgentFactory = config.agentFactory ?? createDefaultDeepAgentFactory(config.skillsRoot ?? resolve(process.cwd(), "skills"));
   const responseFormat = toolStrategy(AgentCoreModelOutputJsonSchema, { handleError: (error) => {

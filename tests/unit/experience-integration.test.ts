@@ -9,15 +9,16 @@ const input = () => {
 };
 
 describe("ExperienceIntegration", () => {
-  it("C-03: states the complete MemoryIntent contract and the empty-memory form", () => {
-    for (const field of ["content", "reason", "evidenceEventIds", "confidence", "target", "perspective", "purpose", "high / medium / low", "episodic / semantic / self-related / self-change / common-ground", '{"memories":[]}']) expect(experienceIntegrationSystemPrompt).toContain(field);
+  it("FR-82: states the ID-free Memory candidate contract and the empty-memory form", () => {
+    for (const field of ["content", "reason", "target", "perspective", '{"memories":[]}']) expect(experienceIntegrationSystemPrompt).toContain(field);
+    expect(experienceIntegrationSystemPrompt).not.toContain("evidenceEventIds");
     expect(experienceIntegrationSystemPrompt).toContain("変化がなければ省略します");
     expect(experienceIntegrationSystemPrompt).not.toContain("省略または空配列");
   });
 
   it("AC-017-1: uses the committed Core context and saves user memory with only the current actor as subject", async () => {
     const request = input(); const applied: unknown[] = [];
-    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ memories: [{ content: "ユーザーは来週旅行に行く予定だと話した", reason: "次回の自然な問いかけに使う", evidenceEventIds: [request.sourceEvent.id], confidence: "high", target: "episodic", perspective: "user", purpose: "user-context" }] }) });
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ memories: [{ content: "ユーザーは来週旅行に行く予定だと話した", reason: "次回の自然な問いかけに使う", target: "episodic", perspective: "user" }] }) });
     await integration.process(request, new AbortController().signal);
     expect(memorySubjectsForIntegration(request, (applied[0] as { memories: [] }).memories)).toEqual([["user-1"]]);
   });
@@ -30,10 +31,10 @@ describe("ExperienceIntegration", () => {
     expect(request.result.output.action).toEqual({ type: "respond", content: "了解" });
   });
 
-  it("AC-017-2: rejects Memory evidence that was not available in the source Event", async () => {
+  it("FR-82: does not accept model-supplied Event evidence", async () => {
     const request = input(); const failed: unknown[] = [];
-    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: () => Promise.resolve(), fail: (_input, error) => { failed.push(error); return Promise.resolve(); } }, { integrate: () => Promise.resolve({ memories: [{ content: "根拠のない記憶", reason: "test", evidenceEventIds: ["foreign-event"], confidence: "medium", target: "episodic", perspective: "self", purpose: "self-guidance" }] }) });
-    await expect(integration.process(request, new AbortController().signal)).rejects.toThrow("outside its input");
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: () => Promise.resolve(), fail: (_input, error) => { failed.push(error); return Promise.resolve(); } }, { integrate: () => Promise.resolve({ memories: [{ content: "根拠のない記憶", reason: "test", evidenceEventIds: ["foreign-event"], target: "episodic", perspective: "self" }] }) });
+    await expect(integration.process(request, new AbortController().signal)).rejects.toThrow("evidenceEventIds");
     expect(failed).toHaveLength(1);
   });
 
@@ -55,7 +56,7 @@ describe("ExperienceIntegration", () => {
     const request = input(); const applied: unknown[] = []; const repairs: unknown[] = [];
     const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, {
       integrate: () => Promise.resolve({ memories: [{ content: "ユーザーは週末に展示へ行く予定", perspective: "user", purpose: "user-context" }] } as never),
-      repair: (_input, issues) => { repairs.push(issues); return Promise.resolve({ memories: [{ content: "ユーザーは週末に展示へ行く予定", reason: "週明けに結果を自然に尋ねられる", evidenceEventIds: [request.sourceEvent.id], confidence: "high", target: "episodic", perspective: "user", purpose: "user-context" }] }); }
+      repair: (_input, issues) => { repairs.push(issues); return Promise.resolve({ memories: [{ content: "ユーザーは週末に展示へ行く予定", reason: "週明けに結果を自然に尋ねられる", target: "episodic", perspective: "user" }] }); }
     });
     await integration.process(request, new AbortController().signal);
     expect(repairs).toHaveLength(1);

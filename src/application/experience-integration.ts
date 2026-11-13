@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { IdGenerator } from "./ports.js";
 import type { AgentCoreInput, AgentRunResult, DomainEvent, MemoryIntent } from "../domain/contracts.js";
-import { MemoryIntentSchema, RelationshipChangeSchema } from "../domain/contracts.js";
+import { MemoryIntentTargetSchema, MemoryPerspectiveSchema } from "../domain/contracts.js";
 
 const MoodSchema = z.string().trim().min(1).max(160);
 export const EventExperienceSchema = z.object({
@@ -12,8 +12,8 @@ export const EventExperienceSchema = z.object({
 
 export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.nullable().default(null).describe("今回のEventから再利用可能な具体的経験。形成不能または保存不要ならnull"),
-  memories: z.array(MemoryIntentSchema).max(3).describe("長期に再利用する経験だけ。単発のTool失敗や応答文の転載は保存しない"),
-  relationship: RelationshipChangeSchema.optional().describe("今回の相手との関係が持続的に変わったときだけ指定する"),
+  memories: z.array(z.object({ content: z.string().trim().min(1).max(16_000), reason: z.string().trim().min(1).max(16_000), target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
+  relationship: z.object({ operation: z.enum(["upsert", "remove"]), currentDescription: z.string().trim().min(1).max(16_000).optional(), description: z.string().trim().min(1).max(16_000).optional(), reason: z.string().trim().min(1).max(800) }).strict().optional().describe("今回のactorとの関係候補。IDを出さず、Runtimeがactorと現在本文から対象を解決する"),
   mood: MoodSchema.optional().describe("次の複数Eventに残る背景的な気分。今回だけのFeelingや待機理由は入れない")
 }).strict().describe("応答commit後のExperience Integration出力。SelfとConcernは扱わない");
 export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;
@@ -54,15 +54,11 @@ export class ExperienceIntegration {
     if (this.repository.claim !== undefined && !await this.repository.claim(input.integrationId)) return;
     try {
       const first = ExperienceIntegrationOutputSchema.safeParse(await this.model.integrate(input, signal));
-      const output = first.success ? first.data : this.model.repair === undefined
+      let output = first.success ? first.data : this.model.repair === undefined
         ? (() => { throw first.error; })()
         : ExperienceIntegrationOutputSchema.parse(await this.model.repair(input, first.error.issues, signal));
-      if (output.memories.some((intent) => intent.evidenceEventIds.some((eventId) => eventId !== input.sourceEvent.id))) throw new Error("Experience Integration referenced an Event outside its input");
       const actorId = input.input.observation.actor?.type === "human" || input.input.observation.actor?.type === "agent" ? input.input.observation.actor.id : undefined;
-      if (output.relationship !== undefined) {
-        const subjectId = output.relationship.operation === "remove" ? output.relationship.subjectId : output.relationship.relationship.subjectId;
-        if (actorId === undefined || subjectId !== actorId) throw new Error("Experience Integration may update only the current event actor relationship");
-      }
+      if (output.relationship !== undefined && actorId === undefined) output = { ...output, relationship: undefined };
       await this.repository.apply(input, output);
     } catch (error) {
       await this.repository.fail(input, error);
@@ -96,7 +92,7 @@ export class DirectExperienceIntegrationSink implements ExperienceIntegrationSin
   drain(signal: AbortSignal): Promise<void> { return this.integration.retryPending(signal); }
 }
 
-export function memorySubjectsForIntegration(input: ExperienceIntegrationInput, intents: readonly MemoryIntent[]): readonly (readonly string[])[] {
+export function memorySubjectsForIntegration(input: ExperienceIntegrationInput, intents: readonly Pick<MemoryIntent, "perspective">[]): readonly (readonly string[])[] {
   const actorId = input.input.observation.actor?.type === "human" || input.input.observation.actor?.type === "agent" ? input.input.observation.actor.id : undefined;
   return intents.map((intent) => intent.perspective === "user" && actorId !== undefined ? [actorId] : []);
 }

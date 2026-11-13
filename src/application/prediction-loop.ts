@@ -65,10 +65,6 @@ export class PredictionLoop implements PredictionService {
           createdAt: this.options.now().toISOString()
         });
         logger.log("info", "prediction.saved", { g1Count: output.predictions.g1.candidates.length, g2Count: output.predictions.g2.candidates.length, evaluationCount: output.predictionEvaluations.length, needsG3: output.g3.needsG3 });
-        if (output.remember.length > 0 && this.options.memoryUpdateSink !== undefined) {
-          const actorSubject = input.input.observation.actor?.type === "human" || input.input.observation.actor?.type === "agent" ? [input.input.observation.actor.id] : [];
-          await this.options.memoryUpdateSink.enqueue({ agentId: input.event.agentId, sourceEventId: input.event.id, intents: output.remember, subjectsByIntent: output.remember.map((intent) => intent.perspective === "user" ? actorSubject : []) });
-        }
         if (output.g3.needsG3 && this.options.g3Sink !== undefined) await this.options.g3Sink.enqueue({ agentId: input.event.agentId, sourceEventId: input.event.id, sourcePredictionId: predictionId, observation: input.input.observation, prediction: output });
         return;
       } catch (error) {

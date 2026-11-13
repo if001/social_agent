@@ -21,8 +21,6 @@ const record = (id: string, sourceEventId = "event-1", createdAt = "2026-10-31T0
       g2: { candidates: [{ candidateIndex: 0, speechAct: "質問", content: "技術について質問する", expectation: "medium", contextSummary: "技術の話題", rationale: "関心が続く" }] }
     },
     predictionEvaluations: [],
-    remember: [],
-    observationCandidates: [],
     g3: { needsG3: false, targetLayers: [], priority: "medium" }
   },
   createdAt

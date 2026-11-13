@@ -401,23 +401,12 @@ export const PredictionEvaluationSchema = z.object({
   effect: z.enum(["reduced", "unchanged", "increased", "unknown"]).describe("前ターンのActionがこの候補へ与えた影響。RuntimeがRecentExperienceへ投影する"),
   effectEvidence: NaturalLanguage.optional().describe("effectの根拠。効果を判断できない場合は省略する")
 }).strict().describe("候補ごとの予測誤差評価。MeaningやFeelingは含めない");
-export const PredictionObservationSchema = z.object({
-  kind: z.enum(["semantic", "common-ground"]).describe("観測候補のMemory kind"),
-  content: NaturalLanguage.describe("保存候補の観測事実または傾向"),
-  subjectIds: z.array(Id).max(12).describe("観測候補の対象ID。入力に存在するIDだけを使う"),
-  importance: NaturalLanguage.describe("この観測を残す重要度"),
-  evidenceEventIds: z.array(Id).max(16).describe("観測候補の根拠Event ID"),
-  rationale: NaturalLanguage.describe("保存候補にする理由"),
-  explicitness: z.enum(["explicit", "inferred"]).describe("ユーザーが明示した事実か、Agentが推測した内容か")
-}).strict().describe("MemoryWriteServiceへ渡す観測候補。rememberとは混ぜない");
 export const PredictionOutputSchema = z.object({
   predictions: z.object({
     g1: z.object({ candidates: z.array(G1PredictionCandidateSchema).max(3).describe("G1の予測候補。0〜3件") }).strict(),
     g2: z.object({ candidates: z.array(G2PredictionCandidateSchema).max(3).describe("G2の予測候補。0〜3件") }).strict()
   }).strict().describe("G1/G2の予測。必ずg1とg2を持つobjectで、配列を直接置かない"),
   predictionEvaluations: z.array(PredictionEvaluationSchema).max(6).describe("前回予測の候補ごとの評価。前回予測がなければ空配列"),
-  remember: z.array(MemoryIntentSchema).max(3).describe("予測誤差に基づくMemoryIntent。作成・更新・no-opの判断はMemoryWriteServiceが行う"),
-  observationCandidates: z.array(PredictionObservationSchema).max(6).describe("今回の発話から得た観測候補。rememberとは別に扱う"),
   g3: z.object({
     needsG3: z.boolean().describe("G3で仮説を深掘りする必要があるか"),
     targetLayers: z.array(z.enum(["L4", "L5", "L6"])).max(3).default([]).describe("G3で深掘りする層。L4は意図、L5は知識・信念、L6は関係・個人傾向"),
@@ -440,14 +429,13 @@ export type PredictionContext = z.infer<typeof PredictionContextSchema>;
 export const G3HypothesisEvaluationSchema = z.object({
   statement: NaturalLanguage.describe("評価する前回仮説の内容"),
   status: z.enum(["supported", "contradicted", "undecidable"]).describe("仮説が支持されたか、反証されたか、判断不能か"),
-  evidenceEventIds: z.array(Id).max(16).describe("仮説評価の根拠Event ID。入力に存在するIDだけを使う"),
   rationale: NaturalLanguage.describe("支持・反証・判断不能の理由")
 }).strict().describe("前回仮説の評価");
 export const G3OutputSchema = z.object({
   hypothesisEvaluations: z.array(G3HypothesisEvaluationSchema).max(6).describe("前回仮説の評価。仮説がなければ空配列"),
   newHypotheses: z.array(NaturalLanguage).max(5).describe("新しく立てた仮説"),
   findings: z.array(NaturalLanguage).max(5).describe("ToolやMemoryから得た調査結果"),
-  remember: z.array(MemoryIntentSchema).max(3).describe("MainAgentの再判断へ渡すMemoryIntent。G3自身は保存しない")
+  memories: z.array(z.object({ content: NaturalLanguage, reason: NaturalLanguage, target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("G3が意味づけたMemory候補。根拠Event、subject、更新対象はRuntimeが検索結果から解決する")
 }).strict().describe("G3の構造化出力");
 export type G3EvaluationOutput = z.infer<typeof G3OutputSchema>;
 

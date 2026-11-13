@@ -62,10 +62,10 @@ export function createBotComposition(options: BotCompositionOptions) {
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
   const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(pool, ids, () => clock.now(), memoryEmbedding), createOllamaExperienceIntegrationModel(config.chat, logger)), ids);
   const runtimeRef: { current?: AgentRuntime } = {};
-  const fallbackG3Result = new MemoryG3ResultSink(memoryUpdateSink);
-  const g3ResultSink: G3ResultSink = { async handle(output, g3Input) {
-    if (runtimeRef.current === undefined) { await fallbackG3Result.handle(output, g3Input); return; }
-    await runtimeRef.current.process({ id: `${g3Input.sourcePredictionId}:g3-result`, agentId: g3Input.agentId, kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "prediction-g3-result", output, sourcePredictionId: g3Input.sourcePredictionId } }, AbortSignal.timeout(20_000));
+  const fallbackG3Result = new MemoryG3ResultSink();
+  const g3ResultSink: G3ResultSink = { async handle(result, g3Input) {
+    if (runtimeRef.current === undefined) { await fallbackG3Result.handle(result, g3Input); return; }
+    await runtimeRef.current.process({ id: `${g3Input.sourcePredictionId}:g3-result`, agentId: g3Input.agentId, kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "prediction-g3-result", output: result.output, toolEvidence: result.toolEvidence, sourcePredictionId: g3Input.sourcePredictionId } }, AbortSignal.timeout(20_000));
   } };
   const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
