@@ -38,6 +38,9 @@ describeDatabase("PostgreSQL persistence", () => {
   const schema = `test_${randomUUID().replaceAll("-", "")}`;
   const control = new Pool({ connectionString: databaseUrl, max: 2 });
   const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public,ext`, max: 4 });
+  const recordExperience = async (eventId: string, agentId: string, summary: string, occurredAt: Date | string) => {
+    await pool.query("INSERT INTO event_experiences(event_id,agent_id,summary,facts,subjects,occurred_at) VALUES ($1,$2,$3,'[]','[]',$4) ON CONFLICT (event_id) DO NOTHING", [eventId, agentId, summary, occurredAt]);
+  };
 
   beforeAll(async () => {
     await control.query(`CREATE SCHEMA ${schema}`);
@@ -71,7 +74,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const baselinePool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${baselineSchema},public,ext`, max: 2 });
     try {
       await mkdir(migrationMeta);
-      for (const name of await readdir(sourceRoot)) if (/^00(?:0\d|1\d|2\d|3[0-2])_.*\.sql$/u.test(name)) await copyFile(new URL(name, sourceRoot), join(migrationRoot, name));
+      for (const name of await readdir(sourceRoot)) if (/^00(?:0\d|1\d|2\d|3[0-4])_.*\.sql$/u.test(name)) await copyFile(new URL(name, sourceRoot), join(migrationRoot, name));
       const journal = JSON.parse(await readFile(new URL("meta/_journal.json", sourceRoot), "utf8")) as { entries: { idx: number }[] };
       await writeFile(join(migrationMeta, "_journal.json"), JSON.stringify({ ...journal, entries: journal.entries.filter(({ idx }) => idx < 29) }));
       await control.query(`CREATE SCHEMA ${baselineSchema}`);
@@ -86,6 +89,9 @@ describeDatabase("PostgreSQL persistence", () => {
       await copyFile(new URL("0029_concern_activities.sql", sourceRoot), join(migrationRoot, "0029_concern_activities.sql"));
       await copyFile(new URL("0030_reflection_attempts.sql", sourceRoot), join(migrationRoot, "0030_reflection_attempts.sql"));
       await copyFile(new URL("0031_reflection_memory_batches.sql", sourceRoot), join(migrationRoot, "0031_reflection_memory_batches.sql"));
+      await copyFile(new URL("0032_event_projections.sql", sourceRoot), join(migrationRoot, "0032_event_projections.sql"));
+      await copyFile(new URL("0033_exclude_tool_result_projections.sql", sourceRoot), join(migrationRoot, "0033_exclude_tool_result_projections.sql"));
+      await copyFile(new URL("0034_event_experiences.sql", sourceRoot), join(migrationRoot, "0034_event_experiences.sql"));
       await copyFile(new URL("meta/_journal.json", sourceRoot), join(migrationMeta, "_journal.json"));
       await migrate(baselinePool, migrationRoot);
       await migrate(baselinePool, migrationRoot);
@@ -544,6 +550,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {
     await pool.query("UPDATE agent_states SET concerns=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ id: "concern-1", description: "信頼を守る方法を確認する", whyItMatters: "約束を重視している", status: "active" }])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
+    await recordExperience("reflection-event", "a", "約束を果たした", fixtureInstant);
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('reflection-evidence','a','episodic','約束を果たした経験','信頼が深まった',now(),'pending') ON CONFLICT DO NOTHING");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-concern", "reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");
@@ -610,6 +617,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-60, AC-15: records memory failure as blocked targets and leaves the reflection retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-fail-event','a','user-message',$1,'test','completed',now())", [{ summary: "再試行対象の出来事" }]);
+    await recordExperience("reflection-fail-event", "a", "再試行対象の出来事", new Date());
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-fail-memory"]), () => new Date("2026-01-02T00:00:00Z"), { enqueue: () => Promise.resolve(), enqueueAndWait: () => Promise.reject(new Error("memory unavailable")) });
     const input = await repository.load("reflection-fail", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     const output = { memories: [{ summary: "失敗時の記憶", significance: "再試行の確認", subjects: [], occurredAt: fixtureInstant }], concernChanges: [], relationshipChanges: [], evidenceMemoryIds: [] };
@@ -621,6 +629,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-42, NFR-7: records Reflection validation paths without persisting invalid model output", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-validation-event','a','internal',$1,'test','completed',now())", [{ summary: "検証失敗を監査する" }]);
+    await recordExperience("reflection-validation-event", "a", "検証失敗を監査する", new Date());
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-validation", "a");
     if (input === undefined) throw new Error("Reflection input was not created");
@@ -638,6 +647,7 @@ describeDatabase("PostgreSQL persistence", () => {
       { id: "concern-removed", description: "重複を消す", whyItMatters: "重複しているため", status: "active" }
     ])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-lifecycle-event','a','internal',$1,'test','completed',now())", [{ summary: "Concernを整理する経験" }]);
+    await recordExperience("reflection-lifecycle-event", "a", "Concernを整理する経験", new Date());
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-lifecycle", "a");
     if (input === undefined) throw new Error("Reflection input was not created");
@@ -674,6 +684,7 @@ describeDatabase("PostgreSQL persistence", () => {
       ('stale-presented-1','a','stale-close','presented','stale-session-1','[]','2026-01-01T00:00:00.000Z'),
       ('stale-presented-2','a','stale-close','presented','stale-session-2','[]','2026-01-10T00:00:00.000Z')`);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('stale-close-event','a','internal',$1,'test','completed','2026-02-10T00:00:00.000Z')", [{ summary: "Concernを再検討する" }]);
+    await recordExperience("stale-close-event", "a", "Concernを再検討する", "2026-02-10T00:00:00.000Z");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
     const input = await repository.load("stale-close-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     const output = { memories: [], concernChanges: [{ operation: "upsert" as const, concern: { id: "reviewed-now", description: "今回見直す関心", whyItMatters: "まだ判断する", status: "active" as const } }], relationshipChanges: [], evidenceMemoryIds: [] };
@@ -691,6 +702,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-60, NFR-17: persists target attempts and leaves only failed targets retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('target-attempt-event','a','internal',$1,'test','completed',now())", [{ summary: "対象別に統合する" }]);
+    await recordExperience("target-attempt-event", "a", "対象別に統合する", new Date());
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("target-attempt-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     await expect(repository.beginTarget(input, "memory")).resolves.toBe("pending");
@@ -715,7 +727,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Evidence Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Evidence story','[]','[]','[]','Calm')", [agentId]);
     const eventIds = Array.from({ length: 32 }, (_, index) => `reflection-evidence-event-${String(index + 1).padStart(2, "0")}`);
-    for (const [index, eventId] of eventIds.entries()) await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary: `経験 ${String(index + 1)}` }, new Date(Date.UTC(2026, 2, 1, 0, index, 0))]);
+    for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 1, 0, index, 0)); const summary = `経験 ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, agentId, summary, occurredAt); }
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-memory-evidence-id"]), () => new Date("2026-03-02T00:00:00Z"));
     const input = await repository.load("reflection-memory-evidence", agentId); if (input === undefined) throw new Error("Reflection input was not created");
     expect(input.events).toHaveLength(32);
@@ -742,8 +754,8 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Batch Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Batch story','[]','[]','[]','Calm')", [agentId]);
     const eventIds = Array.from({ length: 64 }, (_, index) => `reflection-batch-event-${String(index + 1).padStart(2, "0")}`);
-    for (const [index, eventId] of eventIds.entries()) await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary: `batch experience ${String(index + 1)}` }, new Date(Date.UTC(2026, 2, 3, 0, index, 0))]);
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["memory-batch-0", "memory-batch-1"]), () => new Date("2026-03-04T00:00:00Z"));
+    for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 3, 0, index, 0)); const summary = `batch experience ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, agentId, summary, occurredAt); }
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["memory-batch-0", "memory-batch-1", "memory-batch-2", "memory-batch-3"]), () => new Date("2026-03-04T00:00:00Z"));
     const input = await repository.load("reflection-memory-batches", agentId); if (input === undefined) throw new Error("Reflection input was not created");
     expect(input.events).toHaveLength(64);
     await repository.beginTarget(input, "memory");

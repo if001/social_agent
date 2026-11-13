@@ -5,8 +5,13 @@ import type { AgentCoreInput, AgentRunResult, DomainEvent, MemoryIntent } from "
 import { MemoryIntentSchema, RelationshipChangeSchema } from "../domain/contracts.js";
 
 const MoodSchema = z.string().trim().min(1).max(160);
+export const EventExperienceSchema = z.object({
+  summary: z.string().trim().min(1).max(800).describe("確定した今回のEventで起きたこと・選択・結果を1〜2文で要約する。起動理由、Meaning、Feeling、Desire、未確認の推測は書かない"),
+  facts: z.array(z.string().trim().min(1).max(240)).max(4).describe("summaryと重複しない、今回のEventで確認できた具体的事実。固定のtrigger reasonやTool失敗そのものは書かない")
+}).strict().describe("commit後に形成する、Reflectionと検索のためのEvent固有経験");
 
 export const ExperienceIntegrationOutputSchema = z.object({
+  experience: EventExperienceSchema.nullable().default(null).describe("今回のEventから再利用可能な具体的経験。形成不能または保存不要ならnull"),
   memories: z.array(MemoryIntentSchema).max(3).describe("長期に再利用する経験だけ。単発のTool失敗や応答文の転載は保存しない"),
   relationship: RelationshipChangeSchema.optional().describe("今回の相手との関係が持続的に変わったときだけ指定する"),
   mood: MoodSchema.optional().describe("次の複数Eventに残る背景的な気分。今回だけのFeelingや待機理由は入れない")

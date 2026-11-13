@@ -293,6 +293,8 @@ type Observation = {
 
 Observationの時点では、意味解釈やFeelingを含めない。
 
+Event完了後には、commit済みのAction、Tool結果、状態変化を根拠にExperience IntegrationがEvent Experience（具体的なsummaryとfacts）を形成できる。これは開始時Observationとは別の永続記録であり、固定trigger reason、Meaning、Feeling、Desireを含めない。ReflectionのMemory Formationと関連Event検索は、Event Experienceを持つEventだけを根拠にする。
+
 ## 10. Meaning と Feeling
 
 Meaningは、このEvent / Observationが現在の自分にとって何を意味したかを表す。Feelingは、その意味づけによって生じた短期的な感情反応である。

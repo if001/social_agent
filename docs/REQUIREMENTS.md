@@ -219,6 +219,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-72：Memory Reconciliationは、全Memoryの定期全件走査をせず、新規Formationによる影響、利用・Concernの根拠、未再検討、遠い連想のいずれかを理由として選ばれたアンカーMemoryまたは局所クラスターだけを扱う。1 Sessionでは理由ごとに最大1件、合計最大4件のアンカーを選び、理由間をround-robinして最新順だけに偏らないようにする。各アンカーは関連Memory最大6件と関連Event最大16件までを取得できる。Reflectorは再活性化理由、参照した根拠、結果を監査する。（C-03, C-10, C-15、追加：全件走査を避けつつ再活性化の選択を検証可能にするため）
 - FR-73：Reconciliationでは、episodic Memoryを内容更新しない。semantic / common-groundは後続経験による確認・訂正がある場合だけ更新し、矛盾は新旧の根拠と時刻を保持して整理する。self-related / self-changeは複数経験の反復を根拠に統合、弱化、更新または分割できる。単なる内容一致、古い根拠、または根拠なしで既存Memoryを上書きしない。（C-03, C-10, C-15、追加）
 - FR-74：Conversation MemoryとBackground Experienceの既存Hybrid Retrievalは共通RetrievalServiceで継続する。Reconciliation用の関連Event検索は、Event IDによる直接参照とは別に、agent所有権、時刻、Event種別、subject、keyword、vectorを持つEvent projectionを検索対象とし、同じhybrid rankingの契約へ追加する。元Eventは監査の正本として保持し、projectionは検索専用の派生データとする。（C-10, C-20, C-27、追加）
+- FR-75：Tool Resultは監査記録として保持するが、通常のEvent projection・embedding・Reflection検索の対象にしない。Experience Integrationはcommit済みのEvent、Action、Tool結果、State変更からEvent固有のsummaryとfactsを形成し、Memory FormationとEvent検索はこのEvent Experienceだけを根拠にする。固定trigger reason、Meaning、Feeling、未確認の推測だけからExperienceやMemoryを形成しない。Experience形成の失敗は親Eventのcommitを巻き戻さず、そのEventをMemory Formation対象から除外する。（C-10, C-16, C-22、追加）
 - FR-61：memory-update EventはsourceEventIdとintentIndexで冪等にし、部分的なintentだけをcommitしない。（C-50, C-52）
 - FR-62：predictionContextは前回予測、誤差評価、G3要約とmemoryIntents、RecentExperienceのeffect、memoryCandidatesを持つ。（C-51, C-62, C-66）
 - FR-63：G1/G2の追加LLM callはNFRの例外とし、deadlineとcall予算を持つ。（C-70）

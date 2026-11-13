@@ -27,6 +27,7 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
   async apply(input: ExperienceIntegrationInput, output: ExperienceIntegrationOutput): Promise<void> {
     const embedding = this.embedding;
     const embeddings = embedding === undefined ? [] : await Promise.all(output.memories.map(({ content }) => embedding.prepareMemory(content)));
+    const experienceEmbedding = output.experience === null || embedding === undefined ? undefined : await embedding.prepareMemory(output.experience.summary);
     await new PostgresUnitOfWork(this.pool).transaction(async (client) => {
       const stateRepository = new AgentStateRepository(client);
       const row = await stateRepository.find<{ version: number; mood: string; relationships: unknown }>(input.agentId);
@@ -46,6 +47,14 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       for (const change of changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [this.ids.next(), input.sourceRunId, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), "Experience Integration", JSON.stringify([input.sourceEvent.id])]);
       const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories);
       for (const [index, intent] of output.memories.entries()) await memory.apply(input.agentId, intent, { sourceEventId: input.sourceEvent.id, intentIndex: 10_000 + index, subjectIds: subjects[index] ?? [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+      if (output.experience !== null) {
+        const actor = input.input.observation.actor;
+        const subjectsForExperience = actor?.type === "human" || actor?.type === "agent" ? [actor.id] : [];
+        const vector = experienceEmbedding?.vector === undefined ? null : `[${experienceEmbedding.vector.join(",")}]`;
+        const status = experienceEmbedding?.status ?? "pending";
+        await client.query("INSERT INTO event_experiences(event_id,agent_id,integration_id,summary,facts,subjects,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (event_id) DO NOTHING", [input.sourceEvent.id, input.agentId, input.integrationId, output.experience.summary, JSON.stringify(output.experience.facts), JSON.stringify(subjectsForExperience), input.sourceEvent.occurredAt]);
+        await client.query("INSERT INTO event_projections(event_id,agent_id,kind,content,subjects,occurred_at,embedding,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7::vector,$8) ON CONFLICT (event_id) DO NOTHING", [input.sourceEvent.id, input.agentId, input.sourceEvent.kind, output.experience.summary, JSON.stringify(subjectsForExperience), input.sourceEvent.occurredAt, vector, status]);
+      }
       await client.query("UPDATE experience_integrations SET status='completed',output=$2,applied=$3,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.integrationId, JSON.stringify(output), JSON.stringify({ memoryCount: output.memories.length, stateChanges: changes.map(({ target, operation }) => ({ target, operation })) })]);
     });
   }

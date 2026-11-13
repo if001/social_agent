@@ -93,7 +93,7 @@ export class PostgresRetrievalService implements RetrievalService, EventRetrieva
       SELECT ep.*, CASE WHEN $2::text IS NULL OR ep.embedding IS NULL OR ep.embedding_status<>'ready' THEN NULL ELSE 1-(ep.embedding <=> $2::vector) END AS similarity,
         (SELECT count(*)::int FROM unnest($3::text[]) keyword WHERE length(keyword)>=2 AND position(keyword IN lower(ep.content))>0) AS keyword_hits,
         (SELECT count(*)::int FROM jsonb_array_elements_text(ep.subjects) subject WHERE subject=ANY($4::text[])) AS subject_hits
-      FROM event_projections ep WHERE ep.agent_id=$1 AND ($5::text[] IS NULL OR ep.kind=ANY($5::text[])) AND ($6::timestamptz IS NULL OR ep.occurred_at >= $6) AND ($7::timestamptz IS NULL OR ep.occurred_at <= $7)
+      FROM event_projections ep WHERE ep.agent_id=$1 AND ep.kind<>'tool-result' AND ($5::text[] IS NULL OR ep.kind=ANY($5::text[])) AND ($6::timestamptz IS NULL OR ep.occurred_at >= $6) AND ($7::timestamptz IS NULL OR ep.occurred_at <= $7)
     ), ranked AS (SELECT *,
       CASE WHEN similarity IS NULL THEN NULL ELSE row_number() OVER (ORDER BY similarity DESC NULLS LAST,occurred_at DESC,event_id) END AS vector_rank,
       CASE WHEN keyword_hits=0 THEN NULL ELSE row_number() OVER (ORDER BY keyword_hits DESC,occurred_at DESC,event_id) END AS keyword_rank,
