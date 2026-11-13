@@ -140,12 +140,14 @@ flowchart TD
     MW --> MEM
 
     subgraph RS[Reflection Session]
-      MR[Memory Reflector] --> CR[Concern Reflector]
+      MF[Memory Formation<br/>未統合Event -> 新規Memory] --> MR[Memory Reconciliation<br/>再活性化Memory -> 局所再統合]
+      MR --> CR[Concern Reflector]
       MR --> RR[Relationship Reflector]
       CR --> SM[Self / Mood Reflector]
       RR --> SM
     end
-    EVTLOG[Event log / Tool結果 / Action結果] --> MR
+    EVTLOG[Event log / Tool結果 / Action結果] --> MF
+    MF --> MW
     MEM --> MR
     STATE --> CR
     STATE --> RR
@@ -175,6 +177,9 @@ flowchart TD
 - `memory-update` Eventは専用のMemoryUpdateHandlerが処理し、LLMを呼ばない。user-messageを優先し、強制中断はしない。
 - G3はMainAgentとは別のDeepAgentであり、仮説評価とMemoryIntentをMainAgentへ渡す。
 - Reflectionだけが複数経験とMemory根拠に基づいてIdentity、Disposition、Self Story、Commitmentsを変更できる。Sessionはtargetごとのattemptとstatusを持つ。
+- ReflectionのMemory処理は二段階である。Memory Formationは未統合Eventを古い順に最大16件ずつ読み、新しい経験だけを形成する。Memory Reconciliationは、Formation、利用・Concern根拠、未再検討、遠い連想で再活性化された少数の既存Memoryを起点に、関連Memory・関連Eventを取得して局所的に再統合する。全Memoryを定期走査しない。
+- episodicは出来事として維持する。semantic / common-groundは後続根拠による確認・訂正だけを更新し、矛盾は新旧の時刻と根拠を残す。self-related / self-changeは反復した経験に基づいて統合、弱化、更新または分割できる。古い経験や内容一致だけで新しいMemoryを上書きしない。
+- 関連Eventの意味検索は、監査正本のEventとは別の検索専用Event projectionを用い、既存のMemory / Background Experience Hybrid Retrievalと同じvector、keyword、subject、recencyの契約で取得する。根拠Event IDの直接参照は正本Eventを使う。
 - 背景経験は起動前に生成する別Storeであり、会話由来Memoryとは更新経路を分ける。起動後に変更しない。
 - 初期設定は初期化時にSelfとStateの種を作る。既存の獲得状態は通常の再適用では保持し、明示的な上書き操作だけが設定値を再投入する。
 - Schedulerは心理状態を変更しない。Eventを生成して再評価の機会を作るだけである。
@@ -217,7 +222,7 @@ sequenceDiagram
     MU->>MW: RAG候補 + MemoryWriteService
     P->>G3: needsG3
     G3-->>C: 仮説評価 + MemoryIntent
-    R->>MW: Memory Reflectorの確定Memory
+    R->>MW: Formation / Reconciliation の確定Memory
 ```
 
 - G1/G2は応答後に追加のLLM callで予測し、次ターンのユーザー発話との誤差を1ターン遅れで評価する。
@@ -369,7 +374,7 @@ flowchart LR
 
 予測誤差は、MainAgentのMeaning / Feeling、誤差低減のDesire、Actionを変え得る。Actionの結果はRecentExperienceへ記録し、MemoryIntentとしてMemoryWriteServiceへ渡す。MemoryWriteServiceはRAG候補からcreate / update / no-opを決め、会話由来Memoryを更新する。更新後のMemoryと背景経験は、次のPredictionとMainAgentのContextで再利用する。予測誤差が減ることは保証せず、誤ったMemory更新、信念維持、no-opも許容する。
 
-Reflectionは通常Action・外部探索・日常的Concern消化を行わない。SessionはMemory、Concern / Relationship、Self / Moodの順に対象別Reflectorを実行する。各Reflectorは専用Skillとread-only Toolで必要な根拠だけを取り、完全なStateへ差分commitする。Concern ActivityはConcernごとの因果を記録し、選択Contextに含まれないConcernを消さない。
+Reflectionは通常Action・外部探索・日常的Concern消化を行わない。SessionはMemory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順に対象別Reflectorを実行する。Formationは未統合Eventから新しい経験だけを作り、Reconciliationは再活性化された既存Memoryを局所的に補強・訂正・分割・維持する。各Reflectorは専用Skillとread-only Toolで必要な根拠だけを取り、完全なStateへ差分commitする。Concern ActivityはConcernごとの因果を記録し、選択Contextに含まれないConcernを消さない。
 
 Conversation Memoryは元会話やTool結果の保管場所ではない。後の検索で状況と判断への影響を復元できる、具体的な経験の要点を1〜2文で持つ。完全な本文が必要な場合は、Recent Experienceを肥大化させず、保存済みsnapshot IDやpathをToolで再参照する。Background ExperienceはConversation Memoryとは別Storeに保持し、起動後に更新しない。
 
@@ -378,7 +383,7 @@ Conversation Memoryは元会話やTool結果の保管場所ではない。後の
 - AgentごとにSelf、State、Conversation Memory、Background Experience、Tool権限を分離する。
 - Event、Prediction Evaluation、Assessment、Desire、Action、Concern proposal、Tool実行、配送、Experience Integration、MemoryIntent、MemoryUpdate、Reflectionを追跡可能にする。
 - Action、Concern proposal、Outboxを同じ初回transaction境界で確定する。Experience Integrationの入力・出力・適用結果または失敗は別の監査記録に残す。
-- G1/G2のMemoryIntentはmemory-update Eventで適用する。通常応答とG3再判断後のMemoryIntentはExperience Integrationが適用し、ReflectionのMemory ReflectorはSession内でMemoryWriteServiceへ確定する。
+- G1/G2のMemoryIntentはmemory-update Eventで適用する。通常応答とG3再判断後のMemoryIntentはExperience Integrationが適用し、ReflectionのFormation / ReconciliationはSession内でMemoryWriteServiceへ確定する。
 - Conversation Memoryの書込みはMemoryWriteServiceだけが行い、Memory versionを照合する。旧直接INSERTを残さない。
 - Background ExperienceはConversation Memoryと別Storeに保持し、起動後に更新しない。
 - predictionEvaluationはFeelingではなく、Meaning / Feelingを確定するのはMainAgentだけとする。
