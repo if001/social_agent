@@ -733,19 +733,25 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','[]','Calm')", [agentId]);
     await pool.query(`INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES
       ('reconciliation-old',$1,'semantic','以前からある事実','後続Eventで再検討できる','2026-01-01T00:00:00Z','pending'),
+      ('reconciliation-episodic',$1,'episodic','一回の出来事','書き換えない','2026-01-01T00:00:00Z','pending'),
+      ('reconciliation-no-later',$1,'semantic','後続Eventのない事実','まだ再検討できない','2026-01-02T12:00:00Z','pending'),
       ('reconciliation-formed',$1,'self-change','今回Formationした経験','まだ後続Eventがない','2026-01-02T00:00:00Z','pending')`, [agentId]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reconciliation-later-event',$1,'internal',$2,'test','completed','2026-01-02T00:00:00Z')", [agentId, { summary: "既存Memoryより後の経験" }]);
     await pool.query("INSERT INTO memory_mutations(id,agent_id,memory_id,operation,source_event_id,intent_index,intent) VALUES ('reconciliation-formed-mutation',$1,'reconciliation-formed','create',$2,0,'{}')", [agentId, `${reflectionId}:memory:0`]);
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-03T00:00:00Z"));
     const session: ReflectionInput = {
       reflectionId, agentId, expectedVersion: 0,
       self: { identity: "Reconciliation Agent", disposition: "Careful", selfStory: "Story", commitments: [] },
       state: { mood: "Calm", concerns: [], relationships: [] },
+      eventWindowEnd: "2026-01-03T00:00:00Z",
       events: [{ id: "reconciliation-event", occurredAt: "2026-01-03T00:00:00Z", summary: "現在のEvent" }],
       memories: []
     };
     const selected = await repository.reconciliationInput(session);
     expect(selected.memories.map(({ id }) => id)).toContain("reconciliation-old");
     expect(selected.memories.map(({ id }) => id)).not.toContain("reconciliation-formed");
+    expect(selected.memories.map(({ id }) => id)).not.toContain("reconciliation-episodic");
+    expect(selected.memories.map(({ id }) => id)).not.toContain("reconciliation-no-later");
   });
 
   it("C-10, C-55, FR-10, FR-57: commits only the Memory Reflector's selected evidence from a 32 Event Session", async () => {

@@ -29,6 +29,7 @@ describe("structured Reflection model", () => {
   it("FR-60: repairs a target Reflector against its own schema rather than the legacy combined Reflection schema", () => {
     const message = reflectionStructuredOutputRepairMessageFor("memory");
     expect(message).toContain("memories 配列だけ");
+    expect(message).toContain("最大4件");
     expect(message).toContain("episodic / semantic / self-related / self-change / common-ground");
     expect(message).not.toContain("concernChanges");
   });
@@ -58,6 +59,7 @@ describe("structured Reflection model", () => {
     expect(skill("reflection-memory")).toContain('{"memories":[]}');
     expect(skill("reflection-memory")).toContain("既存Memoryを更新しない");
     expect(skill("reflection-memory")).toContain("self`や`user`は`perspective`");
+    expect(skill("reflection-memory")).toContain("最大4件");
   });
 
   it("FR-71: gives a Formation Reflector only its bounded Event batch, not existing Memory bodies", async () => {
@@ -86,6 +88,24 @@ describe("structured Reflection model", () => {
     expect(payload.outputSchema).toBeDefined();
     expect(payload.validationIssues).toEqual([{ code: "custom", path: [], message: "Reflector returned no structured output after its Tool loop" }]);
     expect(payload.invalidOutput).toBeNull();
+  });
+
+  it("FR-42, NFR-7: repairs five Memory candidates into the schema maximum of four", async () => {
+    const memory = (index: number) => ({
+      content: `今後も使う経験 ${String(index)}`,
+      reason: `判断に再利用する理由 ${String(index)}`,
+      evidenceEventIds: ["event-1"],
+      target: "semantic",
+      perspective: "self",
+      subjects: []
+    });
+    const first: ReflectionInvoker = { invoke: () => Promise.resolve({ structuredResponse: { memories: [1, 2, 3, 4, 5].map(memory) } }) };
+    const repair: ReflectionInvoker = { invoke: () => Promise.resolve({ structuredResponse: { memories: [1, 2, 3, 4].map(memory) } }) };
+
+    const result = await new TargetStructuredReflectionModel(first, repair, MemoryReflectorOutputSchema, "memory prompt", noopLogger)
+      .reflect({ reflectionId: input.reflectionId, events: input.events }, new AbortController().signal, input.agentId, input.reflectionId);
+
+    expect((result.output as { memories: unknown[] }).memories).toHaveLength(4);
   });
 
   it("FR-42: includes fixed input, allowed IDs, schema, and validation details in a repair payload", () => {

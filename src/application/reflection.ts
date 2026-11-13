@@ -110,7 +110,7 @@ export const ReflectionMemoryIntentSchema = z.object({
   if (new Set(value.evidenceEventIds).size !== value.evidenceEventIds.length) context.addIssue({ code: "custom", path: ["evidenceEventIds"], message: "Memory evidence Event IDs must be distinct" });
 });
 export const MemoryReflectorOutputSchema = z.object({
-  memories: z.array(ReflectionMemoryIntentSchema).max(4).describe("今後の判断に再利用する、根拠Eventを選別済みのMemoryIntent。保存不要なら空配列")
+  memories: z.array(ReflectionMemoryIntentSchema).max(4).describe("今後の判断に再利用する、根拠Eventを選別済みのMemoryIntent。最大4件まで返す。候補が5件以上なら、今後の判断への影響と根拠の強さで上位4件だけを選び、残りは次回のReflectionへ回す。保存不要なら空配列")
 }).strict();
 export const MemoryReconciliationChangeSchema = z.object({
   memoryId: Id.describe("初期入力のanchorに含まれる既存Memory ID。関連検索で見つけたMemoryを直接変更しない"),
