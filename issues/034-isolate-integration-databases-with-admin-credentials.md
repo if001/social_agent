@@ -20,7 +20,7 @@ requires: agent
 ## Scope
 
 - integration test全体の隔離database fixtureを追加する。
-- DDL/migrationを管理接続、repository/runtime検証を実行接続へ分離する。
+- test suite内のDDL/migrationを廃止し、repository/runtime検証を実行接続へ分離する。
 - 旧Prediction行の実DB互換読取りをintegration testへ追加する。
 
 ## Acceptance criteria
@@ -30,11 +30,11 @@ requires: agent
 
 ## Tests
 
-- AC-3：管理接続で作成した隔離databaseに対して実行接続でrepository testを通す。
+- AC-3：事前にmigration済みの隔離databaseに対して実行接続でrepository testを通す。
 - FR-48：旧fieldの正規化前後とContext読取りを実PostgreSQLで検証する。
 
 ## Result
 
-- `.env.db.test`の`TEST_ADMIN_POSTGRES_URL`だけでschema/migration/cleanupを実行し、`TEST_POSTGRES_URL`はrepository/runtime検証に限定した。
+- `.env.db.test`の`TEST_ADMIN_POSTGRES_URL`は不要レコードのcleanupだけに使い、`TEST_POSTGRES_URL`はrepository/runtime検証に限定した。
 - runtime/adminが同じ`*_test` databaseを指すことを接続後に検証してから破壊的なcleanupを行う。
 - `pnpm test:integration`（実PostgreSQL）: 51 tests passed。

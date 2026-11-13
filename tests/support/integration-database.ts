@@ -1,7 +1,5 @@
 import { Pool } from "pg";
 
-import { migrate } from "../../src/infrastructure/persistence/postgres.js";
-
 const normalizeUrl = (url: string) => url.replace("postgresql+psycopg://", "postgresql://");
 const options = "-c search_path=app,public,ext";
 
@@ -15,8 +13,8 @@ export const integrationDatabaseConfigured = () =>
   process.env.TEST_POSTGRES_URL !== undefined && process.env.TEST_ADMIN_POSTGRES_URL !== undefined;
 
 /**
- * Shared, disposable integration-test database.  DDL uses the admin role;
- * application assertions deliberately use only the runtime role.
+ * Shared, pre-migrated integration-test database. Application assertions
+ * deliberately use only the runtime role; the admin role only clears records.
  */
 export const createIntegrationDatabase = () => {
   const runtimeUrl = process.env.TEST_POSTGRES_URL;
@@ -27,7 +25,6 @@ export const createIntegrationDatabase = () => {
   const pool = new Pool({ connectionString: normalizeUrl(runtimeUrl), options, max: 4 });
   const admin = new Pool({ connectionString: normalizeUrl(adminUrl), options, max: 2 });
   const expectedDatabaseName = process.env.TEST_DATABASE_NAME ?? databaseNameFromUrl(runtimeUrl);
-  let prepared = false;
 
   const assertTestDatabase = async () => {
     const [runtime, administrator] = await Promise.all([
@@ -53,13 +50,13 @@ export const createIntegrationDatabase = () => {
     admin,
     async prepare() {
       await assertTestDatabase();
-      await admin.query("CREATE SCHEMA IF NOT EXISTS app");
-      await migrate(admin);
+      const table = await pool.query<{ agents: string | null }>("SELECT to_regclass('app.agents') AS agents");
+      if (table.rows[0]?.agents === null || table.rows[0]?.agents === undefined) {
+        throw new Error("Integration test database is not migrated: app.agents is missing");
+      }
       await clear();
-      prepared = true;
     },
     async close() {
-      if (prepared) await clear();
       await pool.end();
       await admin.end();
     }
