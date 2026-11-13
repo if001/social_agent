@@ -3,14 +3,15 @@ import type { z } from "zod";
 
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
 import { MemoryWriteService } from "../../application/memory-write-service.js";
+import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
-import { ConcernReflectorOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
+import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type ConcernActivityKind, type Relationship } from "../../domain/contracts.js";
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
 type StateRow = QueryResultRow & { identity: string; disposition: string; self_story: string; commitments: unknown; mood: string; concerns: unknown; relationships: unknown; version: number };
 type EventRow = QueryResultRow & { id: string; occurred_at: Date; observation: unknown };
-type MemoryRow = QueryResultRow & { id: string; content: string; importance: string; occurred_at: Date; created_at: Date; source_agent_id: string | null; subjects: unknown };
+type MemoryRow = QueryResultRow & { id: string; kind: "episodic" | "semantic" | "self-related" | "self-change" | "common-ground"; content: string; importance: string; occurred_at: Date; created_at: Date; source_agent_id: string | null; evidence_event_ids: unknown; subjects: unknown };
 type StaleConcernRow = QueryResultRow & { last_meaningful_at: Date | null; reflection_sessions: string };
 
 export type ConcernLifecycleSettings = {
@@ -84,7 +85,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     if (eventWindowEnd === undefined) throw new DomainError("EXTERNAL", "Could not determine Reflection Event window");
     const [eventsResult, memoriesResult] = await Promise.all([
       this.pool.query<EventRow>("SELECT id,occurred_at,observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' AND occurred_at>$2 AND occurred_at<=$3 ORDER BY occurred_at,id", [agentId, since, eventWindowEnd]),
-      this.pool.query<MemoryRow>(`SELECT m.id,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,
+      this.pool.query<MemoryRow>(`SELECT m.id,m.kind,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,m.evidence_event_ids,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects
         FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id WHERE m.agent_id=$1 GROUP BY m.id ORDER BY m.occurred_at DESC,m.id LIMIT 32`, [agentId])
     ]);
@@ -94,7 +95,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       self: SelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.self_story, commitments: row.commitments }),
       state: AgentStateSchema.parse({ mood: row.mood, concerns: row.concerns, relationships: row.relationships }),
       events: eventsResult.rows.map((event) => ({ id: event.id, occurredAt: event.occurred_at.toISOString(), summary: summaryOf(event.observation) })),
-      memories: memoriesResult.rows.map((memory) => EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) }))
+      memories: memoriesResult.rows.map((memory) => EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), kind: memory.kind, evidenceEventIds: Array.isArray(memory.evidence_event_ids) ? memory.evidence_event_ids : [], ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) }))
     });
     await this.pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input) VALUES ($1,$2,$3,'pending',$4) ON CONFLICT (id) DO NOTHING", [reflectionId, agentId, input.expectedVersion, JSON.stringify(input)]);
     const stored = await this.pool.query<ReflectionRow>("SELECT status,input FROM reflection_runs WHERE id=$1 AND agent_id=$2", [reflectionId, agentId]);
@@ -111,7 +112,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const [stateResult, memoriesResult] = await Promise.all([
       this.pool.query<StateRow>(`SELECT a.identity,s.disposition,s.self_story,s.commitments,s.mood,s.concerns,s.relationships,s.version
         FROM agents a JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1 AND a.active=true`, [input.agentId]),
-      this.pool.query<MemoryRow>(`SELECT m.id,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,
+      this.pool.query<MemoryRow>(`SELECT m.id,m.kind,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,m.evidence_event_ids,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects
         FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id WHERE m.agent_id=$1 GROUP BY m.id ORDER BY m.occurred_at DESC,m.id LIMIT 32`, [input.agentId])
     ]);
@@ -125,8 +126,38 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       self: SelfSchema.parse({ identity: state.identity, disposition: state.disposition, selfStory: state.self_story, commitments: state.commitments }),
       state: AgentStateSchema.parse({ mood: state.mood, concerns: state.concerns, relationships: state.relationships }),
       events: input.events,
-      memories: memoriesResult.rows.map((memory) => EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) }))
+      memories: memoriesResult.rows.map((memory) => EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), kind: memory.kind, evidenceEventIds: Array.isArray(memory.evidence_event_ids) ? memory.evidence_event_ids : [], ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) }))
     });
+  }
+
+  async reconciliationInput(input: ReflectionInput): Promise<ReflectionInput> {
+    // One newest eligible Memory per reason keeps the pass bounded while the
+    // recorded reason makes the selection auditable in reflection_attempts.
+    const rows = await this.pool.query<MemoryRow & { reason: ReactivationCandidate["reason"] }>(`WITH memory_pool AS (
+      SELECT * FROM memories WHERE agent_id=$1 ORDER BY updated_at DESC,id DESC LIMIT 64
+    ), candidates AS (
+      SELECT m.*, 'formation'::text AS reason FROM memory_pool m JOIN memory_mutations mm ON mm.memory_id=m.id
+        WHERE m.agent_id=$1 AND mm.agent_id=$1 AND mm.operation='create' AND mm.created_at >= now()-interval '30 days'
+      UNION ALL
+      SELECT m.*, 'concern'::text AS reason FROM memory_pool m JOIN concern_activities ca ON m.id=ANY(ARRAY(SELECT jsonb_array_elements_text(ca.evidence_memory_ids)))
+        WHERE m.agent_id=$1 AND ca.agent_id=$1
+      UNION ALL
+      SELECT m.*, 'unreviewed'::text AS reason FROM memory_pool m WHERE NOT EXISTS (SELECT 1 FROM memory_mutations mm WHERE mm.memory_id=m.id AND mm.source_event_id LIKE 'reflection:%:reconciliation%')
+      UNION ALL
+      SELECT m.*, 'distant'::text AS reason FROM memory_pool m
+    ), ranked AS (SELECT candidates.*, row_number() OVER (PARTITION BY reason ORDER BY CASE WHEN reason='distant' THEN occurred_at END ASC NULLS LAST, CASE WHEN reason<>'distant' THEN occurred_at END DESC NULLS LAST,id) AS row_number FROM candidates)
+      SELECT r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,
+        COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects,r.reason
+      FROM ranked r LEFT JOIN memory_subjects ms ON ms.memory_id=r.id WHERE r.row_number=1
+      GROUP BY r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,r.reason`, [input.agentId]);
+    const candidates = rows.rows.map((row) => ({ memoryId: row.id, reason: row.reason, occurredAt: row.occurred_at.toISOString() }));
+    const chosen = new Set(selectReactivationAnchors(candidates).map(({ memoryId }) => memoryId));
+    const byId = new Map(rows.rows.map((row) => [row.id, row]));
+    const memories = [...chosen].flatMap((id) => {
+      const memory = byId.get(id); if (memory === undefined) return [];
+      return [EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), kind: memory.kind, evidenceEventIds: Array.isArray(memory.evidence_event_ids) ? memory.evidence_event_ids : [], ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) })];
+    });
+    return ReflectionInputSchema.parse({ ...input, memories });
   }
 
   async commit(input: ReflectionInput, rawOutput: ReflectionOutput): Promise<"committed" | "duplicate"> {
@@ -138,7 +169,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
         if (this.memoryUpdateSink.enqueueAndWait !== undefined) await this.memoryUpdateSink.enqueueAndWait(sinkInput);
         else await this.memoryUpdateSink.enqueue(sinkInput);
       } catch (error) {
-        const plan = ReflectionPlanSchema.parse({ memory: "failed", self: "blocked", relationship: "blocked", concern: "blocked", errors: [{ target: "memory", message: error instanceof Error ? error.message : "MemoryUpdate failed" }] });
+        const plan = ReflectionPlanSchema.parse({ memory: "failed", reconciliation: "blocked", self: "blocked", relationship: "blocked", concern: "blocked", errors: [{ target: "memory", message: error instanceof Error ? error.message : "MemoryUpdate failed" }] });
         await this.pool.query("UPDATE reflection_runs SET status='pending',plan=$2,failure_reason=$3,updated_at=now() WHERE id=$1 AND status<>'completed'", [input.reflectionId, JSON.stringify(plan), plan.errors[0]?.message ?? "MemoryUpdate failed"]);
         return "committed";
       }
@@ -174,7 +205,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
           await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic", perspective: memory.subjects.length > 0 ? "user" : "self", purpose: memory.subjects.length > 0 ? "user-context" : "self-guidance" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(memoryEmbeddings[memoryIndex] === undefined ? {} : { embedding: memoryEmbeddings[memoryIndex] }) });
         }
       }
-      const plan = ReflectionPlanSchema.parse({ memory: "completed", self: "completed", relationship: "completed", concern: "completed", errors: [] });
+      const plan = ReflectionPlanSchema.parse({ memory: "completed", reconciliation: "completed", self: "completed", relationship: "completed", concern: "completed", errors: [] });
       await client.query("UPDATE reflection_runs SET status='completed',plan=$2,output=$3,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.reflectionId, JSON.stringify(plan), JSON.stringify(output)]);
       await client.query("COMMIT");
       return "committed";
@@ -225,6 +256,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
 
   async commitTarget(input: ReflectionInput, target: ReflectionTarget, result: ReflectorResult): Promise<void> {
     if (target === "memory") await this.#commitMemoryTarget(input, MemoryReflectorOutputSchema.parse(result.output));
+    if (target === "reconciliation") await this.#commitReconciliationTarget(input, MemoryReconciliationOutputSchema.parse(result.output));
     if (target === "concern") await this.#commitConcernTarget(input, ConcernReflectorOutputSchema.parse(result.output));
     if (target === "relationship") await this.#commitRelationshipTarget(input, RelationshipReflectorOutputSchema.parse(result.output));
     if (target === "self-mood") await this.#commitSelfMoodTarget(input, SelfMoodReflectorOutputSchema.parse(result.output));
@@ -246,6 +278,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const attempts = new Map(rows.rows.map((row) => [row.target, row]));
     const plan = ReflectionPlanSchema.parse({
       memory: attempts.get("memory")?.status ?? "pending",
+      reconciliation: attempts.get("reconciliation")?.status ?? "pending",
       concern: attempts.get("concern")?.status ?? "pending",
       relationship: attempts.get("relationship")?.status ?? "pending",
       self: attempts.get("self-mood")?.status ?? "pending",
@@ -271,6 +304,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     // only their count here prevents a maintenance-attempt audit row from
     // accidentally becoming a second, unbounded model input.
     if (target === "memory") return { eventCount: input.events.length, batchCount: Math.ceil(input.events.length / 16) };
+    if (target === "reconciliation") return { anchors: input.memories.map(({ id, kind, summary, significance, occurredAt }) => ({ id, kind, summary, significance, occurredAt })) };
     if (target === "concern") return { memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), concerns: input.state.concerns };
     if (target === "relationship") return { events: input.events.slice(-32), memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), relationships: input.state.relationships };
     return { self: input.self, mood: input.state.mood, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
@@ -302,6 +336,28 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
         await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds: memory.subjects, sourceEventId, intentIndex: index, candidates: [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
       }
     } finally { client.release(); }
+  }
+
+  async #commitReconciliationTarget(input: ReflectionInput, output: z.infer<typeof MemoryReconciliationOutputSchema>): Promise<void> {
+    const anchors = new Map(input.memories.map((memory) => [memory.id, memory]));
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const [index, change] of output.changes.entries()) {
+        const anchor = anchors.get(change.memoryId);
+        if (anchor === undefined) throw new DomainError("VALIDATION", "Reconciliation anchor is not available");
+        const sourceEventId = `${input.reflectionId}:reconciliation`;
+        if (change.operation !== "keep" && anchor.kind === "episodic") throw new DomainError("VALIDATION", "Episodic Memory cannot be changed");
+        if (change.evidenceEventIds.length > 0) {
+          const evidence = await client.query<{ id: string; occurred_at: Date }>("SELECT id,occurred_at FROM events WHERE agent_id=$1 AND id=ANY($2::text[])", [input.agentId, change.evidenceEventIds]);
+          if (evidence.rows.length !== change.evidenceEventIds.length || evidence.rows.some((event) => event.occurred_at < new Date(anchor.occurredAt))) {
+            throw new DomainError("VALIDATION", "Memory Reconciliation can only update from known later Events");
+          }
+        }
+        await new MemoryWriteService(client, this.ids, this.now).reconcile(input.agentId, change, { sourceEventId, intentIndex: index });
+      }
+      await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 
   async #commitRelationshipTarget(input: ReflectionInput, output: z.infer<typeof RelationshipReflectorOutputSchema>): Promise<void> {

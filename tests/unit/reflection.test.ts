@@ -1,4 +1,4 @@
-import { MemoryReflectorOutputSchema, Reflection, ReflectionOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
+import { MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, Reflection, ReflectionOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
 
 const input: ReflectionInput = {
   reflectionId: "reflection-1", agentId: "agent-a", expectedVersion: 2,
@@ -26,6 +26,12 @@ describe("Reflection", () => {
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: [] }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: Array.from({ length: 17 }, (_, index) => `event-${String(index)}`) }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: ["event-1", "event-1"] }] }).success).toBe(false);
+  });
+
+  it("FR-73: requires direct Event evidence for a non-episodic reconciliation update and accepts keep", () => {
+    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ memoryId: "memory-1", operation: "keep", reason: "維持する", evidenceEventIds: [], evidenceMemoryIds: [] }] }).success).toBe(true);
+    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ memoryId: "memory-1", operation: "update", content: "訂正後", reason: "後続Eventで訂正", evidenceEventIds: [], evidenceMemoryIds: ["memory-1"] }] }).success).toBe(false);
+    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ memoryId: "memory-1", operation: "split", reason: "二つの事実", evidenceEventIds: ["event-1"], evidenceMemoryIds: ["memory-1"], split: [{ content: "一つ目", reason: "理由" }, { content: "二つ目", reason: "理由" }] }] }).success).toBe(true);
   });
 
   it("C-10, FR-10: rejects a Memory Reflector result that cites an Event outside its fixed Session", async () => {

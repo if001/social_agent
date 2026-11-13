@@ -3,7 +3,7 @@ import { toolStrategy, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
 
 import { estimateTokens } from "../../application/context-builder.js";
-import { ConcernReflectorOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
+import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
 import { DomainError } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
@@ -172,7 +172,7 @@ export class StructuredReflectionModel implements ReflectionModel {
   }
 }
 
-const reflectionReadToolNames = new Set(["skill_read", "memory_search", "retrieval_search", "concern_list", "concern_get", "concern_history", "relationship_search", "self_get", "user_context_get"]);
+const reflectionReadToolNames = new Set(["skill_read", "memory_search", "event_search", "retrieval_search", "concern_list", "concern_get", "concern_history", "relationship_search", "self_get", "user_context_get"]);
 
 export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: Logger = noopLogger, systemPrompt: string = reflectionSystemPrompt, toolRegistry?: ToolRegistry, outputSchema: z.ZodType = ReflectionModelOutputSchema, allowReadTools = true): ReflectionInvoker {
   const model = createOllamaChatModel({ ...config, think: "high" });
@@ -263,17 +263,19 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
   constructor(config: OllamaChatConfig, logger: Logger = noopLogger, toolRegistry?: ToolRegistry) {
     const prompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
     const repairPrompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorのrepair担当です。読み取りToolは利用できません。渡された固定入力、許可ID、schema、validation issueだけを根拠にし、必ず指定された構造化出力Toolを一度呼んで完了してください。本文、Markdown、通常Action、ユーザーへの発話、外部副作用は返しません。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
-    const schemas: Record<ReflectionTarget, z.ZodType> = { memory: MemoryReflectorOutputSchema, concern: ConcernReflectorOutputSchema, relationship: RelationshipReflectorOutputSchema, "self-mood": SelfMoodReflectorOutputSchema };
-    this.#models = Object.fromEntries((["memory", "concern", "relationship", "self-mood"] as const).map((target) => [target, new TargetStructuredReflectionModel(
+    const schemas: Record<ReflectionTarget, z.ZodType> = { memory: MemoryReflectorOutputSchema, reconciliation: MemoryReconciliationOutputSchema, concern: ConcernReflectorOutputSchema, relationship: RelationshipReflectorOutputSchema, "self-mood": SelfMoodReflectorOutputSchema };
+    this.#models = Object.fromEntries((["memory", "reconciliation", "concern", "relationship", "self-mood"] as const).map((target) => [target, new TargetStructuredReflectionModel(
       createOllamaReflectionInvoker(config, logger, prompt(target), toolRegistry, schemas[target]),
       createOllamaReflectionInvoker(config, logger, repairPrompt(target), undefined, schemas[target], false),
       schemas[target], prompt(target), logger
     )])) as Record<ReflectionTarget, TargetStructuredReflectionModel>;
   }
   async reflect(target: ReflectionTarget, input: ReflectionInput, signal: AbortSignal): Promise<ReflectorResult> {
-    const memories = input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt }));
+    const memories = input.memories.map(({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds }) => ({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds }));
     const scoped = target === "memory"
       ? { reflectionId: input.reflectionId, events: input.events }
+      : target === "reconciliation"
+        ? { reflectionId: input.reflectionId, anchors: memories.map(({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds }) => ({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds })) }
       : target === "concern"
         ? { reflectionId: input.reflectionId, memories, concerns: input.state.concerns }
         : target === "relationship"

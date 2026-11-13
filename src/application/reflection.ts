@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { ReactivationCandidate } from "./memory-reconciliation.js";
 import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
@@ -46,10 +47,11 @@ export type ReflectionOutput = z.infer<typeof ReflectionOutputSchema>;
 export const ReflectionTargetStatusSchema = z.enum(["pending", "completed", "failed", "blocked"]);
 export const ReflectionPlanSchema = z.object({
   memory: ReflectionTargetStatusSchema,
+  reconciliation: ReflectionTargetStatusSchema.default("pending"),
   self: ReflectionTargetStatusSchema,
   relationship: ReflectionTargetStatusSchema,
   concern: ReflectionTargetStatusSchema,
-  errors: z.array(z.object({ target: z.enum(["memory", "self", "relationship", "concern"]), message: Text })).default([])
+  errors: z.array(z.object({ target: z.enum(["memory", "reconciliation", "self", "relationship", "concern"]), message: Text })).default([])
 }).strict();
 export type ReflectionPlan = z.infer<typeof ReflectionPlanSchema>;
 
@@ -88,9 +90,9 @@ export class Reflection {
 
 /** A Reflection Session's maintenance targets.  These are deliberately not Agent
  * actions: every target may only return a persisted long-term-state delta. */
-export const ReflectionTargetSchema = z.enum(["memory", "concern", "relationship", "self-mood"]);
+export const ReflectionTargetSchema = z.enum(["memory", "reconciliation", "concern", "relationship", "self-mood"]);
 export type ReflectionTarget = z.infer<typeof ReflectionTargetSchema>;
-const targetOrder: readonly ReflectionTarget[] = ["memory", "concern", "relationship", "self-mood"];
+const targetOrder: readonly ReflectionTarget[] = ["memory", "reconciliation", "concern", "relationship", "self-mood"];
 
 /**
  * A Memory Reflector chooses reusable experience and its direct evidence.
@@ -109,6 +111,22 @@ export const ReflectionMemoryIntentSchema = z.object({
 });
 export const MemoryReflectorOutputSchema = z.object({
   memories: z.array(ReflectionMemoryIntentSchema).max(4).describe("今後の判断に再利用する、根拠Eventを選別済みのMemoryIntent。保存不要なら空配列")
+}).strict();
+export const MemoryReconciliationChangeSchema = z.object({
+  memoryId: Id.describe("初期入力のanchorに含まれる既存Memory ID。関連検索で見つけたMemoryを直接変更しない"),
+  operation: z.enum(["keep", "update", "split"]).describe("keepは維持、updateは確認・訂正・弱化、splitは混在した長期Memoryを二つの独立Memoryに分ける。episodicは必ずkeep"),
+  content: MemoryIntentSchema.shape.content.optional().describe("updateまたはsplit後に残す、将来の検索に使う短いMemory本文。keepでは省略"),
+  reason: MemoryIntentSchema.shape.reason.describe("今回の再検討の理由。どの根拠が確認・訂正・反復を示すかを書く"),
+  evidenceEventIds: z.array(Id).max(16).describe("event_searchまたはanchorの直接根拠から得た、今回の変更を支持するEvent ID。keepなら空でもよい"),
+  evidenceMemoryIds: z.array(Id).max(6).describe("memory_searchで得た関連Memory ID。anchor自身を含めてもよい"),
+  split: z.array(z.object({ content: MemoryIntentSchema.shape.content, reason: MemoryIntentSchema.shape.reason }).strict()).min(2).max(2).optional().describe("operation=splitのときだけ、元Memoryから分けて新規作成する二つの本文と意義")
+}).strict().superRefine((value, context) => {
+  if (value.operation === "update" && value.content === undefined) context.addIssue({ code: "custom", path: ["content"], message: "update requires content" });
+  if (value.operation === "split" && value.split === undefined) context.addIssue({ code: "custom", path: ["split"], message: "split requires two memories" });
+  if (value.operation !== "keep" && value.evidenceEventIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceEventIds"], message: "changes require direct Event evidence" });
+});
+export const MemoryReconciliationOutputSchema = z.object({
+  changes: z.array(MemoryReconciliationChangeSchema).max(4).describe("今回選んだanchor Memoryだけの再検討結果。変更不要でも各anchorをkeepとして返す")
 }).strict();
 export const ConcernReflectorOutputSchema = z.object({
   concernChanges: z.array(ConcernChangeSchema).max(4).describe("Memory根拠に基づくConcern差分。変更不要なら空配列"),
@@ -129,7 +147,7 @@ export const SelfMoodReflectorOutputSchema = z.object({
   if ((value.self === undefined) !== (value.selfChangeReason === undefined)) context.addIssue({ code: "custom", path: ["selfChangeReason"], message: "Self changes require an explicit reason" });
   if (value.self !== undefined && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "Self changes require Memory evidence" });
 });
-export const ReflectionTargetOutputSchema = z.union([MemoryReflectorOutputSchema, ConcernReflectorOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema]);
+export const ReflectionTargetOutputSchema = z.union([MemoryReflectorOutputSchema, MemoryReconciliationOutputSchema, ConcernReflectorOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema]);
 
 export interface TargetedReflectionModel {
   reflect(target: ReflectionTarget, input: ReflectionInput, signal: AbortSignal): Promise<ReflectorResult>;
@@ -139,6 +157,7 @@ export type ReflectorResult = { readonly output: unknown; readonly toolExecution
 export interface TargetedReflectionRepository {
   load(reflectionId: string, agentId: string): Promise<ReflectionInput | undefined>;
   refresh(input: ReflectionInput): Promise<ReflectionInput>;
+  reconciliationInput?(input: ReflectionInput): Promise<ReflectionInput>;
   beginTarget(input: ReflectionInput, target: ReflectionTarget): Promise<"pending" | "completed">;
   memoryBatches(input: ReflectionInput): Promise<readonly ReflectionMemoryBatch[]>;
   beginMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch): Promise<"pending" | "completed">;
@@ -165,11 +184,15 @@ export class TargetedReflection {
     let memoryReady = true;
     let integrationReady = true;
     for (const target of targetOrder) {
+      // Older repository adapters intentionally do not provide reconciliation;
+      // keeping it optional preserves their Formation-only contract.
+      if (target === "reconciliation" && this.repository.reconciliationInput === undefined) continue;
       if (!memoryReady) { await this.repository.blockTarget(input, target); continue; }
-      if (target === "self-mood" && !integrationReady) { await this.repository.blockTarget(input, target); continue; }
+      if ((target === "self-mood" || target === "concern" || target === "relationship") && !integrationReady) { await this.repository.blockTarget(input, target); continue; }
       // A retry skips durable completed targets, but must still read their
       // effects before the next pending target decides from this Session.
-      if (await this.repository.beginTarget(input, target) === "completed") {
+      const targetInput = target === "reconciliation" && this.repository.reconciliationInput !== undefined ? await this.repository.reconciliationInput(input) : input;
+      if (await this.repository.beginTarget(targetInput, target) === "completed") {
         input = await this.repository.refresh(input);
         continue;
       }
@@ -193,13 +216,13 @@ export class TargetedReflection {
         continue;
       }
       try {
-        const result = await this.model.reflect(target, input, signal);
-        this.#validateTargetOutput(target, result.output, input);
-        await this.repository.commitTarget(input, target, result);
+        const result = await this.model.reflect(target, targetInput, signal);
+        this.#validateTargetOutput(target, result.output, targetInput);
+        await this.repository.commitTarget(targetInput, target, result);
         input = await this.repository.refresh(input);
       } catch (error) {
         await this.repository.failTarget(input, target, error);
-        if (target === "concern" || target === "relationship") integrationReady = false;
+        if (target === "reconciliation" || target === "concern" || target === "relationship") integrationReady = false;
       }
     }
     await this.repository.complete(input);
@@ -207,7 +230,15 @@ export class TargetedReflection {
 
   #validateTargetOutput(target: ReflectionTarget, raw: unknown, input: ReflectionInput): void {
     const memoryIds = new Set(input.memories.map(({ id }) => id));
-    if (target === "concern") {
+    if (target === "reconciliation") {
+      const output = MemoryReconciliationOutputSchema.parse(raw);
+      const anchors = new Map(input.memories.map((memory) => [memory.id, memory]));
+      for (const change of output.changes) {
+        const anchor = anchors.get(change.memoryId);
+        if (anchor === undefined) throw new DomainError("VALIDATION", "Memory Reconciliation referenced Memory outside its anchors");
+        if (anchor.kind === "episodic" && change.operation !== "keep") throw new DomainError("VALIDATION", "Episodic Memory is immutable during Reconciliation");
+      }
+    } else if (target === "concern") {
       const output = ConcernReflectorOutputSchema.parse(raw);
       if (output.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Concern Reflector referenced Memory outside its Session");
       const concernIds = new Set(input.state.concerns.map(({ id }) => id));

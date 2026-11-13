@@ -1,6 +1,6 @@
 import type { Pool, QueryResultRow } from "pg";
 
-import type { EmbeddingProvider, RetrievalInput, RetrievalService } from "../../application/ports.js";
+import type { EmbeddingProvider, EventRetrievalInput, EventRetrievalService, RetrievedEvent, RetrievalInput, RetrievalService } from "../../application/ports.js";
 import { memoryKeywords } from "../../application/memory-query.js";
 import type { RetrievedItem, RetrievalSignal } from "../../domain/contracts.js";
 
@@ -20,7 +20,7 @@ type Row = QueryResultRow & {
 const CONVERSATION_KINDS = ["episodic", "semantic", "self-related", "self-change", "common-ground"] as const;
 const rank = (value: string | null): number | undefined => value === null ? undefined : Number(value);
 
-export class PostgresRetrievalService implements RetrievalService {
+export class PostgresRetrievalService implements RetrievalService, EventRetrievalService {
   constructor(
     private readonly pool: Pool,
     private readonly embeddingProvider?: EmbeddingProvider
@@ -80,5 +80,27 @@ export class PostgresRetrievalService implements RetrievalService {
       matchedBy.push("recency");
       return { source: row.source, id: row.id, kind: row.kind, content: row.content, occurredAt: row.occurred_at.toISOString(), importance: row.importance, matchedBy, finalRank: index + 1 };
     });
+  }
+
+  async retrieveEvents(input: EventRetrievalInput): Promise<readonly RetrievedEvent[]> {
+    const keywords = memoryKeywords([input.query]).map((value) => value.toLocaleLowerCase("ja"));
+    let embedding: readonly number[] = [];
+    if (this.embeddingProvider !== undefined && input.query.trim() !== "") {
+      try { embedding = (await this.embeddingProvider.embed([input.query], new AbortController().signal))[0] ?? []; } catch { embedding = []; }
+    }
+    const vector = embedding.length === 0 ? null : `[${embedding.join(",")}]`;
+    const rows = await this.pool.query<{ event_id: string; kind: string; content: string; occurred_at: Date; vector_rank: string | null; keyword_rank: string | null; subject_rank: string | null }>(`WITH scored AS (
+      SELECT ep.*, CASE WHEN $2::text IS NULL OR ep.embedding IS NULL OR ep.embedding_status<>'ready' THEN NULL ELSE 1-(ep.embedding <=> $2::vector) END AS similarity,
+        (SELECT count(*)::int FROM unnest($3::text[]) keyword WHERE length(keyword)>=2 AND position(keyword IN lower(ep.content))>0) AS keyword_hits,
+        (SELECT count(*)::int FROM jsonb_array_elements_text(ep.subjects) subject WHERE subject=ANY($4::text[])) AS subject_hits
+      FROM event_projections ep WHERE ep.agent_id=$1 AND ($5::text[] IS NULL OR ep.kind=ANY($5::text[])) AND ($6::timestamptz IS NULL OR ep.occurred_at >= $6) AND ($7::timestamptz IS NULL OR ep.occurred_at <= $7)
+    ), ranked AS (SELECT *,
+      CASE WHEN similarity IS NULL THEN NULL ELSE row_number() OVER (ORDER BY similarity DESC NULLS LAST,occurred_at DESC,event_id) END AS vector_rank,
+      CASE WHEN keyword_hits=0 THEN NULL ELSE row_number() OVER (ORDER BY keyword_hits DESC,occurred_at DESC,event_id) END AS keyword_rank,
+      CASE WHEN subject_hits=0 THEN NULL ELSE row_number() OVER (ORDER BY subject_hits DESC,occurred_at DESC,event_id) END AS subject_rank,
+      row_number() OVER (ORDER BY occurred_at DESC,event_id) AS recency_rank FROM scored)
+      SELECT event_id,kind,content,occurred_at,vector_rank,keyword_rank,subject_rank FROM ranked ORDER BY
+        COALESCE(1.0/(60+vector_rank),0)+COALESCE(1.0/(60+keyword_rank),0)+COALESCE(1.0/(60+subject_rank),0)+0.25/(60+recency_rank) DESC,occurred_at DESC,event_id LIMIT $8`, [input.agentId, vector, keywords, input.subjectIds ?? [], input.kinds ?? null, input.occurredAfter ?? null, input.occurredBefore ?? null, Math.min(Math.max(input.limit, 1), 16)]);
+    return rows.rows.map((row) => ({ id: row.event_id, kind: row.kind, content: row.content, occurredAt: row.occurred_at.toISOString(), matchedBy: [rank(row.vector_rank) === undefined ? undefined : "vector", rank(row.keyword_rank) === undefined ? undefined : "keyword", rank(row.subject_rank) === undefined ? undefined : "subject", "recency"].filter((signal): signal is "vector" | "keyword" | "subject" | "recency" => signal !== undefined) }));
   }
 }
