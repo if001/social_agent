@@ -8,6 +8,7 @@ import {
   StructuredReflectionModel,
   TargetStructuredReflectionModel,
   reflectionStructuredOutputRepairMessageFor,
+  reflectionConcernContext,
   reflectionToolResultForModel,
   reflectionToolRunScope,
   reflectionSystemPrompt,
@@ -27,6 +28,31 @@ const input: ReflectionInput = {
 };
 
 describe("structured Reflection model", () => {
+  it("FR-41, FR-60: bounds Concern Reflector input to active lifecycle candidates", () => {
+    const concerns = Array.from({ length: 100 }, (_, index) => ({
+      id: `concern-${String(index)}`,
+      description: `継続中のConcern ${String(index)} ${"本文".repeat(80)}`,
+      whyItMatters: `理由 ${"根拠".repeat(80)}`,
+      status: "active" as const,
+      ...(index === 99 ? { reconsiderAt: "2025-12-31T00:00:00.000Z" } : {})
+    }));
+    const context = reflectionConcernContext({ ...input, state: { ...input.state, concerns: [...concerns, { id: "satisfied", description: "完了", whyItMatters: "完了した", status: "satisfied" }] } }, new Date("2026-01-01T00:00:00.000Z"));
+
+    expect(context.stats).toMatchObject({ total: 101, active: 100, selected: 16, overdue: 1, memorySelected: 1 });
+    expect(context.concerns).toHaveLength(16);
+    expect(context.concerns[0]?.description).toContain("Concern 99");
+    expect(JSON.stringify(context.concerns)).not.toContain("satisfied");
+  });
+
+  it("FR-41, FR-60: selects whole records within the fixed Concern input budget", () => {
+    const long = "本文".repeat(8_000);
+    const concerns = Array.from({ length: 16 }, (_, index) => ({ id: `long-${String(index)}`, description: long, whyItMatters: long, status: "active" as const }));
+    const context = reflectionConcernContext({ ...input, state: { ...input.state, concerns } });
+    expect(context.stats.estimatedContentTokens).toBeLessThanOrEqual(5_000);
+    expect(context.concerns).toHaveLength(0);
+    expect(context.stats).toMatchObject({ active: 16, selected: 0 });
+    expect(context.concerns.every(({ description, whyItMatters }) => description === long && whyItMatters === long)).toBe(true);
+  });
   it("FR-80: hides persistent IDs, local handles, and cursors from Reflection Tool results", () => {
     expect(reflectionToolResultForModel({ id: "event-1", content: "根拠", nested: { memoryId: "memory-1", cursor: "next", summary: "残す" } })).toEqual({ content: "根拠", nested: { summary: "残す" } });
   });

@@ -676,6 +676,35 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("DELETE FROM reflection_runs WHERE id=ANY($1::text[])", [["stale-session-1", "stale-session-2", "stale-close-reflection"]]);
   });
 
+  it("FR-25, FR-60: targeted Concern passes record presentation and eventually close a stale Concern", async () => {
+    const agentId = "targeted-concern-close-agent";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Targeted Concern Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]',$2,'[]','Calm')", [agentId, JSON.stringify([{ id: "targeted-stale", description: "進展のないConcern", whyItMatters: "以前は重要だった", status: "active" }])]);
+    await pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,evidence_memory_ids,occurred_at) VALUES ('targeted-stale-baseline',$1,'targeted-stale','baseline','[]','2025-12-01T00:00:00.000Z')", [agentId]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('targeted-close-event-1',$1,'internal',$2,'test','completed',now()-interval '1 hour')", [agentId, { summary: "Concernを再検討する" }]);
+    await recordExperience("targeted-close-event-1", agentId, "Concernを再検討する", new Date());
+    const first = await repository.load("targeted-close-reflection-1", agentId);
+    if (first === undefined) throw new Error("Reflection input was not created");
+    await repository.beginTarget(first, "concern");
+    await repository.commitTarget(first, "concern", { output: { concernChanges: [] }, toolExecutions: [] });
+    await repository.complete(first);
+    const currentVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id=$1", [agentId])).rows[0]?.version;
+    if (currentVersion === undefined) throw new Error("Agent State was not updated");
+    const second = { ...first, reflectionId: "targeted-close-reflection-2", expectedVersion: currentVersion };
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input) VALUES ($1,$2,$3,'pending',$4)", [second.reflectionId, agentId, second.expectedVersion, JSON.stringify(second)]);
+    await repository.beginTarget(second, "concern");
+    await repository.commitTarget(second, "concern", { output: { concernChanges: [] }, toolExecutions: [] });
+    await repository.complete(second);
+    const attempt = await pool.query<{ input: { concernContext: { total: number; active: number; selected: number; overdue: number; memorySelected: number; estimatedContentTokens: number } } }>("SELECT input FROM reflection_attempts WHERE reflection_id=$1 AND target='concern'", [second.reflectionId]);
+    expect(attempt.rows[0]?.input).toMatchObject({ concernContext: { total: 1, active: 1, selected: 1, overdue: 0, memorySelected: first.memories.length } });
+    const state = await pool.query<{ concerns: { id: string; status: string }[] }>("SELECT concerns FROM agent_states WHERE agent_id=$1", [agentId]);
+    expect(state.rows[0]?.concerns).toEqual([expect.objectContaining({ id: "targeted-stale", status: "abandoned" })]);
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM concern_activities WHERE agent_id=$1 AND concern_id='targeted-stale' AND kind='presented'", [agentId])).rows[0]?.count).toBe("2");
+    await pool.query("DELETE FROM events WHERE agent_id=$1", [agentId]);
+    await pool.query("DELETE FROM agents WHERE id=$1", [agentId]);
+  });
+
   it("FR-60, NFR-17: persists target attempts and leaves only failed targets retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('target-attempt-event','a','internal',$1,'test','completed',now())", [{ summary: "対象別に統合する" }]);
     await recordExperience("target-attempt-event", "a", "対象別に統合する", new Date());

@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
 import { MemoryWriteService } from "../../application/memory-write-service.js";
+import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
@@ -326,7 +327,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const state = await this.pool.query<{ concerns: unknown; relationships: unknown; version: number }>("SELECT concerns,relationships,version FROM agent_states WHERE agent_id=$1", [input.agentId]);
       const current = state.rows[0];
       if (current !== undefined) {
-        const activity = await this.pool.query<{ concern_id: string }>("SELECT DISTINCT concern_id FROM concern_activities WHERE agent_id=$1 AND reflection_id=$2", [input.agentId, input.reflectionId]);
+        const activity = await this.pool.query<{ concern_id: string }>("SELECT DISTINCT concern_id FROM concern_activities WHERE agent_id=$1 AND reflection_id=$2 AND kind<>'presented'", [input.agentId, input.reflectionId]);
         const parsed = AgentStateSchema.parse({ concerns: current.concerns, relationships: current.relationships });
         const closed = await this.#closeStaleConcerns(this.pool, input.agentId, input.reflectionId, parsed.concerns, new Set(activity.rows.map(({ concern_id }) => concern_id)), this.now());
         if (JSON.stringify(closed) !== JSON.stringify(parsed.concerns)) await this.pool.query("UPDATE agent_states SET concerns=$3,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, current.version, JSON.stringify(closed)]);
@@ -342,7 +343,10 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     // accidentally becoming a second, unbounded model input.
     if (target === "memory") return { eventCount: input.events.length, batchCount: Math.ceil(input.events.length / 16) };
     if (target === "reconciliation") return { anchors: input.memories.map(({ id, kind, summary, significance, occurredAt }) => ({ id, kind, summary, significance, occurredAt })) };
-    if (target === "concern") return { memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), concerns: input.state.concerns };
+    if (target === "concern") {
+      const context = reflectionConcernContext(input, this.now());
+      return { concernContext: context.stats };
+    }
     if (target === "relationship") return { events: input.events.slice(-32), memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), relationships: input.state.relationships };
     return { self: input.self, mood: input.state.mood, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
   }
@@ -363,6 +367,10 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const updated = await this.pool.query("UPDATE agent_states SET concerns=$3,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, row.version, JSON.stringify(applied.concerns)]);
     if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");
     const at = this.now();
+    // The targeted path replaced the legacy combined commit, which recorded
+    // every active Concern as presented to a successful Reflection Session.
+    // Retain that lifecycle signal independently of the bounded model view.
+    for (const [index, concern] of applied.concerns.filter(({ status }) => status === "active").entries()) await this.pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,'presented',$4,'[]',$5) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:target-concern:presented:${String(index)}:${concern.id}`, input.agentId, concern.id, input.reflectionId, at]);
     for (const [index, activity] of applied.activities.entries()) await this.pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, input.agentId, activity.concernId, activity.kind, input.reflectionId, "[]", at]);
   }
 

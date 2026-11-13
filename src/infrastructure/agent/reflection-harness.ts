@@ -3,6 +3,7 @@ import { toolStrategy, type TypedToolStrategy } from "langchain";
 import { z } from "zod";
 
 import { estimateTokens } from "../../application/context-builder.js";
+import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
 import { DomainError } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
@@ -240,6 +241,8 @@ export function reflectionToolResultForModel(value: unknown): unknown {
   return Object.fromEntries(Object.entries(record).flatMap(([key, nested]) => hidden.has(key) ? [] : [[key, reflectionToolResultForModel(nested)]]));
 }
 
+export { reflectionConcernContext } from "../../application/reflection-concern-context.js";
+
 export class TargetStructuredReflectionModel {
   constructor(private readonly invoker: ReflectionInvoker, private readonly repairInvoker: ReflectionInvoker, private readonly schema: z.ZodType, private readonly prompt: string, private readonly logger: Logger) {}
   async reflect(input: unknown, signal: AbortSignal, agentId: string, reflectionId: string): Promise<ReflectorResult> {
@@ -300,7 +303,7 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
       : target === "reconciliation"
         ? { anchor: memories[0] }
         : target === "concern"
-        ? { memories, concerns: input.state.concerns.map(({ description, whyItMatters, status, reconsiderAt }) => ({ description, whyItMatters, status, ...(reconsiderAt === undefined ? {} : { reconsiderAt }) })) }
+        ? (() => { const context = reflectionConcernContext(input); return { memories: context.memories, concerns: context.concerns, concernContext: context.stats }; })()
         : target === "relationship"
           ? { events: input.events.slice(-32).map(({ occurredAt, summary }) => ({ occurredAt, summary })), memories, relationships: input.state.relationships.map(({ description }) => ({ description })) }
           : { self: input.self, mood: input.state.mood, memories };
