@@ -20,6 +20,7 @@
 - 探索領域カタログの件数・重複検証、`distant`候補の上限制御、探索モード選択の具体化
 - Agent Core入力でTool定義を二重投入しないこと、8,000推定token超過をwarningにしてprovider呼び出しを継続すること
 - Reflectionのモデル向けfield説明、flat変更record、repair、入力token上限
+- LLM向け局所参照の許可範囲、canonical ID非露出、Runtimeによる解決と不正参照のcommit拒否
 - PredictionEvaluation、PredictionContext、MemoryIntent、memoryCandidatesのZod契約
 - MemoryWriteServiceのcreate、update、no-op、Memory version楽観ロック
 - Background ExperienceのSchema、時系列、現在のユーザーとの共有経験の不在
@@ -158,6 +159,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-40 | Unit, Integration | `tests/unit/scheduled-task-tools.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Scheduled Task の分離 |
 | FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理と固定Session内根拠の検証 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
+| FR-77 | Unit, Integration | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts` | LLM向け局所参照、Runtime解決、canonical ID非露出、不正参照の拒否 |
 | FR-45 | Unit, System, Contract | `tests/unit/scheduler.test.ts`, `tests/system/internal-event.test.ts`, `tests/contract/agent-harness.contract.test.ts` | idleのno-external拒否、再開間隔、夜間idle抑制 |
 | FR-48 | System | `tests/system/prediction-loop.test.ts` | 応答後の予測、1ターン遅れの誤差評価 |
 | FR-49 | Contract | `tests/contract/prediction-contracts.test.ts` | 1 callの予測・評価・remember・G3判断 |
