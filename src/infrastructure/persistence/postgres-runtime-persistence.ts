@@ -38,7 +38,7 @@ function decisionInputSnapshot(input: AgentCoreInput): Record<string, unknown> {
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, memoryEmbedding?: MemoryEmbeddingPreparer, tools?: ToolRegistry, private readonly agentId?: string, retrievalService?: RetrievalService) { void memoryEmbedding; void retrievalService; this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, memoryEmbedding?: MemoryEmbeddingPreparer, tools?: ToolRegistry, private readonly agentId?: string, retrievalService?: RetrievalService) { void retrievalService; this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now, memoryEmbedding); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }

@@ -225,6 +225,13 @@
       "when": 1793600000009,
       "tag": "0031_reflection_memory_batches",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793600000010,
+      "tag": "0032_event_projections",
+      "breakpoints": true
     }
   ]
 }

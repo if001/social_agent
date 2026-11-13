@@ -76,7 +76,11 @@ export const EpisodicMemorySchema = z.object({
   subjects: z.array(Id),
   occurredAt: Instant,
   createdAt: Instant,
-  source: NaturalLanguage.optional()
+  source: NaturalLanguage.optional(),
+  // Maintenance passes need the storage kind to apply its update rule.  It is
+  // optional for older persisted Reflection inputs.
+  kind: z.enum(["episodic", "semantic", "self-related", "self-change", "common-ground"]).optional(),
+  evidenceEventIds: z.array(Id).max(16).optional()
 });
 export type EpisodicMemory = z.infer<typeof EpisodicMemorySchema>;
 

@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-13
-status: created
+status: done
 type: feature
 plan: []
 requirements: [FR-41, FR-42, FR-57, FR-58, FR-60, FR-72, FR-73, FR-74, NFR-7, NFR-17]
@@ -36,10 +36,10 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] FR-72：全Memoryを走査せず、説明可能な理由を持つ少数の再活性化対象だけを扱う。Reconciliationは関連Memory・EventをToolで取得し、初期入力へ全文集合を複写しない。
-- [ ] FR-73：種別ごとの更新規則を守り、episodicを更新せず、semantic / common-groundとself系だけを根拠付きで再統合する。
-- [ ] FR-74：関連EventをEvent projectionからhybrid retrievalし、正本Eventと直接根拠参照を保持する。
-- [ ] FR-41, FR-42, FR-57, FR-58, FR-60, NFR-7, NFR-17：対象別status、repair、MemoryWriteService、監査、retryを維持する。
+- [x] FR-72：理由ごとに1件・最大4件のanchorを選び、Reflection入力はanchorだけに限定した。`memory_search` / `event_search`で局所根拠を読む。
+- [x] FR-73：episodicをruntimeで拒否し、updateは後続Eventを検証する。splitは元Memoryを狭め、派生Memoryへ元Memory根拠を保存する。
+- [x] FR-74：Event projection migration、保存、backfill、vector/keyword/subject/recency ranking、時刻・kind filterを追加した。
+- [x] FR-41, FR-42, FR-57, FR-58, FR-60, NFR-7, NFR-17：Reconciliationをtarget別attempt・tool実行・output・mutationとして監査し、failed targetだけをretryする既存経路を維持した。
 
 ## Tests
 
@@ -47,3 +47,10 @@ requires: agent
 - 追加：再活性化したMemoryの関連Memory / EventをToolで取得し、入力budgetを超えない。
 - 追加：Memory種別ごとのcreate / update / split / keepと、古いEventによる巻き戻し防止。
 - FR-41, FR-42, FR-57, FR-58, FR-60, NFR-7, NFR-17：失敗対象だけのretryと監査の回帰。
+
+## 実装メモ
+
+- `event_projections` は元Eventを変更しない検索用派生データとしてmigrationでbackfillし、Runtime Event / Tool resultにも作成する。
+- unit: `tests/unit/memory-reconciliation.test.ts`、`tests/unit/reflection.test.ts`。全unit 216件、typecheck、lintは成功。
+- integration: migration段階適用の対象testは成功。全integrationの残る失敗は、ユーザーがdebug用に設定したReflection retry delay=0と、環境にPOSTGRES_URLがないreset testであり、本Issueで変更しない。
+- 独立レビュー: `docs/work/reviews/2026-11-13-issue-028.md`。

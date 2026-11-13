@@ -71,7 +71,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const baselinePool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${baselineSchema},public,ext`, max: 2 });
     try {
       await mkdir(migrationMeta);
-      for (const name of await readdir(sourceRoot)) if (/^00(?:0\d|1\d|2[0-8])_.*\.sql$/u.test(name)) await copyFile(new URL(name, sourceRoot), join(migrationRoot, name));
+      for (const name of await readdir(sourceRoot)) if (/^00(?:0\d|1\d|2\d|3[0-2])_.*\.sql$/u.test(name)) await copyFile(new URL(name, sourceRoot), join(migrationRoot, name));
       const journal = JSON.parse(await readFile(new URL("meta/_journal.json", sourceRoot), "utf8")) as { entries: { idx: number }[] };
       await writeFile(join(migrationMeta, "_journal.json"), JSON.stringify({ ...journal, entries: journal.entries.filter(({ idx }) => idx < 29) }));
       await control.query(`CREATE SCHEMA ${baselineSchema}`);
@@ -325,7 +325,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(JSON.stringify(input.recentExperiences)).not.toContain("raw input must not enter recent experiences".repeat(5));
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
-    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_propose", "user_context_get", "memory_search", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
+    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_propose", "user_context_get", "memory_search", "event_search", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
     const toolContext = { agentId: "a", runId: "context-run", eventId: "context-event", idempotencyKey: "context-tool" };
     const memorySearch = await contextToolRegistry.execute("memory_search", { query: "agent", limit: 3 }, toolContext, new AbortController().signal);
     expect(memorySearch.ok).toBe(true); expect(typeof memorySearch.value === "object" && memorySearch.value !== null && "memories" in memorySearch.value && Array.isArray(memorySearch.value.memories)).toBe(true);

@@ -1,7 +1,7 @@
 import type { Pool, QueryResultRow } from "pg";
 import { z } from "zod";
 
-import type { RetrievalService } from "../../application/ports.js";
+import type { EventRetrievalService, RetrievalService } from "../../application/ports.js";
 import type { RegisteredTool } from "../../application/tool-registry.js";
 import { ConcernProposalSchema, ConcernSchema, RelationshipSchema, SelfSchema } from "../../domain/contracts.js";
 import { PostgresRetrievalService } from "../persistence/postgres-retrieval-service.js";
@@ -152,6 +152,17 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
         const service = retrievalService ?? new PostgresRetrievalService(pool);
         const items = await service.retrieve({ agentId: context.agentId, query, scope: "conversation", ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
         return success({ memories: items.map((item) => ({ id: item.id, summary: compact(item.content, 320), significance: compact(item.importance, 180), occurredAt: item.occurredAt })) });
+      }
+    },
+    {
+      name: "event_search",
+      description: "過去Eventのprojectionを語句・subject・新しさ・意味の近さで局所検索する。Reflectionで既存Memoryの確認・訂正・矛盾の根拠を読むために使う。返されたEvent以外を根拠にしない。",
+      schema: z.object({ query: z.string().trim().min(1).max(240).describe("確認または訂正したいMemoryに関係する語句"), subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"), kinds: z.array(z.string().trim().min(1).max(80)).max(8).optional().describe("Event kindで絞る場合の種類"), occurredAfter: z.iso.datetime({ offset: true }).optional().describe("この時刻以後のEventだけを読む"), occurredBefore: z.iso.datetime({ offset: true }).optional().describe("この時刻以前のEventだけを読む"), limit: z.number().int().min(1).max(16).default(8).describe("返す最大Event数") }).strict(),
+      resultPolicy: { kind: "standard" },
+      execute: async ({ query, subject, kinds, occurredAfter, occurredBefore, limit }: { query: string; subject?: string; kinds?: string[]; occurredAfter?: string; occurredBefore?: string; limit: number }, context) => {
+        const service = retrievalService instanceof PostgresRetrievalService ? retrievalService : new PostgresRetrievalService(pool);
+        const events = await service.retrieveEvents({ agentId: context.agentId, query, ...(subject === undefined ? {} : { subjectIds: [subject] }), ...(kinds === undefined ? {} : { kinds }), ...(occurredAfter === undefined ? {} : { occurredAfter }), ...(occurredBefore === undefined ? {} : { occurredBefore }), limit });
+        return success({ events: events.map((event) => ({ ...event, summary: compact(event.content, 500) })) });
       }
     },
     {
