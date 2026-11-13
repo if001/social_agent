@@ -1,6 +1,7 @@
 import type { Pool, QueryResultRow } from "pg";
 
 import type { PredictionRecord, PredictionRepository } from "../../application/prediction.js";
+import { normalizeLegacyPredictionOutput } from "../../application/legacy-prediction-normalization.js";
 import { PredictionContextSchema, PredictionOutputSchema, type PredictionContext } from "../../domain/contracts.js";
 
 type Row = QueryResultRow & {
@@ -12,12 +13,24 @@ type Row = QueryResultRow & {
   created_at: Date;
 };
 
+/**
+ * `remember` and `observationCandidates` were retired from the persisted
+ * Prediction contract.  Existing rows can still contain them, so remove only
+ * those known obsolete root fields before strict validation.  Any other shape
+ * error remains visible instead of being silently accepted.
+ */
+function parsedOutput(value: unknown) {
+  return normalizeLegacyPredictionOutput(value);
+}
+
+export { normalizeLegacyPredictionOutput } from "../../application/legacy-prediction-normalization.js";
+
 const toRecord = (row: Row): PredictionRecord => ({
   id: row.id,
   agentId: row.agent_id,
   sourceEventId: row.source_event_id,
   sourceRunId: row.source_run_id,
-  output: PredictionOutputSchema.parse(row.output),
+  output: parsedOutput(row.output),
   createdAt: row.created_at.toISOString()
 });
 

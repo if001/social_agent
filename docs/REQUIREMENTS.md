@@ -214,7 +214,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ## R9. 予測・予測誤差・背景経験
 
-- FR-48：G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。（C-30, C-32, C-33, C-48）
+- FR-48：G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。保存済みPredictionに廃止済みroot fieldが残る場合は、既知のfieldだけを除去して現行契約として読む。（C-30, C-32, C-33, C-48）
 - FR-49：G1/G2は1回のLLM callで、予測候補、predictionEvaluation、G3起動判断を返す。観測候補とrememberは返さず、長期経験の統合を担わない。（C-34, C-35, C-36, C-37, C-38、更新）
 - FR-50：G1/G2はFeelingを出力せず、Meaning / FeelingはMainAgentだけが確定する。（C-65）
 - FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。G3自身はMemoryIntent又は永続Recordを直接指定しない。（C-39, C-40, C-42、更新）
