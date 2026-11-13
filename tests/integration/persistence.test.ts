@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { z } from "zod";
 import { DomainError, type Concern } from "../../src/domain/contracts.js";
 
@@ -27,6 +27,7 @@ import { createScheduledTaskTools } from "../../src/infrastructure/tools/schedul
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 import { AgentRuntime } from "../../src/application/agent-runtime.js";
+import { normalizeOverfullMemoryEvidence } from "../../src/application/memory-evidence-normalization.js";
 import type { ReflectionInput } from "../../src/application/reflection.js";
 import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 
@@ -58,6 +59,25 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
     expect((await repository.find<{ commitments: string[]; concerns: unknown[] }>("a"))).toMatchObject({ commitments: ["Care"], concerns: [] });
+  });
+
+  it("normalizes an over-limit Memory before Reflection reloads it", async () => {
+    const evidence = Array.from({ length: 17 }, (_, index) => `stale-evidence-${String(index + 1)}`);
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('over-limit-evidence','a','semantic','以前の根拠が過剰に蓄積した','要整理',now(),$1)", [JSON.stringify(evidence)]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('normalization-event','a','internal',$1,'test','completed',now())", [{ summary: "根拠を正規化した" }]);
+    await recordExperience("normalization-event", "a", "根拠を正規化した", new Date());
+    await expect(normalizeOverfullMemoryEvidence(pool, { agentId: "a", apply: false })).resolves.toEqual({ scanned: 1, normalized: 0 });
+    await expect(normalizeOverfullMemoryEvidence(pool, { agentId: "a", apply: true })).resolves.toEqual({ scanned: 1, normalized: 1 });
+    expect((await pool.query<{ evidence_event_ids: string[] }>("SELECT evidence_event_ids FROM memories WHERE id='over-limit-evidence'")).rows[0]?.evidence_event_ids).toEqual([]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-11-14T00:00:00Z"));
+    const input = await repository.load("normalization-reflection", "a");
+    if (input === undefined) throw new Error("Reflection input was not created");
+    const refreshed = await repository.refresh(input);
+    expect(refreshed.reflectionId).toBe("normalization-reflection");
+    expect(refreshed.memories.find(({ id }) => id === "over-limit-evidence")?.evidenceEventIds).toEqual([]);
+    await pool.query("DELETE FROM reflection_runs WHERE id='normalization-reflection'");
+    await pool.query("DELETE FROM memories WHERE id='over-limit-evidence'");
+    await pool.query("DELETE FROM events WHERE id='normalization-event'");
   });
 
   it("FR-6, FR-7: initializes configured Self and preserves acquired experience on reapply", async () => {
