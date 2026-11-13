@@ -4,7 +4,7 @@ import type { IdGenerator, MemoryEmbeddingPreparer, RetrievalService } from "./p
 import { MemoryWriteService, type MemoryWriteResult } from "./memory-write-service.js";
 import { MemoryUpdatePayloadSchema, type DomainEvent, type MemoryIntent } from "../domain/contracts.js";
 
-export type MemoryUpdateInput = { readonly agentId: string; readonly sourceEventId: string; readonly intents: readonly MemoryIntent[]; readonly subjectsByIntent?: readonly (readonly string[])[]; readonly sourceAgentIds?: readonly (string | undefined)[] };
+export type MemoryUpdateInput = { readonly agentId: string; readonly sourceEventId: string; readonly intents: readonly MemoryIntent[]; readonly subjectsByIntent?: readonly (readonly string[])[]; readonly sourceAgentIds?: readonly (string | undefined)[]; readonly formation?: boolean };
 export type MemoryUpdateResult = { readonly intentIndex: number; readonly result: MemoryWriteResult };
 
 export interface MemoryUpdateSink {
@@ -22,7 +22,7 @@ export class DirectMemoryUpdateSink implements MemoryUpdateSink {
   }
 
   async enqueueAndWait(input: MemoryUpdateInput): Promise<void> {
-    await this.handler.handle({ id: input.sourceEventId, agentId: input.agentId, kind: "internal", occurredAt: this.now().toISOString(), payload: { targetKind: "memory-update", intents: input.intents, ...(input.subjectsByIntent === undefined ? {} : { subjectsByIntent: input.subjectsByIntent }), ...(input.sourceAgentIds === undefined ? {} : { sourceAgentIds: input.sourceAgentIds }) } });
+    await this.handler.handle({ id: input.sourceEventId, agentId: input.agentId, kind: "internal", occurredAt: this.now().toISOString(), payload: { targetKind: "memory-update", intents: input.intents, ...(input.subjectsByIntent === undefined ? {} : { subjectsByIntent: input.subjectsByIntent }), ...(input.sourceAgentIds === undefined ? {} : { sourceAgentIds: input.sourceAgentIds }), ...(input.formation ? { formation: true } : {}) } });
   }
 }
 
@@ -45,7 +45,7 @@ export class MemoryUpdateHandler {
       const service = new MemoryWriteService(client, this.ids, this.now);
       const results: MemoryUpdateResult[] = [];
       for (const [intentIndex, intent] of payload.intents.entries()) {
-        const candidates = this.retrieval === undefined ? undefined : (await this.retrieval.retrieve({ agentId: event.agentId, query: intent.content, scope: "conversation", limit: 5 })).map((item) => ({ id: item.id, kind: item.kind, content: item.content, importance: item.importance }));
+        const candidates = payload.formation === true ? [] : this.retrieval === undefined ? undefined : (await this.retrieval.retrieve({ agentId: event.agentId, query: intent.content, scope: "conversation", limit: 5 })).map((item) => ({ id: item.id, kind: item.kind, content: item.content, importance: item.importance }));
         const subjectIds = payload.subjectsByIntent?.[intentIndex] ?? [];
         const sourceAgentId = payload.sourceAgentIds?.[intentIndex];
         const result = await service.apply(event.agentId, intent, { sourceEventId: event.id, intentIndex, subjectIds, ...(sourceAgentId === undefined ? {} : { sourceAgentId }), ...(candidates === undefined ? {} : { candidates }), ...(embeddings[intentIndex] === undefined ? {} : { embedding: embeddings[intentIndex] }) });

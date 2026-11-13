@@ -737,7 +737,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ intent: { evidenceEventIds: string[]; confidence: string; purpose: string } }>("SELECT intent FROM memory_mutations WHERE agent_id=$1 AND source_event_id='reflection-memory-evidence'", [agentId])).rows[0]?.intent).toMatchObject({ evidenceEventIds: [eventIds[2], eventIds[29]], confidence: "medium", purpose: "user-context" });
   });
 
-  it("C-10, FR-41: persists and resumes two 32 Event Memory batches without duplicating their writes", async () => {
+  it("FR-71: persists and resumes four 16 Event Formation batches without duplicating their writes", async () => {
     const agentId = "reflection-memory-batch-agent";
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Batch Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Batch story','[]','[]','[]','Calm')", [agentId]);
@@ -748,8 +748,8 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.events).toHaveLength(64);
     await repository.beginTarget(input, "memory");
     const batches = await repository.memoryBatches(input);
-    expect(batches.map(({ events }) => events)).toHaveLength(2);
-    expect(batches.map(({ events }) => events.length)).toEqual([32, 32]);
+    expect(batches.map(({ events }) => events)).toHaveLength(4);
+    expect(batches.map(({ events }) => events.length)).toEqual([16, 16, 16, 16]);
     for (const batch of batches) {
       await repository.beginMemoryBatch(input, batch);
       const evidenceEventId = batch.events[0]?.id; if (evidenceEventId === undefined) throw new Error("batch has no event");
@@ -759,11 +759,13 @@ describeDatabase("PostgreSQL persistence", () => {
     const firstBatch = batches[0]; if (firstBatch === undefined) throw new Error("first batch was not created");
     expect(await repository.beginMemoryBatch(input, firstBatch)).toBe("completed");
     const persistedBatches = (await pool.query<{ batch_index: number; status: string; input: { events: unknown[] } }>("SELECT batch_index,status,input FROM reflection_memory_batches WHERE reflection_id='reflection-memory-batches' ORDER BY batch_index")).rows;
-    expect(persistedBatches.map(({ batch_index, status, input: batchInput }) => ({ batchIndex: batch_index, status, eventCount: batchInput.events.length }))).toEqual([{ batchIndex: 0, status: "completed", eventCount: 32 }, { batchIndex: 1, status: "completed", eventCount: 32 }]);
+    expect(persistedBatches.map(({ batch_index, status, input: batchInput }) => ({ batchIndex: batch_index, status, eventCount: batchInput.events.length }))).toEqual([0, 1, 2, 3].map((batchIndex) => ({ batchIndex, status: "completed", eventCount: 16 })));
     const mutations = (await pool.query<{ source_event_id: string; intent: { evidenceEventIds: string[] } }>("SELECT source_event_id,intent FROM memory_mutations WHERE agent_id=$1 ORDER BY source_event_id", [agentId])).rows;
     expect(mutations.map(({ source_event_id, intent }) => ({ sourceEventId: source_event_id, evidenceEventIds: intent.evidenceEventIds }))).toEqual([
       { sourceEventId: "reflection-memory-batches:memory:0", evidenceEventIds: [eventIds[0]] },
-      { sourceEventId: "reflection-memory-batches:memory:1", evidenceEventIds: [eventIds[32]] }
+      { sourceEventId: "reflection-memory-batches:memory:1", evidenceEventIds: [eventIds[16]] },
+      { sourceEventId: "reflection-memory-batches:memory:2", evidenceEventIds: [eventIds[32]] },
+      { sourceEventId: "reflection-memory-batches:memory:3", evidenceEventIds: [eventIds[48]] }
     ]);
   });
 

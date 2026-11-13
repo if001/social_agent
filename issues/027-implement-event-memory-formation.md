@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-13
-status: created
+status: done
 type: feature
 plan: []
 requirements: [FR-41, FR-42, FR-57, FR-58, FR-60, FR-71, NFR-7, NFR-8]
@@ -34,8 +34,15 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] FR-71：16 Event以下のFormation batchが未統合Eventから再利用可能な新規Memoryだけを形成する。初期モデル入力は既存Memory全件を含まず、入力budget超過で停止しない。古いEventを根拠にしたFormationは、新しい既存Memoryを内容一致だけで更新しない。
-- [ ] FR-42, FR-57, FR-58, FR-60, NFR-7, NFR-8：structured output repair、MemoryWriteService、冪等性、batch retry、監査を維持する。
+- [x] FR-71：16 Event以下のFormation batchが未統合Eventから再利用可能な新規Memoryだけを形成する。初期モデル入力は既存Memory全件を含まず、入力budget超過で停止しない。古いEventを根拠にしたFormationは、新しい既存Memoryを内容一致だけで更新しない。
+- [x] FR-42, FR-57, FR-58, FR-60, NFR-7, NFR-8：structured output repair、MemoryWriteService、冪等性、batch retry、監査を維持する。
+
+## 実装メモ
+
+- `ReflectionMemoryBatch`と永続batchを最大16 Eventへ変更した。64 Eventは4 batchとして古い順に処理し、完了batchは再実行しない。
+- Formationのモデル入力は`reflectionId`と対象Eventだけであり、既存Memory本文を含めない。重複候補の更新も許可せず、`formation: true`のMemoryUpdateHandlerは空候補をMemoryWriteServiceへ渡す。
+- 検証：`pnpm typecheck`、`pnpm lint`、`pnpm test`（213 passed）。
+- レビュー：[`2026-11-13-issue-027.md`](../docs/work/reviews/2026-11-13-issue-027.md)。
 
 ## Tests
 

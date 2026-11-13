@@ -273,7 +273,7 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
   async reflect(target: ReflectionTarget, input: ReflectionInput, signal: AbortSignal): Promise<ReflectorResult> {
     const memories = input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt }));
     const scoped = target === "memory"
-      ? { reflectionId: input.reflectionId, events: input.events, memories }
+      ? { reflectionId: input.reflectionId, events: input.events }
       : target === "concern"
         ? { reflectionId: input.reflectionId, memories, concerns: input.state.concerns }
         : target === "relationship"

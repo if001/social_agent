@@ -44,7 +44,7 @@ describe("Reflection", () => {
     expect(failures[0]).toMatchObject({ code: "VALIDATION" });
   });
 
-  it("C-10, FR-41: processes a fixed 64 Event Session as two bounded Memory batches before one integration pass", async () => {
+  it("FR-71: processes a fixed 64 Event Session as four 16-Event Formation batches before one integration pass", async () => {
     const events = Array.from({ length: 64 }, (_, index) => ({ id: `event-${String(index + 1)}`, occurredAt: `2026-01-01T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}Z`, summary: `Event ${String(index + 1)}` }));
     const calls: { target: string; eventIds: readonly string[] }[] = [];
     const committed: number[] = [];
@@ -52,7 +52,7 @@ describe("Reflection", () => {
     const reflection = new TargetedReflection({
       load: () => Promise.resolve({ ...input, events }), refresh: (value) => Promise.resolve(value),
       beginTarget: () => Promise.resolve("pending"),
-      memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events.slice(0, 32) }, { batchIndex: 1, events: value.events.slice(32) }]),
+      memoryBatches: (value) => Promise.resolve([0, 1, 2, 3].map((batchIndex) => ({ batchIndex, events: value.events.slice(batchIndex * 16, (batchIndex + 1) * 16) }))),
       beginMemoryBatch: () => Promise.resolve("pending"),
       commitMemoryBatch: (_input, batch) => { committed.push(batch.batchIndex); return Promise.resolve(); },
       failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: (value) => { completeMemory.push(value.reflectionId); return Promise.resolve(); },
@@ -65,9 +65,9 @@ describe("Reflection", () => {
       return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });
     } });
     await reflection.process("reflection-1", "agent-a", new AbortController().signal);
-    expect(calls.filter(({ target }) => target === "memory").map(({ eventIds }) => eventIds.length)).toEqual([32, 32]);
-    expect(calls.map(({ target }) => target)).toEqual(["memory", "memory", "concern", "relationship", "self-mood"]);
-    expect(committed).toEqual([0, 1]);
+    expect(calls.filter(({ target }) => target === "memory").map(({ eventIds }) => eventIds.length)).toEqual([16, 16, 16, 16]);
+    expect(calls.map(({ target }) => target)).toEqual(["memory", "memory", "memory", "memory", "concern", "relationship", "self-mood"]);
+    expect(committed).toEqual([0, 1, 2, 3]);
     expect(completeMemory).toEqual(["reflection-1"]);
   });
 
