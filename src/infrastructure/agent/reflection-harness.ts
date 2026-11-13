@@ -122,7 +122,7 @@ function domainOutputFromModel(raw: unknown): unknown {
 }
 
 export interface ReflectionInvoker {
-  invoke(messages: readonly { readonly role: "user"; readonly content: string }[], options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId?: string; readonly reflectionId?: string }): Promise<{ readonly structuredResponse?: unknown; readonly toolExecutions?: readonly import("../../domain/contracts.js").ToolExecutionRecord[] }>;
+  invoke(messages: readonly { readonly role: "user"; readonly content: string }[], options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId?: string; readonly reflectionId?: string; readonly reflectorTarget?: ReflectionTarget }): Promise<{ readonly structuredResponse?: unknown; readonly toolExecutions?: readonly import("../../domain/contracts.js").ToolExecutionRecord[] }>;
 }
 
 export const MAX_REFLECTION_MODEL_INPUT_TOKENS = 8_000;
@@ -174,11 +174,20 @@ export class StructuredReflectionModel implements ReflectionModel {
 
 const reflectionReadToolNames = new Set(["skill_read", "memory_search", "event_search", "retrieval_search", "concern_list", "concern_get", "concern_history", "relationship_search", "self_get", "user_context_get"]);
 
-export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: Logger = noopLogger, systemPrompt: string = reflectionSystemPrompt, toolRegistry?: ToolRegistry, outputSchema: z.ZodType = ReflectionModelOutputSchema, allowReadTools = true): ReflectionInvoker {
+export function reflectionStructuredOutputRepairMessageFor(target?: ReflectionTarget): string {
+  if (target === "memory") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は memories 配列だけです。各 target は episodic / semantic / self-related / self-change / common-ground のいずれか一つを正確に指定し、self / user は perspective にだけ使います。保存不要なら {\"memories\":[]} を返してください。";
+  if (target === "reconciliation") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は changes 配列だけです。変更根拠Eventはanchorより後のものだけを指定し、変更不要なら keep を返してください。";
+  if (target === "concern") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は concernChanges と evidenceMemoryIds だけです。変更不要なら両方を空配列にしてください。";
+  if (target === "relationship") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は relationshipChanges 配列だけです。変更不要なら空配列にしてください。";
+  if (target === "self-mood") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は mood、self、selfChangeReason、evidenceMemoryIds だけです。変更不要なら evidenceMemoryIds を空配列にし、他の任意fieldは省略してください。";
+  return reflectionStructuredOutputRepairMessage;
+}
+
+export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: Logger = noopLogger, systemPrompt: string = reflectionSystemPrompt, toolRegistry?: ToolRegistry, outputSchema: z.ZodType = ReflectionModelOutputSchema, allowReadTools = true, reflectorTarget?: ReflectionTarget): ReflectionInvoker {
   const model = createOllamaChatModel({ ...config, think: "high" });
   const responseFormat = toolStrategy(modelJsonSchema(outputSchema), { handleError: (error) => {
-    logger.log("warn", "reflection.structured_output_invalid", errorLogContext(error));
-    return reflectionStructuredOutputRepairMessage;
+    logger.log("warn", "reflection.structured_output_invalid", { ...errorLogContext(error), ...(reflectorTarget === undefined ? {} : { reflectorTarget }) });
+    return reflectionStructuredOutputRepairMessageFor(reflectorTarget);
   } }) as unknown as ReflectionResponseFormat;
   const selected = allowReadTools ? (toolRegistry?.registered() ?? []).filter(({ name }) => reflectionReadToolNames.has(name)) : [];
   const tools = createDeepAgentTools(new ToolRegistry(selected), () => new Date(), logger);
@@ -265,8 +274,8 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
     const repairPrompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorのrepair担当です。読み取りToolは利用できません。渡された固定入力、許可ID、schema、validation issueだけを根拠にし、必ず指定された構造化出力Toolを一度呼んで完了してください。本文、Markdown、通常Action、ユーザーへの発話、外部副作用は返しません。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
     const schemas: Record<ReflectionTarget, z.ZodType> = { memory: MemoryReflectorOutputSchema, reconciliation: MemoryReconciliationOutputSchema, concern: ConcernReflectorOutputSchema, relationship: RelationshipReflectorOutputSchema, "self-mood": SelfMoodReflectorOutputSchema };
     this.#models = Object.fromEntries((["memory", "reconciliation", "concern", "relationship", "self-mood"] as const).map((target) => [target, new TargetStructuredReflectionModel(
-      createOllamaReflectionInvoker(config, logger, prompt(target), toolRegistry, schemas[target]),
-      createOllamaReflectionInvoker(config, logger, repairPrompt(target), undefined, schemas[target], false),
+      createOllamaReflectionInvoker(config, logger, prompt(target), toolRegistry, schemas[target], true, target),
+      createOllamaReflectionInvoker(config, logger, repairPrompt(target), undefined, schemas[target], false, target),
       schemas[target], prompt(target), logger
     )])) as Record<ReflectionTarget, TargetStructuredReflectionModel>;
   }

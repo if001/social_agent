@@ -7,6 +7,7 @@ import {
   ReflectionModelOutputSchema,
   StructuredReflectionModel,
   TargetStructuredReflectionModel,
+  reflectionStructuredOutputRepairMessageFor,
   reflectionToolRunScope,
   reflectionSystemPrompt,
   targetedReflectorRepairInput,
@@ -25,6 +26,13 @@ const input: ReflectionInput = {
 };
 
 describe("structured Reflection model", () => {
+  it("FR-60: repairs a target Reflector against its own schema rather than the legacy combined Reflection schema", () => {
+    const message = reflectionStructuredOutputRepairMessageFor("memory");
+    expect(message).toContain("memories 配列だけ");
+    expect(message).toContain("episodic / semantic / self-related / self-change / common-ground");
+    expect(message).not.toContain("concernChanges");
+  });
+
   it("FR-71: gives each Memory Event batch an independent stable tool idempotency scope", () => {
     const firstBatch = { ...input, events: [{ ...input.events[0]!, id: "event-1" }] };
     const secondBatch = { ...input, events: [{ ...input.events[0]!, id: "event-33" }] };
@@ -49,6 +57,7 @@ describe("structured Reflection model", () => {
     expect(skill("reflection-memory")).toContain("構造化出力Toolを必ず1回");
     expect(skill("reflection-memory")).toContain('{"memories":[]}');
     expect(skill("reflection-memory")).toContain("既存Memoryを更新しない");
+    expect(skill("reflection-memory")).toContain("self`や`user`は`perspective`");
   });
 
   it("FR-71: gives a Formation Reflector only its bounded Event batch, not existing Memory bodies", async () => {

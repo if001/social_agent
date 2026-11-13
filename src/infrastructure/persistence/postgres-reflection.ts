@@ -129,7 +129,16 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     // One newest eligible Memory per reason keeps the pass bounded while the
     // recorded reason makes the selection auditable in reflection_attempts.
     const rows = await this.pool.query<MemoryRow & { reason: ReactivationCandidate["reason"] }>(`WITH memory_pool AS (
-      SELECT * FROM memories WHERE agent_id=$1 ORDER BY updated_at DESC,id DESC LIMIT 64
+      SELECT * FROM memories m WHERE m.agent_id=$1
+        -- Formation has just evaluated these Memories from this Session's
+        -- fixed Event window.  They cannot yet have later evidence, so they
+        -- are not eligible for immediate Reconciliation.
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_mutations formed
+          WHERE formed.agent_id=m.agent_id AND formed.memory_id=m.id
+            AND formed.source_event_id LIKE $2
+        )
+      ORDER BY updated_at DESC,id DESC LIMIT 64
     ), candidates AS (
       SELECT m.*, 'formation'::text AS reason FROM memory_pool m JOIN memory_mutations mm ON mm.memory_id=m.id
         WHERE m.agent_id=$1 AND mm.agent_id=$1 AND mm.operation='create' AND mm.created_at >= now()-interval '30 days'
@@ -144,7 +153,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       SELECT r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects,r.reason
       FROM ranked r LEFT JOIN memory_subjects ms ON ms.memory_id=r.id WHERE r.row_number=1
-      GROUP BY r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,r.reason`, [input.agentId]);
+      GROUP BY r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,r.reason`, [input.agentId, `${input.reflectionId}:memory:%`]);
     const candidates = rows.rows.map((row) => ({ memoryId: row.id, reason: row.reason, occurredAt: row.occurred_at.toISOString() }));
     const chosen = new Set(selectReactivationAnchors(candidates).map(({ memoryId }) => memoryId));
     const byId = new Map(rows.rows.map((row) => [row.id, row]));

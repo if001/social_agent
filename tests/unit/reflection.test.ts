@@ -22,6 +22,7 @@ describe("Reflection", () => {
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, confidence: "high" }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, purpose: "user-context" }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, source: "agent-a" }] }).success).toBe(false);
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, target: "self" }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [] }).success).toBe(true);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: [] }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: Array.from({ length: 17 }, (_, index) => `event-${String(index)}`) }] }).success).toBe(false);

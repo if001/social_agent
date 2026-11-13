@@ -29,6 +29,7 @@ import { createScheduledTaskTools } from "../../src/infrastructure/tools/schedul
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 import { AgentRuntime } from "../../src/application/agent-runtime.js";
+import type { ReflectionInput } from "../../src/application/reflection.js";
 
 const sample = parse(await readFile(new URL("../../.env.sample", import.meta.url)));
 const databaseUrl = (process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL ?? sample.POSTGRES_URL)?.replace("postgresql+psycopg://", "postgresql://");
@@ -723,6 +724,28 @@ describeDatabase("PostgreSQL persistence", () => {
     ]));
     expect((await pool.query<{ status: string; plan: { memory: string; concern: string } }>("SELECT status,plan FROM reflection_runs WHERE id='target-attempt-reflection'")).rows[0]).toMatchObject({ status: "pending", plan: { memory: "completed", concern: "failed" } });
     await pool.query("DELETE FROM reflection_runs WHERE id='target-attempt-reflection'");
+  });
+
+  it("FR-73: excludes Memory formed by this Reflection Session from immediate Reconciliation anchors", async () => {
+    const agentId = "reconciliation-formation-agent";
+    const reflectionId = "reconciliation-formation-session";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Reconciliation Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','[]','Calm')", [agentId]);
+    await pool.query(`INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES
+      ('reconciliation-old',$1,'semantic','以前からある事実','後続Eventで再検討できる','2026-01-01T00:00:00Z','pending'),
+      ('reconciliation-formed',$1,'self-change','今回Formationした経験','まだ後続Eventがない','2026-01-02T00:00:00Z','pending')`, [agentId]);
+    await pool.query("INSERT INTO memory_mutations(id,agent_id,memory_id,operation,source_event_id,intent_index,intent) VALUES ('reconciliation-formed-mutation',$1,'reconciliation-formed','create',$2,0,'{}')", [agentId, `${reflectionId}:memory:0`]);
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-03T00:00:00Z"));
+    const session: ReflectionInput = {
+      reflectionId, agentId, expectedVersion: 0,
+      self: { identity: "Reconciliation Agent", disposition: "Careful", selfStory: "Story", commitments: [] },
+      state: { mood: "Calm", concerns: [], relationships: [] },
+      events: [{ id: "reconciliation-event", occurredAt: "2026-01-03T00:00:00Z", summary: "現在のEvent" }],
+      memories: []
+    };
+    const selected = await repository.reconciliationInput(session);
+    expect(selected.memories.map(({ id }) => id)).toContain("reconciliation-old");
+    expect(selected.memories.map(({ id }) => id)).not.toContain("reconciliation-formed");
   });
 
   it("C-10, C-55, FR-10, FR-57: commits only the Memory Reflector's selected evidence from a 32 Event Session", async () => {
