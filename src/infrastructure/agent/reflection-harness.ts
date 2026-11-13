@@ -131,7 +131,9 @@ export const MAX_REFLECTION_MODEL_INPUT_TOKENS = 8_000;
  * returns its one structured delta.  This budget deliberately leaves room for
  * that final response instead of treating the fifth read as a terminal step.
  */
-export const REFLECTION_MAX_MODEL_CALLS = 20;
+/** Session-wide ceiling for lightweight Reflector turns.  The runtime config
+ * may lower it, but never raise it beyond the documented hard maximum. */
+export const REFLECTION_MAX_MODEL_CALLS = 32;
 // Reflection has no operational Tool loop, but the structured-output strategy
 // may use several graph nodes while asking the model to repair invalid output.
 // Keep this graph safety limit separate from the outer repair-attempt limit.
@@ -190,7 +192,7 @@ export function createOllamaReflectionInvoker(config: OllamaChatConfig, logger: 
     return reflectionStructuredOutputRepairMessageFor(reflectorTarget);
   } }) as unknown as ReflectionResponseFormat;
   const selected = allowReadTools ? (toolRegistry?.registered() ?? []).filter(({ name }) => reflectionReadToolNames.has(name)) : [];
-  const tools = createDeepAgentTools(new ToolRegistry(selected), () => new Date(), logger);
+  const tools = createDeepAgentTools(new ToolRegistry(selected), () => new Date(), logger, reflectionToolResultForModel);
   const agent = createDeepAgent({ model, tools, systemPrompt, responseFormat, ...(tools.length === 0 ? {} : { contextSchema: DeepAgentToolRunContextSchema }) });
   return {
     async invoke(messages, options) {
@@ -214,16 +216,28 @@ export class OllamaReflectionModel extends StructuredReflectionModel {
 }
 
 export function targetedReflectorRepairInput(input: unknown, schema: z.ZodType, validationIssues: unknown, invalidOutput: unknown): Readonly<Record<string, unknown>> {
-  const scoped = input as { readonly events?: readonly { readonly id: string }[]; readonly memories?: readonly { readonly id: string }[] };
   return {
-    instruction: "直前の出力をこのReflector専用schemaへ修正する。初回と同じ固定入力だけを根拠にし、本文やMarkdownではなく構造化出力だけを返す。通常の読み取りToolは使えない。保存不要なら必ず空配列を含む最小の有効出力を返す。",
-    input,
-    allowedEventIds: scoped.events?.map(({ id }) => id) ?? [],
-    allowedMemoryIds: scoped.memories?.map(({ id }) => id) ?? [],
+    instruction: "直前の出力をこのReflector専用schemaへ修正する。初回と同じ固定入力だけを根拠にし、本文やMarkdownではなく構造化出力だけを返す。永続ID、局所参照、根拠IDは出力しない。通常の読み取りToolは使えない。保存不要なら必ず空配列を含む最小の有効出力を返す。",
+    input: reflectionToolResultForModel(input),
     outputSchema: modelJsonSchema(schema),
     validationIssues,
-    invalidOutput: invalidOutput ?? null
+    // An invalid structured output is still model-facing on the repair pass.
+    // It can contain an accidentally echoed runtime handle, so apply the same
+    // projection as fixed input and read-tool results.
+    invalidOutput: reflectionToolResultForModel(invalidOutput ?? null)
   };
+}
+
+/** The repair path is model-facing too.  Do not accidentally reintroduce a
+ * Runtime handle through a copied fixed input or invalid output. */
+/** LLM-visible Reflection Tool result. The collector retains the original
+ * result for audit; only the model receives this ID-free projection. */
+export function reflectionToolResultForModel(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reflectionToolResultForModel);
+  if (typeof value !== "object" || value === null) return value;
+  const record = value as Record<string, unknown>;
+  const hidden = new Set(["id", "agentId", "reflectionId", "eventId", "memoryId", "concernId", "subjectId", "evidenceEventIds", "evidenceMemoryIds", "sourceConcernId", "cursor", "nextCursor", "offset"]);
+  return Object.fromEntries(Object.entries(record).flatMap(([key, nested]) => hidden.has(key) ? [] : [[key, reflectionToolResultForModel(nested)]]));
 }
 
 export class TargetStructuredReflectionModel {
@@ -271,7 +285,7 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
   readonly #models: Readonly<Record<ReflectionTarget, TargetStructuredReflectionModel>>;
   constructor(config: OllamaChatConfig, logger: Logger = noopLogger, toolRegistry?: ToolRegistry) {
     const prompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
-    const repairPrompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorのrepair担当です。読み取りToolは利用できません。渡された固定入力、許可ID、schema、validation issueだけを根拠にし、必ず指定された構造化出力Toolを一度呼んで完了してください。本文、Markdown、通常Action、ユーザーへの発話、外部副作用は返しません。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
+    const repairPrompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorのrepair担当です。読み取りToolは利用できません。渡された固定入力、schema、validation issueだけを根拠にし、永続ID・局所参照・根拠IDを出力せず、必ず指定された構造化出力Toolを一度呼んで完了してください。本文、Markdown、通常Action、ユーザーへの発話、外部副作用は返しません。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
     const schemas: Record<ReflectionTarget, z.ZodType> = { memory: MemoryReflectorOutputSchema, reconciliation: MemoryReconciliationOutputSchema, concern: ConcernReflectorOutputSchema, relationship: RelationshipReflectorOutputSchema, "self-mood": SelfMoodReflectorOutputSchema };
     this.#models = Object.fromEntries((["memory", "reconciliation", "concern", "relationship", "self-mood"] as const).map((target) => [target, new TargetStructuredReflectionModel(
       createOllamaReflectionInvoker(config, logger, prompt(target), toolRegistry, schemas[target], true, target),
@@ -280,16 +294,16 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
     )])) as Record<ReflectionTarget, TargetStructuredReflectionModel>;
   }
   async reflect(target: ReflectionTarget, input: ReflectionInput, signal: AbortSignal): Promise<ReflectorResult> {
-    const memories = input.memories.map(({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds }) => ({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds }));
+    const memories = input.memories.map(({ kind, summary, significance, occurredAt }) => ({ kind, summary, significance, occurredAt }));
     const scoped = target === "memory"
-      ? { reflectionId: input.reflectionId, events: input.events }
+      ? { events: input.events.map(({ occurredAt, summary }) => ({ occurredAt, summary })) }
       : target === "reconciliation"
-        ? { reflectionId: input.reflectionId, anchors: memories.map(({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds }) => ({ id, kind, summary, significance, subjects, occurredAt, evidenceEventIds })) }
-      : target === "concern"
-        ? { reflectionId: input.reflectionId, memories, concerns: input.state.concerns }
+        ? { anchor: memories[0] }
+        : target === "concern"
+        ? { memories, concerns: input.state.concerns.map(({ description, whyItMatters, status, reconsiderAt }) => ({ description, whyItMatters, status, ...(reconsiderAt === undefined ? {} : { reconsiderAt }) })) }
         : target === "relationship"
-          ? { reflectionId: input.reflectionId, events: input.events.slice(-32), memories, relationships: input.state.relationships }
-          : { reflectionId: input.reflectionId, self: input.self, mood: input.state.mood, memories };
+          ? { events: input.events.slice(-32).map(({ occurredAt, summary }) => ({ occurredAt, summary })), memories, relationships: input.state.relationships.map(({ description }) => ({ description })) }
+          : { self: input.self, mood: input.state.mood, memories };
     // Tool call counters restart for each Reflector.  Scope the tool-run key by
     // target and, for each Memory formation batch, by its stable first Event.
     // Otherwise `tool-1` in two different batches would reuse the same
@@ -303,7 +317,11 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
  * invocation.  A Memory target runs once per Event batch, whereas the other
  * targets run only once per Reflection Session.
  */
-export function reflectionToolRunScope(target: ReflectionTarget, input: Pick<ReflectionInput, "reflectionId" | "events">): string {
+export function reflectionToolRunScope(target: ReflectionTarget, input: Pick<ReflectionInput, "reflectionId" | "events" | "memories">): string {
+  if (target === "reconciliation") {
+    const anchor = input.memories[0]?.id;
+    return `${input.reflectionId}:${target}:${anchor ?? "unbound"}`;
+  }
   if (target !== "memory") return `${input.reflectionId}:${target}`;
   const batchAnchorEventId = input.events[0]?.id;
   return batchAnchorEventId === undefined

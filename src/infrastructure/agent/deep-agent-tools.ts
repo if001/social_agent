@@ -75,7 +75,7 @@ export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunCont
 
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };
 
-async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInput: Record<string, unknown>, context: DeepAgentToolRunContext, now: () => Date, baseLogger: Logger): Promise<string> {
+async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInput: Record<string, unknown>, context: DeepAgentToolRunContext, now: () => Date, baseLogger: Logger, modelResultProjection?: (value: unknown) => unknown): Promise<string> {
     context.collector.count += 1;
     const callId = `tool-${String(context.collector.count)}`;
     const startedAt = now().toISOString();
@@ -139,7 +139,7 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       if (result.ok) { if (policy?.kind === "content-read") context.collector.contentReadCharacters += contentTextCharacters(result.value); if (name === "concern_get") context.collector.focusConcernAcquired = true; context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt }); }
       else context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
       logger.log(result.ok ? "info" : "warn", "tool.completed", { ok: result.ok, elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
-      return JSON.stringify(result);
+      return JSON.stringify(result.ok && result.value !== undefined && modelResultProjection !== undefined ? { ...result, value: modelResultProjection(result.value) } : result);
     } catch (error) {
       const finishedAt = now().toISOString();
       const message = error instanceof Error ? error.message : "Tool failed";
@@ -149,9 +149,9 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
 }
 
-export function createDeepAgentTools(registry: ToolRegistry, now: () => Date = () => new Date(), baseLogger: Logger = noopLogger): readonly DeepAgentRunTool[] {
+export function createDeepAgentTools(registry: ToolRegistry, now: () => Date = () => new Date(), baseLogger: Logger = noopLogger, modelResultProjection?: (value: unknown) => unknown): readonly DeepAgentRunTool[] {
   return registry.registered().map((registered) => tool(async (rawInput, runtime: ToolRuntime<unknown, DeepAgentToolRunContext>) => {
     const context = DeepAgentToolRunContextSchema.parse(runtime.context);
-    return executeDeepAgentTool(registry, registered.name, rawInput as Record<string, unknown>, context, now, baseLogger);
+    return executeDeepAgentTool(registry, registered.name, rawInput as Record<string, unknown>, context, now, baseLogger, modelResultProjection);
   }, { name: registered.name, description: registered.description, schema: modelJsonSchema(registered.schema) }));
 }

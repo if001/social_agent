@@ -5,7 +5,7 @@ description: Reflection Sessionで確定経験に基づくSelfまたはMoodだ�
 
 # reflection-self-mood
 
-- 確定済みMemoryに、反復経験、強い経験、または既存Selfとの明確な矛盾があるときだけ、完全な`self`と理由を出す。根拠Memory IDを必ず含める。
+- 確定済みMemoryに、反復経験、強い経験、または既存Selfとの明確な矛盾があるときだけ、完全な`self`と理由を出す。根拠Memory IDや局所参照は出力しない。
 - 次の複数Eventへ残る背景的変化があるときだけ`mood`を出す。今回のFeeling、待機、願望、実行計画はMoodにしない。
-- 変化がなければSelfとMoodを省略し、`evidenceMemoryIds`は空にする。
+- 変化がなければSelfとMoodを省略する。Runtimeが根拠Memoryを検索・監査する。
 - このReflectorはMemory、Concern、Relationshipを変更しない。

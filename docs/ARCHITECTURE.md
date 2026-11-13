@@ -47,7 +47,7 @@
 | ADR-17 | Reflectionは開始時にEvent範囲を固定し、最大16 EventのMemory Formation、有限予算のMemory Reconciliation、Concern / Relationship / Self / Moodの順で統合する。対象別statusとSession / Reflector attemptを保存し、完了batchを重複せず失敗対象だけ再試行する。 | FR-25, FR-41, FR-60, FR-71, FR-72, NFR-7, NFR-17 |
 | ADR-18 | 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、deadlineとcall予算を持つ。 | FR-63, FR-64, NFR-16 |
 | ADR-19 | 予測、G3 Task、Memory mutationは監査・集計のため専用tableに保存し、Conversation MemoryとBackground Experienceは別Storeにする。既存Run/Event/StateChangeは意味判断と行動の監査に限定する。 | FR-50, FR-57, FR-60, FR-61, NFR-17 |
-| ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。LLM向けschemaは永続canonical IDを含めず、Runtimeが局所参照を解決する。 | FR-65, FR-77, NFR-20 |
+| ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。LLM向けschemaは永続canonical ID・局所参照を含めず、Runtimeが検索・範囲制約から根拠と対象を解決する。 | FR-65, FR-77, NFR-20 |
 
 ADR-12〜ADR-19は追加設計であり、現行コードには未実装である。実装Issueでコード、migration、testを追加する。
 
@@ -121,7 +121,7 @@ Concernのライフサイクルは新しい数値counterを増やさず、`activ
 
 モデル向け最終出力は、nested unionを直接生成させず、説明付きのflat schemaを使う。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。descriptionは生成を補助するが、RuntimeのZod検証を省略しない。必須なのは`desire`と`actionType`で、ActionやPatchに必要なfieldだけを追加する。providerへ渡すJSON Schemaから`$schema`と文字列の正規表現制約を除き、日時や参照整合性を含む厳密なZod Domain schemaはRuntime側で再検証する。これによりモデル負荷を抑えてもDomain保証は緩めない。
 
-初回出力が不正な場合、初回と同じ固定入力、許可された局所参照、不正出力、flat schemaを含むrepair入力で再試行する。局所参照はRuntimeが入力ごとに割り当て、LLMは永続canonical IDを見ずに選ぶ。Runtimeだけが局所参照をcanonical IDへ解決し、未解決参照はcommitしない。repair中は通常Toolを無効にする。全試行後も不正ならcommitせずfailureだけを記録する。ただしuser-messageで既知の`action: string`誤出力だけは、空でない応答または定型の再試行依頼へ限定的に復旧する。自律Eventやその他の不正出力にはこのfallbackを使わない。
+初回出力が不正な場合、初回と同じ固定入力、不正出力、flat schemaを含むrepair入力で再試行する。LLM向けschemaとrepair入力は永続canonical ID・局所参照を含めない。Runtimeだけが入力範囲と検索結果から根拠・更新対象を解決し、解決不能な候補はcommitしない。repair中は通常Toolを無効にする。全試行後も不正ならcommitせずfailureだけを記録する。ただしuser-messageで既知の`action: string`誤出力だけは、空でない応答または定型の再試行依頼へ限定的に復旧する。自律Eventやその他の不正出力にはこのfallbackを使わない。
 
 ## 予測Loop、G3、MemoryUpdate
 
@@ -166,9 +166,13 @@ Event優先順位はuser-message、memory-update、G3、reflectionの順とす�
 
 Reflectionは通常Action・外部探索・日常的Concern消化を行わないmaintenance Sessionである。開始時に前回成功範囲の末尾から現在までのEvent範囲を固定し、Memory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順で長期状態を扱う。各Reflectorは必要な小さな読み取りToolを反復利用できるが、Session外の探索、外部Tool、発話は公開しない。選択Contextは完全なcommit基準Stateと分離する。
 
-Memory Formationは、未統合Eventを古い順に最大16件ずつ扱い、直接根拠を持つ新しいMemoryだけを形成する。既存Memory集合を初期入力へ複写せず、重複が疑われるときだけ限定した検索を使う。Formationは古いEventによって、後から形成された既存Memoryを内容一致だけで更新しない。commit層はReflection用のconfidenceとpurposeを導出するが、既存Memoryを更新する権限はReconciliationに限る。
+Memory Formationは、未統合Eventを古い順に最大16件ずつ扱い、直接根拠を持つ新しいMemoryだけを形成する。既存Memory集合を初期入力へ複写せず、重複が疑われるときだけ限定した検索を使う。Reflectorは解釈・理由・種別・視点を出力し、Event IDやMemory IDを出力しない。Runtimeが固定batchの範囲と検索結果から根拠Eventを解決する。Formationは古いEventによって、後から形成された既存Memoryを内容一致だけで更新しない。commit層はReflection用のconfidenceとpurposeを導出するが、既存Memoryを更新する権限はReconciliationに限る。
 
-Memory Reconciliationは、全Memoryを走査せず、Formationによる影響、利用・Concernの根拠、未再検討、遠い連想を再活性化理由として少数のアンカーMemoryまたは局所クラスターを選ぶ。1 Sessionでは理由ごとに最大1件、合計最大4件のアンカーをround-robinし、各アンカーから関連Memory最大6件、関連Event最大16件だけを取得する。ReflectorはMemoryとEventの検索Toolでこの近傍だけを読み、種別ごとに補強、訂正、分割、維持を判断する。episodicは不変、semantic / common-groundは後続根拠による訂正だけ、self-related / self-changeは反復経験に基づく統合・弱化・更新・分割だけを許す。矛盾は新旧の根拠と時刻を残し、古い経験で新しい理解を巻き戻さない。splitは、元Memoryを狭い内容へ更新し、分離内容を元Memoryを根拠にした新規Memoryとして同一transactionで作るMemoryWriteServiceの複合操作である。
+Memory Reconciliationは、全Memoryを走査せず、Formationによる影響、利用・Concernの根拠、未再検討、遠い連想を再活性化理由として候補を集める。Runtimeはembedding近傍・subject・時刻で候補をcluster化し、理由間をround-robinして代表anchorを選ぶ。候補が尽きるかSession共有の軽量Reflector call予算に達するまで、各anchorから関連Memory最大6件、関連Event最大16件だけを取得する。ReflectorはMemoryとEventの検索Toolでこの近傍だけを読み、IDを出力せずに種別ごとの補強、訂正、分割、維持を判断する。Runtimeが選択済みanchorと検索結果から対象・根拠を解決する。episodicは不変、semantic / common-groundは後続根拠による訂正だけ、self-related / self-changeは反復経験に基づく統合・弱化・更新・分割だけを許す。矛盾は新旧の根拠と時刻を残し、古い経験で新しい理解を巻き戻さない。splitは、元Memoryを狭い内容へ更新し、分離内容を元Memoryを根拠にした新規Memoryとして同一transactionで作るMemoryWriteServiceの複合操作である。
+
+根拠解決はLLMの仕事ではない。Formationは、固定batchから得たMemory候補の`content`と`reason`をqueryに、同じbatch内だけをHybrid Retrievalして根拠Eventを決める。Reconciliationは、再活性化理由で機械的に絞り込み・cluster化したanchorごとにReflectorを起動し、anchorを暗黙の更新対象に束縛する。Reflectorは`keep`、`update`、`split`と本文・理由・種別だけを返し、Runtimeがanchorより後のEventだけを検索して根拠を付与する。根拠なし、変更不要、解決不能は監査付きのno-opであり、検索基盤障害とtransaction競合だけを再試行する。競合は最新Stateで1回だけ再評価する。
+
+Reflectorが使うread-only ToolはReflection専用adapterである。自然言語query、時間範囲、種別を入力とし、結果本文からcanonical ID、局所参照、cursorその他のRecord識別子を除く。Runtimeは非公開handleで検索結果、anchor、採用根拠を対応付ける。Formationは候補`content + reason`をqueryに固定batchのevent projectionへvector・keyword・subjectのhybrid rankingを行い、versioned thresholdを満たす根拠だけを採用する。Reconciliationはembedding近傍・subject・時刻でcluster化した代表anchorを理由間round-robinで選ぶ。Sessionは軽量Reflector call（既定32、上限96）、RAG query（既定256、上限999）、並列数4の共有予算を持つ。予算で未開始の候補は`deferred`として次Sessionへ残し、候補切れでも停止する。resolver version、query要約、候補数、採否理由、score、時系列判定、最終分類は候補単位の`reflection_resolutions`監査Recordへ保存する。
 
 `events` は監査の正本であり、現状の時刻・種別・観測JSONだけでは関連Eventをhybrid RAGできない。Reconciliationには、agent所有権、Event ID、時刻、種別、抽出subject、検索本文、embeddingを持つEvent projectionを追加し、既存RetrievalServiceのvector / keyword / subject / recency rankingを流用する。Event IDによる直接根拠参照はprojectionを経由しない。projectionの作成失敗は元Eventを失わせず、検索可能性だけを低下させる。
 

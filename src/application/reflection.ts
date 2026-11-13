@@ -102,50 +102,58 @@ const targetOrder: readonly ReflectionTarget[] = ["memory", "reconciliation", "c
 export const ReflectionMemoryIntentSchema = z.object({
   content: MemoryIntentSchema.shape.content.describe("今後の検索と判断に再利用する、固定Event窓から分かる具体的で短い経験の要点"),
   reason: MemoryIntentSchema.shape.reason.describe("この経験を残すことで次回以降に変わる判断・問いかけ・探索を具体的に書く"),
-  evidenceEventIds: z.array(Id).min(1).max(16).describe("このMemoryを直接支持する今回のReflection Session内Event ID。網羅的な要約ではなく、事実・経験・傾向を述べる、確認する、または修正するEventだけを発生順で選ぶ"),
   target: MemoryIntentTargetSchema.describe("この経験を保存するMemory kind。必ず episodic / semantic / self-related / self-change / common-ground のいずれかを正確に指定する。perspective の self / user や Relationship / Concern は指定しない"),
-  perspective: MemoryPerspectiveSchema.describe("userは対話相手について確認できた事実、selfはAgent自身の探索・行動・判断から得た経験として保存する"),
-  subjects: z.array(Id).max(16).describe("このMemoryが主に関わる主体ID。今回の経験に現れない主体を補わない"),
-}).strict().superRefine((value, context) => {
-  if (new Set(value.evidenceEventIds).size !== value.evidenceEventIds.length) context.addIssue({ code: "custom", path: ["evidenceEventIds"], message: "Memory evidence Event IDs must be distinct" });
-});
+  perspective: MemoryPerspectiveSchema.describe("userは対話相手について確認できた事実、selfはAgent自身の探索・行動・判断から得た経験として保存する。根拠EventとsubjectはRuntimeが固定Event窓から解決する")
+}).strict();
 export const MemoryReflectorOutputSchema = z.object({
   memories: z.array(ReflectionMemoryIntentSchema).max(4).describe("今後の判断に再利用する、根拠Eventを選別済みのMemoryIntent。最大4件まで返す。候補が5件以上なら、今後の判断への影響と根拠の強さで上位4件だけを選び、残りは次回のReflectionへ回す。保存不要なら空配列")
 }).strict();
+export type ReflectionMemoryIntent = z.infer<typeof ReflectionMemoryIntentSchema>;
+
+/**
+ * Runtime-owned Formation resolver.  The model supplies only a candidate in
+ * natural language; this resolver is the sole place that binds it to the
+ * fixed Event window.  A candidate with no lexical support is an ordinary
+ * no-op, never a model retry.
+ */
+export function resolveFormationEvidence(candidate: Pick<ReflectionMemoryIntent, "content" | "reason">, events: readonly Pick<ReflectionInput["events"][number], "id" | "summary">[]): readonly string[] {
+  const terms = new Set(`${candidate.content} ${candidate.reason}`.split(/[\s、。,.!?！？「」()（）]+/).filter((term) => term.length >= 2));
+  const scored = events.map((event) => ({ id: event.id, score: [...terms].filter((term) => event.summary.includes(term)).length }));
+  return scored.filter(({ score }) => score > 0).sort((left, right) => right.score - left.score || left.id.localeCompare(right.id)).slice(0, 16).map(({ id }) => id);
+}
 export const MemoryReconciliationChangeSchema = z.object({
-  memoryId: Id.describe("初期入力のanchorに含まれる既存Memory ID。関連検索で見つけたMemoryを直接変更しない"),
   operation: z.enum(["keep", "update", "split"]).describe("keepは維持、updateは確認・訂正・弱化、splitは混在した長期Memoryを二つの独立Memoryに分ける。episodicは必ずkeep"),
   content: MemoryIntentSchema.shape.content.optional().describe("updateまたはsplit後に残す、将来の検索に使う短いMemory本文。keepでは省略"),
   reason: MemoryIntentSchema.shape.reason.describe("今回の再検討の理由。どの根拠が確認・訂正・反復を示すかを書く"),
-  evidenceEventIds: z.array(Id).max(16).describe("event_searchまたはanchorの直接根拠から得た、今回の変更を支持するEvent ID。keepなら空でもよい"),
-  evidenceMemoryIds: z.array(Id).max(6).describe("memory_searchで得た関連Memory ID。anchor自身を含めてもよい"),
   split: z.array(z.object({ content: MemoryIntentSchema.shape.content, reason: MemoryIntentSchema.shape.reason }).strict()).min(2).max(2).optional().describe("operation=splitのときだけ、元Memoryから分けて新規作成する二つの本文と意義")
 }).strict().superRefine((value, context) => {
   if (value.operation === "update" && value.content === undefined) context.addIssue({ code: "custom", path: ["content"], message: "update requires content" });
   if (value.operation === "split" && value.split === undefined) context.addIssue({ code: "custom", path: ["split"], message: "split requires two memories" });
-  if (value.operation !== "keep" && value.evidenceEventIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceEventIds"], message: "changes require direct Event evidence" });
 });
 export const MemoryReconciliationOutputSchema = z.object({
-  changes: z.array(MemoryReconciliationChangeSchema).max(4).describe("今回選んだanchor Memoryだけの再検討結果。変更不要でも各anchorをkeepとして返す")
+  changes: z.array(MemoryReconciliationChangeSchema).max(1).describe("Runtimeが暗黙に束縛した一件のanchor Memoryの再検討結果。anchor・根拠Event・関連MemoryのIDは出力しない。変更不要ならkeepを一件だけ返す")
 }).strict();
 export const ConcernReflectorOutputSchema = z.object({
-  concernChanges: z.array(ConcernChangeSchema).max(4).describe("Memory根拠に基づくConcern差分。変更不要なら空配列"),
-  evidenceMemoryIds: z.array(Id).max(16).describe("新規Concernまたは整理の根拠Memory ID")
+  concernChanges: z.array(z.discriminatedUnion("operation", [
+    z.object({ operation: z.literal("create"), description: Text, whyItMatters: Text, reconsiderAt: z.iso.datetime({ offset: true }).optional() }).strict(),
+    z.object({ operation: z.literal("upsert"), currentDescription: Text.describe("更新対象を示す現在のConcern本文。IDや局所参照ではない"), description: Text, whyItMatters: Text, status: z.enum(["active", "satisfied", "abandoned"]), reconsiderAt: z.iso.datetime({ offset: true }).optional() }).strict(),
+    z.object({ operation: z.literal("remove"), currentDescription: Text.describe("削除対象を示す現在のConcern本文。IDや局所参照ではない") }).strict()
+  ])).max(4).describe("Memory根拠に基づくConcern差分。ID・根拠Memory IDは出力しない。変更不要なら空配列")
 }).strict().superRefine((value, context) => {
   if (value.concernChanges.filter((change) => change.operation === "create").length > 3) context.addIssue({ code: "custom", path: ["concernChanges"], message: "Reflection can create at most three Concerns at once" });
-  if (value.concernChanges.some((change) => change.operation === "create") && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "New Concerns require Memory evidence" });
 });
 export const RelationshipReflectorOutputSchema = z.object({
-  relationshipChanges: z.array(RelationshipChangeSchema).max(4).describe("持続的なRelationship差分。変更不要なら空配列")
+  relationshipChanges: z.array(z.discriminatedUnion("operation", [
+    z.object({ operation: z.literal("upsert"), currentDescription: Text.describe("更新対象を示す現在のRelationship本文。IDや局所参照ではない"), description: Text }).strict(),
+    z.object({ operation: z.literal("remove"), currentDescription: Text.describe("削除対象を示す現在のRelationship本文。IDや局所参照ではない") }).strict()
+  ])).max(4).describe("持続的なRelationship差分。Runtimeが本文から対象を解決する。新規の対象IDは作らない")
 }).strict();
 export const SelfMoodReflectorOutputSchema = z.object({
   mood: Text.optional().describe("複数Eventへ残る背景的Mood。変化がなければ省略"),
   self: SelfSchema.optional().describe("十分なMemory根拠がある場合だけの完全なSelf"),
-  selfChangeReason: Text.optional().describe("Selfを変えるMemory根拠と理由"),
-  evidenceMemoryIds: z.array(Id).max(16).describe("Self変更の根拠Memory ID")
+  selfChangeReason: Text.optional().describe("Selfを変える複数経験の内容と理由。Memory IDや局所参照は出力しない")
 }).strict().superRefine((value, context) => {
   if ((value.self === undefined) !== (value.selfChangeReason === undefined)) context.addIssue({ code: "custom", path: ["selfChangeReason"], message: "Self changes require an explicit reason" });
-  if (value.self !== undefined && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "Self changes require Memory evidence" });
 });
 export const ReflectionTargetOutputSchema = z.union([MemoryReflectorOutputSchema, MemoryReconciliationOutputSchema, ConcernReflectorOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema]);
 
@@ -215,6 +223,25 @@ export class TargetedReflection {
         if (memoryReady) { await this.repository.completeMemoryTarget(input); input = await this.repository.refresh(input); }
         continue;
       }
+      if (target === "reconciliation") {
+        // The Runtime selects every anchor before the model runs.  Each call
+        // receives one bound anchor, so the model never has to name a Memory
+        // (nor an Event) in its structured output.
+        for (const anchor of targetInput.memories) {
+          const anchorInput = { ...targetInput, memories: [anchor] };
+          try {
+            const result = await this.model.reflect(target, anchorInput, signal);
+            this.#validateTargetOutput(target, result.output, anchorInput);
+            await this.repository.commitTarget(anchorInput, target, result);
+            input = await this.repository.refresh(input);
+          } catch (error) {
+            await this.repository.failTarget(input, target, error);
+            integrationReady = false;
+            break;
+          }
+        }
+        continue;
+      }
       try {
         const result = await this.model.reflect(target, targetInput, signal);
         this.#validateTargetOutput(target, result.output, targetInput);
@@ -222,7 +249,7 @@ export class TargetedReflection {
         input = await this.repository.refresh(input);
       } catch (error) {
         await this.repository.failTarget(input, target, error);
-        if (target === "reconciliation" || target === "concern" || target === "relationship") integrationReady = false;
+        if (target === "concern" || target === "relationship") integrationReady = false;
       }
     }
     await this.repository.complete(input);
@@ -232,28 +259,18 @@ export class TargetedReflection {
     const memoryIds = new Set(input.memories.map(({ id }) => id));
     if (target === "reconciliation") {
       const output = MemoryReconciliationOutputSchema.parse(raw);
-      const anchors = new Map(input.memories.map((memory) => [memory.id, memory]));
+      if (input.memories.length !== 1) throw new DomainError("VALIDATION", "Memory Reconciliation requires one Runtime-bound anchor");
+      const anchor = input.memories[0];
+      if (anchor === undefined) throw new DomainError("VALIDATION", "Memory Reconciliation anchor was not loaded");
       for (const change of output.changes) {
-        const anchor = anchors.get(change.memoryId);
-        if (anchor === undefined) throw new DomainError("VALIDATION", "Memory Reconciliation referenced Memory outside its anchors");
         if (anchor.kind === "episodic" && change.operation !== "keep") throw new DomainError("VALIDATION", "Episodic Memory is immutable during Reconciliation");
       }
     } else if (target === "concern") {
-      const output = ConcernReflectorOutputSchema.parse(raw);
-      if (output.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Concern Reflector referenced Memory outside its Session");
-      const concernIds = new Set(input.state.concerns.map(({ id }) => id));
-      for (const change of output.concernChanges) {
-        if (change.operation === "create") continue;
-        const id = change.operation === "remove" ? change.id : change.concern.id;
-        if (!concernIds.has(id)) throw new DomainError("VALIDATION", `Concern Reflector referenced an unknown Concern: ${id}`);
-      }
+      ConcernReflectorOutputSchema.parse(raw);
     } else if (target === "self-mood") {
-      const output = SelfMoodReflectorOutputSchema.parse(raw);
-      if (output.evidenceMemoryIds.some((id) => !memoryIds.has(id))) throw new DomainError("VALIDATION", "Self/Mood Reflector referenced Memory outside its Session");
+      SelfMoodReflectorOutputSchema.parse(raw);
     } else if (target === "memory") {
-      const output = MemoryReflectorOutputSchema.parse(raw);
-      const eventIds = new Set(input.events.map(({ id }) => id));
-      for (const memory of output.memories) if (memory.evidenceEventIds.some((id) => !eventIds.has(id))) throw new DomainError("VALIDATION", "Memory Reflector referenced Event outside its Session");
+      MemoryReflectorOutputSchema.parse(raw);
     }
     else RelationshipReflectorOutputSchema.parse(raw);
   }

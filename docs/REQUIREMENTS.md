@@ -159,7 +159,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-28：探索領域カタログは`config/exploration-domains.yaml`に重複のない100〜200件を保持する。全件をモデル入力へ入れず、`concern-formation` Eventごとにランダムな最大8件を候補として渡す。永続cursorや固定順の巡回は持たない。（C-11, C-17、追加：カタログ件数と供給方法は実装判断）
 - FR-66：`idle`、`concern-due`の自律発話は、Concern、Self、Memory、Mood、探索結果からAgent自身が扱いたい具体的対象を選ぶ。ユーザーの現在話題・好み・共有文脈は届き方を調整する任意の材料であり、話題選択の前提にしない。唐突な話題転換を許容するが、Desireには対象が現在の個体状態・経験と結び付く理由を含める。（C-01, C-03, C-14, C-17）
 - FR-67：`idle`、`concern-due`では、ユーザーの未返信・返答待ち・連投回避を待機、沈黙、Concernの減衰・終了の根拠にしない。各EventでAgent自身が探索・調査・考察・記録・共有から行動を選び、必ずユーザーへ発話する。複数の独立したactive Concernを並行して持つことを自然な通常状態とする。独立Concernの幅はconcern-formationがcreateし、既存Concernの派生はconcern-due / external-changeがderive + forkする。idleは行動中に強く残った独立Concernだけをcreateでき、件数閾値だけで機械的に作らない。件数を減らすためだけに置換・終了しない。（C-01, C-03, C-06, C-14, C-17）
-- FR-70：`idle`は毎回、既知のユーザーの予定、試み、関心、未完了の話題と直近の質問を確認する。Memoryに根拠があり同じ問いの再送でなければ、自律的な探索・共有に加えて最大1件、その人自身について自然に尋ねる。探索対象とDesireは、会話Memory、Concern、Self、Mood、探索結果、またはBackground Experienceの出来事・Feeling・lessonの少なくとも一つに根拠を持つ。Background Experienceを現在のユーザーとの共有経験として扱わない。（C-01, C-03, C-10, C-14, C-17, C-45）
+- FR-70：`idle`がユーザー自身への関心・質問を扱うときは、既知の予定、試み、関心、未完了の話題と直近の質問を必要な範囲で確認する。Memoryに根拠があり同じ問いの再送でなければ、自律的な探索・共有に加えて最大1件、その人自身について自然に尋ねられる。ユーザー文脈の取得は毎回の話題選択の前提にしない。探索対象とDesireは、会話Memory、Concern、Self、Mood、探索結果、またはBackground Experienceの出来事・Feeling・lessonの少なくとも一つに根拠を持つ。Background Experienceを現在のユーザーとの共有経験として扱わない。（C-01, C-03, C-10, C-14, C-17, C-45）
 
 ## R5. Contextと実行予算
 
@@ -169,6 +169,8 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-31：Memoryは会話またはTool結果の転載ではなく、後の検索と判断で再利用する具体的要点として生成する。（C-10）
 - NFR-4：Agent Contextを4,500推定token以内に収める。system promptとTool schemaを含むmodel入力が8,000推定tokenを超えた場合は警告するが、provider呼び出しを中断しない。（C-20, C-23、追加：具体的なtoken上限は実装判断）
 - NFR-5：model call数、Deep Agent step数、Tool call数、deadlineをRun単位で制限する。探索用のgraph safety上限が先に到達した場合は、残した1 model callで、それまでに取得・記録済みのTool結果を根拠に通常Toolなしの最終Actionを試みる。この回復も失敗した場合だけRunを失敗にする。（C-27, C-28）
+- NFR-21：RuntimeはRunまたはmaintenance Session単位でRAG query数、LLM call数、入力・出力token、並列数を計測・監査し、予算として強制する。RAG queryは数百件まで許可するが、1,000件以上を計画・実行しない。通常のLLM callを数百回行う設計にしない。入力・出力が小さく、単一候補の自然言語判断だけを行う軽量LLM callは、明示的な共有予算の範囲で100回未満まで許可できる。上限到達時は、取得済み結果による決定論的な完了・no-op・部分成功へ移行し、無制限な再試行や全件走査をしない。（追加：検索と軽量判断を活用しつつ、数千回規模の検索・数百回規模のLLM実行を防ぐため）
+- NFR-22：意味、意図、感情、自然言語の要約・解釈、曖昧な経験の統合など、自然言語の理解を要する判断はLLMが担う。一方、ID・所有権・権限・時刻・範囲・状態遷移・冪等性・予算・pagination・重複除去・閾値判定・候補の順位付けはRuntimeが決定論的に担う。Hybrid RAG、embedding近傍検索、cluster化はLLM呼出しを代替できる機械的な候補取得・集約として使ってよいが、Agentの意味づけそのものを確定しない。（C-18, C-20, C-27、追加：認知判断とRuntime責務を分離するため）
 - FR-32：予算超過、schema不正、権限違反、同一Run内での同一Tool・同一入力の反復を拒否する。重複拒否は既取得結果の利用、入力・Toolの変更、または最終Actionへの移行を示す機械可読な失敗結果を同じAgent loopへ返す。過去Runでの同一入力だけを理由に実行を拒否しない。モデルが生成した未登録Tool callも同じAgent loopへ失敗実績として返す。（C-24, C-27, C-28）
 
 ## R6. Tool
@@ -187,10 +189,14 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-6：Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。（C-08, C-27）
 - FR-41：Reflectionは通常Action・外部探索・日常的Concern消化を行わず、Memory、Concern、Relationship、Self、Moodを長期統合するmaintenance処理とする。Session開始時に対象Event範囲を固定し、Memory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順で対象別Reflectorを実行する。（C-03, C-25）
 - FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与し、作成ActivityへReflection Sessionと根拠Memoryを対応付ける。（C-25）
-- FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・許可ID・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
+- FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。LLM出力は永続ID・局所参照を含めず、根拠と更新対象はRuntimeが入力範囲と検索結果から解決する。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
-- FR-76：発話は`user-message`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`は発話またはrefuseを必須とするが、他の許可EventはAgent自身の動機により発話しないこともできる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、ユーザーへ発話しない。（C-06, C-16, C-17、追加）
-- FR-77：LLMは永続canonical IDを出力、生成、または直接指定しない。Runtimeは入力ごとの局所参照を割り当て、LLMが選んだ局所参照だけを許可範囲で検証してcanonical IDへ解決し、ID付与、検索、更新、永続化を担う。局所参照の不正または未解決はcommitしない。（追加：LLMのID幻覚を永続化・参照・更新へ伝播させないため）
+- FR-76：発話は`user-message`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`と`concern-due`は発話またはrefuseを必須とする。これは未返信・返答待ち・連投回避を抑制理由にしない配送方針であり、話題とDesireはAgent自身が選ぶ。他の許可EventはAgent自身の動機により発話しないこともできる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、ユーザーへ発話しない。（C-06, C-16, C-17、追加）
+- FR-77：LLMは永続canonical ID、局所参照、その他の永続Recordを指すIDを出力、生成、または直接指定しない。Runtimeだけが入力範囲、検索結果、所有権、時刻、種別を用いて根拠と更新対象を解決し、ID付与、検索、更新、永続化を担う。解決できない候補はcommitしない。（追加：LLMのID幻覚を永続化・参照・更新へ伝播させず、根拠選択を再現可能なRuntimeの責務にするため）
+- FR-78：Memory Formationは固定batch内のEvent Experienceを入力として、LLMが`content`、`reason`、`kind`、`perspective`だけを持つ最大4件のMemory候補を出力する。Runtimeは候補の自然言語をqueryに固定batch内だけをHybrid Retrievalし、所有権、subject、種別規則、versioned score閾値を満たすEventを根拠として付与する。Memoryのsubjectsは解決済み根拠EventからRuntimeが導出する。根拠なし・候補不支持は正常なno-opとしてbatchを完了し、検索基盤障害・transaction競合だけをbatch再試行にする。（C-10, C-25、追加：意味づけと根拠選択を分離するため）
+- FR-79：Memory ReconciliationはRuntimeが再活性化理由ごとにHybrid Retrievalとcluster化で候補を集約し、選んだanchor Memoryごとに小さなReflectorを起動する。Reflectorは暗黙に束縛されたanchorだけについて`keep`、`update`、`split`と本文・理由・種別を出力し、他のMemoryを直接指定しない。Runtimeはanchorの`occurredAt`と既存根拠Eventの最大`occurredAt`の後に発生した関連Eventだけを検索して根拠と時系列を検証し、同時刻または過去のEventでは更新しない。episodicはkeepのみ、semantic / common-groundは後続Eventによる確認・訂正だけ、self-related / self-changeは少なくとも2件の独立した根拠Eventを満たす場合だけ更新・統合・分割できる。（C-03, C-10, C-15、追加：LLMの対象指定をなくしつつ局所的な再統合を行うため）
+- FR-80：ReflectionでLLMへ公開するread-only ToolはReflection専用とし、検索query、時間範囲、種別等の自然言語・非ID入力だけを受け取る。Tool結果からcanonical ID、局所参照、cursorその他の永続Record識別子を除き、Runtimeだけが非公開handleで検索結果・anchor・監査Recordを対応付ける。対象の詳細・履歴・ページングはRuntime束縛または自然言語queryで行い、LLMにRecord IDを再入力させない。（C-16, C-25、追加：Tool経由のID露出を防ぐため）
+- FR-81：Reflectionの候補解決結果は`committed`、`no-op`、`deferred`、`retryable`、`conflict`に分類する。`deferred`は共有予算で未開始となった候補であり次Sessionへ残す。`no-op`は未支持・変更不要・解決不能な候補を監査して対象を完了し、`retryable`は検索基盤障害等の技術失敗だけを対象別backoffへ渡す。`conflict`は最新Stateを再読込して1回だけ再評価し、なお競合すればretryableとする。Formation cursorは完了batchだけを進める。Runtimeはresolver version、query要約、候補数、採用・却下根拠、score、時系列判定、最終分類を監査可能にする。軽量Reflector callはSession共有の設定可能な予算（既定32、上限96）、RAG query予算（既定256、上限999）、並列数（既定4）を持ち、候補が尽きた時点でも停止する。（C-20, C-25, C-27、追加：高コストな全件LLM走査を避け、失敗を再現可能に扱うため）
 
 ## R8. 永続化、配送、運用
 
@@ -214,11 +220,11 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-55：Conversation Memoryと背景経験は、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。（C-46, C-56）
 - FR-56：MemoryIntentのtargetはMemory kindに限定し、RelationshipとConcernは既存PatchまたはConcern Proposalへ渡す。（C-66）
 - FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補と種別規則からcreate、update、no-op、splitを決め、Memory versionを照合する。splitは元Memoryを狭い内容へ更新し、分離した内容を元Memoryへの根拠を持つ新規Memoryとして同一transactionで作る複合操作である。（C-55, C-57, C-58, C-63, C-67、追加：Reconciliationで意味を失わず分離するため）
-- FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。Reflection Memory Reflectorは経験・理由・根拠Event・種別・視点・検索主体だけを選び、confidenceとpurposeはcommit層が導出する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。（C-59, C-60, C-63, C-66, C-69）
+- FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。Reflection Memory Reflectorは経験の解釈、理由、種別、視点、検索主体だけを出力する。根拠Event、関連Memory、更新対象はcommit層が固定Session範囲とHybrid Retrievalから解決し、confidenceとpurposeも導出する。G3のMemoryIntentはMainAgentの再判断で採用された場合、MainAgentのrememberとしてそのEventのtransactionで適用する。（C-59, C-60, C-63, C-66, C-69）
 - FR-59：Event優先順位はuser-message、memory-update、G3、reflectionの順とし、user-messageを待たせず、強制中断しない。（C-61, C-69）
 - FR-60：ReflectionはMemory、Self / Mood、Relationship、Concernごとのstatusを持ち、Memory確定後にConcern / Relationship、最後にSelf / Moodを更新する。Memory batchと失敗対象だけを再試行し、完了batchを重複確定しない。選択Contextと完全commit基準Stateは分離する。（C-64, C-68）
 - FR-71：Memory Formationは、固定Reflection Session内の未統合Eventを古い順に最大16件ずつ扱い、各Eventから直接支持できる新しいConversation Memoryだけを形成する。初期入力へ既存Memory集合を含めず、保存不要なら空出力にする。Formationが既存Memoryとの重複を疑う場合だけ、限定された読み取りで確認する。古いEventを根拠に、内容一致だけで後から形成されたMemoryを更新または時系列的に巻き戻してはならない。（C-03, C-10, C-15、追加）
-- FR-72：Memory Reconciliationは、全Memoryの定期全件走査をせず、新規Formationによる影響、利用・Concernの根拠、未再検討、遠い連想のいずれかを理由として選ばれたアンカーMemoryまたは局所クラスターだけを扱う。1 Sessionでは理由ごとに最大1件、合計最大4件のアンカーを選び、理由間をround-robinして最新順だけに偏らないようにする。各アンカーは関連Memory最大6件と関連Event最大16件までを取得できる。Reflectorは再活性化理由、参照した根拠、結果を監査する。（C-03, C-10, C-15、追加：全件走査を避けつつ再活性化の選択を検証可能にするため）
+- FR-72：Memory Reconciliationは、全Memoryの定期全件走査をせず、新規Formationによる影響、利用・Concernの根拠、未再検討、遠い連想のいずれかを理由として選ばれたアンカーMemoryまたは局所クラスターだけを扱う。Runtimeはembedding近傍・subject・時刻で候補をcluster化し、理由間をround-robinして最新順だけに偏らない代表anchorを選ぶ。各anchorは関連Memory最大6件と関連Event最大16件までを取得できる。候補が尽きるかSession共有の軽量Reflector call予算に達するまで処理し、Reflectorは再活性化理由、参照した根拠、結果を監査する。（C-03, C-10, C-15、追加：全件走査を避けつつ再活性化の選択を検証可能にするため）
 - FR-73：Reconciliationでは、episodic Memoryを内容更新しない。semantic / common-groundは後続経験による確認・訂正がある場合だけ更新し、矛盾は新旧の根拠と時刻を保持して整理する。self-related / self-changeは複数経験の反復を根拠に統合、弱化、更新または分割できる。単なる内容一致、古い根拠、または根拠なしで既存Memoryを上書きしない。（C-03, C-10, C-15、追加）
 - FR-74：Conversation MemoryとBackground Experienceの既存Hybrid Retrievalは共通RetrievalServiceで継続する。Reconciliation用の関連Event検索は、Event IDによる直接参照とは別に、agent所有権、時刻、Event種別、subject、keyword、vectorを持つEvent projectionを検索対象とし、同じhybrid rankingの契約へ追加する。元Eventは監査の正本として保持し、projectionは検索専用の派生データとする。（C-10, C-20, C-27、追加）
 - FR-75：Tool Resultは監査記録として保持するが、通常のEvent projection・embedding・Reflection検索の対象にしない。Experience Integrationはcommit済みのEvent、Action、Tool結果、State変更からEvent固有のsummaryとfactsを形成し、Memory FormationとEvent検索はこのEvent Experienceだけを根拠にする。固定trigger reason、Meaning、Feeling、未確認の推測だけからExperienceやMemoryを形成しない。Experience形成の失敗は親Eventのcommitを巻き戻さず、そのEventをMemory Formation対象から除外する。（C-10, C-16, C-22、追加）
@@ -250,7 +256,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-9：Agent Coreの実効system promptは4,500文字以下を保つ。SkillsMiddlewareのskill catalogはモデルへ渡す前に除去する。（NFR-4）
 - AC-10：Event種別ごとのskillが読み込まれ、user-message / idle / concern-due / scheduled-taskのFlowに応じた指示へ到達することをUnit testで確認する。（FR-47）
 - AC-15：自律EventのpromptとConcern適用が、未返信を抑制根拠にせず、毎回の発話と独立Concernの並行保持を指示・実現することをUnit testで確認する。（FR-67）
-- AC-16：idleがユーザー文脈の確認、根拠付きの最大1件の問い、Background Experienceを含む探索理由を指示することをUnit testで確認する。（FR-68）
+- AC-16：idleが、ユーザー自身への関心を扱う場合にだけ必要なユーザー文脈を確認し、根拠付きの最大1件の問いを選べること、およびBackground Experienceを現在のユーザーとの共有経験として扱わないことをUnit testで確認する。（FR-70）
 - AC-17：Background Experienceの単独投入がYAMLを検証し、対象Storeだけを置換して会話Memoryを保持することをIntegration testで確認する。（FR-69）
 - AC-20：Agent Coreと自律skillが、予測誤差・Tool結果・探索結果からネガティブなFeelingと持続状態への反映を許可し、前向きな結論への丸めを禁止することをUnit testで確認する。（FR-70）
 - AC-11：G1/G2の予測、1ターン遅れの誤差評価、Feelingを出力しないことをContract/System testで確認する。（FR-48, FR-49, FR-50）

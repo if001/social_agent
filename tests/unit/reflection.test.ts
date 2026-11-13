@@ -1,4 +1,4 @@
-import { MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, Reflection, ReflectionOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
+import { MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, Reflection, ReflectionOutputSchema, RelationshipReflectorOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
 
 const input: ReflectionInput = {
   reflectionId: "reflection-1", agentId: "agent-a", expectedVersion: 2,
@@ -9,33 +9,37 @@ const input: ReflectionInput = {
 };
 
 describe("Reflection", () => {
-  it("C-10, FR-10: requires each Reflection Memory to select one to sixteen distinct evidence Events", () => {
+  it("FR-77, FR-78: Memory Reflector candidates contain no persistent Event, Memory, or subject IDs", () => {
     const memory = {
       content: "ユーザーは展示を訪れる予定を話した",
       reason: "次回に訪問できたか自然に尋ねるため",
-      evidenceEventIds: ["event-1"],
       target: "episodic" as const,
-      perspective: "user" as const,
-      subjects: ["user"]
+      perspective: "user" as const
     };
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [memory] }).success).toBe(true);
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [memory] }).success).toBe(true);
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: ["event-1"] }] }).success).toBe(false);
+    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, subjects: ["user"] }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, confidence: "high" }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, purpose: "user-context" }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, source: "agent-a" }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, target: "self" }] }).success).toBe(false);
     expect(MemoryReflectorOutputSchema.safeParse({ memories: [] }).success).toBe(true);
-    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: [] }] }).success).toBe(false);
-    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: Array.from({ length: 17 }, (_, index) => `event-${String(index)}`) }] }).success).toBe(false);
-    expect(MemoryReflectorOutputSchema.safeParse({ memories: [{ ...memory, evidenceEventIds: ["event-1", "event-1"] }] }).success).toBe(false);
   });
 
-  it("FR-73: requires direct Event evidence for a non-episodic reconciliation update and accepts keep", () => {
-    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ memoryId: "memory-1", operation: "keep", reason: "維持する", evidenceEventIds: [], evidenceMemoryIds: [] }] }).success).toBe(true);
-    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ memoryId: "memory-1", operation: "update", content: "訂正後", reason: "後続Eventで訂正", evidenceEventIds: [], evidenceMemoryIds: ["memory-1"] }] }).success).toBe(false);
-    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ memoryId: "memory-1", operation: "split", reason: "二つの事実", evidenceEventIds: ["event-1"], evidenceMemoryIds: ["memory-1"], split: [{ content: "一つ目", reason: "理由" }, { content: "二つ目", reason: "理由" }] }] }).success).toBe(true);
+  it("FR-77, FR-79: Reconciliation is bound by Runtime and accepts no anchor or evidence IDs", () => {
+    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ operation: "keep", reason: "維持する" }] }).success).toBe(true);
+    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ operation: "update", content: "訂正後", reason: "後続Eventで訂正" }] }).success).toBe(true);
+    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ operation: "update", content: "訂正後", reason: "後続Eventで訂正", memoryId: "memory-1" }] }).success).toBe(false);
+    expect(MemoryReconciliationOutputSchema.safeParse({ changes: [{ operation: "update", content: "訂正後", reason: "後続Eventで訂正", evidenceEventIds: ["event-1"] }] }).success).toBe(false);
   });
 
-  it("C-10, FR-10: rejects a Memory Reflector result that cites an Event outside its fixed Session", async () => {
+  it("FR-77: Relationship Reflector identifies an existing relationship by text, never subject ID", () => {
+    expect(RelationshipReflectorOutputSchema.safeParse({ relationshipChanges: [{ operation: "upsert", currentDescription: "率直に話せる", description: "予定を確かめ合う" }] }).success).toBe(true);
+    expect(RelationshipReflectorOutputSchema.safeParse({ relationshipChanges: [{ operation: "upsert", subjectId: "user", description: "予定を確かめ合う" }] }).success).toBe(false);
+  });
+
+  it("FR-77: rejects a Memory Reflector result that attempts to emit an Event ID", async () => {
     const failures: unknown[] = [];
     const reflection = new TargetedReflection({
       load: () => Promise.resolve(input), refresh: (value) => Promise.resolve(value),
@@ -48,7 +52,7 @@ describe("Reflection", () => {
     });
     await reflection.process("reflection-1", "agent-a", new AbortController().signal);
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatchObject({ code: "VALIDATION" });
+    expect(failures[0]).toBeInstanceOf(Error);
   });
 
   it("FR-71: processes a fixed 64 Event Session as four 16-Event Formation batches before one integration pass", async () => {
@@ -66,8 +70,8 @@ describe("Reflection", () => {
       commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
     }, { reflect: (target, value) => {
       calls.push({ target, eventIds: value.events.map(({ id }) => id) });
-      if (target === "memory") return Promise.resolve({ output: { memories: [{ content: `Memory ${String(value.events[0]?.id)}`, reason: "batch", evidenceEventIds: [value.events[0]?.id ?? "event-1"], target: "episodic", perspective: "self", subjects: [] }] }, toolExecutions: [] });
-      if (target === "concern") return Promise.resolve({ output: { concernChanges: [], evidenceMemoryIds: [] }, toolExecutions: [] });
+      if (target === "memory") return Promise.resolve({ output: { memories: [{ content: `Memory ${String(value.events[0]?.summary)}`, reason: "batch", target: "episodic", perspective: "self" }] }, toolExecutions: [] });
+      if (target === "concern") return Promise.resolve({ output: { concernChanges: [] }, toolExecutions: [] });
       if (target === "relationship") return Promise.resolve({ output: { relationshipChanges: [] }, toolExecutions: [] });
       return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });
     } });
@@ -90,8 +94,8 @@ describe("Reflection", () => {
       commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
     }, { reflect: (target, value) => {
       calls.push(target);
-      if (target === "memory") return Promise.resolve({ output: { memories: [{ content: "Retry memory", reason: "batch", evidenceEventIds: [value.events[0]?.id ?? "retry-event-33"], target: "episodic", perspective: "self", subjects: [] }] }, toolExecutions: [] });
-      if (target === "concern") return Promise.resolve({ output: { concernChanges: [], evidenceMemoryIds: [] }, toolExecutions: [] });
+      if (target === "memory") return Promise.resolve({ output: { memories: [{ content: "Retry memory", reason: "batch", target: "episodic", perspective: "self" }] }, toolExecutions: [] });
+      if (target === "concern") return Promise.resolve({ output: { concernChanges: [] }, toolExecutions: [] });
       if (target === "relationship") return Promise.resolve({ output: { relationshipChanges: [] }, toolExecutions: [] });
       return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });
     } });
@@ -134,7 +138,7 @@ describe("Reflection", () => {
       beginTarget: (_input, target) => Promise.resolve(target === "memory" || target === "relationship" ? "completed" : "pending"),
       memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
       commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
-    }, { reflect: (target) => { calls.push(target); return Promise.resolve({ output: target === "concern" ? { concernChanges: [], evidenceMemoryIds: [] } : { mood: "落ち着いている", evidenceMemoryIds: [] }, toolExecutions: [] }); } });
+    }, { reflect: (target) => { calls.push(target); return Promise.resolve({ output: target === "concern" ? { concernChanges: [] } : { mood: "落ち着いている" }, toolExecutions: [] }); } });
     await reflection.process("reflection-1", "agent-a", new AbortController().signal);
     expect(calls).toEqual(["concern", "self-mood"]);
     expect(refreshed).toEqual(["reflection-1", "reflection-1", "reflection-1", "reflection-1"]);
@@ -149,7 +153,7 @@ describe("Reflection", () => {
       beginTarget: () => Promise.resolve("pending"), memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(), commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
     }, {
       reflect: (target, value) => {
-        if (target === "memory") return Promise.resolve({ output: { memories: [{ content: committedMemory.summary, reason: committedMemory.significance, evidenceEventIds: [value.events[0]?.id ?? "event-1"], target: "episodic", perspective: "user", subjects: committedMemory.subjects }] }, toolExecutions: [] });
+        if (target === "memory") return Promise.resolve({ output: { memories: [{ content: committedMemory.summary, reason: committedMemory.significance, target: "episodic", perspective: "user" }] }, toolExecutions: [] });
         if (target === "concern") { concernInputs.push(value); return Promise.resolve({ output: { concernChanges: [{ operation: "create", concern: { description: "新しい関心", whyItMatters: "経験に由来する", status: "active" } }], evidenceMemoryIds: [committedMemory.id] }, toolExecutions: [] }); }
         if (target === "relationship") return Promise.resolve({ output: { relationshipChanges: [] }, toolExecutions: [] });
         return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });
