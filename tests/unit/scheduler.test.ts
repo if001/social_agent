@@ -86,7 +86,7 @@ describe("Scheduler", () => {
     const task: ScheduledTarget = { id: "task-1", agentId: "agent-a", kind: "scheduled-task", reason: "約束", instruction: "調査結果を知らせる", destination: "terminal" };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([task]), complete: () => { completed += 1; return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: (event) => { events.push(event); return Promise.resolve({ type: "respond", content: "結果" }); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => "terminal", ...timings });
     await scheduler.tick(new AbortController().signal);
-    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ kind: "system", payload: { targetId: "task-1", targetKind: "scheduled-task", reason: "約束", schedulerGenerated: true, instruction: "調査結果を知らせる", destination: "terminal" } });
+    expect(events).toHaveLength(1); expect(events[0]).toMatchObject({ kind: "system", payload: { targetId: "task-1", targetKind: "scheduled-task", reason: "Scheduled Taskの実行時刻が到来した", triggerReason: "約束", schedulerGenerated: true, instruction: "調査結果を知らせる", destination: "terminal" } });
     expect(completed).toBe(1);
   });
 });

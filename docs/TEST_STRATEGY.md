@@ -20,7 +20,7 @@
 - 探索領域カタログの件数・重複検証、`distant`候補の上限制御、探索モード選択の具体化
 - Agent Core入力でTool定義を二重投入しないこと、8,000推定token超過をwarningにしてprovider呼び出しを継続すること
 - Reflectionのモデル向けfield説明、flat変更record、repair、入力token上限
-- LLM向け局所参照の許可範囲、canonical ID非露出、Runtimeによる解決と不正参照のcommit拒否
+- LLM向けのRecord ID・局所参照の非露出、Runtimeによる根拠・更新対象の解決と解決不能候補のcommit拒否
 - PredictionEvaluation、PredictionContext、MemoryIntent、memoryCandidatesのZod契約
 - MemoryWriteServiceのcreate、update、no-op、Memory version楽観ロック
 - Background ExperienceのSchema、時系列、現在のユーザーとの共有経験の不在
@@ -159,7 +159,11 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-40 | Unit, Integration | `tests/unit/scheduled-task-tools.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Scheduled Task の分離 |
 | FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理と固定Session内根拠の検証 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
-| FR-77 | Unit, Integration | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts` | LLM向け局所参照、Runtime解決、canonical ID非露出、不正参照の拒否 |
+| FR-77 | Unit, Contract, Integration | `tests/unit/reflection-harness.test.ts`, `tests/contract/prediction-contracts.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts` | 全LLM経路でID・局所参照を非露出とし、Runtimeが検索・範囲制約から根拠と更新対象を解決すること |
+| FR-78 | Unit, Integration, System | `tests/unit/reflection-evidence-resolver.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/reflection-partial.test.ts` | Formationの固定batch制約、Hybrid Retrieval根拠、未支持no-op、技術失敗だけのbatch再試行 |
+| FR-79 | Unit, Integration, System | `tests/unit/memory-reconciliation.test.ts`, `tests/unit/reflection-evidence-resolver.test.ts`, `tests/system/reflection-partial.test.ts` | cluster化されたanchor単位の更新、後続Event制約、種別別の変更制限、split |
+| FR-80 | Unit, Contract | `tests/unit/reflection-tools.test.ts`, `tests/contract/agent-harness.contract.test.ts` | Reflection ToolのID非露出、非公開handle、非ID入力だけによる検索 |
+| FR-81 | Unit, Integration, System | `tests/unit/reflection-evidence-resolver.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/reflection-partial.test.ts` | 分類、cursor進行、競合再評価、call予算、resolver監査 |
 | FR-45 | Unit, System, Contract | `tests/unit/scheduler.test.ts`, `tests/system/internal-event.test.ts`, `tests/contract/agent-harness.contract.test.ts` | idleのno-external拒否、再開間隔、夜間idle抑制 |
 | FR-48 | System | `tests/system/prediction-loop.test.ts` | 応答後の予測、1ターン遅れの誤差評価 |
 | FR-49 | Contract | `tests/contract/prediction-contracts.test.ts` | 1 callの予測・評価・remember・G3判断 |
@@ -189,6 +193,8 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | NFR-3 | Unit, Integration | `tests/unit/memory-context.test.ts`, `tests/integration/persistence.test.ts` | Context の件数・長さ・token 上限 |
 | NFR-4 | Contract, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/unit/memory-context.test.ts` | 4,500 / 8,000 token の境界 |
 | NFR-5 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/tool-loop.test.ts`, `tests/unit/ollama-provider.test.ts` | model call・Tool call・deadline |
+| NFR-21 | Unit, System, Integration | `tests/unit/execution-budget.test.ts`, `tests/system/tool-loop.test.ts`, `tests/system/reflection-partial.test.ts` | RAG / LLM / token / 並列数の集計、RAG 1,000未満、軽量LLM 100未満、上限時の部分成功・no-op |
+| NFR-22 | Unit, Contract, System | `tests/unit/runtime-decision-boundary.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/system/reflection-partial.test.ts` | 自然言語判断のLLM委譲、ID・時刻・範囲・閾値・RAG・cluster化のRuntime処理 |
 | NFR-6 | Unit, Integration | `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | claim・lease・retry |
 | NFR-7 | Integration, Evaluation, Unit | `tests/integration/persistence.test.ts`, `tests/evaluation/evaluation-runner.test.ts`, `tests/unit/operations.test.ts` | 監査記録と artifact |
 | NFR-8 | Integration, Live | `tests/integration/persistence.test.ts`, `tests/live/production-context-user-response.test.ts` | MainAgentの一括commitとmemory-updateの分離 |

@@ -8,6 +8,7 @@ import {
   StructuredReflectionModel,
   TargetStructuredReflectionModel,
   reflectionStructuredOutputRepairMessageFor,
+  reflectionToolResultForModel,
   reflectionToolRunScope,
   reflectionSystemPrompt,
   targetedReflectorRepairInput,
@@ -26,6 +27,9 @@ const input: ReflectionInput = {
 };
 
 describe("structured Reflection model", () => {
+  it("FR-80: hides persistent IDs, local handles, and cursors from Reflection Tool results", () => {
+    expect(reflectionToolResultForModel({ id: "event-1", content: "根拠", nested: { memoryId: "memory-1", cursor: "next", summary: "残す" } })).toEqual({ content: "根拠", nested: { summary: "残す" } });
+  });
   it("FR-60: repairs a target Reflector against its own schema rather than the legacy combined Reflection schema", () => {
     const message = reflectionStructuredOutputRepairMessageFor("memory");
     expect(message).toContain("memories 配列だけ");
@@ -45,14 +49,14 @@ describe("structured Reflection model", () => {
     expect(reflectionToolRunScope("concern", secondBatch)).toBe("reflection-1:concern");
   });
 
-  it("NFR-5: reserves a 20-call model budget for evidence reads and the final Reflector output", () => {
-    expect(REFLECTION_MAX_MODEL_CALLS).toBe(20);
+  it("FR-81: reserves the default 32-call session budget for evidence reads and final Reflector output", () => {
+    expect(REFLECTION_MAX_MODEL_CALLS).toBe(32);
   });
 
   it("FR-60, NFR-3: keeps target-specific maintenance instructions in runtime Skills", () => {
     const skill = (name: string) => readFileSync(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
     expect(skill("reflection-memory")).toContain("Memoryだけを扱う");
-    expect(skill("reflection-concern")).toContain("evidenceMemoryIds");
+    expect(skill("reflection-concern")).toContain("局所参照は出力しない");
     expect(skill("reflection-relationship")).toContain("Relationship");
     expect(skill("reflection-self-mood")).toContain("SelfとMood");
     expect(skill("reflection-memory")).toContain("構造化出力Toolを必ず1回");
@@ -60,6 +64,7 @@ describe("structured Reflection model", () => {
     expect(skill("reflection-memory")).toContain("既存Memoryを更新しない");
     expect(skill("reflection-memory")).toContain("self`や`user`は`perspective`");
     expect(skill("reflection-memory")).toContain("最大4件");
+    expect(skill("reflection-memory")).toContain("Event ID、subject ID、局所参照は絶対に出力しない");
   });
 
   it("FR-71: gives a Formation Reflector only its bounded Event batch, not existing Memory bodies", async () => {
@@ -75,7 +80,7 @@ describe("structured Reflection model", () => {
     const repairMessages: string[] = [];
     const first: ReflectionInvoker = { invoke: (messages) => { firstMessages.push(messages[0]?.content ?? ""); return Promise.resolve({}); } };
     const repair: ReflectionInvoker = { invoke: (messages) => { repairMessages.push(messages[0]?.content ?? ""); return Promise.resolve({ structuredResponse: { memories: [] } }); } };
-    const scoped = { reflectionId: input.reflectionId, events: input.events, memories: input.memories };
+    const scoped = { events: input.events.map(({ occurredAt, summary }) => ({ occurredAt, summary })), memories: input.memories.map(({ summary, significance, occurredAt }) => ({ summary, significance, occurredAt })) };
 
     await expect(new TargetStructuredReflectionModel(first, repair, MemoryReflectorOutputSchema, "memory prompt", noopLogger).reflect(scoped, new AbortController().signal, input.agentId, input.reflectionId)).resolves.toEqual({ output: { memories: [] }, toolExecutions: [] });
 
@@ -83,8 +88,8 @@ describe("structured Reflection model", () => {
     expect(repairMessages).toHaveLength(1);
     const payload = JSON.parse(repairMessages[0] ?? "{}") as Record<string, unknown>;
     expect(payload.input).toEqual(scoped);
-    expect(payload.allowedEventIds).toEqual(["event-1"]);
-    expect(payload.allowedMemoryIds).toEqual(["memory-1"]);
+    expect(payload).not.toHaveProperty("allowedEventIds");
+    expect(payload).not.toHaveProperty("allowedMemoryIds");
     expect(payload.outputSchema).toBeDefined();
     expect(payload.validationIssues).toEqual([{ code: "custom", path: [], message: "Reflector returned no structured output after its Tool loop" }]);
     expect(payload.invalidOutput).toBeNull();
@@ -94,10 +99,8 @@ describe("structured Reflection model", () => {
     const memory = (index: number) => ({
       content: `今後も使う経験 ${String(index)}`,
       reason: `判断に再利用する理由 ${String(index)}`,
-      evidenceEventIds: ["event-1"],
       target: "semantic",
-      perspective: "self",
-      subjects: []
+      perspective: "self"
     });
     const first: ReflectionInvoker = { invoke: () => Promise.resolve({ structuredResponse: { memories: [1, 2, 3, 4, 5].map(memory) } }) };
     const repair: ReflectionInvoker = { invoke: () => Promise.resolve({ structuredResponse: { memories: [1, 2, 3, 4].map(memory) } }) };
@@ -108,9 +111,13 @@ describe("structured Reflection model", () => {
     expect((result.output as { memories: unknown[] }).memories).toHaveLength(4);
   });
 
-  it("FR-42: includes fixed input, allowed IDs, schema, and validation details in a repair payload", () => {
-    const payload = targetedReflectorRepairInput({ events: [{ id: "event-1" }], memories: [{ id: "memory-1" }] }, MemoryReflectorOutputSchema, [{ path: ["memories"] }], { unexpected: true });
-    expect(payload).toMatchObject({ allowedEventIds: ["event-1"], allowedMemoryIds: ["memory-1"], validationIssues: [{ path: ["memories"] }], invalidOutput: { unexpected: true } });
+  it("FR-42, FR-77: includes fixed input, schema, and validation details without record IDs in a repair payload", () => {
+    const payload = targetedReflectorRepairInput({ events: [{ id: "event-1" }], memories: [{ id: "memory-1" }] }, MemoryReflectorOutputSchema, [{ path: ["memories"] }], { unexpected: true, echoed: { memoryId: "memory-1", evidenceEventIds: ["event-1"] } });
+    expect(payload).toMatchObject({ validationIssues: [{ path: ["memories"] }], invalidOutput: { unexpected: true } });
+    expect(JSON.stringify(payload)).not.toContain("memory-1");
+    expect(JSON.stringify(payload)).not.toContain("event-1");
+    expect(payload).not.toHaveProperty("allowedEventIds");
+    expect(payload).not.toHaveProperty("allowedMemoryIds");
   });
 
   it("FR-42: repairs an invalid first output and converts flat changes to the strict Domain output", async () => {

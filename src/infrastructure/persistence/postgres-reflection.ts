@@ -6,11 +6,14 @@ import { MemoryWriteService } from "../../application/memory-write-service.js";
 import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
-import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type Concern, type ConcernActivityKind, type Relationship } from "../../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, DomainError, EpisodicMemorySchema, RelationshipChangeSchema, SelfSchema, type Concern, type ConcernActivityKind, type Relationship } from "../../domain/contracts.js";
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
+type ConcernChange = z.infer<typeof ConcernChangeSchema>;
+type RelationshipChange = z.infer<typeof RelationshipChangeSchema>;
 type StateRow = QueryResultRow & { identity: string; disposition: string; self_story: string; commitments: unknown; mood: string; concerns: unknown; relationships: unknown; version: number };
 type EventRow = QueryResultRow & { id: string; occurred_at: Date; summary: string };
+type EventProjectionRow = QueryResultRow & { id: string; content: string; subjects: unknown; occurred_at: Date; vector_score: number | null };
 type MemoryRow = QueryResultRow & { id: string; kind: "episodic" | "semantic" | "self-related" | "self-change" | "common-ground"; content: string; importance: string; occurred_at: Date; created_at: Date; source_agent_id: string | null; evidence_event_ids: unknown; subjects: unknown };
 type StaleConcernRow = QueryResultRow & { last_meaningful_at: Date | null; reflection_sessions: string };
 
@@ -20,6 +23,18 @@ export type ConcernLifecycleSettings = {
 };
 
 const defaultConcernLifecycleSettings: ConcernLifecycleSettings = { staleAfterMs: 2_592_000_000, minReflectionSessions: 2 };
+const formationResolverVersion = "formation-hybrid-v1";
+const formationMinimumScore = 0.16;
+
+function formationTerms(value: string): readonly string[] {
+  return [...new Set(value.toLocaleLowerCase("ja-JP").split(/[\s、。,.!?！？「」()（）]+/u).map((term) => term.trim()).filter((term) => term.length >= 2))];
+}
+
+function scoreKeyword(queryTerms: readonly string[], content: string): number {
+  if (queryTerms.length === 0) return 0;
+  const haystack = content.toLocaleLowerCase("ja-JP");
+  return queryTerms.filter((term) => haystack.includes(term)).length / queryTerms.length;
+}
 
 function failureReason(error: unknown): string {
   if (!(error instanceof Error)) return "Reflection failed";
@@ -148,6 +163,14 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
           WHERE formed.agent_id=m.agent_id AND formed.memory_id=m.id
             AND formed.source_event_id LIKE $2
         )
+        -- A completed/no-op anchor is durable session progress.  A retry
+        -- resumes only anchors that have not yet reached a resolution.
+        AND NOT EXISTS (
+          SELECT 1 FROM reflection_resolutions resolution
+          WHERE resolution.reflection_id=$4 AND resolution.anchor_memory_id=m.id
+            AND resolution.target='reconciliation'
+            AND resolution.outcome IN ('committed','no-op')
+        )
       ORDER BY updated_at DESC,id DESC LIMIT 64
     ), candidates AS (
       SELECT m.*, 'formation'::text AS reason FROM memory_pool m JOIN memory_mutations mm ON mm.memory_id=m.id
@@ -163,7 +186,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       SELECT r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects,r.reason
       FROM ranked r LEFT JOIN memory_subjects ms ON ms.memory_id=r.id WHERE r.row_number=1
-      GROUP BY r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,r.reason`, [input.agentId, `${input.reflectionId}:memory:%`, input.eventWindowEnd ?? null]);
+      GROUP BY r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,r.reason`, [input.agentId, `${input.reflectionId}:memory:%`, input.eventWindowEnd ?? null, input.reflectionId]);
     const candidates = rows.rows.map((row) => ({ memoryId: row.id, reason: row.reason, occurredAt: row.occurred_at.toISOString() }));
     const chosen = new Set(selectReactivationAnchors(candidates).map(({ memoryId }) => memoryId));
     const byId = new Map(rows.rows.map((row) => [row.id, row]));
@@ -327,48 +350,94 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   async #commitConcernTarget(input: ReflectionInput, output: z.infer<typeof ConcernReflectorOutputSchema>): Promise<void> {
     const state = await this.pool.query<{ concerns: unknown; version: number }>("SELECT concerns,version FROM agent_states WHERE agent_id=$1", [input.agentId]);
     const row = state.rows[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
-    const applied = applyConcerns(AgentStateSchema.parse({ concerns: row.concerns, relationships: [] }).concerns, output.concernChanges, () => this.ids.next());
+    const current = AgentStateSchema.parse({ concerns: row.concerns, relationships: [] }).concerns;
+    const byDescription = new Map(current.map((concern) => [concern.description, concern]));
+    const changes: ConcernChange[] = output.concernChanges.flatMap<ConcernChange>((change) => {
+      if (change.operation === "create") return [{ operation: "create" as const, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
+      const previous = byDescription.get(change.currentDescription);
+      if (previous === undefined) return [];
+      if (change.operation === "remove") return [{ operation: "remove" as const, id: previous.id }];
+      return [{ operation: "upsert" as const, concern: { id: previous.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
+    });
+    const applied = applyConcerns(current, changes, () => this.ids.next());
     const updated = await this.pool.query("UPDATE agent_states SET concerns=$3,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, row.version, JSON.stringify(applied.concerns)]);
     if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");
     const at = this.now();
-    for (const [index, activity] of applied.activities.entries()) await this.pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, input.agentId, activity.concernId, activity.kind, input.reflectionId, JSON.stringify(output.evidenceMemoryIds), at]);
+    for (const [index, activity] of applied.activities.entries()) await this.pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,reflection_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING", [`reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, input.agentId, activity.concernId, activity.kind, input.reflectionId, "[]", at]);
+  }
+
+  /**
+   * Formation has a fixed Event window.  The model describes an experience in
+   * natural language; this runtime resolver ranks only projections inside that
+   * window using keyword and, when available, vector evidence.  It is the
+   * ownership boundary which prevents model-emitted IDs from becoming writes.
+   */
+  async #resolveFormationEvidence(input: ReflectionInput, memory: z.infer<typeof MemoryReflectorOutputSchema>["memories"][number]): Promise<{ readonly evidenceEventIds: readonly string[]; readonly subjectIds: readonly string[]; readonly score: Readonly<Record<string, { readonly score: number; readonly keyword: number; readonly semantic: number }>> }> {
+    const query = `${memory.content} ${memory.reason}`;
+    const embedding = this.memoryEmbedding === undefined ? undefined : await this.memoryEmbedding.prepareMemory(query);
+    const vector = embedding?.status === "ready" && embedding.vector !== undefined ? `[${embedding.vector.join(",")}]` : null;
+    const projections = await this.pool.query<EventProjectionRow>(`SELECT ep.event_id AS id,ep.content,ep.subjects,ep.occurred_at,
+        CASE WHEN $3::vector IS NULL OR ep.embedding IS NULL THEN NULL ELSE 1-(ep.embedding <=> $3::vector) END AS vector_score
+      FROM event_projections ep
+      WHERE ep.agent_id=$1 AND ep.event_id=ANY($2::text[])
+      ORDER BY ep.occurred_at DESC,ep.event_id DESC`, [input.agentId, input.events.map(({ id }) => id), vector]);
+    const byId = new Map(projections.rows.map((row) => [row.id, row]));
+    const terms = formationTerms(query);
+    const ranked = input.events.map((event) => {
+      const projection = byId.get(event.id);
+      const content = projection?.content ?? event.summary;
+      const keyword = scoreKeyword(terms, content);
+      const semantic = projection?.vector_score ?? 0;
+      // A vector hit and a lexical hit are complementary: either can support
+      // a candidate, while agreement raises its ranking.  Recency breaks ties
+      // deterministically inside the fixed window.
+      const score = semantic > 0 && keyword > 0 ? semantic * 0.55 + keyword * 0.45 : Math.max(semantic, keyword);
+      return { event, projection, score, keyword, semantic };
+    }).filter(({ score }) => score >= formationMinimumScore).sort((left, right) => right.score - left.score || right.event.occurredAt.localeCompare(left.event.occurredAt) || left.event.id.localeCompare(right.event.id)).slice(0, 16);
+    const subjectIds = [...new Set(ranked.flatMap(({ projection }) => Array.isArray(projection?.subjects) ? projection.subjects.filter((subject): subject is string => typeof subject === "string") : []))];
+    return {
+      evidenceEventIds: ranked.map(({ event }) => event.id),
+      subjectIds,
+      score: Object.fromEntries(ranked.map(({ event, score, keyword, semantic }) => [event.id, { score, keyword, semantic }]))
+    };
   }
 
   async #commitMemoryTarget(input: ReflectionInput, output: z.infer<typeof MemoryReflectorOutputSchema>, sourceEventId = input.reflectionId): Promise<void> {
-    const intents = output.memories.map((memory) => ({ content: memory.content, reason: memory.reason, evidenceEventIds: memory.evidenceEventIds, confidence: "medium" as const, target: memory.target, perspective: memory.perspective, purpose: memory.perspective === "user" ? "user-context" as const : "self-guidance" as const }));
+    const candidates = await Promise.all(output.memories.map(async (memory) => ({ memory, ...(await this.#resolveFormationEvidence(input, memory)) })));
+    const resolved = candidates.filter(({ evidenceEventIds }) => evidenceEventIds.length > 0);
+    const rejected = candidates.filter(({ evidenceEventIds }) => evidenceEventIds.length === 0).map(({ memory }) => ({ reason: "unsupported-by-fixed-event-window", content: memory.content.slice(0, 240) }));
+    const batchIndex = /^.+:memory:(\d+)$/.exec(sourceEventId)?.[1];
+    await this.pool.query("INSERT INTO reflection_resolutions(id,reflection_id,agent_id,target,batch_index,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,$3,'formation',$4,$5,$6,$7,$8,$9,$10,'fixed-window-hybrid',$11)", [this.ids.next(), input.reflectionId, input.agentId, batchIndex === undefined ? null : Number(batchIndex), formationResolverVersion, output.memories.map(({ content }) => content.slice(0, 120)).join(" / "), output.memories.length, JSON.stringify([...new Set(resolved.flatMap(({ evidenceEventIds }) => evidenceEventIds))]), JSON.stringify(rejected), JSON.stringify(resolved.map(({ memory, score }) => ({ content: memory.content.slice(0, 120), score }))), resolved.length === 0 ? "no-op" : "committed"]);
+    const intents = resolved.map(({ memory, evidenceEventIds }) => ({ content: memory.content, reason: memory.reason, evidenceEventIds: [...evidenceEventIds], confidence: "medium" as const, target: memory.target, perspective: memory.perspective, purpose: memory.perspective === "user" ? "user-context" as const : "self-guidance" as const }));
     if (this.memoryUpdateSink !== undefined && intents.length > 0) {
-      const sinkInput = { agentId: input.agentId, sourceEventId, intents, subjectsByIntent: output.memories.map(({ subjects }) => subjects), formation: true };
+      const sinkInput = { agentId: input.agentId, sourceEventId, intents, subjectsByIntent: resolved.map(({ subjectIds }) => subjectIds), formation: true };
       if (this.memoryUpdateSink.enqueueAndWait !== undefined) await this.memoryUpdateSink.enqueueAndWait(sinkInput); else await this.memoryUpdateSink.enqueue(sinkInput);
       return;
     }
     const embeddingPreparer = this.memoryEmbedding;
-    const embeddings = embeddingPreparer === undefined ? [] : await Promise.all(output.memories.map(({ content }) => embeddingPreparer.prepareMemory(content)));
+    const embeddings = embeddingPreparer === undefined ? [] : await Promise.all(resolved.map(({ memory }) => embeddingPreparer.prepareMemory(memory.content)));
     const client = await this.pool.connect();
     try {
-      for (const [index, memory] of output.memories.entries()) {
+      for (const [index, { memory, subjectIds }] of resolved.entries()) {
         const intent = intents[index]; if (intent === undefined) throw new DomainError("VALIDATION", "Reflection Memory intent was not created");
-        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds: memory.subjects, sourceEventId, intentIndex: index, candidates: [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds, sourceEventId, intentIndex: index, candidates: [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
       }
     } finally { client.release(); }
   }
 
   async #commitReconciliationTarget(input: ReflectionInput, output: z.infer<typeof MemoryReconciliationOutputSchema>): Promise<void> {
-    const anchors = new Map(input.memories.map((memory) => [memory.id, memory]));
+    const anchor = input.memories[0];
+    if (anchor === undefined || input.memories.length !== 1) throw new DomainError("VALIDATION", "Reconciliation requires exactly one Runtime-bound anchor");
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       for (const [index, change] of output.changes.entries()) {
-        const anchor = anchors.get(change.memoryId);
-        if (anchor === undefined) throw new DomainError("VALIDATION", "Reconciliation anchor is not available");
         const sourceEventId = `${input.reflectionId}:reconciliation`;
         if (change.operation !== "keep" && anchor.kind === "episodic") throw new DomainError("VALIDATION", "Episodic Memory cannot be changed");
-        if (change.evidenceEventIds.length > 0) {
-          const evidence = await client.query<{ id: string; occurred_at: Date }>("SELECT id,occurred_at FROM events WHERE agent_id=$1 AND id=ANY($2::text[])", [input.agentId, change.evidenceEventIds]);
-          if (evidence.rows.length !== change.evidenceEventIds.length || evidence.rows.some((event) => event.occurred_at < new Date(anchor.occurredAt))) {
-            throw new DomainError("VALIDATION", "Memory Reconciliation can only update from known later Events");
-          }
-        }
-        await new MemoryWriteService(client, this.ids, this.now).reconcile(input.agentId, change, { sourceEventId, intentIndex: index });
+        const evidence = await client.query<{ id: string }>("SELECT id FROM events WHERE agent_id=$1 AND status='completed' AND occurred_at>$2 AND occurred_at<=COALESCE($3::timestamptz,now()) ORDER BY occurred_at,id LIMIT 16", [input.agentId, anchor.occurredAt, input.eventWindowEnd ?? null]);
+        if (change.operation !== "keep" && evidence.rows.length === 0) throw new DomainError("VALIDATION", "Memory Reconciliation can only update from known later Events");
+        await new MemoryWriteService(client, this.ids, this.now).reconcile(input.agentId, { ...change, memoryId: anchor.id, evidenceEventIds: evidence.rows.map(({ id }) => id) }, { sourceEventId, intentIndex: index });
+        await client.query("INSERT INTO reflection_resolutions(id,reflection_id,agent_id,target,anchor_memory_id,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,$3,'reconciliation',$4,'reconciliation-v1',$5,$6,$7,'[]',$8,'later-events-only',$9)", [this.ids.next(), input.reflectionId, input.agentId, anchor.id, anchor.summary.slice(0, 240), evidence.rows.length, JSON.stringify(evidence.rows.map(({ id }) => id)), JSON.stringify({ operation: change.operation }), change.operation === "keep" ? "no-op" : "committed"]);
       }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
@@ -377,7 +446,15 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   async #commitRelationshipTarget(input: ReflectionInput, output: z.infer<typeof RelationshipReflectorOutputSchema>): Promise<void> {
     const state = await this.pool.query<{ relationships: unknown; version: number }>("SELECT relationships,version FROM agent_states WHERE agent_id=$1", [input.agentId]);
     const row = state.rows[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
-    const relationships = applyRelationships(AgentStateSchema.parse({ concerns: [], relationships: row.relationships }).relationships, output.relationshipChanges);
+    const current = AgentStateSchema.parse({ concerns: [], relationships: row.relationships }).relationships;
+    const changes: RelationshipChange[] = output.relationshipChanges.flatMap<RelationshipChange>((change) => {
+      const previous = current.find((relationship) => relationship.description === change.currentDescription);
+      if (previous === undefined) return [];
+      return change.operation === "remove"
+        ? [{ operation: "remove" as const, subjectId: previous.subjectId }]
+        : [{ operation: "upsert" as const, relationship: { subjectId: previous.subjectId, description: change.description } }];
+    });
+    const relationships = applyRelationships(current, changes);
     const updated = await this.pool.query("UPDATE agent_states SET relationships=$3,version=version+1,updated_at=now() WHERE agent_id=$1 AND version=$2", [input.agentId, row.version, JSON.stringify(relationships)]);
     if (updated.rowCount !== 1) throw new DomainError("CONFLICT", "Reflection Relationship state version conflict");
   }

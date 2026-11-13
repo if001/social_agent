@@ -28,9 +28,10 @@ describe("Agent Debug UI", () => {
     await repository.listRuns("ao", 999);
     await repository.listMemories("ao", 0);
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
-    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(10);
+    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(11);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_attempts"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_memory_batches"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("FROM reflection_resolutions"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM autonomous_schedules"))?.sql).not.toContain("exploration_mode");
