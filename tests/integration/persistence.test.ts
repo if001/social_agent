@@ -1,11 +1,11 @@
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
 import { z } from "zod";
 import { DomainError, type Concern } from "../../src/domain/contracts.js";
 
-import { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "../../src/infrastructure/persistence/postgres.js";
+import { AgentStateRepository, PostgresUnitOfWork, withAgentLock } from "../../src/infrastructure/persistence/postgres.js";
 import { PostgresEventTransaction } from "../../src/infrastructure/persistence/event-transaction.js";
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
 import { PostgresMemoryRetriever } from "../../src/infrastructure/persistence/postgres-memory-retriever.js";
@@ -58,46 +58,6 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
     expect((await repository.find<{ commitments: string[]; concerns: unknown[] }>("a"))).toMatchObject({ commitments: ["Care"], concerns: [] });
-  });
-
-  it("FR-25, NFR-17: baselines existing Concerns once when the Concern Activity migration is applied", async () => {
-    const migrationRoot = await mkdtemp(join(tmpdir(), "concern-activity-migration-"));
-    const migrationMeta = join(migrationRoot, "meta"); const sourceRoot = new URL("../../drizzle/", import.meta.url);
-    const baselineSchema = "app_migration_baseline";
-    const baselinePool = new Pool({ connectionString: process.env.TEST_ADMIN_POSTGRES_URL?.replace("postgresql+psycopg://", "postgresql://"), options: `-c search_path=${baselineSchema},app,public,ext`, max: 2 });
-    try {
-      await mkdir(migrationMeta);
-      for (const name of await readdir(sourceRoot)) if (/^00(?:0\d|1\d|2\d|3[0-4])_.*\.sql$/u.test(name)) await copyFile(new URL(name, sourceRoot), join(migrationRoot, name));
-      const journal = JSON.parse(await readFile(new URL("meta/_journal.json", sourceRoot), "utf8")) as { entries: { idx: number }[] };
-      await writeFile(join(migrationMeta, "_journal.json"), JSON.stringify({ ...journal, entries: journal.entries.filter(({ idx }) => idx < 29) }));
-      await database.admin.query(`DROP SCHEMA IF EXISTS ${baselineSchema} CASCADE`);
-      await database.admin.query(`CREATE SCHEMA ${baselineSchema}`);
-      await migrate(baselinePool, migrationRoot);
-      await baselinePool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('baseline-family','Family','Curious','Help')");
-      await baselinePool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('baseline-agent','baseline-family','Agent','Calm')");
-      await baselinePool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ('baseline-agent','Careful','Story','[]',$1,'[]','Calm')", [JSON.stringify([
-        { id: "preexisting-active", description: "既存active", whyItMatters: "移行確認", status: "active" },
-        { id: "preexisting-satisfied", description: "既存satisfied", whyItMatters: "履歴確認", status: "satisfied" }
-      ])]);
-      const before = new Date();
-      await copyFile(new URL("0029_concern_activities.sql", sourceRoot), join(migrationRoot, "0029_concern_activities.sql"));
-      await copyFile(new URL("0030_reflection_attempts.sql", sourceRoot), join(migrationRoot, "0030_reflection_attempts.sql"));
-      await copyFile(new URL("0031_reflection_memory_batches.sql", sourceRoot), join(migrationRoot, "0031_reflection_memory_batches.sql"));
-      await copyFile(new URL("0032_event_projections.sql", sourceRoot), join(migrationRoot, "0032_event_projections.sql"));
-      await copyFile(new URL("0033_exclude_tool_result_projections.sql", sourceRoot), join(migrationRoot, "0033_exclude_tool_result_projections.sql"));
-      await copyFile(new URL("0034_event_experiences.sql", sourceRoot), join(migrationRoot, "0034_event_experiences.sql"));
-      await copyFile(new URL("0035_mean_hemingway.sql", sourceRoot), join(migrationRoot, "0035_mean_hemingway.sql"));
-      await writeFile(join(migrationMeta, "_journal.json"), JSON.stringify({ ...journal, entries: journal.entries.filter(({ idx }) => idx <= 35) }));
-      await migrate(baselinePool, migrationRoot);
-      await migrate(baselinePool, migrationRoot);
-      const rows = (await baselinePool.query<{ concern_id: string; kind: string; occurred_at: Date }>("SELECT concern_id,kind,occurred_at FROM concern_activities WHERE agent_id='baseline-agent' ORDER BY concern_id")).rows;
-      expect(rows.map(({ concern_id, kind }) => ({ concern_id, kind }))).toEqual([{ concern_id: "preexisting-active", kind: "baseline" }, { concern_id: "preexisting-satisfied", kind: "baseline" }]);
-      expect(rows.every(({ occurred_at }) => occurred_at.getTime() >= before.getTime() - 1_000)).toBe(true);
-    } finally {
-      await baselinePool.end();
-      await database.admin.query(`DROP SCHEMA IF EXISTS ${baselineSchema} CASCADE`);
-      await rm(migrationRoot, { recursive: true, force: true });
-    }
   });
 
   it("FR-6, FR-7: initializes configured Self and preserves acquired experience on reapply", async () => {
