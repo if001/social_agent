@@ -281,6 +281,9 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
         : target === "relationship"
           ? { reflectionId: input.reflectionId, events: input.events.slice(-32), memories, relationships: input.state.relationships }
           : { reflectionId: input.reflectionId, self: input.self, mood: input.state.mood, memories };
-    return this.#models[target].reflect(scoped, signal, input.agentId, input.reflectionId);
+    // Tool call counters restart for each Reflector.  Scope the tool-run key by
+    // target so `tool-1` in Formation cannot collide with `tool-1` in a later
+    // Reflector while retaining the Session id in the model input/audit row.
+    return this.#models[target].reflect(scoped, signal, input.agentId, `${input.reflectionId}:${target}`);
   }
 }
