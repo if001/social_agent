@@ -175,7 +175,7 @@ export class StructuredReflectionModel implements ReflectionModel {
 const reflectionReadToolNames = new Set(["skill_read", "memory_search", "event_search", "retrieval_search", "concern_list", "concern_get", "concern_history", "relationship_search", "self_get", "user_context_get"]);
 
 export function reflectionStructuredOutputRepairMessageFor(target?: ReflectionTarget): string {
-  if (target === "memory") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は memories 配列だけです。各 target は episodic / semantic / self-related / self-change / common-ground のいずれか一つを正確に指定し、self / user は perspective にだけ使います。保存不要なら {\"memories\":[]} を返してください。";
+  if (target === "memory") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は memories 配列だけで、最大4件です。5件以上の候補がある場合は重要度と根拠の強さで4件に選別してください。各 target は episodic / semantic / self-related / self-change / common-ground のいずれか一つを正確に指定し、self / user は perspective にだけ使います。保存不要なら {\"memories\":[]} を返してください。";
   if (target === "reconciliation") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は changes 配列だけです。変更根拠Eventはanchorより後のものだけを指定し、変更不要なら keep を返してください。";
   if (target === "concern") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は concernChanges と evidenceMemoryIds だけです。変更不要なら両方を空配列にしてください。";
   if (target === "relationship") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は relationshipChanges 配列だけです。変更不要なら空配列にしてください。";

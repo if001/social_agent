@@ -130,6 +130,16 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     // recorded reason makes the selection auditable in reflection_attempts.
     const rows = await this.pool.query<MemoryRow & { reason: ReactivationCandidate["reason"] }>(`WITH memory_pool AS (
       SELECT * FROM memories m WHERE m.agent_id=$1
+        -- Reconciliation may only revise non-episodic Memory from known
+        -- later experience.  Do not ask the Reflector to decide an update
+        -- which the commit layer must reject for lack of temporal evidence.
+        AND m.kind <> 'episodic'
+        AND EXISTS (
+          SELECT 1 FROM events e
+          WHERE e.agent_id=m.agent_id AND e.status='completed'
+            AND e.occurred_at>m.occurred_at
+            AND e.occurred_at<=COALESCE($3::timestamptz,now())
+        )
         -- Formation has just evaluated these Memories from this Session's
         -- fixed Event window.  They cannot yet have later evidence, so they
         -- are not eligible for immediate Reconciliation.
@@ -153,7 +163,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       SELECT r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects,r.reason
       FROM ranked r LEFT JOIN memory_subjects ms ON ms.memory_id=r.id WHERE r.row_number=1
-      GROUP BY r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,r.reason`, [input.agentId, `${input.reflectionId}:memory:%`]);
+      GROUP BY r.id,r.kind,r.content,r.importance,r.occurred_at,r.created_at,r.source_agent_id,r.evidence_event_ids,r.reason`, [input.agentId, `${input.reflectionId}:memory:%`, input.eventWindowEnd ?? null]);
     const candidates = rows.rows.map((row) => ({ memoryId: row.id, reason: row.reason, occurredAt: row.occurred_at.toISOString() }));
     const chosen = new Set(selectReactivationAnchors(candidates).map(({ memoryId }) => memoryId));
     const byId = new Map(rows.rows.map((row) => [row.id, row]));
