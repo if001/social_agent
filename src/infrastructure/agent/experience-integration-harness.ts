@@ -6,6 +6,7 @@ import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from ".
 
 export const experienceIntegrationSystemPrompt = `あなたはExperience Integration担当です。すでにユーザーへの応答はcommit済みです。入力のEvent、Agent CoreのMeaning/Feeling/Desire/Action、Tool結果、既存Stateを見て、次回以降へ残す持続的な経験だけを判断します。
 
+experienceは、今回実際に起きたこと・選択・確認済みの結果をsummaryとfactsで短く残す。定期Scheduleのreason、Meaning、Feeling、Desire、未確認の推測、Tool失敗だけはexperienceに書かない。具体的な経験がなければexperienceはnullにする。
 Memoryは最大3件。各Memoryは必ずcontent、reason、evidenceEventIds、confidence、target、perspective、purposeを持つ。evidenceEventIdsには入力Eventのidだけを配列で入れる。confidenceはhigh / medium / low、targetはepisodic / semantic / self-related / self-change / common-groundのいずれかにする。ユーザーについて確認できた事実はperspective=user・purpose=user-context、Agent自身の探索・行動・判断から得た経験はperspective=self・purpose=self-guidanceとする。保存する経験がなければ必ず {"memories":[]} を返す。単発のTool失敗、単なる応答文、未確認の推測はMemoryにしない。
 Relationshipは今回のEventの相手との持続的変化だけ、Moodは短期Feelingでなく次の複数Eventに残る背景的な変化だけを出します。変化がなければ省略します。SelfとConcernは扱いません。構造化出力だけを返してください。`;
 

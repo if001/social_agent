@@ -10,7 +10,7 @@ import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, type C
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
 type StateRow = QueryResultRow & { identity: string; disposition: string; self_story: string; commitments: unknown; mood: string; concerns: unknown; relationships: unknown; version: number };
-type EventRow = QueryResultRow & { id: string; occurred_at: Date; observation: unknown };
+type EventRow = QueryResultRow & { id: string; occurred_at: Date; summary: string };
 type MemoryRow = QueryResultRow & { id: string; kind: "episodic" | "semantic" | "self-related" | "self-change" | "common-ground"; content: string; importance: string; occurred_at: Date; created_at: Date; source_agent_id: string | null; evidence_event_ids: unknown; subjects: unknown };
 type StaleConcernRow = QueryResultRow & { last_meaningful_at: Date | null; reflection_sessions: string };
 
@@ -37,11 +37,6 @@ function toolExecutionsFromFailure(error: unknown): readonly unknown[] {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause)) return [];
   return Array.isArray(error.cause.toolExecutions) ? error.cause.toolExecutions : [];
 }
-
-const summaryOf = (observation: unknown): string => {
-  if (typeof observation === "object" && observation !== null && "summary" in observation && typeof observation.summary === "string" && observation.summary.trim() !== "") return observation.summary;
-  return "記録された出来事";
-};
 
 type AppliedConcerns = { readonly concerns: readonly Concern[]; readonly activities: readonly { readonly concernId: string; readonly kind: ConcernActivityKind }[] };
 
@@ -84,7 +79,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const eventWindowEnd = window.rows[0]?.event_window_end;
     if (eventWindowEnd === undefined) throw new DomainError("EXTERNAL", "Could not determine Reflection Event window");
     const [eventsResult, memoriesResult] = await Promise.all([
-      this.pool.query<EventRow>("SELECT id,occurred_at,observation FROM events WHERE agent_id=$1 AND status='completed' AND kind<>'tool-result' AND occurred_at>$2 AND occurred_at<=$3 ORDER BY occurred_at,id", [agentId, since, eventWindowEnd]),
+      this.pool.query<EventRow>("SELECT e.id,e.occurred_at,x.summary FROM events e JOIN event_experiences x ON x.event_id=e.id WHERE e.agent_id=$1 AND e.status='completed' AND e.occurred_at>$2 AND e.occurred_at<=$3 ORDER BY e.occurred_at,e.id", [agentId, since, eventWindowEnd]),
       this.pool.query<MemoryRow>(`SELECT m.id,m.kind,m.content,m.importance,m.occurred_at,m.created_at,m.source_agent_id,m.evidence_event_ids,
         COALESCE(jsonb_agg(ms.subject_id ORDER BY ms.subject_id) FILTER (WHERE ms.subject_id IS NOT NULL),'[]'::jsonb) AS subjects
         FROM memories m LEFT JOIN memory_subjects ms ON ms.memory_id=m.id WHERE m.agent_id=$1 GROUP BY m.id ORDER BY m.occurred_at DESC,m.id LIMIT 32`, [agentId])
@@ -94,7 +89,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       reflectionId, agentId, eventWindowEnd: eventWindowEnd.toISOString(), expectedVersion: row.version,
       self: SelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.self_story, commitments: row.commitments }),
       state: AgentStateSchema.parse({ mood: row.mood, concerns: row.concerns, relationships: row.relationships }),
-      events: eventsResult.rows.map((event) => ({ id: event.id, occurredAt: event.occurred_at.toISOString(), summary: summaryOf(event.observation) })),
+      events: eventsResult.rows.map((event) => ({ id: event.id, occurredAt: event.occurred_at.toISOString(), summary: event.summary })),
       memories: memoriesResult.rows.map((memory) => EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), kind: memory.kind, evidenceEventIds: Array.isArray(memory.evidence_event_ids) ? memory.evidence_event_ids : [], ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) }))
     });
     await this.pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input) VALUES ($1,$2,$3,'pending',$4) ON CONFLICT (id) DO NOTHING", [reflectionId, agentId, input.expectedVersion, JSON.stringify(input)]);

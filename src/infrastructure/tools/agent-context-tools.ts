@@ -156,13 +156,23 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
     },
     {
       name: "event_search",
-      description: "過去Eventのprojectionを語句・subject・新しさ・意味の近さで局所検索する。Reflectionで既存Memoryの確認・訂正・矛盾の根拠を読むために使う。返されたEvent以外を根拠にしない。",
+      description: "過去の主Event Experienceのprojectionを語句・subject・新しさ・意味の近さで局所検索する。Tool結果単体は監査用であり返さない。Reflectionで既存Memoryの確認・訂正・矛盾の根拠を読むために使う。返されたEvent以外を根拠にしない。",
       schema: z.object({ query: z.string().trim().min(1).max(240).describe("確認または訂正したいMemoryに関係する語句"), subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"), kinds: z.array(z.string().trim().min(1).max(80)).max(8).optional().describe("Event kindで絞る場合の種類"), occurredAfter: z.iso.datetime({ offset: true }).optional().describe("この時刻以後のEventだけを読む"), occurredBefore: z.iso.datetime({ offset: true }).optional().describe("この時刻以前のEventだけを読む"), limit: z.number().int().min(1).max(16).default(8).describe("返す最大Event数") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ query, subject, kinds, occurredAfter, occurredBefore, limit }: { query: string; subject?: string; kinds?: string[]; occurredAfter?: string; occurredBefore?: string; limit: number }, context) => {
         const service = retrievalService instanceof PostgresRetrievalService ? retrievalService : new PostgresRetrievalService(pool);
         const events = await service.retrieveEvents({ agentId: context.agentId, query, ...(subject === undefined ? {} : { subjectIds: [subject] }), ...(kinds === undefined ? {} : { kinds }), ...(occurredAfter === undefined ? {} : { occurredAfter }), ...(occurredBefore === undefined ? {} : { occurredBefore }), limit });
         return success({ events: events.map((event) => ({ ...event, summary: compact(event.content, 500) })) });
+      }
+    },
+    {
+      name: "event_tool_results_get",
+      description: "指定した親Eventで実行されたTool観測を監査目的でだけ取得する。通常の探索やMemory根拠には使わず、event_searchの代わりにも使わない。",
+      schema: z.object({ eventId: z.string().trim().min(1).max(160).describe("親EventのID"), limit: z.number().int().min(1).max(20).default(12).describe("返す最大Tool実行数") }).strict(),
+      resultPolicy: { kind: "standard" },
+      execute: async ({ eventId, limit }: { eventId: string; limit: number }, context) => {
+        const rows = (await pool.query<{ tool: string; input: unknown; result: unknown; error: string | null; finished_at: Date }>("SELECT tool,input,result,error,finished_at FROM tool_executions WHERE event_id=$1 AND run_id IN (SELECT id FROM agent_runs WHERE event_id=$1 AND agent_id=$2) ORDER BY finished_at,id LIMIT $3", [eventId, context.agentId, limit])).rows;
+        return success({ eventId, toolExecutions: rows.map((row) => ({ tool: row.tool, ok: row.error === null, ...(row.error === null ? { result: row.result } : { error: row.error }), finishedAt: row.finished_at.toISOString() })) });
       }
     },
     {

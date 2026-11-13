@@ -31,7 +31,6 @@ export class PostgresEventTransaction {
       const reserved = await client.query("INSERT INTO message_receipts(destination,message_id,status) VALUES ($1,$2,'processing') ON CONFLICT DO NOTHING RETURNING message_id", [input.destination, input.messageId]);
       if (reserved.rowCount === 0) return "duplicate";
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'processing',$8)", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.causationId ?? null, input.event.correlationId ?? null, input.event.occurredAt]);
-      await this.#projectEvent(client, input.event);
       await client.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,started_at) VALUES ($1,$2,$3,$4,$5,$6)", [input.run.id, input.event.agentId, input.event.id, input.run.inputStateVersion, input.run.inputSnapshot === undefined ? null : JSON.stringify(input.run.inputSnapshot), input.run.startedAt]);
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
@@ -66,20 +65,11 @@ export class PostgresEventTransaction {
       const raw = execution.ok ? execution.result : execution.error; const projected = !execution.ok || this.tools === undefined ? projectToolResult(undefined, raw ?? null, "observation") : this.tools.projectResult(execution.name, raw ?? null, "observation"); const summary = JSON.stringify(projected) || "null";
       const observation = { eventId: resultEventId, summary: `${execution.name} Tool Result: ${summary}`, facts: [`Tool: ${execution.name}`, execution.ok ? "Tool execution succeeded" : "Tool execution failed"], observedAt: execution.finishedAt, kind: "tool-result", actor: { id: execution.name, type: "tool" }, source: { type: "tool", id: execution.name, direct: false }, content: projected, provenance: { toolCallId: execution.callId, runId: execution.runId }, causationId: input.event.id, ...(input.event.correlationId === undefined ? {} : { correlationId: input.event.correlationId }) };
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,'tool-result',$3,$4,$5,$6,'completed',$7) ON CONFLICT (id) DO NOTHING", [resultEventId, input.event.agentId, observation, execution.name, input.event.id, input.event.correlationId ?? null, execution.finishedAt]);
-      await this.#projectEvent(client, { id: resultEventId, agentId: input.event.agentId, kind: "tool-result", observation, source: execution.name, occurredAt: new Date(execution.finishedAt) });
       await client.query("INSERT INTO tool_executions(id,run_id,event_id,result_event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (run_id,tool_call_id) DO NOTHING", [execution.id, execution.runId, execution.eventId, resultEventId, execution.callId, execution.name, execution.input, execution.result ?? null, execution.error ?? null, execution.startedAt, execution.finishedAt]);
       if (execution.name === "web_page" && execution.ok) await client.query("UPDATE web_snapshots SET tool_result_event_id=$3,updated_at=now() WHERE agent_id=$1 AND source_run_id=$2 AND source_tool_call_id=$4", [input.event.agentId, execution.runId, resultEventId, execution.callId]);
     }
   }
 
-  async #projectEvent(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], event: CommitEventInput["event"]): Promise<void> {
-    const value = event.observation as { summary?: unknown; actor?: { id?: unknown } };
-    const content = typeof value?.summary === "string" ? value.summary.slice(0, 4000) : JSON.stringify(event.observation).slice(0, 4000);
-    const subjects = typeof value?.actor?.id === "string" ? [value.actor.id] : [];
-    const embedding = this.projectionEmbedding === undefined ? { status: "pending" as const } : await this.projectionEmbedding.prepareMemory(content);
-    const vector = embedding.vector === undefined ? null : `[${embedding.vector.join(",")}]`;
-    await client.query("INSERT INTO event_projections(event_id,agent_id,kind,content,subjects,occurred_at,embedding,embedding_status) VALUES ($1,$2,$3,$4,$5,$6,$7::vector,$8) ON CONFLICT (event_id) DO NOTHING", [event.id, event.agentId, event.kind, content, JSON.stringify(subjects), event.occurredAt, vector, embedding.status]);
-  }
 
   async #syncConcernSchedules(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], agentId: string, rawConcerns: unknown): Promise<void> {
     if (!Array.isArray(rawConcerns)) return;

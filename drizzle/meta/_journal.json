@@ -232,6 +232,20 @@
       "when": 1793600000010,
       "tag": "0032_event_projections",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793600000011,
+      "tag": "0033_exclude_tool_result_projections",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793600000012,
+      "tag": "0034_event_experiences",
+      "breakpoints": true
     }
   ]
 }

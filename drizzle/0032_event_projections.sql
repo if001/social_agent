@@ -20,4 +20,5 @@ SELECT e.id,e.agent_id,e.kind,
   CASE WHEN jsonb_typeof(e.observation #> '{actor,id}')='string' THEN jsonb_build_array(e.observation #> '{actor,id}') ELSE '[]'::jsonb END,
   e.occurred_at
 FROM "events" e
+WHERE e.kind <> 'tool-result'
 ON CONFLICT ("event_id") DO NOTHING;
