@@ -67,7 +67,15 @@ describe("configuration and lifecycle", () => {
     await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");
     const config = await loadConfig({ cwd, environment: { BOT_ID: "process" } });
     expect(config.botId).toBe("process"); expect(config.chat.model).toBe("local-model"); expect(config.embedding.dimension).toBe(768);
+    expect(config).toMatchObject({ runtimeCorrelationTtlMs: 604_800_000, runtimeRateWindowRetentionMs: 3_600_000 });
     expect(config.schedulerTimings).toEqual({ scanIntervalMs: 30_000, autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, concernStaleAfterMs: 2_592_000_000, concernStaleMinReflectionSessions: 2, retryDelayMs: 300_000, leaseMs: 60_000 });
+    await scope.close();
+  });
+
+  it("NFR-10: loads runtime-state retention from environment", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
+    const config = await loadConfig({ cwd, environment: { RUNTIME_CORRELATION_TTL_MS: "2000", RUNTIME_RATE_WINDOW_RETENTION_MS: "3000" } });
+    expect(config).toMatchObject({ runtimeCorrelationTtlMs: 2000, runtimeRateWindowRetentionMs: 3000 });
     await scope.close();
   });
 

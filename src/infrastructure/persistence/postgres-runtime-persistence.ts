@@ -16,7 +16,7 @@ function decisionInputSnapshot(input: AgentCoreInput): AgentCoreInput { return i
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly agentId?: string) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), ids, now); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly agentId?: string, private readonly correlationTtlMs = 7 * 86_400_000, private readonly rateWindowRetentionMs = 3_600_000) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), ids, now); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -24,6 +24,8 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await client.query("DELETE FROM runtime_correlations WHERE created_at<now()-$1*interval '1 millisecond'", [this.correlationTtlMs]);
+      await client.query("DELETE FROM runtime_rate_windows WHERE window_start<now()-$1*interval '1 millisecond'", [this.rateWindowRetentionMs]);
       const correlation = event.correlationId ?? event.id;
       const claimed = await client.query<{ message_id: string }>("INSERT INTO runtime_correlations(agent_id,correlation_id,message_id) VALUES ($1,$2,$3) ON CONFLICT (agent_id,correlation_id) DO UPDATE SET message_id=runtime_correlations.message_id RETURNING message_id", [event.agentId, correlation, messageId]);
       if (claimed.rows[0]?.message_id !== messageId) throw new DomainError("VALIDATION", "Correlation loop detected");
@@ -31,6 +33,21 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       if ((rate.rows[0]?.event_count ?? 0) > maxEventsPerMinute) throw new DomainError("VALIDATION", "Agent event rate limit exceeded");
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+  }
+  async cleanupRuntimeState(correlationBefore: Date, rateWindowBefore: Date): Promise<{ readonly correlations: number; readonly rateWindows: number }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const correlations = await client.query("DELETE FROM runtime_correlations WHERE created_at<$1", [correlationBefore]);
+      const rateWindows = await client.query("DELETE FROM runtime_rate_windows WHERE window_start<$1", [rateWindowBefore]);
+      await client.query("COMMIT");
+      return { correlations: correlations.rowCount ?? 0, rateWindows: rateWindows.rowCount ?? 0 };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));

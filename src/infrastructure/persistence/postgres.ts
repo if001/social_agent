@@ -17,7 +17,8 @@ export async function migrate(pool: Pool, migrationsFolder = fileURLToPath(new U
 
 export class PostgresUnitOfWork {
   readonly database: RuntimeDatabase;
-  constructor(private readonly pool: Pool) { this.database = createRuntimeDatabase(pool); }
+  readonly native: Pool;
+  constructor(private readonly pool: Pool) { this.native = pool; this.database = createRuntimeDatabase(pool); }
   async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try { await client.query("BEGIN"); const result = await work(client); await client.query("COMMIT"); return result; }

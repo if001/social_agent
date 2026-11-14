@@ -2,12 +2,12 @@ import type { Pool, QueryResultRow } from "pg";
 import type { z } from "zod";
 
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
-import { MemoryWriteService } from "./memory-write-repository.js";
+import { MemoryWriteService, recordMemoryMutationFailure } from "./memory-write-repository.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
-import { AgentStateSchema, ConcernChangeSchema, DomainError, EpisodicMemorySchema, RelationshipChangeSchema, SelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type Relationship, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type ConcernChangeSchema, type Relationship, type RelationshipChangeSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
 type ConcernChange = z.infer<typeof ConcernChangeSchema>;
@@ -215,7 +215,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const output = ReflectionOutputSchema.parse(rawOutput);
     const reflectionIntents = output.memories.map((memory) => ({ content: memory.summary, reason: memory.significance, evidenceEventIds: input.events.map(({ id: eventId }) => eventId), confidence: "medium" as const, target: "episodic" as const, perspective: memory.subjects.length > 0 ? "user" as const : "self" as const, purpose: memory.subjects.length > 0 ? "user-context" as const : "self-guidance" as const }));
     if (this.memoryUpdateSink !== undefined && reflectionIntents.length > 0) {
-      const sinkInput = { agentId: input.agentId, sourceEventId: input.reflectionId, intents: reflectionIntents, subjectsByIntent: output.memories.map((memory) => memory.subjects), sourceAgentIds: output.memories.map((memory) => memory.source) };
+      const sinkInput = { agentId: input.agentId, eventId: `${input.reflectionId}:memory-update`, sourceKind: "reflection-formation" as const, sourceId: input.reflectionId, intents: reflectionIntents, subjectsByIntent: output.memories.map((memory) => memory.subjects), sourceAgentIds: output.memories.map((memory) => memory.source) };
       try {
         if (this.memoryUpdateSink.enqueueAndWait !== undefined) await this.memoryUpdateSink.enqueueAndWait(sinkInput);
         else await this.memoryUpdateSink.enqueue(sinkInput);
@@ -253,7 +253,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
       if (this.memoryUpdateSink === undefined) {
         for (const [memoryIndex, memory] of output.memories.entries()) {
-          await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic", perspective: memory.subjects.length > 0 ? "user" : "self", purpose: memory.subjects.length > 0 ? "user-context" : "self-guidance" }, { subjectIds: memory.subjects, sourceEventId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(memoryEmbeddings[memoryIndex] === undefined ? {} : { embedding: memoryEmbeddings[memoryIndex] }) });
+          await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, reflectionIntents[memoryIndex] ?? { content: memory.summary, reason: memory.significance, evidenceEventIds: [], confidence: "low", target: "episodic", perspective: memory.subjects.length > 0 ? "user" : "self", purpose: memory.subjects.length > 0 ? "user-context" : "self-guidance" }, { subjectIds: memory.subjects, sourceKind: "reflection-formation", sourceId: input.reflectionId, intentIndex: memoryIndex, candidates: reflectionCandidates, ...(memory.source === undefined ? {} : { sourceAgentId: memory.source }), ...(memoryEmbeddings[memoryIndex] === undefined ? {} : { embedding: memoryEmbeddings[memoryIndex] }) });
         }
       }
       const plan = ReflectionPlanSchema.parse({ memory: "completed", reconciliation: "completed", self: "completed", relationship: "completed", concern: "completed", errors: [] });
@@ -460,7 +460,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     await this.pool.query("INSERT INTO reflection_resolutions(id,reflection_id,target,batch_index,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,'formation',$3,$4,$5,$6,$7,$8,$9,'fixed-window-hybrid',$10)", [this.ids.next(), input.reflectionId, batchIndex === undefined ? null : Number(batchIndex), formationResolverVersion, output.memories.map(({ content }) => content.slice(0, 120)).join(" / "), output.memories.length, JSON.stringify([...new Set(resolved.flatMap(({ evidenceEventIds }) => evidenceEventIds))]), JSON.stringify(rejected), JSON.stringify(resolved.map(({ memory, score }) => ({ content: memory.content.slice(0, 120), score }))), resolved.length === 0 ? "no-op" : "committed"]);
     const intents = resolved.map(({ memory, evidenceEventIds }) => ({ content: memory.content, reason: memory.reason, evidenceEventIds: [...evidenceEventIds], confidence: "medium" as const, target: memory.target, perspective: memory.perspective, purpose: memory.perspective === "user" ? "user-context" as const : "self-guidance" as const }));
     if (this.memoryUpdateSink !== undefined && intents.length > 0) {
-      const sinkInput = { agentId: input.agentId, sourceEventId, intents, subjectsByIntent: resolved.map(({ subjectIds }) => subjectIds), formation: true };
+      const sinkInput = { agentId: input.agentId, eventId: `${sourceEventId}:update`, sourceKind: "reflection-formation" as const, sourceId: sourceEventId, intents, subjectsByIntent: resolved.map(({ subjectIds }) => subjectIds), formation: true };
       if (this.memoryUpdateSink.enqueueAndWait !== undefined) await this.memoryUpdateSink.enqueueAndWait(sinkInput); else await this.memoryUpdateSink.enqueue(sinkInput);
       return;
     }
@@ -468,9 +468,11 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const embeddings = embeddingPreparer === undefined ? [] : await Promise.all(resolved.map(({ memory }) => embeddingPreparer.prepareMemory(memory.content)));
     const client = await this.pool.connect();
     try {
-      for (const [index, { memory, subjectIds }] of resolved.entries()) {
+      for (const [index, { subjectIds }] of resolved.entries()) {
         const intent = intents[index]; if (intent === undefined) throw new DomainError("VALIDATION", "Reflection Memory intent was not created");
-        await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, { subjectIds, sourceEventId, intentIndex: index, candidates: [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) });
+        const options = { subjectIds, sourceKind: "reflection-formation" as const, sourceId: sourceEventId, intentIndex: index, candidates: [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) };
+        try { await new MemoryWriteService(client, this.ids, this.now).apply(input.agentId, intent, options); }
+        catch (error) { await recordMemoryMutationFailure(this.pool, input.agentId, intent, options, error, this.now()); throw error; }
       }
     } finally { client.release(); }
   }
@@ -479,18 +481,20 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const anchor = input.memories[0];
     if (anchor === undefined || input.memories.length !== 1) throw new DomainError("VALIDATION", "Reconciliation requires exactly one Runtime-bound anchor");
     const client = await this.pool.connect();
+    let failedChange: z.infer<typeof MemoryReconciliationOutputSchema>["changes"][number] | undefined; let failedIndex: number | undefined;
     try {
       await client.query("BEGIN");
       for (const [index, change] of output.changes.entries()) {
-        const sourceEventId = `${input.reflectionId}:reconciliation`;
+        failedChange = change; failedIndex = index;
         if (change.operation !== "keep" && anchor.kind === "episodic") throw new DomainError("VALIDATION", "Episodic Memory cannot be changed");
         const evidence = await client.query<{ id: string }>("SELECT id FROM events WHERE agent_id=$1 AND status='completed' AND occurred_at>$2 AND occurred_at<=COALESCE($3::timestamptz,now()) ORDER BY occurred_at,id LIMIT 16", [input.agentId, anchor.occurredAt, input.eventWindowEnd ?? null]);
         if (change.operation !== "keep" && evidence.rows.length === 0) throw new DomainError("VALIDATION", "Memory Reconciliation can only update from known later Events");
-        await new MemoryWriteService(client, this.ids, this.now).reconcile(input.agentId, { ...change, memoryId: anchor.id, evidenceEventIds: evidence.rows.map(({ id }) => id) }, { sourceEventId, intentIndex: index });
+        await new MemoryWriteService(client, this.ids, this.now).reconcile(input.agentId, { ...change, memoryId: anchor.id, evidenceEventIds: evidence.rows.map(({ id }) => id) }, { sourceKind: "reflection-reconciliation", sourceId: input.reflectionId, intentIndex: index });
         await client.query("INSERT INTO reflection_resolutions(id,reflection_id,target,anchor_memory_id,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,'reconciliation',$3,'reconciliation-v1',$4,$5,$6,'[]',$7,'later-events-only',$8)", [this.ids.next(), input.reflectionId, anchor.id, anchor.summary.slice(0, 240), evidence.rows.length, JSON.stringify(evidence.rows.map(({ id }) => id)), JSON.stringify({ operation: change.operation }), change.operation === "keep" ? "no-op" : "committed"]);
+        failedChange = undefined; failedIndex = undefined;
       }
       await client.query("COMMIT");
-    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+    } catch (error) { await client.query("ROLLBACK"); if (failedChange !== undefined && failedIndex !== undefined) await recordMemoryMutationFailure(this.pool, input.agentId, failedChange, { sourceKind: "reflection-reconciliation", sourceId: input.reflectionId, intentIndex: failedIndex }, error, this.now()); throw error; } finally { client.release(); }
   }
 
   async #commitRelationshipTarget(input: ReflectionInput, output: z.infer<typeof RelationshipReflectorOutputSchema>): Promise<void> {

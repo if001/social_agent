@@ -832,21 +832,28 @@ memory-update Event:
 
 | 領域 | 保持する内容 |
 |---|---|
-| `prediction_records` | Agent、Event、Run、グループ、対象階層、Contextの基準時点、contextSummary、状態、G3要否、priorExpectation、予測候補JSONB |
-| `prediction_evaluations` | Event、Run、グループ、candidateIndex、対象予測、対象観測、一致、意外性、差異、解釈、不確実性、原因帰属、effect、errorDirection、priorExpectation、observed、評価者 |
-| `g3_tasks` | 発生元Event、Run、対象階層、処理状態、期限、試行回数、結果参照、調査結果JSONB |
+| `prediction_records` | Agent、Event、Run、provider出力、作成時刻。Agent・Event・Runは直接検索と監査のため意図的に重複保持する |
+| `prediction_evaluations` | Prediction、Agent、グループ、candidateIndex、対象予測、対象観測、一致、意外性、差異、解釈、不確実性、原因帰属、effect、errorDirection、observed、評価者 |
+| `g3_tasks` | Agent、発生元Prediction・Event・Run、処理状態、期限、lease、試行回数、入力、構造出力、失敗理由 |
 | `background_experiences` | Agent、日時、段階、場所、人物、関係、行動、感情、結果、学び、重要度、タグ、埋め込み、埋め込み状態 |
-| `memory_mutations` | sourceEventId、sourceRunId、intentIndex、operation、targetMemoryId、before、after、reason、evidenceEventIds、idempotencyKey、適用時刻 |
+| `memory_mutations` | Agent、source Event・Run・kind・ID、intentIndex、operation、target Memory、候補Memory、before、after、reason、evidence Event・Memory、intent、status、失敗理由、冪等性、適用時刻 |
 | `experience_integrations` | 初回commit済みのEventとRun、同じAgentCoreInput、確定Assessment / Desire / Action、Tool trace、pending / completed / failed、Memory・Mood・Relationshipの判断出力、適用結果または失敗理由 |
 
 - 予測候補は `prediction_records` のJSONBに保存し、候補ごとの専用tableは作らない。
-- prediction_recordsとprediction_evaluationsはEventとRunで検索できるようにする。予測専用の意味IDは作らない。
+- Prediction保存時はsource RunのAgent・EventとPredictionのAgent・Eventが一致することを検証する。`prediction_records`のAgent・Event・Runは正規化より直接検索と監査の単純さを優先した非正規化であり、同一transactionで整合させる。
+- `prediction_evaluations`のEventとRunはPredictionから取得し、Evaluationには重複保存しない。PredictionとEvaluationはEventとRunで検索できるようにする。
+- G3 Taskは独立claimするWork itemであるためAgentを保持し、作成時に発生元PredictionのAgent・Event・Runとの一致を検証する。G3結果はTaskの構造出力と、結果から発生するEventの因果関係で追跡する。
+- G3 Taskは`pending`、`running`、`result-pending`、`completed`、`failed`の状態を持つ。lease切れは再claimし、model出力保存後は結果EventのRuntime commitが成功するまで`result-pending`とする。G3 repositoryはEventを直接作成しない。
 - prediction-linked memoryは既存の `memories` に保存し、sourceEventId、priorExpectation、observed、discrepancy、contextSummary、effect、evidenceEventIds、confidence、versionを保持する。
 - `memories` にversionを追加し、MemoryWriteServiceがupdate時に照合する。
 - `reflection_runs` にreflection planと対象別statusを保持する。
 - memory-update Eventは既存のeventsとagent_runsに保存し、mutationの監査はmemory_mutationsに保存する。
 - Experience Integrationは初回commit後にまず`experience_integrations`へpendingとして記録する。初回応答やOutboxを巻き戻さず、入力・出力・適用結果または失敗を同tableで監査する。
-- MemoryWriteServiceは、sourceEventId、intentIndex、解決したoperation、Memory ID、更新前後の内容をmemory_mutationsへ記録する。
+- MemoryWriteServiceは、source、intentIndex、解決したoperation、対象・候補Memory、判断に必要な更新前後の断面、reason、根拠、適用結果をmemory_mutationsへ記録する。Embeddingなど変更判断と無関係な値はbefore / afterへ複写しない。
+- Memory MutationはMemory削除でcascadeせず、create失敗・no-opではtarget Memoryなしを許可する。Agent、source kind、source ID、intent indexの組合せで再適用を防ぐ。
+- Memory Mutationは実行attempt単位で保存する。失敗attemptは別transactionで監査し、成功済みの`applied` / `no-op`だけを冪等完了として扱う。Reflection IDはsource Eventとして扱わず、source kind / source IDで追跡する。
+- 失敗時点でcreate / update / no-opを解決できていないMutationのoperationは`unknown`とし、status=`failed`およびfailure reasonと区別して保存する。
+- 親から導出できる値は原則として重複させない。ただし、直接検索、監査、独立claim、障害調査を単純にし、同期処理を増やさない場合は限定的な非正規化を許可する。重複値はwriterが整合性を検証する。
 - ReflectionのMemory、Self、Relationship、Concernごとの状態はreflection_runsに保持し、部分成功を識別できるようにする。
 - G3の仮説は `prediction_records` のG3グループ、仮説評価は `prediction_evaluations` に保存する。
 - 背景プロフィールの専用tableは作らない。YAMLを正とし、`agents.config` またはSelfへ投入する。

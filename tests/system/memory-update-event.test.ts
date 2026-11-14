@@ -21,7 +21,7 @@ describe("FR-58, FR-59, NFR-18, AC-13: memory-update Event", () => {
     let release!: () => void;
     const pending = new Promise<void>((resolve) => { release = resolve; });
     const sink = new DirectMemoryUpdateSink({ handle: () => pending } as unknown as MemoryUpdateHandler, () => new Date("2026-10-31T00:00:00Z"));
-    await expect(sink.enqueue({ agentId: "a", sourceEventId: "event-1", intents: [{ content: "x", reason: "y", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", perspective: "self", purpose: "self-guidance" }] })).resolves.toBeUndefined();
+    await expect(sink.enqueue({ agentId: "a", eventId: "memory-update-1", sourceEventId: "event-1", sourceKind: "agent-run", sourceId: "run-1", intents: [{ content: "x", reason: "y", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", perspective: "self", purpose: "self-guidance" }] })).resolves.toBeUndefined();
     release();
   });
 });

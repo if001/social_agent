@@ -65,7 +65,7 @@ export class PredictionLoop implements PredictionService {
           createdAt: this.options.now().toISOString()
         });
         logger.log("info", "prediction.saved", { g1Count: output.predictions.g1.candidates.length, g2Count: output.predictions.g2.candidates.length, evaluationCount: output.predictionEvaluations.length, needsG3: output.g3.needsG3 });
-        if (output.g3.needsG3 && this.options.g3Sink !== undefined) await this.options.g3Sink.enqueue({ agentId: input.event.agentId, sourceEventId: input.event.id, sourcePredictionId: predictionId, observation: input.input.observation, prediction: output });
+        if (output.g3.needsG3 && this.options.g3Sink !== undefined) await this.options.g3Sink.enqueue({ agentId: input.event.agentId, sourceEventId: input.event.id, sourceRunId: input.input.run.runId, sourcePredictionId: predictionId, observation: input.input.observation, prediction: output });
         return;
       } catch (error) {
         logger.log("warn", "prediction.attempt_failed", { remainingAttempts: remaining, ...errorLogContext(error) });

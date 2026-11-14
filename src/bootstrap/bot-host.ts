@@ -23,7 +23,7 @@ type Integration = { drain(signal: AbortSignal): Promise<void> };
 
 export type BotHostOptions = {
   readonly pool: Pool; readonly agentId: string; readonly lifecycle: ProcessLifecycle;
-  readonly runtime: Runtime; readonly scheduler: Tick; readonly outbox: Outbox; readonly discord: Discord; readonly experienceIntegration?: Integration;
+  readonly runtime: Runtime; readonly scheduler: Tick; readonly outbox: Outbox; readonly discord: Discord; readonly experienceIntegration?: Integration; readonly g3?: Integration;
   readonly schedulerIntervalMs: number; readonly outboxIntervalMs: number; readonly capabilityCheck: () => Promise<void>;
   readonly closePool?: boolean; readonly retryDelayMs?: number;
   readonly logger?: Logger;
@@ -55,13 +55,16 @@ export class BotHost {
       this.options.lifecycle.transition("ready");
       logger.log("info", "bot.ready");
       const signal = this.options.lifecycle.signal;
+      const experienceIntegration = this.options.experienceIntegration;
+      const g3 = this.options.g3;
       this.#tasks.push(
         this.#restartable("runtime", () => this.options.runtime.start(signal), signal),
         this.#restartable("discord.inbound", () => this.options.discord.startInbound(signal), signal),
         this.#restartable("discord.outbound", () => this.options.discord.startOutbound(signal), signal),
         this.#periodic("scheduler", () => this.options.scheduler.tick(signal), this.options.schedulerIntervalMs, signal),
         this.#periodic("outbox", () => this.options.outbox.dispatch(), this.options.outboxIntervalMs, signal),
-        ...(this.options.experienceIntegration === undefined ? [] : [this.#periodic("experience_integration", () => this.options.experienceIntegration!.drain(signal), this.options.schedulerIntervalMs, signal)])
+        ...(experienceIntegration === undefined ? [] : [this.#periodic("experience_integration", () => experienceIntegration.drain(signal), this.options.schedulerIntervalMs, signal)]),
+        ...(g3 === undefined ? [] : [this.#periodic("g3", () => g3.drain(signal), this.options.schedulerIntervalMs, signal)])
       );
     } catch (error) { logger.log("error", "bot.start_failed", errorLogContext(error)); await this.#cleanupAfterFailedStart(); throw error; }
   }
@@ -137,7 +140,7 @@ export async function createProductionBotHost(config: AppConfig): Promise<BotHos
   const lifecycle = new ProcessLifecycle();
   const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, timings.leaseMs, config.botId, timings.retryDelayMs), runtime: composition.router, reflection: composition.reflection, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, defaultReplyContext: () => config.defaultOutputDestination === config.discord?.queueDestination && config.discord.channelIds[0] !== undefined ? { channelId: config.discord.channelIds[0] } : undefined, explorationDomains: config.explorationDomains, autonomyReviewIntervalMs: timings.autonomyReviewIntervalMs, concernFormationIntervalMs: timings.concernFormationIntervalMs, stateReviewIntervalMs: timings.stateReviewIntervalMs, ...(timings.idleQuietHours === undefined ? {} : { idleQuietHours: timings.idleQuietHours }) });
   const discord = new DiscordAdapter({ gateway: new DiscordJsGateway(config.discord.token, logger), queue: composition.queue, clock: composition.clock, ids: composition.ids, agentId: config.botId, botUserId: config.discord.botUserId, ownerIds: new Set(config.discord.ownerIds), guildIds: new Set(config.discord.guildIds), channelIds: new Set(config.discord.channelIds), queueDestination: config.discord.queueDestination, logger });
-  return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, discord, experienceIntegration: composition.experienceIntegration, logger, schedulerIntervalMs: timings.scanIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
+  return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, discord, experienceIntegration: composition.experienceIntegration, g3: composition.g3, logger, schedulerIntervalMs: timings.scanIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
     await checkOllamaChatCapability(config.chat); await checkOllamaEmbeddingCapability(config.embedding);
   } });
 }

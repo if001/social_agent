@@ -11,6 +11,7 @@ export type G3Output = {
 export type G3Input = {
   readonly agentId: string;
   readonly sourceEventId: string;
+  readonly sourceRunId: string;
   readonly sourcePredictionId: string;
   readonly observation: Observation;
   readonly prediction: PredictionOutput;
@@ -19,29 +20,49 @@ export type G3Input = {
  * its IDs and later model calls only receive the ID-free projection. */
 export type G3ToolEvidence = { readonly name: string; readonly ok: boolean; readonly result?: unknown; readonly error?: string };
 export type G3ModelResult = { readonly output: G3Output; readonly toolEvidence: readonly G3ToolEvidence[] };
-export type G3Task = { readonly id: string; readonly agentId: string; readonly sourcePredictionId: string; readonly sourceEventId: string; readonly status: "pending" | "completed" | "failed"; readonly input: G3Input; readonly output?: G3Output; readonly toolEvidence?: readonly G3ToolEvidence[]; readonly createdAt: string; readonly completedAt?: string };
+export type G3Task = { readonly id: string; readonly agentId: string; readonly sourcePredictionId: string; readonly sourceEventId: string; readonly sourceRunId: string; readonly status: "pending" | "running" | "result-pending" | "completed" | "failed"; readonly attempt: number; readonly deadlineAt: string; readonly leaseUntil?: string; readonly input: G3Input; readonly output?: G3Output; readonly toolEvidence?: readonly G3ToolEvidence[]; readonly createdAt: string; readonly completedAt?: string };
 
 export interface G3Model { analyze(input: G3Input, signal: AbortSignal): Promise<G3ModelResult>; }
 export interface G3TaskRepository {
   save(task: G3Task): Promise<void>;
-  complete(taskId: string, result: G3ModelResult, completedAt: string): Promise<void>;
-  fail(taskId: string, reason: string, completedAt: string): Promise<void>;
+  claim(taskId: string, now: string, leaseUntil: string, maxAttempts: number): Promise<G3Task | undefined>;
+  claimDue(now: string, leaseUntil: string, maxAttempts: number): Promise<G3Task | undefined>;
+  saveResult(taskId: string, leaseToken: string, result: G3ModelResult): Promise<boolean>;
+  complete(taskId: string, leaseToken: string, result: G3ModelResult, completedAt: string): Promise<boolean>;
+  retryOrFail(taskId: string, leaseToken: string, reason: string, now: string, maxAttempts: number): Promise<void>;
 }
 export interface G3ResultSink { handle(result: G3ModelResult, input: G3Input): Promise<void>; }
 export interface G3Sink { enqueue(input: G3Input): Promise<void>; }
 
 export class G3Service {
-  constructor(private readonly repository: G3TaskRepository, private readonly model: G3Model, private readonly resultSink: G3ResultSink, private readonly ids: IdGenerator, private readonly now: () => Date) {}
+  constructor(private readonly repository: G3TaskRepository, private readonly model: G3Model, private readonly resultSink: G3ResultSink, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly taskDeadlineMs = 300_000, private readonly leaseMs = 60_000, private readonly maxAttempts = 3) {}
   async run(input: G3Input, signal: AbortSignal): Promise<G3Output | undefined> {
-    const task: G3Task = { id: this.ids.next(), agentId: input.agentId, sourcePredictionId: input.sourcePredictionId, sourceEventId: input.sourceEventId, status: "pending", input, createdAt: this.now().toISOString() };
+    const startedAt = this.now();
+    const deadlineAt = new Date(startedAt.getTime() + this.taskDeadlineMs).toISOString();
+    const task: G3Task = { id: this.ids.next(), agentId: input.agentId, sourcePredictionId: input.sourcePredictionId, sourceEventId: input.sourceEventId, sourceRunId: input.sourceRunId, status: "pending", attempt: 0, deadlineAt, input, createdAt: startedAt.toISOString() };
     await this.repository.save(task);
+    const claimed = await this.repository.claim(task.id, startedAt.toISOString(), new Date(startedAt.getTime() + this.leaseMs).toISOString(), this.maxAttempts);
+    return claimed === undefined ? undefined : this.#process(claimed, signal);
+  }
+  async drain(signal: AbortSignal, limit = 20): Promise<void> {
+    for (let index = 0; index < limit; index += 1) {
+      const claimedAt = this.now();
+      const task = await this.repository.claimDue(claimedAt.toISOString(), new Date(claimedAt.getTime() + this.leaseMs).toISOString(), this.maxAttempts);
+      if (task === undefined) return;
+      await this.#process(task, signal);
+    }
+  }
+  async #process(task: G3Task, signal: AbortSignal): Promise<G3Output | undefined> {
+    const leaseToken = task.leaseUntil; if (leaseToken === undefined) return undefined;
     try {
-      const result = await this.model.analyze(input, signal);
-      await this.repository.complete(task.id, result, this.now().toISOString());
-      await this.resultSink.handle(result, input);
+      const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, this.leaseMs - 30_000))]);
+      const result = task.output === undefined ? await this.model.analyze(task.input, boundedSignal) : { output: task.output, toolEvidence: task.toolEvidence ?? [] };
+      if (task.output === undefined && !await this.repository.saveResult(task.id, leaseToken, result)) return undefined;
+      await this.resultSink.handle(result, task.input);
+      if (!await this.repository.complete(task.id, leaseToken, result, this.now().toISOString())) return undefined;
       return result.output;
     } catch (error) {
-      await this.repository.fail(task.id, error instanceof Error ? error.message : "G3 failed", this.now().toISOString());
+      await this.repository.retryOrFail(task.id, leaseToken, error instanceof Error ? error.message : "G3 failed", this.now().toISOString(), this.maxAttempts);
       return undefined;
     }
   }
@@ -50,7 +71,7 @@ export class G3Service {
 export class MemoryG3ResultSink implements G3ResultSink {
   /** Memory candidates are deliberately delivered to the ordinary Agent Loop;
    * G3 has no direct persistence authority. */
-  async handle(_result: G3ModelResult, _input: G3Input): Promise<void> {}
+  handle(): Promise<void> { return Promise.resolve(); }
 }
 
 export class DirectG3Sink implements G3Sink {
