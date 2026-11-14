@@ -18,6 +18,8 @@
     "test:live": "node --env-file=.env ./node_modules/vitest/vitest.mjs run --config vitest.live.config.ts",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:integration && pnpm test:system && pnpm test:evaluation",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "reflection:tools:backfill": "node --env-file=.env --import tsx scripts/backfill-reflection-tool-executions.ts",
+    "db:grant:reflection-tools": "node --env-file=.env --import tsx scripts/grant-reflection-tool-executions.ts",
     "db:rebaseline:app-schema": "node --import tsx scripts/rebaseline-drizzle-app-schema.ts",
     "db:migrate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "ops": "tsx src/cli.ts",

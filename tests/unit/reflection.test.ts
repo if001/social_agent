@@ -144,6 +144,25 @@ describe("Reflection", () => {
     expect(refreshed).toEqual(["reflection-1", "reflection-1", "reflection-1", "reflection-1"]);
   });
 
+  it("FR-41, FR-79: completes Reconciliation only after every Runtime-bound anchor is committed", async () => {
+    const first = input.memories[0];
+    if (first === undefined) throw new Error("first Memory fixture is missing");
+    const second = { ...first, id: "memory-2", summary: "後から確かめる経験" };
+    const commits: string[] = [];
+    const completions: string[] = [];
+    const reflection = new TargetedReflection({
+      load: () => Promise.resolve(input), refresh: (value) => Promise.resolve(value), reconciliationInput: (value) => Promise.resolve({ ...value, memories: [first, second] }),
+      beginTarget: (_value, target) => Promise.resolve(target === "reconciliation" ? "pending" : "completed"),
+      memoryBatches: () => Promise.resolve([]), beginMemoryBatch: () => Promise.resolve("completed"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
+      commitTarget: (value, target) => { const anchor = value.memories[0]; if (target === "reconciliation" && anchor !== undefined) commits.push(anchor.id); return Promise.resolve(); },
+      completeTarget: (_value, target) => { completions.push(target); return Promise.resolve(); },
+      failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
+    }, { reflect: () => Promise.resolve({ output: { changes: [{ operation: "keep", reason: "現時点では維持する" }] }, toolExecutions: [] }) });
+    await reflection.process("reflection-1", "agent-a", new AbortController().signal);
+    expect(commits).toEqual(["memory-1", "memory-2"]);
+    expect(completions).toEqual(["reconciliation"]);
+  });
+
   it("FR-44, FR-60: passes Memory committed in this Session to a later Concern Reflector", async () => {
     const committedMemory = { id: "memory-created", summary: "新しく確定した経験", significance: "次の関心の根拠", subjects: ["user"], occurredAt: "2026-01-01T00:02:00Z", createdAt: "2026-01-01T00:02:00Z" };
     const concernInputs: ReflectionInput[] = [];

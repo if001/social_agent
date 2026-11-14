@@ -7,7 +7,7 @@ import { reflectionConcernContext } from "../../application/reflection-concern-c
 import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
-import { AgentStateSchema, ConcernChangeSchema, DomainError, EpisodicMemorySchema, RelationshipChangeSchema, SelfSchema, type Concern, type ConcernActivityKind, type Relationship } from "../../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, DomainError, EpisodicMemorySchema, RelationshipChangeSchema, SelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type Relationship, type ToolExecutionRecord } from "../../domain/contracts.js";
 
 type ReflectionRow = QueryResultRow & { status: string; input: unknown };
 type ConcernChange = z.infer<typeof ConcernChangeSchema>;
@@ -49,9 +49,13 @@ function failureReason(error: unknown): string {
   return issues.length === 0 ? error.message : `${error.message}: ${JSON.stringify(issues)}`;
 }
 
-function toolExecutionsFromFailure(error: unknown): readonly unknown[] {
+function toolExecutionsFromFailure(error: unknown): readonly ToolExecutionRecord[] {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause)) return [];
-  return Array.isArray(error.cause.toolExecutions) ? error.cause.toolExecutions : [];
+  if (!Array.isArray(error.cause.toolExecutions)) return [];
+  return error.cause.toolExecutions.flatMap((record) => {
+    const parsed = ToolExecutionRecordSchema.safeParse(record);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 type AppliedConcerns = { readonly concerns: readonly Concern[]; readonly activities: readonly { readonly concernId: string; readonly kind: ConcernActivityKind }[] };
@@ -137,11 +141,18 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       self: SelfSchema.parse({ identity: state.identity, disposition: state.disposition, selfStory: state.self_story, commitments: state.commitments }),
       state: AgentStateSchema.parse({ mood: state.mood, concerns: state.concerns, relationships: state.relationships }),
       events: input.events,
+      ...(input.reconciliationAnchors === undefined ? {} : { reconciliationAnchors: input.reconciliationAnchors }),
+      ...(input.targetSnapshots === undefined ? {} : { targetSnapshots: input.targetSnapshots }),
       memories: memoriesResult.rows.map((memory) => EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), kind: memory.kind, evidenceEventIds: Array.isArray(memory.evidence_event_ids) ? memory.evidence_event_ids : [], ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) }))
     });
   }
 
   async reconciliationInput(input: ReflectionInput): Promise<ReflectionInput> {
+    if (input.reconciliationAnchors !== undefined) {
+      const completed = await this.pool.query<{ anchor_memory_id: string }>("SELECT anchor_memory_id FROM reflection_resolutions WHERE reflection_id=$1 AND target='reconciliation' AND anchor_memory_id IS NOT NULL AND outcome IN ('committed','no-op')", [input.reflectionId]);
+      const completedIds = new Set(completed.rows.map(({ anchor_memory_id }) => anchor_memory_id));
+      return ReflectionInputSchema.parse({ ...input, memories: input.reconciliationAnchors.filter(({ id }) => !completedIds.has(id)) });
+    }
     // One newest eligible Memory per reason keeps the pass bounded while the
     // recorded reason makes the selection auditable in reflection_attempts.
     const rows = await this.pool.query<MemoryRow & { reason: ReactivationCandidate["reason"] }>(`WITH memory_pool AS (
@@ -195,7 +206,9 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const memory = byId.get(id); if (memory === undefined) return [];
       return [EpisodicMemorySchema.parse({ id: memory.id, summary: memory.content, significance: memory.importance, subjects: memory.subjects, occurredAt: memory.occurred_at.toISOString(), createdAt: memory.created_at.toISOString(), kind: memory.kind, evidenceEventIds: Array.isArray(memory.evidence_event_ids) ? memory.evidence_event_ids : [], ...(memory.source_agent_id === null ? {} : { source: memory.source_agent_id }) })];
     });
-    return ReflectionInputSchema.parse({ ...input, memories });
+    const session = ReflectionInputSchema.parse({ ...input, reconciliationAnchors: memories });
+    await this.pool.query("UPDATE reflection_runs SET input=jsonb_set(input,'{reconciliationAnchors}',$2::jsonb,true),updated_at=now() WHERE id=$1", [input.reflectionId, JSON.stringify(memories)]);
+    return ReflectionInputSchema.parse({ ...session, memories });
   }
 
   async commit(input: ReflectionInput, rawOutput: ReflectionOutput): Promise<"committed" | "duplicate"> {
@@ -254,19 +267,37 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     await this.pool.query("UPDATE reflection_runs SET status='failed',failure_reason=$2,updated_at=now() WHERE id=$1 AND status<>'completed'", [input.reflectionId, failureReason(error)]);
   }
 
+  async #replaceToolExecutions(input: ReflectionInput, target: ReflectionTarget, executions: readonly ToolExecutionRecord[], batchIndex?: number, anchorMemoryId?: string): Promise<void> {
+    await this.pool.query(`DELETE FROM reflection_tool_executions
+      WHERE reflection_id=$1 AND target=$2 AND batch_index IS NOT DISTINCT FROM $3 AND anchor_memory_id IS NOT DISTINCT FROM $4`,
+    [input.reflectionId, target, batchIndex ?? null, anchorMemoryId ?? null]);
+    for (const [executionIndex, execution] of executions.entries()) {
+      await this.pool.query(`INSERT INTO reflection_tool_executions(
+        id,reflection_id,target,batch_index,anchor_memory_id,execution_index,tool_call_id,tool,input,result,error,started_at,finished_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [
+        `${input.reflectionId}:${target}:${batchIndex === undefined ? "target" : String(batchIndex)}:${anchorMemoryId ?? "none"}:${String(executionIndex)}`,
+        input.reflectionId, target, batchIndex ?? null, anchorMemoryId ?? null, executionIndex,
+        execution.callId, execution.name, JSON.stringify(execution.input), execution.ok ? JSON.stringify(execution.result) : null,
+        execution.ok ? null : execution.error, execution.startedAt, execution.finishedAt
+      ]);
+    }
+  }
+
   async beginTarget(input: ReflectionInput, target: ReflectionTarget): Promise<"pending" | "completed"> {
     const existing = await this.pool.query<{ status: string }>("SELECT status FROM reflection_attempts WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target]);
     if (existing.rows[0]?.status === "completed") return "completed";
-    await this.pool.query(`INSERT INTO reflection_attempts(id,reflection_id,agent_id,target,status,input,started_at)
-      VALUES ($1,$2,$3,$4,'pending',$5,now())
-      ON CONFLICT (reflection_id,target) DO UPDATE SET status='pending',failure_reason=NULL,started_at=now(),updated_at=now()`, [`${input.reflectionId}:${target}`, input.reflectionId, input.agentId, target, JSON.stringify(this.#targetInput(input, target))]);
+    const snapshot = { self: input.self, state: input.state, events: input.events, memories: input.memories };
+    await this.pool.query("UPDATE reflection_runs SET input=jsonb_set(input,'{targetSnapshots}',COALESCE(input->'targetSnapshots','{}'::jsonb) || jsonb_build_object($2::text,$3::jsonb),true),updated_at=now() WHERE id=$1", [input.reflectionId, target, JSON.stringify(snapshot)]);
+    await this.pool.query(`INSERT INTO reflection_attempts(id,reflection_id,target,status,input,started_at)
+      VALUES ($1,$2,$3,'pending',$4,now())
+      ON CONFLICT (reflection_id,target) DO UPDATE SET status='pending',failure_reason=NULL,started_at=now(),updated_at=now()`, [`${input.reflectionId}:${target}`, input.reflectionId, target, JSON.stringify(this.#targetInput(input, target))]);
     return "pending";
   }
 
   async memoryBatches(input: ReflectionInput): Promise<readonly ReflectionMemoryBatch[]> {
     const batches = Array.from({ length: Math.ceil(input.events.length / 16) }, (_, batchIndex) => ReflectionMemoryBatchSchema.parse({ batchIndex, events: input.events.slice(batchIndex * 16, (batchIndex + 1) * 16) }));
-    for (const batch of batches) await this.pool.query(`INSERT INTO reflection_memory_batches(id,reflection_id,agent_id,batch_index,status,input)
-      VALUES ($1,$2,$3,$4,'pending',$5) ON CONFLICT (reflection_id,batch_index) DO NOTHING`, [`${input.reflectionId}:memory:${String(batch.batchIndex)}`, input.reflectionId, input.agentId, batch.batchIndex, JSON.stringify(batch)]);
+    for (const batch of batches) await this.pool.query(`INSERT INTO reflection_memory_batches(id,reflection_id,batch_index,status,input)
+      VALUES ($1,$2,$3,'pending',$4) ON CONFLICT (reflection_id,batch_index) DO NOTHING`, [`${input.reflectionId}:memory:${String(batch.batchIndex)}`, input.reflectionId, batch.batchIndex, JSON.stringify({ batchIndex: batch.batchIndex, eventIds: batch.events.map(({ id }) => id) })]);
     return batches;
   }
 
@@ -279,17 +310,19 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
 
   async commitMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch, result: ReflectorResult): Promise<void> {
     await this.#commitMemoryTarget({ ...input, events: batch.events }, MemoryReflectorOutputSchema.parse(result.output), `${input.reflectionId}:memory:${String(batch.batchIndex)}`);
-    await this.pool.query("UPDATE reflection_memory_batches SET status='completed',output=$3,tool_executions=$4,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex, JSON.stringify(result.output), JSON.stringify(result.toolExecutions)]);
+    await this.#replaceToolExecutions(input, "memory", result.toolExecutions, batch.batchIndex);
+    await this.pool.query("UPDATE reflection_memory_batches SET status='completed',output=$3,tool_executions=NULL,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex, JSON.stringify(result.output)]);
   }
 
   async failMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch, error: unknown): Promise<void> {
-    await this.pool.query("UPDATE reflection_memory_batches SET status='failed',failure_reason=$3,tool_executions=$4,updated_at=now() WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex, failureReason(error), JSON.stringify(toolExecutionsFromFailure(error))]);
+    await this.#replaceToolExecutions(input, "memory", toolExecutionsFromFailure(error), batch.batchIndex);
+    await this.pool.query("UPDATE reflection_memory_batches SET status='failed',tool_executions=NULL,failure_reason=$3,updated_at=now() WHERE reflection_id=$1 AND batch_index=$2", [input.reflectionId, batch.batchIndex, failureReason(error)]);
   }
 
   async completeMemoryTarget(input: ReflectionInput): Promise<void> {
     const batches = await this.pool.query<{ batch_index: number; status: string; output: unknown }>("SELECT batch_index,status,output FROM reflection_memory_batches WHERE reflection_id=$1 ORDER BY batch_index", [input.reflectionId]);
     if (batches.rows.length === 0 || batches.rows.some(({ status }) => status !== "completed")) throw new DomainError("CONFLICT", "Reflection Memory batches are not all completed");
-    await this.pool.query("UPDATE reflection_attempts SET status='completed',output=$2,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND target='memory'", [input.reflectionId, JSON.stringify({ batches: batches.rows.map(({ batch_index, output }) => ({ batchIndex: batch_index, output })) })]);
+    await this.pool.query("UPDATE reflection_attempts SET status='completed',output=$2,tool_executions=NULL,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND target='memory'", [input.reflectionId, JSON.stringify({ batches: batches.rows.map(({ batch_index, output }) => ({ batchIndex: batch_index, output })) })]);
   }
 
   async commitTarget(input: ReflectionInput, target: ReflectionTarget, result: ReflectorResult): Promise<void> {
@@ -298,17 +331,25 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     if (target === "concern") await this.#commitConcernTarget(input, ConcernReflectorOutputSchema.parse(result.output));
     if (target === "relationship") await this.#commitRelationshipTarget(input, RelationshipReflectorOutputSchema.parse(result.output));
     if (target === "self-mood") await this.#commitSelfMoodTarget(input, SelfMoodReflectorOutputSchema.parse(result.output));
-    await this.pool.query("UPDATE reflection_attempts SET status='completed',output=$3,tool_executions=$4,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target, JSON.stringify(result.output), JSON.stringify(result.toolExecutions)]);
+    const anchorMemoryId = target === "reconciliation" ? input.memories[0]?.id : undefined;
+    await this.#replaceToolExecutions(input, target, result.toolExecutions, undefined, anchorMemoryId);
+    await this.pool.query("UPDATE reflection_attempts SET status=$3,output=$4,tool_executions=NULL,failure_reason=NULL,completed_at=CASE WHEN $3='completed' THEN now() ELSE NULL END,updated_at=now() WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target, target === "reconciliation" ? "pending" : "completed", JSON.stringify(result.output)]);
+  }
+
+  async completeTarget(input: ReflectionInput, target: ReflectionTarget): Promise<void> {
+    await this.pool.query("UPDATE reflection_attempts SET status='completed',tool_executions=NULL,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target]);
   }
 
   async failTarget(input: ReflectionInput, target: ReflectionTarget, error: unknown): Promise<void> {
-    await this.pool.query("UPDATE reflection_attempts SET status='failed',failure_reason=$3,tool_executions=$4,updated_at=now() WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target, failureReason(error), JSON.stringify(toolExecutionsFromFailure(error))]);
+    const anchorMemoryId = target === "reconciliation" ? input.memories[0]?.id : undefined;
+    if (target !== "memory") await this.#replaceToolExecutions(input, target, toolExecutionsFromFailure(error), undefined, anchorMemoryId);
+    await this.pool.query("UPDATE reflection_attempts SET status='failed',tool_executions=NULL,failure_reason=$3,updated_at=now() WHERE reflection_id=$1 AND target=$2", [input.reflectionId, target, failureReason(error)]);
   }
 
   async blockTarget(input: ReflectionInput, target: ReflectionTarget): Promise<void> {
-    await this.pool.query(`INSERT INTO reflection_attempts(id,reflection_id,agent_id,target,status,input,completed_at)
-      VALUES ($1,$2,$3,$4,'blocked',$5,now())
-      ON CONFLICT (reflection_id,target) DO UPDATE SET status='blocked',updated_at=now()`, [`${input.reflectionId}:${target}`, input.reflectionId, input.agentId, target, JSON.stringify(this.#targetInput(input, target))]);
+    await this.pool.query(`INSERT INTO reflection_attempts(id,reflection_id,target,status,input,completed_at)
+      VALUES ($1,$2,$3,'blocked',$4,now())
+      ON CONFLICT (reflection_id,target) DO UPDATE SET status='blocked',updated_at=now()`, [`${input.reflectionId}:${target}`, input.reflectionId, target, JSON.stringify(this.#targetInput(input, target))]);
   }
 
   async complete(input: ReflectionInput): Promise<void> {
@@ -341,14 +382,14 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     // Memory batch inputs are persisted in reflection_memory_batches.  Keeping
     // only their count here prevents a maintenance-attempt audit row from
     // accidentally becoming a second, unbounded model input.
-    if (target === "memory") return { eventCount: input.events.length, batchCount: Math.ceil(input.events.length / 16) };
-    if (target === "reconciliation") return { anchors: input.memories.map(({ id, kind, summary, significance, occurredAt }) => ({ id, kind, summary, significance, occurredAt })) };
+    if (target === "memory") return { target, eventIds: input.events.map(({ id }) => id), batchCount: Math.ceil(input.events.length / 16) };
+    if (target === "reconciliation") return { target, anchorMemoryIds: input.memories.map(({ id }) => id) };
     if (target === "concern") {
       const context = reflectionConcernContext(input, this.now());
-      return { concernContext: context.stats };
+      return { target, concernIds: input.state.concerns.map(({ id }) => id), memoryIds: input.memories.map(({ id }) => id), concernContext: context.stats };
     }
-    if (target === "relationship") return { events: input.events.slice(-32), memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })), relationships: input.state.relationships };
-    return { self: input.self, mood: input.state.mood, memories: input.memories.map(({ id, summary, significance, subjects, occurredAt }) => ({ id, summary, significance, subjects, occurredAt })) };
+    if (target === "relationship") return { target, eventIds: input.events.slice(-32).map(({ id }) => id), memoryIds: input.memories.map(({ id }) => id), subjectIds: input.state.relationships.map(({ subjectId }) => subjectId) };
+    return { target, memoryIds: input.memories.map(({ id }) => id) };
   }
 
   async #commitConcernTarget(input: ReflectionInput, output: z.infer<typeof ConcernReflectorOutputSchema>): Promise<void> {
@@ -416,7 +457,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const resolved = candidates.filter(({ evidenceEventIds }) => evidenceEventIds.length > 0);
     const rejected = candidates.filter(({ evidenceEventIds }) => evidenceEventIds.length === 0).map(({ memory }) => ({ reason: "unsupported-by-fixed-event-window", content: memory.content.slice(0, 240) }));
     const batchIndex = /^.+:memory:(\d+)$/.exec(sourceEventId)?.[1];
-    await this.pool.query("INSERT INTO reflection_resolutions(id,reflection_id,agent_id,target,batch_index,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,$3,'formation',$4,$5,$6,$7,$8,$9,$10,'fixed-window-hybrid',$11)", [this.ids.next(), input.reflectionId, input.agentId, batchIndex === undefined ? null : Number(batchIndex), formationResolverVersion, output.memories.map(({ content }) => content.slice(0, 120)).join(" / "), output.memories.length, JSON.stringify([...new Set(resolved.flatMap(({ evidenceEventIds }) => evidenceEventIds))]), JSON.stringify(rejected), JSON.stringify(resolved.map(({ memory, score }) => ({ content: memory.content.slice(0, 120), score }))), resolved.length === 0 ? "no-op" : "committed"]);
+    await this.pool.query("INSERT INTO reflection_resolutions(id,reflection_id,target,batch_index,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,'formation',$3,$4,$5,$6,$7,$8,$9,'fixed-window-hybrid',$10)", [this.ids.next(), input.reflectionId, batchIndex === undefined ? null : Number(batchIndex), formationResolverVersion, output.memories.map(({ content }) => content.slice(0, 120)).join(" / "), output.memories.length, JSON.stringify([...new Set(resolved.flatMap(({ evidenceEventIds }) => evidenceEventIds))]), JSON.stringify(rejected), JSON.stringify(resolved.map(({ memory, score }) => ({ content: memory.content.slice(0, 120), score }))), resolved.length === 0 ? "no-op" : "committed"]);
     const intents = resolved.map(({ memory, evidenceEventIds }) => ({ content: memory.content, reason: memory.reason, evidenceEventIds: [...evidenceEventIds], confidence: "medium" as const, target: memory.target, perspective: memory.perspective, purpose: memory.perspective === "user" ? "user-context" as const : "self-guidance" as const }));
     if (this.memoryUpdateSink !== undefined && intents.length > 0) {
       const sinkInput = { agentId: input.agentId, sourceEventId, intents, subjectsByIntent: resolved.map(({ subjectIds }) => subjectIds), formation: true };
@@ -446,7 +487,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
         const evidence = await client.query<{ id: string }>("SELECT id FROM events WHERE agent_id=$1 AND status='completed' AND occurred_at>$2 AND occurred_at<=COALESCE($3::timestamptz,now()) ORDER BY occurred_at,id LIMIT 16", [input.agentId, anchor.occurredAt, input.eventWindowEnd ?? null]);
         if (change.operation !== "keep" && evidence.rows.length === 0) throw new DomainError("VALIDATION", "Memory Reconciliation can only update from known later Events");
         await new MemoryWriteService(client, this.ids, this.now).reconcile(input.agentId, { ...change, memoryId: anchor.id, evidenceEventIds: evidence.rows.map(({ id }) => id) }, { sourceEventId, intentIndex: index });
-        await client.query("INSERT INTO reflection_resolutions(id,reflection_id,agent_id,target,anchor_memory_id,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,$3,'reconciliation',$4,'reconciliation-v1',$5,$6,$7,'[]',$8,'later-events-only',$9)", [this.ids.next(), input.reflectionId, input.agentId, anchor.id, anchor.summary.slice(0, 240), evidence.rows.length, JSON.stringify(evidence.rows.map(({ id }) => id)), JSON.stringify({ operation: change.operation }), change.operation === "keep" ? "no-op" : "committed"]);
+        await client.query("INSERT INTO reflection_resolutions(id,reflection_id,target,anchor_memory_id,resolver_version,query_summary,candidate_count,selected_event_ids,rejected,score,temporal_decision,outcome) VALUES ($1,$2,'reconciliation',$3,'reconciliation-v1',$4,$5,$6,'[]',$7,'later-events-only',$8)", [this.ids.next(), input.reflectionId, anchor.id, anchor.summary.slice(0, 240), evidence.rows.length, JSON.stringify(evidence.rows.map(({ id }) => id)), JSON.stringify({ operation: change.operation }), change.operation === "keep" ? "no-op" : "committed"]);
       }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }

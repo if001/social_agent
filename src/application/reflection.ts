@@ -5,6 +5,12 @@ import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, MemoryInte
 
 const Id = z.string().trim().min(1);
 const Text = z.string().trim().min(1).max(16_000);
+const ReflectionTargetSnapshotSchema = z.object({
+  self: SelfSchema,
+  state: AgentStateSchema,
+  events: z.array(z.object({ id: Id, occurredAt: z.iso.datetime({ offset: true }), summary: Text })),
+  memories: z.array(EpisodicMemorySchema)
+});
 
 export const ReflectionInputSchema = z.object({
   reflectionId: Id,
@@ -18,7 +24,12 @@ export const ReflectionInputSchema = z.object({
   self: SelfSchema,
   state: AgentStateSchema,
   events: z.array(z.object({ id: Id, occurredAt: z.iso.datetime({ offset: true }), summary: Text })).min(1),
-  memories: z.array(EpisodicMemorySchema)
+  memories: z.array(EpisodicMemorySchema),
+  /** Runtime-selected Reconciliation anchors are appended once to the
+   * canonical Session snapshot so out-of-window anchors remain audited. */
+  reconciliationAnchors: z.array(EpisodicMemorySchema).optional(),
+  /** Exact post-pass input snapshots live only on the parent Session. */
+  targetSnapshots: z.record(z.string(), ReflectionTargetSnapshotSchema).optional()
 });
 export type ReflectionInput = z.infer<typeof ReflectionInputSchema>;
 export const ReflectionMemoryBatchSchema = z.object({
@@ -173,6 +184,7 @@ export interface TargetedReflectionRepository {
   failMemoryBatch(input: ReflectionInput, batch: ReflectionMemoryBatch, error: unknown): Promise<void>;
   completeMemoryTarget(input: ReflectionInput): Promise<void>;
   commitTarget(input: ReflectionInput, target: ReflectionTarget, output: unknown): Promise<void>;
+  completeTarget?(input: ReflectionInput, target: ReflectionTarget): Promise<void>;
   failTarget(input: ReflectionInput, target: ReflectionTarget, error: unknown): Promise<void>;
   blockTarget(input: ReflectionInput, target: ReflectionTarget): Promise<void>;
   complete(input: ReflectionInput): Promise<void>;
@@ -235,11 +247,12 @@ export class TargetedReflection {
             await this.repository.commitTarget(anchorInput, target, result);
             input = await this.repository.refresh(input);
           } catch (error) {
-            await this.repository.failTarget(input, target, error);
+            await this.repository.failTarget(anchorInput, target, error);
             integrationReady = false;
             break;
           }
         }
+        if (integrationReady) await this.repository.completeTarget?.(input, target);
         continue;
       }
       try {

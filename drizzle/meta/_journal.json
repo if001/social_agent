@@ -267,6 +267,20 @@
       "when": 1794653358217,
       "tag": "0037_famous_masked_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794655512433,
+      "tag": "0038_jazzy_black_panther",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794656392523,
+      "tag": "0039_early_black_tom",
+      "breakpoints": true
     }
   ]
 }

@@ -35,6 +35,7 @@ import { createIntegrationDatabase, integrationDatabaseConfigured } from "../sup
 import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
 import { agentFamilies } from "../../src/infrastructure/persistence/schema.js";
 import { migrateNormalizedEventStorage } from "../../scripts/migrate-normalized-event-storage.js";
+import { backfillReflectionToolExecutions } from "../../scripts/backfill-reflection-tool-executions.js";
 import { PostgresRetrievalService } from "../../src/infrastructure/persistence/postgres-retrieval-service.js";
 
 const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
@@ -818,7 +819,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("FR-60, NFR-17: persists target attempts and leaves only failed targets retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('target-attempt-event','a','internal',$1,'test','completed',now())", [{ summary: "対象別に統合する" }]);
     await recordExperience("target-attempt-event", "対象別に統合する");
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["target-attempt-resolution", "target-attempt-spare"]), () => new Date("2026-01-02T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["target-attempt-resolution", "target-attempt-spare", "target-attempt-retry-resolution"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("target-attempt-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     await expect(repository.beginTarget(input, "memory")).resolves.toBe("pending");
     await repository.commitTarget(input, "memory", { output: { memories: [] }, toolExecutions: [{ callId: "reflector-tool-1", runId: input.reflectionId, eventId: input.reflectionId, name: "memory_search", input: { query: "約束" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }] });
@@ -828,15 +829,45 @@ describeDatabase("PostgreSQL persistence", () => {
     await repository.blockTarget(input, "relationship");
     await repository.blockTarget(input, "self-mood");
     await expect(repository.complete(input)).rejects.toMatchObject({ code: "EXTERNAL" });
-    expect((await pool.query<{ target: string; status: string; input: unknown; output: unknown; tool_executions: { name: string }[] }>("SELECT target,status,input,output,tool_executions FROM reflection_attempts WHERE reflection_id='target-attempt-reflection' ORDER BY target")).rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ target: "memory", status: "completed", output: { memories: [] }, tool_executions: [expect.objectContaining({ name: "memory_search" })] }),
+    expect((await pool.query<{ target: string; status: string; input: unknown; output: unknown }>("SELECT target,status,input,output FROM reflection_attempts WHERE reflection_id='target-attempt-reflection' ORDER BY target")).rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ target: "memory", status: "completed", output: { memories: [] } }),
       expect.objectContaining({ target: "reconciliation", status: "pending" }),
       expect.objectContaining({ target: "concern", status: "failed" }),
       expect.objectContaining({ target: "relationship", status: "blocked" }),
       expect.objectContaining({ target: "self-mood", status: "blocked" })
     ]));
+    expect((await pool.query<{ tool: string; input: unknown }>("SELECT tool,input FROM reflection_tool_executions WHERE reflection_id='target-attempt-reflection' ORDER BY execution_index")).rows).toEqual([{ tool: "memory_search", input: { query: "約束" } }]);
+    expect((await pool.query<{ input: Record<string, unknown> }>("SELECT input FROM reflection_attempts WHERE reflection_id='target-attempt-reflection' AND target='memory'")).rows[0]?.input).not.toHaveProperty("events");
+    expect((await pool.query<{ agent_id: string | null; tool_executions: unknown }>("SELECT agent_id,tool_executions FROM reflection_attempts WHERE reflection_id='target-attempt-reflection' AND target='memory'")).rows[0]).toEqual({ agent_id: null, tool_executions: null });
+    await repository.commitTarget(input, "memory", { output: { memories: [] }, toolExecutions: [{ callId: "reflector-tool-2", runId: input.reflectionId, eventId: input.reflectionId, name: "memory_search", input: { query: "更新" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }] });
+    expect((await pool.query<{ tool_call_id: string }>("SELECT tool_call_id FROM reflection_tool_executions WHERE reflection_id='target-attempt-reflection' AND target='memory'")).rows).toEqual([{ tool_call_id: "reflector-tool-2" }]);
+    await pool.query("UPDATE reflection_attempts SET tool_executions=$2 WHERE reflection_id=$1 AND target='memory'", [input.reflectionId, JSON.stringify([{ callId: "legacy-failed-call" }])]);
+    await repository.commitTarget(input, "memory", { output: { memories: [] }, toolExecutions: [] });
+    expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM reflection_tool_executions WHERE reflection_id='target-attempt-reflection' AND target='memory'")).rows[0]?.count).toBe("0");
+    expect((await pool.query<{ tool_executions: unknown }>("SELECT tool_executions FROM reflection_attempts WHERE reflection_id=$1 AND target='memory'", [input.reflectionId])).rows[0]?.tool_executions).toBeNull();
     expect((await pool.query<{ status: string; plan: { memory: string; concern: string } }>("SELECT status,plan FROM reflection_runs WHERE id='target-attempt-reflection'")).rows[0]).toMatchObject({ status: "pending", plan: { memory: "completed", concern: "failed" } });
     await pool.query("DELETE FROM reflection_runs WHERE id='target-attempt-reflection'");
+  });
+
+  it("FR-41, NFR-7: backfills legacy Reflection Tool arrays into one relational row per call", async () => {
+    const agentId = "legacy-reflection-tools-agent";
+    const execution = { callId: "legacy-tool-1", runId: "legacy-reflection-tools", eventId: "legacy-reflection-tools", name: "memory_search", input: { query: "展示" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant };
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Legacy Tool Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,completed_at) VALUES ('legacy-reflection-tools',$1,0,'completed','{}',now())", [agentId]);
+    await pool.query("INSERT INTO reflection_attempts(id,reflection_id,agent_id,target,status,input,tool_executions,completed_at) VALUES ('legacy-reflection-tools:concern','legacy-reflection-tools',$1,'concern','completed','{}',$2,now())", [agentId, JSON.stringify([execution])]);
+    await expect(backfillReflectionToolExecutions(database.admin, { apply: false, agentId })).resolves.toMatchObject({ sourceScopes: 1, validExecutions: 1, invalidExecutions: 0, inserted: 0 });
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input) VALUES ('legacy-reflection-tools-active',$1,0,'pending','{}')", [agentId]);
+    await expect(backfillReflectionToolExecutions(database.admin, { apply: true, agentId })).rejects.toThrow("unfinished Reflection Sessions");
+    await pool.query("DELETE FROM reflection_runs WHERE id='legacy-reflection-tools-active'");
+    await expect(backfillReflectionToolExecutions(database.admin, { apply: true, agentId })).resolves.toMatchObject({ sourceScopes: 1, validExecutions: 1, inserted: 1, activeScopes: 0 });
+    expect((await pool.query<{ target: string; tool: string; tool_call_id: string }>("SELECT target,tool,tool_call_id FROM reflection_tool_executions WHERE reflection_id='legacy-reflection-tools'")).rows).toEqual([{ target: "concern", tool: "memory_search", tool_call_id: "legacy-tool-1" }]);
+    await pool.query("DELETE FROM reflection_tool_executions WHERE reflection_id='legacy-reflection-tools'");
+    await expect(backfillReflectionToolExecutions(database.admin, { apply: true, agentId })).resolves.toMatchObject({ sourceScopes: 0, inserted: 0 });
+    expect((await pool.query<{ tool_executions: unknown }>("SELECT tool_executions FROM reflection_attempts WHERE reflection_id='legacy-reflection-tools'")).rows[0]).toEqual({ tool_executions: null });
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,completed_at) VALUES ('legacy-reflection-tools-invalid',$1,0,'completed','{}',now())", [agentId]);
+    await pool.query("INSERT INTO reflection_attempts(id,reflection_id,agent_id,target,status,input,tool_executions,completed_at) VALUES ('legacy-reflection-tools-invalid:concern','legacy-reflection-tools-invalid',$1,'concern','completed','{}','[{\"bad\":true}]',now())", [agentId]);
+    await expect(backfillReflectionToolExecutions(database.admin, { apply: true, agentId })).rejects.toThrow("invalid legacy executions");
+    await pool.query("DELETE FROM agents WHERE id=$1", [agentId]);
   });
 
   it("FR-73: excludes Memory formed by this Reflection Session from immediate Reconciliation anchors", async () => {
@@ -851,7 +882,7 @@ describeDatabase("PostgreSQL persistence", () => {
       ('reconciliation-formed',$1,'self-change','今回Formationした経験','まだ後続Eventがない','2026-01-02T00:00:00Z','pending')`, [agentId]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reconciliation-later-event',$1,'internal',$2,'test','completed','2026-01-02T00:00:00Z')", [agentId, { summary: "既存Memoryより後の経験" }]);
     await pool.query("INSERT INTO memory_mutations(id,agent_id,memory_id,operation,source_event_id,intent_index,intent) VALUES ('reconciliation-formed-mutation',$1,'reconciliation-formed','create',$2,0,'{}')", [agentId, `${reflectionId}:memory:0`]);
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-03T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reconciliation-resolution-audit"]), () => new Date("2026-01-03T00:00:00Z"));
     const session: ReflectionInput = {
       reflectionId, agentId, expectedVersion: 0,
       self: { identity: "Reconciliation Agent", disposition: "Careful", selfStory: "Story", commitments: [] },
@@ -860,11 +891,25 @@ describeDatabase("PostgreSQL persistence", () => {
       events: [{ id: "reconciliation-event", occurredAt: "2026-01-03T00:00:00Z", summary: "現在のEvent" }],
       memories: []
     };
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input) VALUES ($1,$2,0,'pending',$3)", [reflectionId, agentId, JSON.stringify(session)]);
     const selected = await repository.reconciliationInput(session);
     expect(selected.memories.map(({ id }) => id)).toContain("reconciliation-old");
     expect(selected.memories.map(({ id }) => id)).not.toContain("reconciliation-formed");
     expect(selected.memories.map(({ id }) => id)).not.toContain("reconciliation-episodic");
     expect(selected.memories.map(({ id }) => id)).not.toContain("reconciliation-no-later");
+    expect((await pool.query<{ input: ReflectionInput }>("SELECT input FROM reflection_runs WHERE id=$1", [reflectionId])).rows[0]?.input.reconciliationAnchors?.map(({ id }) => id)).toEqual(selected.memories.map(({ id }) => id));
+    const resumed = await repository.reconciliationInput(await repository.refresh(selected));
+    expect(resumed.reconciliationAnchors?.map(({ id }) => id)).toEqual(selected.memories.map(({ id }) => id));
+    expect(resumed.memories.map(({ id }) => id)).toEqual(selected.memories.map(({ id }) => id));
+    const anchor = selected.memories[0];
+    if (anchor === undefined) throw new Error("Reconciliation anchor was not selected");
+    await repository.beginTarget(selected, "reconciliation");
+    expect((await pool.query<{ input: ReflectionInput }>("SELECT input FROM reflection_runs WHERE id=$1", [reflectionId])).rows[0]?.input.targetSnapshots?.reconciliation?.memories.map(({ id }) => id)).toEqual(selected.memories.map(({ id }) => id));
+    await repository.commitTarget({ ...selected, memories: [anchor] }, "reconciliation", { output: { changes: [{ operation: "keep", reason: "後続Eventでも矛盾しない" }] }, toolExecutions: [{ callId: "reconciliation-tool-1", runId: reflectionId, eventId: reflectionId, name: "memory_search", input: { query: anchor.summary }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }] });
+    expect((await pool.query<{ status: string }>("SELECT status FROM reflection_attempts WHERE reflection_id=$1 AND target='reconciliation'", [reflectionId])).rows[0]?.status).toBe("pending");
+    expect((await pool.query<{ anchor_memory_id: string; tool: string }>("SELECT anchor_memory_id,tool FROM reflection_tool_executions WHERE reflection_id=$1", [reflectionId])).rows).toEqual([{ anchor_memory_id: anchor.id, tool: "memory_search" }]);
+    await repository.completeTarget(selected, "reconciliation");
+    expect((await pool.query<{ status: string }>("SELECT status FROM reflection_attempts WHERE reflection_id=$1 AND target='reconciliation'", [reflectionId])).rows[0]?.status).toBe("completed");
   });
 
   it("C-10, C-55, FR-10, FR-57: commits only the Memory Reflector's selected evidence from a 32 Event Session", async () => {
@@ -912,13 +957,14 @@ describeDatabase("PostgreSQL persistence", () => {
     await repository.completeMemoryTarget(input);
     const firstBatch = batches[0]; if (firstBatch === undefined) throw new Error("first batch was not created");
     expect(await repository.beginMemoryBatch(input, firstBatch)).toBe("completed");
-    const persistedBatches = (await pool.query<{ batch_index: number; status: string; input: { events: unknown[] } }>("SELECT batch_index,status,input FROM reflection_memory_batches WHERE reflection_id='reflection-memory-batches' ORDER BY batch_index")).rows;
-    expect(persistedBatches.map(({ batch_index, status, input: batchInput }) => ({ batchIndex: batch_index, status, eventCount: batchInput.events.length }))).toEqual([0, 1, 2, 3].map((batchIndex) => ({ batchIndex, status: "completed", eventCount: 16 })));
+    const persistedBatches = (await pool.query<{ batch_index: number; status: string; input: { eventIds: string[] } }>("SELECT batch_index,status,input FROM reflection_memory_batches WHERE reflection_id='reflection-memory-batches' ORDER BY batch_index")).rows;
+    expect(persistedBatches.map(({ batch_index, status, input: batchInput }) => ({ batchIndex: batch_index, status, eventCount: batchInput.eventIds.length }))).toEqual([0, 1, 2, 3].map((batchIndex) => ({ batchIndex, status: "completed", eventCount: 16 })));
+    expect(persistedBatches.every(({ input: batchInput }) => !("events" in batchInput))).toBe(true);
     const mutations = (await pool.query<{ source_event_id: string; intent: { evidenceEventIds: string[] } }>("SELECT source_event_id,intent FROM memory_mutations WHERE agent_id=$1 ORDER BY source_event_id", [agentId])).rows;
     expect(mutations).toHaveLength(4);
     for (const [batchIndex, mutation] of mutations.entries()) {
-      expect(mutation?.source_event_id).toBe(`reflection-memory-batches:memory:${String(batchIndex)}`);
-      const evidence = mutation?.intent.evidenceEventIds ?? [];
+      expect(mutation.source_event_id).toBe(`reflection-memory-batches:memory:${String(batchIndex)}`);
+      const evidence = mutation.intent.evidenceEventIds;
       const batchEventIds = eventIds.slice(batchIndex * 16, (batchIndex + 1) * 16);
       expect(evidence).toContain(eventIds[batchIndex * 16]);
       expect(evidence).toHaveLength(16);

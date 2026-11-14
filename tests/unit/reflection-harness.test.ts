@@ -54,7 +54,7 @@ describe("structured Reflection model", () => {
     expect(context.concerns.every(({ description, whyItMatters }) => description === long && whyItMatters === long)).toBe(true);
   });
   it("FR-80: hides persistent IDs, local handles, and cursors from Reflection Tool results", () => {
-    expect(reflectionToolResultForModel({ id: "event-1", content: "根拠", nested: { memoryId: "memory-1", cursor: "next", summary: "残す" } })).toEqual({ content: "根拠", nested: { summary: "残す" } });
+    expect(reflectionToolResultForModel({ id: "event-1", content: "根拠", reconciliationAnchors: [{ id: "memory-1", summary: "監査専用" }], targetSnapshots: { concern: { state: "監査専用" } }, nested: { memoryId: "memory-1", cursor: "next", summary: "残す" } })).toEqual({ content: "根拠", nested: { summary: "残す" } });
   });
   it("FR-60: repairs a target Reflector against its own schema rather than the legacy combined Reflection schema", () => {
     const message = reflectionStructuredOutputRepairMessageFor("memory");

@@ -237,7 +237,7 @@ export function reflectionToolResultForModel(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(reflectionToolResultForModel);
   if (typeof value !== "object" || value === null) return value;
   const record = value as Record<string, unknown>;
-  const hidden = new Set(["id", "agentId", "reflectionId", "eventId", "memoryId", "concernId", "subjectId", "evidenceEventIds", "evidenceMemoryIds", "sourceConcernId", "cursor", "nextCursor", "offset"]);
+  const hidden = new Set(["id", "agentId", "reflectionId", "eventId", "memoryId", "concernId", "subjectId", "evidenceEventIds", "evidenceMemoryIds", "sourceConcernId", "cursor", "nextCursor", "offset", "reconciliationAnchors", "targetSnapshots"]);
   return Object.fromEntries(Object.entries(record).flatMap(([key, nested]) => hidden.has(key) ? [] : [[key, reflectionToolResultForModel(nested)]]));
 }
 

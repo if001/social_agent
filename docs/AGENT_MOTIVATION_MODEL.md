@@ -157,14 +157,16 @@ flowchart TD
     RR -->|Relationship差分| STATE
     SM -->|Self / Mood差分| SELF
     SM --> STATE
-    MR --> ATT[reflection_attempts<br/>target input / output / Tool trace / status]
+    MR --> ATT[reflection_attempts<br/>target selector / output / status]
     CR --> ATT
     RR --> ATT
     SM --> ATT
-    ATT --> RUN[reflection_runs<br/>Session plan]
+    ATT --> RUN[reflection_runs<br/>共通input snapshot / Session plan]
+    RS --> TRACE[reflection_tool_executions<br/>target / batch / anchor別Tool trace]
     RUN -->|failed / blocked targetだけ| RETRY[Scheduler retry<br/>retry count / backoff]
     RETRY --> RS
     ATT --> DEBUG[Debug UI]
+    TRACE --> DEBUG
 ```
 
 変更境界は次のとおりである。
