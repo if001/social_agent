@@ -1,12 +1,12 @@
 {
-  "id": "8cefe789-bc23-4528-99ff-ab3e44b3cff0",
+  "id": "0c41c088-6a83-4fea-8cd7-03a3e9477b4c",
   "prevId": "40429b5a-e0bb-4a5b-b3d3-0a871829637a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.agent_lock_keys": {
+    "app.agent_lock_keys": {
       "name": "agent_lock_keys",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -27,6 +27,7 @@
           "name": "agent_lock_keys_agent_id_agents_id_fk",
           "tableFrom": "agent_lock_keys",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -51,9 +52,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agent_families": {
+    "app.agent_families": {
       "name": "agent_families",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -102,9 +103,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agent_runs": {
+    "app.agent_runs": {
       "name": "agent_runs",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -167,6 +168,7 @@
           "name": "agent_runs_agent_id_agents_id_fk",
           "tableFrom": "agent_runs",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -180,6 +182,7 @@
           "name": "agent_runs_event_id_events_id_fk",
           "tableFrom": "agent_runs",
           "tableTo": "events",
+          "schemaTo": "app",
           "columnsFrom": [
             "event_id"
           ],
@@ -196,9 +199,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agent_states": {
+    "app.agent_states": {
       "name": "agent_states",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -268,6 +271,7 @@
           "name": "agent_states_agent_id_agents_id_fk",
           "tableFrom": "agent_states",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -284,9 +288,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agents": {
+    "app.agents": {
       "name": "agents",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -363,6 +367,7 @@
           "name": "agents_family_id_agent_families_id_fk",
           "tableFrom": "agents",
           "tableTo": "agent_families",
+          "schemaTo": "app",
           "columnsFrom": [
             "family_id"
           ],
@@ -379,9 +384,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.autonomous_schedules": {
+    "app.autonomous_schedules": {
       "name": "autonomous_schedules",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -461,6 +466,7 @@
           "name": "autonomous_schedules_agent_id_agents_id_fk",
           "tableFrom": "autonomous_schedules",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -477,9 +483,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.background_experiences": {
+    "app.background_experiences": {
       "name": "background_experiences",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -662,6 +668,7 @@
           "name": "background_experiences_agent_id_agents_id_fk",
           "tableFrom": "background_experiences",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -686,9 +693,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.concern_activities": {
+    "app.concern_activities": {
       "name": "concern_activities",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -808,6 +815,7 @@
           "name": "concern_activities_agent_id_agents_id_fk",
           "tableFrom": "concern_activities",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -821,6 +829,7 @@
           "name": "concern_activities_event_id_events_id_fk",
           "tableFrom": "concern_activities",
           "tableTo": "events",
+          "schemaTo": "app",
           "columnsFrom": [
             "event_id"
           ],
@@ -834,6 +843,7 @@
           "name": "concern_activities_run_id_agent_runs_id_fk",
           "tableFrom": "concern_activities",
           "tableTo": "agent_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "run_id"
           ],
@@ -847,6 +857,7 @@
           "name": "concern_activities_reflection_id_reflection_runs_id_fk",
           "tableFrom": "concern_activities",
           "tableTo": "reflection_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "reflection_id"
           ],
@@ -863,9 +874,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.event_experiences": {
+    "app.event_experiences": {
       "name": "event_experiences",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "event_id": {
           "name": "event_id",
@@ -947,6 +958,7 @@
           "name": "event_experiences_event_id_events_id_fk",
           "tableFrom": "event_experiences",
           "tableTo": "events",
+          "schemaTo": "app",
           "columnsFrom": [
             "event_id"
           ],
@@ -960,6 +972,7 @@
           "name": "event_experiences_agent_id_agents_id_fk",
           "tableFrom": "event_experiences",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -976,9 +989,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.event_projections": {
+    "app.event_projections": {
       "name": "event_projections",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "event_id": {
           "name": "event_id",
@@ -1087,6 +1100,7 @@
           "name": "event_projections_event_id_events_id_fk",
           "tableFrom": "event_projections",
           "tableTo": "events",
+          "schemaTo": "app",
           "columnsFrom": [
             "event_id"
           ],
@@ -1100,6 +1114,7 @@
           "name": "event_projections_agent_id_agents_id_fk",
           "tableFrom": "event_projections",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -1116,9 +1131,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.events": {
+    "app.events": {
       "name": "events",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1188,6 +1203,7 @@
           "name": "events_agent_id_agents_id_fk",
           "tableFrom": "events",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -1204,9 +1220,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.experience_integrations": {
+    "app.experience_integrations": {
       "name": "experience_integrations",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1332,6 +1348,7 @@
           "name": "experience_integrations_agent_id_agents_id_fk",
           "tableFrom": "experience_integrations",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -1345,6 +1362,7 @@
           "name": "experience_integrations_source_event_id_events_id_fk",
           "tableFrom": "experience_integrations",
           "tableTo": "events",
+          "schemaTo": "app",
           "columnsFrom": [
             "source_event_id"
           ],
@@ -1358,6 +1376,7 @@
           "name": "experience_integrations_source_run_id_agent_runs_id_fk",
           "tableFrom": "experience_integrations",
           "tableTo": "agent_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "source_run_id"
           ],
@@ -1374,9 +1393,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.g3_tasks": {
+    "app.g3_tasks": {
       "name": "g3_tasks",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1481,6 +1500,7 @@
           "name": "g3_tasks_agent_id_agents_id_fk",
           "tableFrom": "g3_tasks",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -1497,9 +1517,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memories": {
+    "app.memories": {
       "name": "memories",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1686,6 +1706,7 @@
           "name": "memories_agent_id_agents_id_fk",
           "tableFrom": "memories",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -1702,9 +1723,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memory_mutations": {
+    "app.memory_mutations": {
       "name": "memory_mutations",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1823,6 +1844,7 @@
           "name": "memory_mutations_agent_id_agents_id_fk",
           "tableFrom": "memory_mutations",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -1839,9 +1861,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memory_subjects": {
+    "app.memory_subjects": {
       "name": "memory_subjects",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "memory_id": {
           "name": "memory_id",
@@ -1862,6 +1884,7 @@
           "name": "memory_subjects_memory_id_memories_id_fk",
           "tableFrom": "memory_subjects",
           "tableTo": "memories",
+          "schemaTo": "app",
           "columnsFrom": [
             "memory_id"
           ],
@@ -1886,9 +1909,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memory_web_evidence": {
+    "app.memory_web_evidence": {
       "name": "memory_web_evidence",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "memory_id": {
           "name": "memory_id",
@@ -1909,6 +1932,7 @@
           "name": "memory_web_evidence_memory_id_memories_id_fk",
           "tableFrom": "memory_web_evidence",
           "tableTo": "memories",
+          "schemaTo": "app",
           "columnsFrom": [
             "memory_id"
           ],
@@ -1922,6 +1946,7 @@
           "name": "memory_web_evidence_snapshot_id_web_snapshots_id_fk",
           "tableFrom": "memory_web_evidence",
           "tableTo": "web_snapshots",
+          "schemaTo": "app",
           "columnsFrom": [
             "snapshot_id"
           ],
@@ -1946,9 +1971,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.message_receipts": {
+    "app.message_receipts": {
       "name": "message_receipts",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "destination": {
           "name": "destination",
@@ -1998,9 +2023,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.outbox_messages": {
+    "app.outbox_messages": {
       "name": "outbox_messages",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2061,6 +2086,7 @@
           "name": "outbox_messages_agent_id_agents_id_fk",
           "tableFrom": "outbox_messages",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -2077,9 +2103,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.prediction_evaluations": {
+    "app.prediction_evaluations": {
       "name": "prediction_evaluations",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2207,6 +2233,7 @@
           "name": "prediction_evaluations_prediction_id_prediction_records_id_fk",
           "tableFrom": "prediction_evaluations",
           "tableTo": "prediction_records",
+          "schemaTo": "app",
           "columnsFrom": [
             "prediction_id"
           ],
@@ -2220,6 +2247,7 @@
           "name": "prediction_evaluations_agent_id_agents_id_fk",
           "tableFrom": "prediction_evaluations",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -2236,9 +2264,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.prediction_records": {
+    "app.prediction_records": {
       "name": "prediction_records",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2306,6 +2334,7 @@
           "name": "prediction_records_agent_id_agents_id_fk",
           "tableFrom": "prediction_records",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -2322,9 +2351,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.reflection_attempts": {
+    "app.reflection_attempts": {
       "name": "reflection_attempts",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2464,6 +2493,7 @@
           "name": "reflection_attempts_reflection_id_reflection_runs_id_fk",
           "tableFrom": "reflection_attempts",
           "tableTo": "reflection_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "reflection_id"
           ],
@@ -2477,6 +2507,7 @@
           "name": "reflection_attempts_agent_id_agents_id_fk",
           "tableFrom": "reflection_attempts",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -2493,18 +2524,18 @@
       "checkConstraints": {
         "reflection_attempts_target_check": {
           "name": "reflection_attempts_target_check",
-          "value": "\"reflection_attempts\".\"target\" IN ('memory', 'reconciliation', 'concern', 'relationship', 'self-mood')"
+          "value": "\"app\".\"reflection_attempts\".\"target\" IN ('memory', 'reconciliation', 'concern', 'relationship', 'self-mood')"
         },
         "reflection_attempts_status_check": {
           "name": "reflection_attempts_status_check",
-          "value": "\"reflection_attempts\".\"status\" IN ('pending', 'completed', 'failed', 'blocked')"
+          "value": "\"app\".\"reflection_attempts\".\"status\" IN ('pending', 'completed', 'failed', 'blocked')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.reflection_memory_batches": {
+    "app.reflection_memory_batches": {
       "name": "reflection_memory_batches",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2644,6 +2675,7 @@
           "name": "reflection_memory_batches_reflection_id_reflection_runs_id_fk",
           "tableFrom": "reflection_memory_batches",
           "tableTo": "reflection_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "reflection_id"
           ],
@@ -2657,6 +2689,7 @@
           "name": "reflection_memory_batches_agent_id_agents_id_fk",
           "tableFrom": "reflection_memory_batches",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -2673,9 +2706,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.reflection_resolutions": {
+    "app.reflection_resolutions": {
       "name": "reflection_resolutions",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2806,6 +2839,7 @@
           "name": "reflection_resolutions_reflection_id_reflection_runs_id_fk",
           "tableFrom": "reflection_resolutions",
           "tableTo": "reflection_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "reflection_id"
           ],
@@ -2819,6 +2853,7 @@
           "name": "reflection_resolutions_agent_id_agents_id_fk",
           "tableFrom": "reflection_resolutions",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -2835,18 +2870,18 @@
       "checkConstraints": {
         "reflection_resolutions_target_check": {
           "name": "reflection_resolutions_target_check",
-          "value": "\"reflection_resolutions\".\"target\" IN ('formation','reconciliation')"
+          "value": "\"app\".\"reflection_resolutions\".\"target\" IN ('formation','reconciliation')"
         },
         "reflection_resolutions_outcome_check": {
           "name": "reflection_resolutions_outcome_check",
-          "value": "\"reflection_resolutions\".\"outcome\" IN ('committed','no-op','deferred','retryable','conflict')"
+          "value": "\"app\".\"reflection_resolutions\".\"outcome\" IN ('committed','no-op','deferred','retryable','conflict')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.reflection_runs": {
+    "app.reflection_runs": {
       "name": "reflection_runs",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2959,6 +2994,7 @@
           "name": "reflection_runs_agent_id_agents_id_fk",
           "tableFrom": "reflection_runs",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -2975,9 +3011,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.runtime_correlations": {
+    "app.runtime_correlations": {
       "name": "runtime_correlations",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -3011,6 +3047,7 @@
           "name": "runtime_correlations_agent_id_agents_id_fk",
           "tableFrom": "runtime_correlations",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -3035,9 +3072,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.runtime_rate_windows": {
+    "app.runtime_rate_windows": {
       "name": "runtime_rate_windows",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -3064,6 +3101,7 @@
           "name": "runtime_rate_windows_agent_id_agents_id_fk",
           "tableFrom": "runtime_rate_windows",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -3088,9 +3126,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.scheduled_tasks": {
+    "app.scheduled_tasks": {
       "name": "scheduled_tasks",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -3254,6 +3292,7 @@
           "name": "scheduled_tasks_agent_id_agents_id_fk",
           "tableFrom": "scheduled_tasks",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],
@@ -3270,9 +3309,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.state_changes": {
+    "app.state_changes": {
       "name": "state_changes",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -3337,6 +3376,7 @@
           "name": "state_changes_run_id_agent_runs_id_fk",
           "tableFrom": "state_changes",
           "tableTo": "agent_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "run_id"
           ],
@@ -3353,9 +3393,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.tool_executions": {
+    "app.tool_executions": {
       "name": "tool_executions",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -3459,6 +3499,7 @@
           "name": "tool_executions_run_id_agent_runs_id_fk",
           "tableFrom": "tool_executions",
           "tableTo": "agent_runs",
+          "schemaTo": "app",
           "columnsFrom": [
             "run_id"
           ],
@@ -3472,6 +3513,7 @@
           "name": "tool_executions_event_id_events_id_fk",
           "tableFrom": "tool_executions",
           "tableTo": "events",
+          "schemaTo": "app",
           "columnsFrom": [
             "event_id"
           ],
@@ -3485,6 +3527,7 @@
           "name": "tool_executions_result_event_id_events_id_fk",
           "tableFrom": "tool_executions",
           "tableTo": "events",
+          "schemaTo": "app",
           "columnsFrom": [
             "result_event_id"
           ],
@@ -3501,9 +3544,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.web_resources": {
+    "app.web_resources": {
       "name": "web_resources",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -3560,9 +3603,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.web_snapshots": {
+    "app.web_snapshots": {
       "name": "web_snapshots",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -3771,6 +3814,7 @@
           "name": "web_snapshots_resource_id_web_resources_id_fk",
           "tableFrom": "web_snapshots",
           "tableTo": "web_resources",
+          "schemaTo": "app",
           "columnsFrom": [
             "resource_id"
           ],
@@ -3784,6 +3828,7 @@
           "name": "web_snapshots_agent_id_agents_id_fk",
           "tableFrom": "web_snapshots",
           "tableTo": "agents",
+          "schemaTo": "app",
           "columnsFrom": [
             "agent_id"
           ],

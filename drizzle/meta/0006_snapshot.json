@@ -4,9 +4,9 @@
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.agent_lock_keys": {
+    "app.agent_lock_keys": {
       "name": "agent_lock_keys",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -34,7 +34,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -51,9 +52,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agent_families": {
+    "app.agent_families": {
       "name": "agent_families",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -102,9 +103,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agent_runs": {
+    "app.agent_runs": {
       "name": "agent_runs",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -168,7 +169,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "agent_runs_event_id_events_id_fk": {
           "name": "agent_runs_event_id_events_id_fk",
@@ -181,7 +183,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -190,9 +193,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agent_states": {
+    "app.agent_states": {
       "name": "agent_states",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -306,7 +309,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -315,9 +319,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.agents": {
+    "app.agents": {
       "name": "agents",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -401,7 +405,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -410,9 +415,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.autonomous_schedules": {
+    "app.autonomous_schedules": {
       "name": "autonomous_schedules",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -499,7 +504,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -508,9 +514,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.candidate_evidence": {
+    "app.candidate_evidence": {
       "name": "candidate_evidence",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "candidate_id": {
           "name": "candidate_id",
@@ -538,7 +544,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "candidate_evidence_memory_id_memories_id_fk": {
           "name": "candidate_evidence_memory_id_memories_id_fk",
@@ -551,7 +558,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {
@@ -568,9 +576,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.events": {
+    "app.events": {
       "name": "events",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -647,7 +655,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -656,9 +665,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.intentions": {
+    "app.intentions": {
       "name": "intentions",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -758,7 +767,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -767,9 +777,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.long_term_candidates": {
+    "app.long_term_candidates": {
       "name": "long_term_candidates",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -882,7 +892,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -891,9 +902,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memories": {
+    "app.memories": {
       "name": "memories",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1066,7 +1077,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -1075,9 +1087,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memory_intentions": {
+    "app.memory_intentions": {
       "name": "memory_intentions",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "memory_id": {
           "name": "memory_id",
@@ -1105,7 +1117,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "memory_intentions_intention_id_intentions_id_fk": {
           "name": "memory_intentions_intention_id_intentions_id_fk",
@@ -1118,7 +1131,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {
@@ -1135,9 +1149,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memory_subjects": {
+    "app.memory_subjects": {
       "name": "memory_subjects",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "memory_id": {
           "name": "memory_id",
@@ -1165,7 +1179,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {
@@ -1182,9 +1197,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.memory_web_evidence": {
+    "app.memory_web_evidence": {
       "name": "memory_web_evidence",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "memory_id": {
           "name": "memory_id",
@@ -1212,7 +1227,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "memory_web_evidence_snapshot_id_web_snapshots_id_fk": {
           "name": "memory_web_evidence_snapshot_id_web_snapshots_id_fk",
@@ -1225,7 +1241,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {
@@ -1242,9 +1259,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.message_receipts": {
+    "app.message_receipts": {
       "name": "message_receipts",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "destination": {
           "name": "destination",
@@ -1294,9 +1311,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.outbox_messages": {
+    "app.outbox_messages": {
       "name": "outbox_messages",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1364,7 +1381,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -1373,9 +1391,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.post_process_jobs": {
+    "app.post_process_jobs": {
       "name": "post_process_jobs",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1541,7 +1559,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "post_process_jobs_event_id_events_id_fk": {
           "name": "post_process_jobs_event_id_events_id_fk",
@@ -1554,7 +1573,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "post_process_jobs_interaction_run_id_agent_runs_id_fk": {
           "name": "post_process_jobs_interaction_run_id_agent_runs_id_fk",
@@ -1567,7 +1587,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -1576,9 +1597,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.runtime_correlations": {
+    "app.runtime_correlations": {
       "name": "runtime_correlations",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -1619,7 +1640,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {
@@ -1636,9 +1658,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.runtime_rate_windows": {
+    "app.runtime_rate_windows": {
       "name": "runtime_rate_windows",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "agent_id": {
           "name": "agent_id",
@@ -1672,7 +1694,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {
@@ -1689,9 +1712,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.scheduled_tasks": {
+    "app.scheduled_tasks": {
       "name": "scheduled_tasks",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1862,7 +1885,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -1871,9 +1895,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.social_contexts": {
+    "app.social_contexts": {
       "name": "social_contexts",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -1955,7 +1979,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -1964,9 +1989,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.state_changes": {
+    "app.state_changes": {
       "name": "state_changes",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2038,7 +2063,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -2047,9 +2073,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.tool_executions": {
+    "app.tool_executions": {
       "name": "tool_executions",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2160,7 +2186,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "tool_executions_event_id_events_id_fk": {
           "name": "tool_executions_event_id_events_id_fk",
@@ -2173,7 +2200,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "tool_executions_result_event_id_events_id_fk": {
           "name": "tool_executions_result_event_id_events_id_fk",
@@ -2186,7 +2214,8 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},
@@ -2195,9 +2224,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.web_resources": {
+    "app.web_resources": {
       "name": "web_resources",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2254,9 +2283,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.web_snapshots": {
+    "app.web_snapshots": {
       "name": "web_snapshots",
-      "schema": "",
+      "schema": "app",
       "columns": {
         "id": {
           "name": "id",
@@ -2472,7 +2501,8 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         },
         "web_snapshots_agent_id_agents_id_fk": {
           "name": "web_snapshots_agent_id_agents_id_fk",
@@ -2485,7 +2515,8 @@
             "id"
           ],
           "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "schemaTo": "app"
         }
       },
       "compositePrimaryKeys": {},

@@ -34,14 +34,16 @@ import type { ReflectionInput } from "../../src/application/reflection.js";
 import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
 import { agentFamilies } from "../../src/infrastructure/persistence/schema.js";
+import { migrateNormalizedEventStorage } from "../../scripts/migrate-normalized-event-storage.js";
+import { PostgresRetrievalService } from "../../src/infrastructure/persistence/postgres-retrieval-service.js";
 
 const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
 
 describeDatabase("PostgreSQL persistence", () => {
   let database: ReturnType<typeof createIntegrationDatabase>;
   let pool: Pool;
-  const recordExperience = async (eventId: string, agentId: string, summary: string, occurredAt: Date | string) => {
-    await pool.query("INSERT INTO event_experiences(event_id,agent_id,summary,facts,subjects,occurred_at) VALUES ($1,$2,$3,'[]','[]',$4) ON CONFLICT (event_id) DO NOTHING", [eventId, agentId, summary, occurredAt]);
+  const recordExperience = async (eventId: string, summary: string) => {
+    await pool.query("INSERT INTO event_experiences(event_id,summary,facts) VALUES ($1,$2,'[]') ON CONFLICT (event_id) DO NOTHING", [eventId, summary]);
   };
 
   beforeAll(async () => {
@@ -83,7 +85,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const evidence = Array.from({ length: 17 }, (_, index) => `stale-evidence-${String(index + 1)}`);
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('over-limit-evidence','a','semantic','以前の根拠が過剰に蓄積した','要整理',now(),$1)", [JSON.stringify(evidence)]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('normalization-event','a','internal',$1,'test','completed',now())", [{ summary: "根拠を正規化した" }]);
-    await recordExperience("normalization-event", "a", "根拠を正規化した", new Date());
+    await recordExperience("normalization-event", "根拠を正規化した");
     await expect(normalizeOverfullMemoryEvidence(pool, { agentId: "a", apply: false })).resolves.toEqual({ scanned: 1, normalized: 0 });
     await expect(normalizeOverfullMemoryEvidence(pool, { agentId: "a", apply: true })).resolves.toEqual({ scanned: 1, normalized: 1 });
     expect((await pool.query<{ evidence_event_ids: string[] }>("SELECT evidence_event_ids FROM memories WHERE id='over-limit-evidence'")).rows[0]?.evidence_event_ids).toEqual([]);
@@ -471,8 +473,8 @@ describeDatabase("PostgreSQL persistence", () => {
     const envelopeA = messageFixture({ id: "outbox-agent-a", destination: "discord:a" });
     const envelopeB = messageFixture({ id: "outbox-agent-b", destination: "discord:b" });
     await pool.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,'a',$2),($3,'b',$4)", [envelopeA.id, JSON.stringify(envelopeA), envelopeB.id, JSON.stringify(envelopeB)]);
-    const forA = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), undefined, undefined, "a");
-    const forB = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), undefined, undefined, "b");
+    const forA = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), "a");
+    const forB = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), "b");
     const pendingA = await forA.pendingOutbox(100);
     const pendingB = await forB.pendingOutbox(100);
     expect(pendingA.map(({ envelope }) => envelope.id)).toContain(envelopeA.id);
@@ -492,9 +494,7 @@ describeDatabase("PostgreSQL persistence", () => {
     input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
     input.availableTools = [{ name: "concern_get", description: "Concern", inputSchema: {} }, { name: "concern_history", description: "Concern history", inputSchema: {} }, { name: "lookup", description: "Lookup", inputSchema: {} }];
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
-    const memoryVector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
-    const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "A useful exchange": memoryVector }), "runtime-fake");
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "integration-job", "motive-new", "memory-new", "state-change-mood", "state-change-social", "state-change-motive"]), () => new Date(fixtureInstant), memoryEmbedding);
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "integration-job", "motive-new", "memory-new", "state-change-mood", "state-change-social", "state-change-motive"]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
@@ -506,10 +506,10 @@ describeDatabase("PostgreSQL persistence", () => {
       ]
     };
     await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [], concernActivities: [{ concernId: "runtime-concern", kind: "created", eventId: "runtime-event" }] }, [])).resolves.toBe("committed");
-    expect((await pool.query<{ event_id: string; tool: string }>("SELECT event_id,tool FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "concern_get" });
+    expect((await pool.query<{ event_id: string; tool: string }>("SELECT r.event_id,t.tool FROM tool_executions t JOIN agent_runs r ON r.id=t.run_id WHERE t.id='tool-record'")).rows[0]).toEqual({ event_id: "runtime-event", tool: "concern_get" });
     expect((await pool.query<{ causation_id: string; correlation_id: string }>("SELECT causation_id,correlation_id FROM events WHERE id='runtime-event'")).rows[0]).toEqual({ causation_id: "incoming-message", correlation_id: "conversation-1" });
-    expect((await pool.query<{ kind: string; causation_id: string; correlation_id: string }>("SELECT kind,causation_id,correlation_id FROM events WHERE id='runtime-event:tool-result:tool-1'")).rows[0]).toEqual({ kind: "tool-result", causation_id: "runtime-event", correlation_id: "conversation-1" });
-    expect((await pool.query<{ result_event_id: string }>("SELECT result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]?.result_event_id).toBe("runtime-event:tool-result:tool-focus");
+    expect((await pool.query("SELECT id FROM events WHERE id LIKE 'runtime-event:tool-result:%'")).rowCount).toBe(0);
+    expect((await pool.query<{ event_id: string | null; result_event_id: string | null }>("SELECT event_id,result_event_id FROM tool_executions WHERE id='tool-record'")).rows[0]).toEqual({ event_id: null, result_event_id: null });
     expect((await pool.query<{ result: { memoryRetrievalTrace?: unknown[] } }>("SELECT result FROM agent_runs WHERE id='runtime-run'")).rows[0]?.result.memoryRetrievalTrace).toEqual(input.memoryRetrievalTrace);
     expect((await pool.query<{ concern_id: string; kind: string; event_id: string; run_id: string }>("SELECT concern_id,kind,event_id,run_id FROM concern_activities WHERE agent_id='a' AND concern_id='runtime-concern' ORDER BY kind")).rows).toEqual([
       { concern_id: "runtime-concern", kind: "created", event_id: "runtime-event", run_id: "runtime-run" },
@@ -517,28 +517,28 @@ describeDatabase("PostgreSQL persistence", () => {
       { concern_id: "runtime-concern", kind: "focused", event_id: "runtime-event", run_id: "runtime-run" },
       { concern_id: "runtime-concern", kind: "progressed", event_id: "runtime-event", run_id: "runtime-run" }
     ]);
-    const inputSnapshot = (await pool.query<{ input_snapshot: { version: number; observation: { summary: string }; currentSelf: { version: number }; availableTools: { name: string; inputSchema?: unknown }[]; memories: { id: string }[] } }>("SELECT input_snapshot FROM agent_runs WHERE id='runtime-run'")).rows[0]?.input_snapshot;
-    expect(inputSnapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "concern_get" }, { name: "concern_history" }, { name: "lookup" }] });
-    expect(inputSnapshot?.availableTools[0]).not.toHaveProperty("inputSchema");
+    const inputSnapshot = (await pool.query<{ input_snapshot: { run: { runId: string }; observation: { summary: string }; currentSelf: { version: number }; availableTools: { name: string; inputSchema?: unknown }[]; memories: { id: string }[] } }>("SELECT input_snapshot FROM agent_runs WHERE id='runtime-run'")).rows[0]?.input_snapshot;
+    expect(inputSnapshot).toMatchObject({ run: { runId: "runtime-run" }, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "concern_get", inputSchema: {} }, { name: "concern_history", inputSchema: {} }, { name: "lookup", inputSchema: {} }] });
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([]);
   });
 
-  it("C-03: restores pending Integration traces in both current and legacy snapshot formats", async () => {
+  it("NFR-7: restores pending Integration traces from the canonical Run snapshot", async () => {
     const core = agentCoreInputFixture();
     const makeInput = (eventId: string, runId: string) => ({ ...core, run: { ...core.run, eventId, runId, agentId: "a" }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId: "a" }, state: { ...core.state, agentId: "a" } });
     const current = makeInput("integration-current-event", "integration-current-run");
     const legacy = makeInput("integration-legacy-event", "integration-legacy-run");
     for (const value of [current, legacy]) {
       await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,'a','user-message',$2,'test','completed',$3)", [value.run.eventId, JSON.stringify(value.observation), fixtureInstant]);
-      await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$4,$4)", [value.run.runId, value.run.eventId, JSON.stringify({ output: { desire: "返す", action: { type: "respond", content: "了解" } }, toolExecutions: [] }), fixtureInstant]);
+      await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$4,$5,$5)", [value.run.runId, value.run.eventId, JSON.stringify(value), JSON.stringify({ output: { desire: "返す", action: { type: "respond", content: "了解" } }, toolExecutions: [] }), fixtureInstant]);
     }
     const toolExecutions = [{ callId: "stored-tool", runId: current.run.runId, eventId: current.run.eventId, name: "memory_search", input: { query: "予定" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }];
-    const currentTrace = { event: { id: current.run.eventId, kind: "user-message", occurredAt: fixtureInstant, payload: {} }, decisionInput: { ...current, persistentState: current.state }, result: { assessment: { meaning: "予定を聞いた" }, output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions } };
-    const legacyTrace = { event: { id: legacy.run.eventId, kind: "user-message", occurredAt: fixtureInstant, payload: {} }, decisionInput: legacy, result: { output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } } }, toolExecutions: toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId })) };
-    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input) VALUES ('integration-current','a',$1,$2,'failed',$3),('integration-legacy','a',$4,$5,'failed',$6)", [current.run.eventId, current.run.runId, JSON.stringify(currentTrace), legacy.run.eventId, legacy.run.runId, JSON.stringify(legacyTrace)]);
+    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [current.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions })]);
+    const legacyTools = toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId }));
+    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [legacy.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions: legacyTools })]);
+    await pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ('integration-current',$1,'failed'),('integration-legacy',$2,'failed')", [current.run.runId, legacy.run.runId]);
     const pending = await new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
     expect(pending.find(({ integrationId }) => integrationId === "integration-current")?.result.toolExecutions).toEqual(toolExecutions);
-    expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTrace.toolExecutions);
+    expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTools);
   });
 
   it("FR-82, FR-78: persists an Event Experience without a long-term Memory and exposes it to Reflection", async () => {
@@ -547,17 +547,67 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Experience Projection Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','[]','Calm')", [agentId]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'internal',$3,'test','completed',$4)", [eventId, agentId, { summary: "展示の予定を確かめた" }, fixtureInstant]);
-    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-projection-run',$1,$2,0,$3,$4,$4)", [agentId, eventId, { output: { desire: "予定を整理したい", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
     const core = agentCoreInputFixture();
     const input = { ...core, run: { ...core.run, agentId, eventId, runId: "experience-projection-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ('experience-projection-run',$1,$2,0,$3,$4,$5,$5)", [agentId, eventId, input, { output: { desire: "予定を整理したい", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
     const request = { integrationId: "experience-projection-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: {} }, sourceRunId: input.run.runId, input, result: { output: { desire: "予定を整理したい", action: { type: "no-external-action" as const, reason: "maintenance" } }, toolExecutions: [] } };
     const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     await repository.begin(request);
-    await pool.query("INSERT INTO event_projections(event_id,agent_id,kind,content,subjects,occurred_at,embedding_status) VALUES ($1,$2,'internal','古いprojection','[]',$3,'pending')", [eventId, agentId, fixtureInstant]);
     await repository.apply(request, { experience: { summary: "展示の予定を確かめた", facts: ["展示の予定を確認した"] }, memories: [] });
     expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id=$1", [eventId])).rowCount).toBe(1);
-    expect((await pool.query<{ content: string }>("SELECT content FROM event_projections WHERE event_id=$1", [eventId])).rows[0]?.content).toBe("展示の予定を確かめた");
+    const projection = (await pool.query<{ content_hash: string | null; content: string | null; agent_id: string | null }>("SELECT content_hash,content,agent_id FROM event_projections WHERE event_id=$1", [eventId])).rows[0];
+    expect(projection?.content_hash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(projection).toMatchObject({ content: null, agent_id: null });
     await expect((new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"))).load("experience-projection-reflection", agentId)).resolves.toMatchObject({ events: [expect.objectContaining({ id: eventId, summary: "展示の予定を確かめた" })] });
+  });
+
+  it("NFR-8: rolls back Event Experience and Projection together when Projection persistence fails", async () => {
+    const agentId = "experience-atomic-agent";
+    const eventId = "experience-atomic-event";
+    const runId = "experience-atomic-run";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Atomic Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','[]','Calm')", [agentId]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'internal',$3,'test','completed',$4)", [eventId, agentId, { summary: "atomic experience" }, fixtureInstant]);
+    const core = agentCoreInputFixture();
+    const input = { ...core, run: { ...core.run, agentId, eventId, runId, occurredAt: fixtureInstant }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
+    const result = { output: { desire: "整理する", action: { type: "no-external-action" as const, reason: "maintenance" } }, toolExecutions: [] };
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ($1,$2,$3,0,$4,$5,$6,$6)", [runId, agentId, eventId, input, result, fixtureInstant]);
+    const request = { integrationId: "experience-atomic-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: {} }, sourceRunId: runId, input, result };
+    const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant), { prepareMemory: () => Promise.resolve({ status: "ready", vector: [1, 0], model: "invalid-dimension", dimension: 2 }) });
+    await repository.begin(request);
+    await expect(repository.apply(request, { experience: { summary: "atomic experience", facts: ["all or nothing"] }, memories: [] })).rejects.toThrow();
+    expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id=$1", [eventId])).rowCount).toBe(0);
+    expect((await pool.query("SELECT 1 FROM event_projections WHERE event_id=$1", [eventId])).rowCount).toBe(0);
+    expect((await pool.query<{ status: string }>("SELECT status FROM experience_integrations WHERE id=$1", [request.integrationId])).rows[0]).toEqual({ status: "pending" });
+  });
+
+  it("FR-78, NFR-7: backfills searchable subjects and content hashes from legacy Event Experience rows", async () => {
+    const agentId = "normalized-storage-migration-agent";
+    const eventId = "normalized-storage-migration-event";
+    const missingProjectionEventId = "normalized-storage-missing-projection";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Migration Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'internal',$3,'test','completed',$4)", [eventId, agentId, { summary: "美術館の予定を思い出した" }, fixtureInstant]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('normalized-storage-migration-run',$1,$2,0,$3,$4,$4)", [agentId, eventId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
+    await pool.query("INSERT INTO event_experiences(event_id,agent_id,summary,facts,subjects,occurred_at) VALUES ($1,$2,'美術館の予定を思い出した',$3,$4,$5)", [eventId, agentId, JSON.stringify(["来週に展示がある"]), JSON.stringify(["user-42"]), fixtureInstant]);
+    await pool.query("INSERT INTO event_projections(event_id,agent_id,kind,content,subjects,occurred_at,embedding,embedding_model,embedding_dimension,embedding_status) VALUES ($1,$2,'internal','legacy projection',$3,$4,$5::vector,'legacy-model',768,'ready')", [eventId, agentId, JSON.stringify(["user-42"]), fixtureInstant, `[${Array.from({ length: 768 }, () => 0).join(",")}]`]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'internal',$3,'test','completed',$4)", [missingProjectionEventId, agentId, { summary: "Projectionが欠けた経験" }, fixtureInstant]);
+    await pool.query("INSERT INTO event_experiences(event_id,agent_id,summary,facts,subjects,occurred_at) VALUES ($1,$2,'Projectionが欠けた経験','[]','[]',$3)", [missingProjectionEventId, agentId, fixtureInstant]);
+    await pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ('normalized-storage-active','normalized-storage-migration-run','pending')");
+    await expect(migrateNormalizedEventStorage(database.admin, { apply: false, agentId })).resolves.toMatchObject({ apply: false, experiences: 2, subjects: 1, inconsistencies: 0, activeWorkItems: 1 });
+    expect((await pool.query("SELECT 1 FROM event_subjects WHERE event_id=$1", [eventId])).rowCount).toBe(0);
+    await expect(migrateNormalizedEventStorage(database.admin, { apply: true, agentId })).rejects.toThrow("active integration work items");
+    await pool.query("DELETE FROM experience_integrations WHERE id='normalized-storage-active'");
+    await expect(migrateNormalizedEventStorage(database.admin, { apply: true, agentId })).resolves.toMatchObject({ apply: true, experiences: 2, subjects: 1, inconsistencies: 0, activeWorkItems: 0 });
+    expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM event_subjects WHERE event_id=$1", [eventId])).rows).toEqual([{ subject_id: "user-42" }]);
+    const migratedProjection = (await pool.query<{ content_hash: string; embedding: string | null; embedding_status: string; embedding_model: string | null }>("SELECT content_hash,embedding::text,embedding_status,embedding_model FROM event_projections WHERE event_id=$1", [eventId])).rows[0];
+    expect(migratedProjection?.content_hash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(migratedProjection).toMatchObject({ embedding: null, embedding_status: "pending", embedding_model: null });
+    expect((await pool.query<{ embedding_status: string }>("SELECT embedding_status FROM event_projections WHERE event_id=$1", [missingProjectionEventId])).rows[0]).toEqual({ embedding_status: "pending" });
+    const events = await new PostgresRetrievalService(pool).retrieveEvents({ agentId, query: "展示", subjectIds: ["user-42"], limit: 4 });
+    const migratedEvent = events.find(({ id }) => id === eventId);
+    expect(migratedEvent?.content).toContain("来週に展示がある");
+    expect(migratedEvent?.matchedBy).toEqual(expect.arrayContaining(["keyword", "subject", "recency"]));
+    expect(events.map(({ id }) => id)).toContain(missingProjectionEventId);
   });
 
   it("FR-82: repairs only the Event Experience of completed Integrations after the latest Reflection", async () => {
@@ -566,27 +616,27 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','[]','Calm')", [agentId]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('experience-requeue-event',$1,'internal',$2,'test','completed',$3)", [agentId, { summary: "補完対象のEvent" }, fixtureInstant]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-requeue-run',$1,'experience-requeue-event',0,$2,$3,$3)", [agentId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
-    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input,output,completed_at) VALUES ('experience-requeue-integration',$1,'experience-requeue-event','experience-requeue-run','completed','{}',$2,$3)", [agentId, { experience: null, memories: [] }, fixtureInstant]);
+    await pool.query("INSERT INTO experience_integrations(id,source_run_id,status,output,completed_at) VALUES ('experience-requeue-integration','experience-requeue-run','completed',$1,$2)", [{ experience: null, memories: [] }, fixtureInstant]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('experience-requeue-old-event',$1,'internal',$2,'test','completed','2026-01-01T00:00:00.000Z')", [agentId, { summary: "既にReflection済みのEvent" }]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-requeue-old-run',$1,'experience-requeue-old-event',0,$2,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')", [agentId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }]);
-    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input,output,completed_at) VALUES ('experience-requeue-old-integration',$1,'experience-requeue-old-event','experience-requeue-old-run','completed','{}',$2,'2026-01-01T00:00:00.000Z')", [agentId, { experience: null, memories: [] }]);
+    await pool.query("INSERT INTO experience_integrations(id,source_run_id,status,output,completed_at) VALUES ('experience-requeue-old-integration','experience-requeue-old-run','completed',$1,'2026-01-01T00:00:00.000Z')", [{ experience: null, memories: [] }]);
     await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,completed_at) VALUES ('experience-requeue-reflection',$1,0,'completed',$2,'2026-01-02T00:01:00.000Z')", [agentId, { eventWindowEnd: "2026-01-02T00:00:00.000Z" }]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('experience-requeue-tool-event',$1,'tool-result',$2,'test','completed',$3)", [agentId, { summary: "検索結果" }, fixtureInstant]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-requeue-tool-run',$1,'experience-requeue-tool-event',0,$2,$3,$3)", [agentId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
-    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input,output,completed_at) VALUES ('experience-requeue-tool-integration',$1,'experience-requeue-tool-event','experience-requeue-tool-run','completed','{}',$2,$3)", [agentId, { experience: null, memories: [] }, fixtureInstant]);
+    await pool.query("INSERT INTO experience_integrations(id,source_run_id,status,output,completed_at) VALUES ('experience-requeue-tool-integration','experience-requeue-tool-run','completed',$1,$2)", [{ experience: null, memories: [] }, fixtureInstant]);
     const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     await expect(repository.missingEventExperienceCandidates(agentId)).resolves.toEqual([{ id: "experience-requeue-integration", agentId }]);
     const core = agentCoreInputFixture();
     const input = { ...core, run: { ...core.run, agentId, eventId: "experience-requeue-event", runId: "experience-requeue-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId: "experience-requeue-event" }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
     await repository.repairEventExperience({ integrationId: "experience-requeue-integration", agentId, sourceEvent: { id: "experience-requeue-event", agentId, kind: "internal", occurredAt: fixtureInstant, payload: {} }, sourceRunId: "experience-requeue-run", input, result: { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] } }, { summary: "補完対象のEventを整理した", facts: ["Event Experienceを補完した"] });
-    expect((await pool.query<{ status: string; mood: string; output: { memories: unknown[]; experience: { summary: string } } }>("SELECT i.status,i.output,s.mood FROM experience_integrations i JOIN agent_states s ON s.agent_id=i.agent_id WHERE i.id='experience-requeue-integration' ")).rows[0]).toMatchObject({ status: "completed", mood: "Calm", output: { memories: [], experience: { summary: "補完対象のEventを整理した" } } });
+    expect((await pool.query<{ status: string; mood: string; output: { memories: unknown[]; experience: { summary: string } } }>("SELECT i.status,i.output,s.mood FROM experience_integrations i JOIN agent_runs r ON r.id=i.source_run_id JOIN agent_states s ON s.agent_id=r.agent_id WHERE i.id='experience-requeue-integration' ")).rows[0]).toMatchObject({ status: "completed", mood: "Calm", output: { memories: [], experience: { summary: "補完対象のEventを整理した" } } });
     expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id='experience-requeue-event'")).rowCount).toBe(1);
   });
 
   it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {
     await pool.query("UPDATE agent_states SET concerns=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ id: "concern-1", description: "信頼を守る方法を確認する", whyItMatters: "約束を重視している", status: "active" }])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
-    await recordExperience("reflection-event", "a", "約束を果たした", fixtureInstant);
+    await recordExperience("reflection-event", "約束を果たした");
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('reflection-evidence','a','episodic','約束を果たした経験','信頼が深まった',now(),'pending') ON CONFLICT DO NOTHING");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-concern", "reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");
@@ -653,7 +703,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-60, AC-15: records memory failure as blocked targets and leaves the reflection retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-fail-event','a','user-message',$1,'test','completed',now())", [{ summary: "再試行対象の出来事" }]);
-    await recordExperience("reflection-fail-event", "a", "再試行対象の出来事", new Date());
+    await recordExperience("reflection-fail-event", "再試行対象の出来事");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-fail-memory"]), () => new Date("2026-01-02T00:00:00Z"), { enqueue: () => Promise.resolve(), enqueueAndWait: () => Promise.reject(new Error("memory unavailable")) });
     const input = await repository.load("reflection-fail", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     const output = { memories: [{ summary: "失敗時の記憶", significance: "再試行の確認", subjects: [], occurredAt: fixtureInstant }], concernChanges: [], relationshipChanges: [], evidenceMemoryIds: [] };
@@ -665,7 +715,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-42, NFR-7: records Reflection validation paths without persisting invalid model output", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-validation-event','a','internal',$1,'test','completed',now())", [{ summary: "検証失敗を監査する" }]);
-    await recordExperience("reflection-validation-event", "a", "検証失敗を監査する", new Date());
+    await recordExperience("reflection-validation-event", "検証失敗を監査する");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-validation", "a");
     if (input === undefined) throw new Error("Reflection input was not created");
@@ -683,7 +733,7 @@ describeDatabase("PostgreSQL persistence", () => {
       { id: "concern-removed", description: "重複を消す", whyItMatters: "重複しているため", status: "active" }
     ])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-lifecycle-event','a','internal',$1,'test','completed',now())", [{ summary: "Concernを整理する経験" }]);
-    await recordExperience("reflection-lifecycle-event", "a", "Concernを整理する経験", new Date());
+    await recordExperience("reflection-lifecycle-event", "Concernを整理する経験");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-lifecycle", "a");
     if (input === undefined) throw new Error("Reflection input was not created");
@@ -720,7 +770,7 @@ describeDatabase("PostgreSQL persistence", () => {
       ('stale-presented-1','a','stale-close','presented','stale-session-1','[]','2026-01-01T00:00:00.000Z'),
       ('stale-presented-2','a','stale-close','presented','stale-session-2','[]','2026-01-10T00:00:00.000Z')`);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('stale-close-event','a','internal',$1,'test','completed','2026-02-10T00:00:00.000Z')", [{ summary: "Concernを再検討する" }]);
-    await recordExperience("stale-close-event", "a", "Concernを再検討する", "2026-02-10T00:00:00.000Z");
+    await recordExperience("stale-close-event", "Concernを再検討する");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
     const input = await repository.load("stale-close-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     const output = { memories: [], concernChanges: [{ operation: "upsert" as const, concern: { id: "reviewed-now", description: "今回見直す関心", whyItMatters: "まだ判断する", status: "active" as const } }], relationshipChanges: [], evidenceMemoryIds: [] };
@@ -743,7 +793,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,evidence_memory_ids,occurred_at) VALUES ('targeted-stale-baseline',$1,'targeted-stale','baseline','[]','2025-12-01T00:00:00.000Z')", [agentId]);
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('targeted-close-event-1',$1,'internal',$2,'test','completed',now()-interval '1 hour')", [agentId, { summary: "Concernを再検討する" }]);
-    await recordExperience("targeted-close-event-1", agentId, "Concernを再検討する", new Date());
+    await recordExperience("targeted-close-event-1", "Concernを再検討する");
     const first = await repository.load("targeted-close-reflection-1", agentId);
     if (first === undefined) throw new Error("Reflection input was not created");
     await repository.beginTarget(first, "concern");
@@ -767,7 +817,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-60, NFR-17: persists target attempts and leaves only failed targets retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('target-attempt-event','a','internal',$1,'test','completed',now())", [{ summary: "対象別に統合する" }]);
-    await recordExperience("target-attempt-event", "a", "対象別に統合する", new Date());
+    await recordExperience("target-attempt-event", "対象別に統合する");
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["target-attempt-resolution", "target-attempt-spare"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("target-attempt-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     await expect(repository.beginTarget(input, "memory")).resolves.toBe("pending");
@@ -822,7 +872,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Evidence Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Evidence story','[]','[]','[]','Calm')", [agentId]);
     const eventIds = Array.from({ length: 32 }, (_, index) => `reflection-evidence-event-${String(index + 1).padStart(2, "0")}`);
-    for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 1, 0, index, 0)); const summary = index === 2 ? "ユーザーは展示を訪れる予定を話した" : `経験 ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, agentId, summary, occurredAt); }
+    for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 1, 0, index, 0)); const summary = index === 2 ? "ユーザーは展示を訪れる予定を話した" : `経験 ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, summary); }
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-memory-evidence-resolution", "reflection-memory-evidence-id"]), () => new Date("2026-03-02T00:00:00Z"));
     const input = await repository.load("reflection-memory-evidence", agentId); if (input === undefined) throw new Error("Reflection input was not created");
     expect(input.events).toHaveLength(32);
@@ -847,7 +897,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Batch Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Batch story','[]','[]','[]','Calm')", [agentId]);
     const eventIds = Array.from({ length: 64 }, (_, index) => `reflection-batch-event-${String(index + 1).padStart(2, "0")}`);
-    for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 3, 0, index, 0)); const summary = `batch experience ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, agentId, summary, occurredAt); }
+    for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 3, 0, index, 0)); const summary = `batch experience ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, summary); }
     const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["memory-batch-resolution-0", "memory-batch-0", "memory-batch-resolution-1", "memory-batch-1", "memory-batch-resolution-2", "memory-batch-2", "memory-batch-resolution-3", "memory-batch-3"]), () => new Date("2026-03-04T00:00:00Z"));
     const input = await repository.load("reflection-memory-batches", agentId); if (input === undefined) throw new Error("Reflection input was not created");
     expect(input.events).toHaveLength(64);
@@ -887,7 +937,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const event = { id: "failed-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" } };
     await persistence.recordFailure(message, event, input, new Error("invalid final output"), [{ callId: "tool-1", runId: "failed-run", eventId: "failed-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]);
     expect((await pool.query<{ failure_reason: string }>("SELECT failure_reason FROM agent_runs WHERE id='failed-run'")).rows[0]?.failure_reason).toContain("invalid final output");
-    expect((await pool.query<{ input_snapshot: { version: number; observation: { summary: string } } }>("SELECT input_snapshot FROM agent_runs WHERE id='failed-run'")).rows[0]?.input_snapshot).toMatchObject({ version: 1, observation: { summary: input.observation.summary } });
+    expect((await pool.query<{ input_snapshot: { run: { runId: string }; observation: { summary: string } } }>("SELECT input_snapshot FROM agent_runs WHERE id='failed-run'")).rows[0]?.input_snapshot).toMatchObject({ run: { runId: "failed-run" }, observation: { summary: input.observation.summary } });
     expect((await pool.query("SELECT 1 FROM tool_executions WHERE id='failed-tool-record'")).rowCount).toBe(1);
     expect((await pool.query("SELECT 1 FROM message_receipts WHERE message_id='failed-message'")).rowCount).toBe(0);
   });
