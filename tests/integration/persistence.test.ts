@@ -10,6 +10,8 @@ import { PostgresEventTransaction } from "../../src/infrastructure/persistence/e
 import { messageFixture } from "../../src/testing/contract-fixtures.js";
 import { PostgresMemoryRetriever } from "../../src/infrastructure/persistence/postgres-memory-retriever.js";
 import { PostgresScheduleRepository } from "../../src/infrastructure/persistence/postgres-schedule-repository.js";
+import { PostgresScheduledTaskToolRepository } from "../../src/infrastructure/persistence/postgres-scheduled-task-tool-repository.js";
+import { PostgresAgentContextToolRepository } from "../../src/infrastructure/persistence/postgres-agent-context-tool-repository.js";
 import { PostgresRuntimePersistence } from "../../src/infrastructure/persistence/postgres-runtime-persistence.js";
 import { PostgresExperienceIntegrationRepository } from "../../src/infrastructure/persistence/postgres-experience-integration.js";
 import { PostgresReflectionRepository } from "../../src/infrastructure/persistence/postgres-reflection.js";
@@ -30,6 +32,8 @@ import { AgentRuntime } from "../../src/application/agent-runtime.js";
 import { normalizeOverfullMemoryEvidence } from "../../src/application/memory-evidence-normalization.js";
 import type { ReflectionInput } from "../../src/application/reflection.js";
 import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
+import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
+import { agentFamilies } from "../../src/infrastructure/persistence/schema.js";
 
 const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
 
@@ -59,6 +63,20 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
     expect((await repository.find<{ commitments: string[]; concerns: unknown[] }>("a"))).toMatchObject({ commitments: ["Care"], concerns: [] });
+  });
+
+  it("NFR-8, NFR-11: exposes typed Drizzle CRUD and rolls back a repository transaction", async () => {
+    const runtimeDatabase = createRuntimeDatabase(pool);
+    await runtimeDatabase.transaction(async (transaction) => {
+      await transaction.insert(agentFamilies).values({ id: "drizzle-commit", name: "Drizzle Commit", sharedDisposition: "Typed", baseInstruction: "Persist" });
+    });
+    expect((await pool.query("SELECT id FROM agent_families WHERE id='drizzle-commit'")).rowCount).toBe(1);
+    await expect(runtimeDatabase.transaction(async (transaction) => {
+      await transaction.insert(agentFamilies).values({ id: "drizzle-rollback", name: "Drizzle Rollback", sharedDisposition: "Typed", baseInstruction: "Rollback" });
+      throw new Error("rollback");
+    })).rejects.toThrow("rollback");
+    expect((await pool.query("SELECT id FROM agent_families WHERE id='drizzle-rollback'")).rowCount).toBe(0);
+    await pool.query("DELETE FROM agent_families WHERE id='drizzle-commit'");
   });
 
   it("normalizes an over-limit Memory before Reflection reloads it", async () => {
@@ -271,7 +289,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-tool-a','failed-run-a','failed-experience-a','call-1','web_list',$1,$2,NULL,now(),now())", [JSON.stringify({ q: "agent memory" }), JSON.stringify({ results: [] })]);
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-file-tool-a','failed-run-a','failed-experience-a','call-2','file_read',$1,$2,NULL,now(),now())", [JSON.stringify({ path: "notes.md", content: "raw input must not enter recent experiences".repeat(100) }), JSON.stringify({ path: "notes.md", content: "raw file must not enter recent experiences", truncated: false })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
-    const contextToolRegistry = new ToolRegistry([...createAgentContextTools(pool), ...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
+    const contextToolRegistry = new ToolRegistry([...createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool))), ...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
     const loader = new PostgresAgentContextLoader({
       pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: contextToolRegistry,
       persona: { version: 1, identity: { displayName: "Agent A" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } },
@@ -368,7 +386,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-40: updates only an owned pending Scheduled Task", async () => {
     await pool.query("INSERT INTO scheduled_tasks(id,agent_id,execute_at,instruction,status,idempotency_key,source_event_id,source_run_id) VALUES ('task-update-a','a','2026-01-02','元の指示','scheduled','update-key-a','source-event','source-run'),('task-update-b','b','2026-01-02','他Agentの指示','scheduled','update-key-b','source-event','source-run')");
-    const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));
+    const registry = new ToolRegistry(createScheduledTaskTools(new PostgresScheduledTaskToolRepository(createRuntimeDatabase(pool)), new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));
     const signal = new AbortController().signal;
     await expect(registry.execute("scheduled_task_update", { taskId: "task-update-a", executeAt: "2026-01-03T00:00:00Z", instruction: "更新後の指示" }, { agentId: "a", runId: "update-run", eventId: "update-event", idempotencyKey: "update-call" }, signal)).resolves.toMatchObject({ ok: true, value: { id: "task-update-a", instruction: "更新後の指示", status: "scheduled" } });
     await expect(registry.execute("scheduled_task_update", { taskId: "task-update-b", instruction: "越境更新" }, { agentId: "a", runId: "update-run", eventId: "update-event", idempotencyKey: "cross-owner" }, signal)).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -589,7 +607,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("C-06, C-24: retains a Concern beyond the context selection boundary when a normal Event commits", async () => {
     const concerns: Concern[] = [...Array.from({ length: 12 }, (_, index) => ({ id: `history-${String(index)}`, description: `解決済みの関心 ${String(index)}`, whyItMatters: "過去の記録", status: "satisfied" as const })), { id: "active-after-history", description: "次のEventにも残る関心", whyItMatters: "まだ確かめたい", status: "active" as const }];
     await pool.query("UPDATE agent_states SET concerns=$2,version=version+1 WHERE agent_id=$1", ["a", JSON.stringify(concerns)]);
-    const tools = new ToolRegistry(createAgentContextTools(pool));
+    const tools = new ToolRegistry(createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool))));
     const loader = new PostgresAgentContextLoader({
       pool, ids: new SequenceIdGenerator(["context-boundary-run"]), embedding: new FakeEmbeddingProvider({}), tools,
       budget: { maxTokens: 6_000, maxMemories: 1, maxSocialContexts: 1 },
@@ -621,7 +639,7 @@ describeDatabase("PostgreSQL persistence", () => {
       ('history-old-reviewed','a','history-old','reviewed','[]','2026-01-01T00:00:00.000Z'),
       ('history-new-created','a','history-new','created','[]','2026-02-01T00:00:00.000Z'),
       ('history-foreign','b','history-old','created','[]','2026-03-01T00:00:00.000Z')`);
-    const registry = new ToolRegistry(createAgentContextTools(pool)); const context = { agentId: "a", runId: "history-run", idempotencyKey: "history-list" }; const signal = new AbortController().signal;
+    const registry = new ToolRegistry(createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool)))); const context = { agentId: "a", runId: "history-run", idempotencyKey: "history-list" }; const signal = new AbortController().signal;
     await expect(registry.execute("concern_list", { limit: 1, cursor: 0, order: "stale" }, context, signal)).resolves.toEqual({ ok: true, value: { count: 2, concerns: [expect.objectContaining({ id: "history-old" })], nextCursor: 1 } });
     await expect(registry.execute("concern_list", { limit: 1, cursor: 1, order: "stale" }, { ...context, idempotencyKey: "history-list-2" }, signal)).resolves.toEqual({ ok: true, value: { count: 2, concerns: [expect.objectContaining({ id: "history-new" })] } });
     await expect(registry.execute("concern_history", { concernId: "history-old" }, { ...context, idempotencyKey: "history-detail" }, signal)).resolves.toMatchObject({ ok: true, value: { concernId: "history-old", history: [expect.objectContaining({ kind: "reviewed" }), expect.objectContaining({ kind: "created", evidenceMemoryIds: ["history-evidence"] })], evidenceMemories: [expect.objectContaining({ id: "history-evidence" })] } });

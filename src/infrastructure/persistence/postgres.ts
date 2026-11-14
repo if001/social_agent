@@ -6,6 +6,7 @@ import { migrate as runDrizzleMigrations } from "drizzle-orm/node-postgres/migra
 
 import { DomainError } from "../../domain/contracts.js";
 import * as schema from "./schema.js";
+import { createRuntimeDatabase, type RuntimeDatabase } from "./runtime-database.js";
 
 export async function migrate(pool: Pool, migrationsFolder = fileURLToPath(new URL("../../../drizzle", import.meta.url))): Promise<void> {
   const result = await pool.query<{ schema: string }>("SELECT current_schema() AS schema");
@@ -15,7 +16,8 @@ export async function migrate(pool: Pool, migrationsFolder = fileURLToPath(new U
 }
 
 export class PostgresUnitOfWork {
-  constructor(private readonly pool: Pool) {}
+  readonly database: RuntimeDatabase;
+  constructor(private readonly pool: Pool) { this.database = createRuntimeDatabase(pool); }
   async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try { await client.query("BEGIN"); const result = await work(client); await client.query("COMMIT"); return result; }

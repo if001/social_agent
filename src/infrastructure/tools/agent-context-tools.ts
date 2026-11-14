@@ -1,29 +1,16 @@
-import type { Pool, QueryResultRow } from "pg";
 import { z } from "zod";
 
-import type { EventRetrievalService, RetrievalService } from "../../application/ports.js";
+import type { EventRetrievalInput, RetrievedEvent, RetrievalInput } from "../../application/ports.js";
 import type { RegisteredTool } from "../../application/tool-registry.js";
-import { ConcernProposalSchema, ConcernSchema, RelationshipSchema, SelfSchema } from "../../domain/contracts.js";
-import { PostgresRetrievalService } from "../persistence/postgres-retrieval-service.js";
-
-type StateRow = QueryResultRow & { concerns: unknown; relationships: unknown; mood: string };
-type SelfRow = QueryResultRow & { identity: string; disposition: string; self_story: string; commitments: unknown; mood: string };
-type EventRow = QueryResultRow & { id: string; observation: unknown };
-type ActionRow = QueryResultRow & { result: unknown };
-type ConcernActivityRow = QueryResultRow & { concern_id: string; kind: string; occurred_at: Date; event_id: string | null; run_id: string | null; reflection_id: string | null; evidence_memory_ids: unknown };
-type ConcernActivitySummaryRow = QueryResultRow & { concern_id: string; last_meaningful_at: Date | null };
+import { ConcernProposalSchema, ConcernSchema, RelationshipSchema, SelfSchema, type RetrievedItem } from "../../domain/contracts.js";
+export type AgentContextState = { readonly concerns: unknown; readonly relationships: unknown; readonly mood: string };
+export type ConcernActivity = { readonly id: string; readonly kind: string; readonly occurredAt: Date; readonly eventId: string | null; readonly runId: string | null; readonly reflectionId: string | null; readonly evidenceMemoryIds: unknown };
+export type EvidenceMemory = { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date };
+export type ToolExecutionObservation = { readonly tool: string; readonly result: unknown; readonly error: string | null; readonly finishedAt: Date };
+export type AgentSelfState = { readonly identity: string; readonly disposition: string; readonly selfStory: string; readonly commitments: unknown; readonly mood: string };
 
 const compact = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
 const success = (value: unknown) => Promise.resolve({ ok: true as const, value });
-
-function actorId(observation: unknown): string | undefined {
-  if (typeof observation !== "object" || observation === null) return undefined;
-  const actor = "actor" in observation ? observation.actor : undefined;
-  if (typeof actor !== "object" || actor === null) return undefined;
-  const id = "id" in actor ? actor.id : undefined;
-  const type = "type" in actor ? actor.type : undefined;
-  return typeof id === "string" && (type === "human" || type === "unknown") ? id : undefined;
-}
 
 function responseQuestion(result: unknown): string | undefined {
   if (typeof result !== "object" || result === null || !("output" in result)) return undefined;
@@ -35,7 +22,20 @@ function responseQuestion(result: unknown): string | undefined {
   return questions.length === 0 ? undefined : compact(questions.at(-1)?.trim() ?? "", 180);
 }
 
-export function createAgentContextTools(pool: Pool, retrievalService?: RetrievalService): readonly RegisteredTool[] {
+export interface AgentContextToolRepository {
+  retrieve(input: RetrievalInput): Promise<readonly RetrievedItem[]>;
+  retrieveEvents(input: EventRetrievalInput): Promise<readonly RetrievedEvent[]>;
+  loadState(agentId: string): Promise<AgentContextState | undefined>;
+  listConcernActivityTimes(agentId: string, concernIds: readonly string[]): Promise<ReadonlyMap<string, Date>>;
+  listConcernActivities(agentId: string, concernId: string, cursor: { readonly occurredAt: string; readonly id: string } | undefined, limit: number): Promise<readonly ConcernActivity[]>;
+  listEvidenceMemories(agentId: string, ids: readonly string[], limit: number): Promise<readonly EvidenceMemory[]>;
+  findEventActor(agentId: string, eventId: string): Promise<string | undefined>;
+  findRecentHumanActor(agentId: string, limit: number): Promise<string | undefined>;
+  listRecentActionResults(agentId: string, subjectId: string, limit: number): Promise<readonly unknown[]>;
+  listToolExecutions(agentId: string, eventId: string, limit: number): Promise<readonly ToolExecutionObservation[]>;
+  loadSelf(agentId: string): Promise<AgentSelfState | undefined>;
+}
+export function createAgentContextTools(repository: AgentContextToolRepository): readonly RegisteredTool[] {
   return [
     {
       name: "retrieval_search",
@@ -49,8 +49,7 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ query, scope, kinds, subject, limit }: { query: string; scope: "conversation" | "background" | "all"; kinds?: ("episodic" | "semantic" | "self-related" | "self-change" | "common-ground" | "background")[]; subject?: string; limit: number }, context) => {
-        const service = retrievalService ?? new PostgresRetrievalService(pool);
-        const items = await service.retrieve({ agentId: context.agentId, query, scope, ...(kinds === undefined ? {} : { kinds }), ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
+        const items = await repository.retrieve({ agentId: context.agentId, query, scope, ...(kinds === undefined ? {} : { kinds }), ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
         return success({ items: items.map((item) => ({ source: item.source, id: item.id, kind: item.kind, summary: compact(item.content, 400), importance: compact(item.importance, 180), occurredAt: item.occurredAt, matchedBy: item.matchedBy })) });
       }
     },
@@ -60,10 +59,10 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ limit: z.number().int().min(1).max(12).default(8).describe("返す最大件数"), cursor: z.number().int().min(0).default(0).describe("前回のnextCursor。最初は0"), order: z.enum(["stale", "recent-progress"]).default("stale").describe("一覧の並び順") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ limit, cursor, order }: { limit: number; cursor: number; order: "stale" | "recent-progress" }, context) => {
-        const row = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
+        const row = await repository.loadState(context.agentId);
         const active = z.array(ConcernSchema).parse(row?.concerns ?? []).filter(({ status }) => status === "active");
-        const activity = active.length === 0 ? [] : (await pool.query<ConcernActivitySummaryRow>("SELECT concern_id,max(occurred_at) FILTER (WHERE kind=ANY($2::text[])) AS last_meaningful_at FROM concern_activities WHERE agent_id=$1 AND concern_id=ANY($3::text[]) GROUP BY concern_id", [context.agentId, ["created", "derived", "reviewed", "focused", "progressed", "status-changed", "baseline"], active.map(({ id }) => id)])).rows;
-        const lastMeaningful = new Map(activity.map((value) => [value.concern_id, value.last_meaningful_at?.toISOString()]));
+        const activity = active.length === 0 ? new Map<string, Date>() : await repository.listConcernActivityTimes(context.agentId, active.map(({ id }) => id));
+        const lastMeaningful = new Map([...activity].map(([id, value]) => [id, value.toISOString()]));
         const concerns = active.sort((a, b) => {
           const aAt = lastMeaningful.get(a.id) ?? ""; const bAt = lastMeaningful.get(b.id) ?? "";
           return order === "stale" ? aAt.localeCompare(bAt) || a.id.localeCompare(b.id) : bAt.localeCompare(aAt) || a.id.localeCompare(b.id);
@@ -78,7 +77,7 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ concernId: z.string().min(1).describe("concern_listで得たConcern ID") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ concernId }: { concernId: string }, context) => {
-        const row = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
+        const row = await repository.loadState(context.agentId);
         const concern = z.array(ConcernSchema).parse(row?.concerns ?? []).find(({ id }) => id === concernId);
         return concern === undefined ? { ok: false, error: "Concern not found" } : { ok: true, value: { ...concern, description: compact(concern.description, 400), whyItMatters: compact(concern.whyItMatters, 400) } };
       }
@@ -89,16 +88,14 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ concernId: z.string().min(1).describe("concern_listまたはconcern_getで得たConcern ID"), limit: z.number().int().min(1).max(20).default(12).describe("返す履歴の最大件数"), cursor: z.object({ occurredAt: z.iso.datetime({ offset: true }), id: z.string().min(1) }).strict().optional().describe("前回のnextCursor。同じ時刻のActivityも取りこぼさないため、そのまま渡す") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ concernId, limit, cursor }: { concernId: string; limit: number; cursor?: { occurredAt: string; id: string } }, context) => {
-        const state = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
+        const state = await repository.loadState(context.agentId);
         if (!z.array(ConcernSchema).parse(state?.concerns ?? []).some(({ id }) => id === concernId)) return { ok: false, error: "Concern not found" };
-        const activities = (await pool.query<ConcernActivityRow & { id: string }>(`SELECT id,concern_id,kind,occurred_at,event_id,run_id,reflection_id,evidence_memory_ids
-          FROM concern_activities WHERE agent_id=$1 AND concern_id=$2 AND ($3::timestamptz IS NULL OR occurred_at<$3 OR (occurred_at=$3 AND id<$4))
-          ORDER BY occurred_at DESC,id DESC LIMIT $5`, [context.agentId, concernId, cursor?.occurredAt ?? null, cursor?.id ?? null, limit])).rows;
-        const evidenceIds = [...new Set(activities.flatMap(({ evidence_memory_ids }) => Array.isArray(evidence_memory_ids) ? evidence_memory_ids.filter((id): id is string => typeof id === "string") : []))];
-        const memories = evidenceIds.length === 0 ? [] : (await pool.query<{ id: string; content: string; importance: string; occurred_at: Date }>("SELECT id,content,importance,occurred_at FROM memories WHERE agent_id=$1 AND id=ANY($2::text[]) ORDER BY occurred_at DESC,id LIMIT 20", [context.agentId, evidenceIds])).rows.map((memory) => ({ id: memory.id, summary: compact(memory.content, 320), importance: compact(memory.importance, 180), occurredAt: memory.occurred_at.toISOString() }));
-        const history = activities.map((activity) => ({ kind: activity.kind, occurredAt: activity.occurred_at.toISOString(), ...(activity.event_id === null ? {} : { eventId: activity.event_id }), ...(activity.run_id === null ? {} : { runId: activity.run_id }), ...(activity.reflection_id === null ? {} : { reflectionId: activity.reflection_id }), evidenceMemoryIds: Array.isArray(activity.evidence_memory_ids) ? activity.evidence_memory_ids.filter((id): id is string => typeof id === "string") : [] }));
+        const activities = await repository.listConcernActivities(context.agentId, concernId, cursor, limit);
+        const evidenceIds = [...new Set(activities.flatMap(({ evidenceMemoryIds }) => Array.isArray(evidenceMemoryIds) ? evidenceMemoryIds.filter((id): id is string => typeof id === "string") : []))];
+        const memories = (await repository.listEvidenceMemories(context.agentId, evidenceIds, 20)).map((memory) => ({ id: memory.id, summary: compact(memory.content, 320), importance: compact(memory.importance, 180), occurredAt: memory.occurredAt.toISOString() }));
+        const history = activities.map((activity) => ({ kind: activity.kind, occurredAt: activity.occurredAt.toISOString(), ...(activity.eventId === null ? {} : { eventId: activity.eventId }), ...(activity.runId === null ? {} : { runId: activity.runId }), ...(activity.reflectionId === null ? {} : { reflectionId: activity.reflectionId }), evidenceMemoryIds: Array.isArray(activity.evidenceMemoryIds) ? activity.evidenceMemoryIds.filter((id): id is string => typeof id === "string") : [] }));
         const last = activities.at(-1);
-        return success({ concernId, history, evidenceMemories: memories, ...(last === undefined ? {} : { nextCursor: { occurredAt: last.occurred_at.toISOString(), id: last.id } }) });
+        return success({ concernId, history, evidenceMemories: memories, ...(last === undefined ? {} : { nextCursor: { occurredAt: last.occurredAt.toISOString(), id: last.id } }) });
       }
     },
     {
@@ -116,24 +113,18 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       execute: async ({ subjectId }: { subjectId?: string }, context) => {
         let resolvedSubjectId = subjectId;
         if (resolvedSubjectId === undefined && context.eventId !== undefined) {
-          const current = await pool.query<EventRow>("SELECT id,observation FROM events WHERE id=$1 AND agent_id=$2", [context.eventId, context.agentId]);
-          resolvedSubjectId = actorId(current.rows[0]?.observation);
+          resolvedSubjectId = await repository.findEventActor(context.agentId, context.eventId);
         }
         if (resolvedSubjectId === undefined) {
-          const recent = await pool.query<EventRow>("SELECT id,observation FROM events WHERE agent_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 32", [context.agentId]);
-          resolvedSubjectId = recent.rows.map((row) => actorId(row.observation)).find((value) => value !== undefined);
+          resolvedSubjectId = await repository.findRecentHumanActor(context.agentId, 32);
         }
         if (resolvedSubjectId === undefined) return success({ subjectId: null, knownFacts: [], factCount: 0, recentlyAskedTopics: [] });
 
-        const service = retrievalService ?? new PostgresRetrievalService(pool);
-        const facts = await service.retrieve({ agentId: context.agentId, query: "", scope: "conversation", subjectIds: [resolvedSubjectId], subjectFilter: true, limit: 5 });
-        const state = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
+        const facts = await repository.retrieve({ agentId: context.agentId, query: "", scope: "conversation", subjectIds: [resolvedSubjectId], subjectFilter: true, limit: 5 });
+        const state = await repository.loadState(context.agentId);
         const relationship = z.array(RelationshipSchema).parse(state?.relationships ?? []).find((value) => value.subjectId === resolvedSubjectId);
-        const recentActions = await pool.query<ActionRow>(`SELECT r.result
-          FROM agent_runs r JOIN events e ON e.id=r.event_id AND e.agent_id=r.agent_id
-          WHERE r.agent_id=$1 AND e.observation #>> '{actor,id}'=$2 AND r.finished_at IS NOT NULL AND r.failure_reason IS NULL
-          ORDER BY e.occurred_at DESC,e.id DESC,r.started_at DESC LIMIT 12`, [context.agentId, resolvedSubjectId]);
-        const recentlyAskedTopics = recentActions.rows.flatMap((row) => { const question = responseQuestion(row.result); return question === undefined ? [] : [question]; }).slice(0, 3);
+        const recentActions = await repository.listRecentActionResults(context.agentId, resolvedSubjectId, 12);
+        const recentlyAskedTopics = recentActions.flatMap((result) => { const question = responseQuestion(result); return question === undefined ? [] : [question]; }).slice(0, 3);
         return success({
           subjectId: resolvedSubjectId,
           knownFacts: facts.map((item) => compact(item.content, 240)),
@@ -149,8 +140,7 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ query: z.string().trim().min(1).max(160).describe("探す出来事、対象、または判断材料"), subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"), limit: z.number().int().min(1).max(5).default(3).describe("返す最大件数") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ query, subject, limit }: { query: string; subject?: string; limit: number }, context) => {
-        const service = retrievalService ?? new PostgresRetrievalService(pool);
-        const items = await service.retrieve({ agentId: context.agentId, query, scope: "conversation", ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
+        const items = await repository.retrieve({ agentId: context.agentId, query, scope: "conversation", ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
         return success({ memories: items.map((item) => ({ id: item.id, summary: compact(item.content, 320), significance: compact(item.importance, 180), occurredAt: item.occurredAt })) });
       }
     },
@@ -160,8 +150,7 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ query: z.string().trim().min(1).max(240).describe("確認または訂正したいMemoryに関係する語句"), subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"), kinds: z.array(z.string().trim().min(1).max(80)).max(8).optional().describe("Event kindで絞る場合の種類"), occurredAfter: z.iso.datetime({ offset: true }).optional().describe("この時刻以後のEventだけを読む"), occurredBefore: z.iso.datetime({ offset: true }).optional().describe("この時刻以前のEventだけを読む"), limit: z.number().int().min(1).max(16).default(8).describe("返す最大Event数") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ query, subject, kinds, occurredAfter, occurredBefore, limit }: { query: string; subject?: string; kinds?: string[]; occurredAfter?: string; occurredBefore?: string; limit: number }, context) => {
-        const service = retrievalService instanceof PostgresRetrievalService ? retrievalService : new PostgresRetrievalService(pool);
-        const events = await service.retrieveEvents({ agentId: context.agentId, query, ...(subject === undefined ? {} : { subjectIds: [subject] }), ...(kinds === undefined ? {} : { kinds }), ...(occurredAfter === undefined ? {} : { occurredAfter }), ...(occurredBefore === undefined ? {} : { occurredBefore }), limit });
+        const events = await repository.retrieveEvents({ agentId: context.agentId, query, ...(subject === undefined ? {} : { subjectIds: [subject] }), ...(kinds === undefined ? {} : { kinds }), ...(occurredAfter === undefined ? {} : { occurredAfter }), ...(occurredBefore === undefined ? {} : { occurredBefore }), limit });
         return success({ events: events.map((event) => ({ ...event, summary: compact(event.content, 500) })) });
       }
     },
@@ -171,8 +160,8 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ eventId: z.string().trim().min(1).max(160).describe("親EventのID"), limit: z.number().int().min(1).max(20).default(12).describe("返す最大Tool実行数") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ eventId, limit }: { eventId: string; limit: number }, context) => {
-        const rows = (await pool.query<{ tool: string; input: unknown; result: unknown; error: string | null; finished_at: Date }>("SELECT tool,input,result,error,finished_at FROM tool_executions WHERE event_id=$1 AND run_id IN (SELECT id FROM agent_runs WHERE event_id=$1 AND agent_id=$2) ORDER BY finished_at,id LIMIT $3", [eventId, context.agentId, limit])).rows;
-        return success({ eventId, toolExecutions: rows.map((row) => ({ tool: row.tool, ok: row.error === null, ...(row.error === null ? { result: row.result } : { error: row.error }), finishedAt: row.finished_at.toISOString() })) });
+        const rows = await repository.listToolExecutions(context.agentId, eventId, limit);
+        return success({ eventId, toolExecutions: rows.map((row) => ({ tool: row.tool, ok: row.error === null, ...(row.error === null ? { result: row.result } : { error: row.error }), finishedAt: row.finishedAt.toISOString() })) });
       }
     },
     {
@@ -181,7 +170,7 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ subjectId: z.string().min(1).optional().describe("既知の相手ID"), query: z.string().trim().min(1).max(120).optional().describe("説明から探す語句"), limit: z.number().int().min(1).max(5).default(3).describe("返す最大件数") }).strict().refine((value) => value.subjectId !== undefined || value.query !== undefined, { message: "subjectId or query is required" }),
       resultPolicy: { kind: "standard" },
       execute: async ({ subjectId, query, limit }: { subjectId?: string; query?: string; limit: number }, context) => {
-        const row = (await pool.query<StateRow>("SELECT concerns,relationships,mood FROM agent_states WHERE agent_id=$1", [context.agentId])).rows[0];
+        const row = await repository.loadState(context.agentId);
         const relationships = z.array(RelationshipSchema).parse(row?.relationships ?? []).filter((value) => subjectId !== undefined ? value.subjectId === subjectId : value.description.toLowerCase().includes((query ?? "").toLowerCase())).slice(0, limit).map((value) => ({ ...value, description: compact(value.description, 400) }));
         return success({ relationships });
       }
@@ -192,9 +181,9 @@ export function createAgentContextTools(pool: Pool, retrievalService?: Retrieval
       schema: z.object({ fields: z.array(z.enum(["disposition", "selfStory", "commitments", "mood"])).min(1).max(4).describe("必要なSelf項目") }).strict(),
       resultPolicy: { kind: "standard" },
       execute: async ({ fields }: { fields: ("disposition" | "selfStory" | "commitments" | "mood")[] }, context) => {
-        const row = (await pool.query<SelfRow>("SELECT a.identity,s.disposition,s.self_story,s.commitments,s.mood FROM agents a JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [context.agentId])).rows[0];
+        const row = await repository.loadSelf(context.agentId);
         if (row === undefined) return { ok: false, error: "Agent not found" };
-        const self = SelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.self_story, commitments: row.commitments });
+        const self = SelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.selfStory, commitments: row.commitments });
         const value: Record<string, unknown> = {};
         for (const field of fields) value[field] = field === "mood" ? compact(row.mood, 300) : field === "commitments" ? self.commitments.slice(0, 8).map((item) => compact(item, 240)) : compact(self[field], 800);
         return success(value);

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { MemoryWriteService } from "../../src/application/memory-write-service.js";
+import { MemoryWriteService } from "../../src/infrastructure/persistence/memory-write-repository.js";
 import type { MemoryIntent } from "../../src/domain/contracts.js";
 import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 

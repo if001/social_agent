@@ -13,6 +13,7 @@ export type { LifecycleState } from "./bootstrap/lifecycle.js";
 export { FixedClock, SequenceIdGenerator, SystemClock, UuidGenerator } from "./infrastructure/system.js";
 export { redactSecrets } from "./observability/redaction.js";
 export { AgentStateRepository, PostgresUnitOfWork, migrate, withAgentLock } from "./infrastructure/persistence/postgres.js";
+export { createRuntimeDatabase } from "./infrastructure/persistence/runtime-database.js";
 export * as persistenceSchema from "./infrastructure/persistence/schema.js";
 export { AddressedFileQueue } from "./infrastructure/queue/addressed-file-queue.js";
 export type { FileQueueOptions } from "./infrastructure/queue/addressed-file-queue.js";
