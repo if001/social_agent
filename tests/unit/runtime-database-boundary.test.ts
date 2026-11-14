@@ -4,14 +4,15 @@ const source = (path: string) => readFile(new URL(`../../${path}`, import.meta.u
 
 describe("runtime database boundary", () => {
   it("NFR-11: keeps PostgreSQL clients behind purpose-specific repository adapters", async () => {
-    const [memoryUpdate, agentContextTools, scheduledTaskTools, agentContextRepository, memoryRepository, scheduledTaskRepository, composition] = await Promise.all([
+    const [memoryUpdate, agentContextTools, scheduledTaskTools, agentContextRepository, memoryRepository, scheduledTaskRepository, composition, debugUi] = await Promise.all([
       source("src/application/memory-update.ts"),
       source("src/infrastructure/tools/agent-context-tools.ts"),
       source("src/infrastructure/tools/scheduled-task-tools.ts"),
       source("src/infrastructure/persistence/postgres-agent-context-tool-repository.ts"),
       source("src/infrastructure/persistence/postgres-memory-update-repository.ts"),
       source("src/infrastructure/persistence/postgres-scheduled-task-tool-repository.ts"),
-      source("src/bootstrap/bot-composition.ts")
+      source("src/bootstrap/bot-composition.ts"),
+      source("src/debug-ui.ts")
     ]);
 
     for (const boundarySource of [memoryUpdate, agentContextTools, scheduledTaskTools]) {
@@ -26,5 +27,19 @@ describe("runtime database boundary", () => {
     expect(composition).toContain("new PostgresAgentContextToolRepository(database, retrievalService)");
     expect(composition).toContain("new PostgresMemoryUpdateRepository(database,");
     expect(composition).toContain("new PostgresScheduledTaskToolRepository(database)");
+    expect(debugUi).not.toContain("pool.query");
+    expect(debugUi).toContain("DebugUiRepository.fromDatabase(createRuntimeDatabase(pool))");
+  });
+
+  it("NFR-7: ordinary Tool repository CRUD uses the typed Drizzle database", async () => {
+    const [agentContextRepository, scheduledTaskRepository] = await Promise.all([
+      source("src/infrastructure/persistence/postgres-agent-context-tool-repository.ts"),
+      source("src/infrastructure/persistence/postgres-scheduled-task-tool-repository.ts")
+    ]);
+
+    for (const repositorySource of [agentContextRepository, scheduledTaskRepository]) {
+      expect(repositorySource).not.toContain("database.native.query");
+      expect(repositorySource).not.toMatch(/from ["']pg["']/u);
+    }
   });
 });

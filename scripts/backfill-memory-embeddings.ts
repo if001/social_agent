@@ -2,6 +2,7 @@ import { Pool } from "pg";
 
 import { OllamaEmbeddingProvider } from "../src/infrastructure/embedding/ollama-embedding.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../src/infrastructure/persistence/postgres-memory-embedding.js";
+import { createRuntimeDatabase } from "../src/infrastructure/persistence/runtime-database.js";
 
 type Options = { readonly agentId?: string; readonly batchSize: number };
 
@@ -29,7 +30,7 @@ async function main(): Promise<void> {
   if (databaseUrl === "" || baseUrl === undefined || model === undefined || !Number.isInteger(dimension) || dimension <= 0) throw new Error("POSTGRES_URL, OLLAMA_EMBEDDING_BASE_URL, OLLAMA_EMBEDDING_MODEL and OLLAMA_EMBEDDING_DIMENSION are required");
   const pool = new Pool({ connectionString: databaseUrl });
   try {
-    const lifecycle = new PostgresMemoryEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model);
+    const lifecycle = new PostgresMemoryEmbeddingLifecycle(createRuntimeDatabase(pool), new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model);
     let attempted = 0; let ready = 0; let failed = 0; let result;
     do {
       result = await lifecycle.backfill({ ...(config.agentId === undefined ? {} : { agentId: config.agentId }), limit: config.batchSize, signal: AbortSignal.timeout(120_000) });

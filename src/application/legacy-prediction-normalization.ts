@@ -3,7 +3,7 @@ import { PredictionOutputSchema } from "../domain/contracts.js";
 
 export function normalizeLegacyPredictionOutput(value: unknown): PredictionOutput {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return PredictionOutputSchema.parse(value);
-  const { remember: _remember, observationCandidates: _observationCandidates, ...current } = value as Record<string, unknown>;
+  const current = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => key !== "remember" && key !== "observationCandidates"));
   return PredictionOutputSchema.parse(current);
 }
 

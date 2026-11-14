@@ -1,4 +1,4 @@
-import type { Pool, QueryResultRow } from "pg";
+import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
 import { ContextBuilder, type ContextBudget } from "../../application/context-builder.js";
 import type { RuntimeExecutionInput } from "../../application/agent-runtime.js";
@@ -7,19 +7,21 @@ import type { PredictionRepository } from "../../application/prediction.js";
 import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, G3OutputSchema, ObservationSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
+import type { RuntimeDatabase } from "./runtime-database.js";
+import { agentFamilies, agentRuns, agents, agentStates, events, stateChanges, toolExecutions } from "./schema.js";
 
-type AgentRow = QueryResultRow & {
+type AgentRow = {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
   disposition: string; self_story: string; commitments: unknown; concerns: unknown; relationships: unknown;
   mood: string; version: number; state_updated_at: Date;
   shared_disposition: string; base_instruction: string;
 };
-type RecentExperienceRow = QueryResultRow & { event_id: string; agent_id: string; event_kind: DomainEvent["kind"]; observation: unknown; occurred_at: Date; run_id: string | null; result: unknown; failure_reason: string | null; tools: unknown; progress_changed: boolean };
-type PreviousAssessmentRow = QueryResultRow & { occurred_at: Date; result: unknown };
-type PreviousDesireRow = QueryResultRow & { occurred_at: Date; result: unknown };
+type RecentExperienceRow = { event_id: string; agent_id: string; event_kind: DomainEvent["kind"]; observation: unknown; occurred_at: Date; run_id: string | null; result: unknown; failure_reason: string | null; tools: unknown; progress_changed: boolean };
+type PreviousAssessmentRow = { occurred_at: Date; result: unknown };
+type PreviousDesireRow = { occurred_at: Date; result: unknown };
 
 export type PostgresAgentContextLoaderOptions = {
-  readonly pool: Pool;
+  readonly database: RuntimeDatabase;
   readonly ids: IdGenerator;
   readonly embedding: EmbeddingProvider;
   readonly tools: ToolRegistry;
@@ -102,33 +104,53 @@ export class PostgresAgentContextLoader {
 
   async load(event: DomainEvent): Promise<RuntimeExecutionInput> {
     const observation = observationFromEvent(event);
-    const agentResult = await this.options.pool.query<AgentRow>(`SELECT a.id,a.family_id,a.identity,a.initial_disposition,a.active,
-      s.disposition,s.self_story,s.commitments,s.concerns,s.relationships,s.mood,s.version,s.updated_at AS state_updated_at,
-      f.shared_disposition,f.base_instruction
-      FROM agents a JOIN agent_states s ON s.agent_id=a.id JOIN agent_families f ON f.id=a.family_id WHERE a.id=$1`, [event.agentId]);
-    const agent = agentResult.rows[0];
+    const agent = (await this.options.database.db.select({
+      id: agents.id, family_id: agents.familyId, identity: agents.identity,
+      initial_disposition: agents.initialDisposition, active: agents.active,
+      disposition: agentStates.disposition, self_story: agentStates.selfStory,
+      commitments: agentStates.commitments, concerns: agentStates.concerns,
+      relationships: agentStates.relationships, mood: agentStates.mood,
+      version: agentStates.version, state_updated_at: agentStates.updatedAt,
+      shared_disposition: agentFamilies.sharedDisposition, base_instruction: agentFamilies.baseInstruction
+    }).from(agents).innerJoin(agentStates, eq(agentStates.agentId, agents.id))
+      .innerJoin(agentFamilies, eq(agentFamilies.id, agents.familyId))
+      .where(eq(agents.id, event.agentId)).limit(1))[0] as AgentRow | undefined;
     if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${event.agentId}`);
 
-    const recentExperienceResult = await this.options.pool.query<RecentExperienceRow>(`WITH recent_events AS (
-          SELECT id,agent_id,kind,observation,occurred_at FROM events WHERE agent_id=$1 AND kind<>'tool-result' ORDER BY occurred_at DESC,id DESC LIMIT 8
-        ) SELECT e.id AS event_id,e.agent_id,e.kind AS event_kind,e.observation,e.occurred_at,r.id AS run_id,r.result,r.failure_reason,
-          COALESCE(t.tools,'[]'::jsonb) AS tools,
-          COALESCE(EXISTS(SELECT 1 FROM state_changes sc WHERE sc.run_id=r.id AND sc.target='concerns' AND sc.before IS DISTINCT FROM sc.after),false) AS progress_changed
-        FROM recent_events e
-        LEFT JOIN LATERAL (SELECT id,result,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id AND finished_at IS NOT NULL ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
-        LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('tool',x.tool,'input',x.input,'result',x.result,'error',x.error) ORDER BY x.started_at,x.id) AS tools FROM tool_executions x WHERE x.run_id=r.id) t ON true
-        ORDER BY e.occurred_at,e.id`, [event.agentId]);
-    const previousAssessmentResult = await this.options.pool.query<PreviousAssessmentRow>(`SELECT e.occurred_at,r.result
-        FROM agent_runs r JOIN events e ON e.id=r.event_id AND e.agent_id=r.agent_id
-        WHERE r.agent_id=$1 AND r.finished_at IS NOT NULL AND r.failure_reason IS NULL AND r.result ? 'assessment'
-        ORDER BY e.occurred_at DESC,e.id DESC,r.started_at DESC,r.id DESC LIMIT 1`, [event.agentId]);
-    const previousDesireResult = await this.options.pool.query<PreviousDesireRow>(`SELECT e.occurred_at,r.result
-        FROM agent_runs r JOIN events e ON e.id=r.event_id AND e.agent_id=r.agent_id
-        WHERE r.agent_id=$1 AND r.finished_at IS NOT NULL AND r.failure_reason IS NULL AND r.result #>> '{output,desire}' IS NOT NULL
-        ORDER BY e.occurred_at DESC,e.id DESC,r.started_at DESC,r.id DESC LIMIT 1`, [event.agentId]);
-    const recentExperiences = recentExperienceResult.rows.flatMap((row) => { const value = recentExperience(row, this.options.tools, this.options.logger ?? noopLogger); return value === undefined ? [] : [value]; });
-    const priorAssessment = previousAssessment(previousAssessmentResult.rows[0]);
-    const priorDesire = previousDesire(previousDesireResult.rows[0]);
+    const recentEvents = await this.options.database.db.select().from(events).where(and(
+      eq(events.agentId, event.agentId), ne(events.kind, "tool-result")
+    )).orderBy(desc(events.occurredAt), desc(events.id)).limit(8);
+    const recentRows: RecentExperienceRow[] = [];
+    for (const recentEvent of recentEvents.reverse()) {
+      const run = (await this.options.database.db.select().from(agentRuns).where(and(
+        eq(agentRuns.eventId, recentEvent.id), eq(agentRuns.agentId, recentEvent.agentId),
+        isNotNull(agentRuns.finishedAt)
+      )).orderBy(desc(agentRuns.startedAt), desc(agentRuns.id)).limit(1))[0];
+      const tools = run === undefined ? [] : await this.options.database.db.select({
+        tool: toolExecutions.tool, input: toolExecutions.input,
+        result: toolExecutions.result, error: toolExecutions.error
+      }).from(toolExecutions).where(eq(toolExecutions.runId, run.id))
+        .orderBy(asc(toolExecutions.startedAt), asc(toolExecutions.id));
+      const progress = run === undefined ? [] : await this.options.database.db.select({ id: stateChanges.id }).from(stateChanges).where(and(
+        eq(stateChanges.runId, run.id), eq(stateChanges.target, "concerns"),
+        sql`${stateChanges.before} IS DISTINCT FROM ${stateChanges.after}`
+      )).limit(1);
+      recentRows.push({ event_id: recentEvent.id, agent_id: recentEvent.agentId, event_kind: recentEvent.kind as DomainEvent["kind"], observation: recentEvent.observation, occurred_at: recentEvent.occurredAt, run_id: run?.id ?? null, result: run?.result ?? null, failure_reason: run?.failureReason ?? null, tools, progress_changed: progress.length > 0 });
+    }
+    const priorBase = [eq(agentRuns.agentId, event.agentId), isNotNull(agentRuns.finishedAt), isNull(agentRuns.failureReason)];
+    const [assessmentRows, desireRows] = await Promise.all([
+      this.options.database.db.select({ occurred_at: events.occurredAt, result: agentRuns.result }).from(agentRuns)
+        .innerJoin(events, and(eq(events.id, agentRuns.eventId), eq(events.agentId, agentRuns.agentId)))
+        .where(and(...priorBase, sql`${agentRuns.result} ? 'assessment'`))
+        .orderBy(desc(events.occurredAt), desc(events.id), desc(agentRuns.startedAt), desc(agentRuns.id)).limit(1),
+      this.options.database.db.select({ occurred_at: events.occurredAt, result: agentRuns.result }).from(agentRuns)
+        .innerJoin(events, and(eq(events.id, agentRuns.eventId), eq(events.agentId, agentRuns.agentId)))
+        .where(and(...priorBase, sql`coalesce(${agentRuns.result} #>> '{output,desire}','') <> ''`))
+        .orderBy(desc(events.occurredAt), desc(events.id), desc(agentRuns.startedAt), desc(agentRuns.id)).limit(1)
+    ]);
+    const recentExperiences = recentRows.flatMap((row) => { const value = recentExperience(row, this.options.tools, this.options.logger ?? noopLogger); return value === undefined ? [] : [value]; });
+    const priorAssessment = previousAssessment(assessmentRows[0]);
+    const priorDesire = previousDesire(desireRows[0]);
     const state = { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: agent.concerns, relationships: agent.relationships }) };
     const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);

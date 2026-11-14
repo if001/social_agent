@@ -21,7 +21,6 @@ describeDatabase("reset runtime", () => {
   try {
     await database.prepare();
     lock = await pool.connect();
-    if (lock === undefined) throw new Error("Test lock was not acquired");
     await initializeAgent(pool, config);
     await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,output,completed_at) VALUES ('old-reflection',$1,0,'completed','{}','{}',now())", [config.agent.id]);
     await pool.query("UPDATE agents SET config='{\"persona\":\"keep\"}'");

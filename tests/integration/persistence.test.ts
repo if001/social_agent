@@ -33,7 +33,7 @@ import { normalizeOverfullMemoryEvidence } from "../../src/application/memory-ev
 import type { ReflectionInput } from "../../src/application/reflection.js";
 import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
-import { agentFamilies } from "../../src/infrastructure/persistence/schema.js";
+import { agentFamilies, events, outboxMessages } from "../../src/infrastructure/persistence/schema.js";
 import { migrateNormalizedEventStorage } from "../../scripts/migrate-normalized-event-storage.js";
 import { backfillReflectionToolExecutions } from "../../scripts/backfill-reflection-tool-executions.js";
 import { PostgresRetrievalService } from "../../src/infrastructure/persistence/postgres-retrieval-service.js";
@@ -59,8 +59,8 @@ describeDatabase("PostgreSQL persistence", () => {
   });
 
   it("FR-6, NFR-10: round-trips isolated agent state and rejects stale versions", async () => {
-    const repository = new AgentStateRepository(pool);
-    expect((await repository.find<{ agent_id: string }>("a"))?.agent_id).toBe("a");
+    const repository = new AgentStateRepository(createRuntimeDatabase(pool).db);
+    expect((await repository.find<{ agentId: string }>("a"))?.agentId).toBe("a");
     expect(await repository.find("missing")).toBeUndefined();
     await expect(repository.update("a", 0, { mood: "Focused" })).resolves.toBe(1);
     await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -90,7 +90,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(normalizeOverfullMemoryEvidence(pool, { agentId: "a", apply: false })).resolves.toEqual({ scanned: 1, normalized: 0 });
     await expect(normalizeOverfullMemoryEvidence(pool, { agentId: "a", apply: true })).resolves.toEqual({ scanned: 1, normalized: 1 });
     expect((await pool.query<{ evidence_event_ids: string[] }>("SELECT evidence_event_ids FROM memories WHERE id='over-limit-evidence'")).rows[0]?.evidence_event_ids).toEqual([]);
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-11-14T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-11-14T00:00:00Z"));
     const input = await repository.load("normalization-reflection", "a");
     if (input === undefined) throw new Error("Reflection input was not created");
     const refreshed = await repository.refresh(input);
@@ -128,8 +128,8 @@ describeDatabase("PostgreSQL persistence", () => {
   it("NFR-8: rolls back event and outbox as one unit", async () => {
     const unit = new PostgresUnitOfWork(pool);
     await expect(unit.transaction(async (client) => {
-      await client.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('event-rollback','a','internal','{}','test','processing',now())");
-      await client.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ('outbox-rollback','a','{}')");
+      await client.insert(events).values({ id: "event-rollback", agentId: "a", kind: "internal", observation: {}, source: "test", status: "processing", occurredAt: new Date() });
+      await client.insert(outboxMessages).values({ id: "outbox-rollback", agentId: "a", envelope: {} });
       throw new Error("stop");
     })).rejects.toThrow("stop");
     expect((await pool.query("SELECT id FROM events WHERE id='event-rollback'")).rowCount).toBe(0);
@@ -237,13 +237,13 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('embedding-a','family','Embedding A','Calm'),('embedding-b','family','Embedding B','Calm')");
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('embedding-memory-a','embedding-a','episodic','remember a','Relevant',now(),'pending'),('embedding-memory-b','embedding-b','episodic','remember b','Relevant',now(),'pending')");
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
-    const lifecycle = new PostgresMemoryEmbeddingLifecycle(pool, new FakeEmbeddingProvider({ "remember a": vector, "remember b": vector }), "fake-embed");
+    const lifecycle = new PostgresMemoryEmbeddingLifecycle(createRuntimeDatabase(pool), new FakeEmbeddingProvider({ "remember a": vector, "remember b": vector }), "fake-embed");
     await expect(lifecycle.embedMemoryIds("embedding-a", ["embedding-memory-a", "embedding-memory-b"])).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
     expect((await pool.query<{ embedding_status: string; embedding_model: string; embedding_dimension: number }>("SELECT embedding_status,embedding_model,embedding_dimension FROM memories WHERE id='embedding-memory-a'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "fake-embed", embedding_dimension: 768 });
     expect((await pool.query<{ embedding_status: string }>("SELECT embedding_status FROM memories WHERE id='embedding-memory-b'")).rows[0]?.embedding_status).toBe("pending");
     await expect(lifecycle.embedMemoryIds("embedding-a", ["embedding-memory-a"])).resolves.toEqual({ attempted: 0, ready: 0, failed: 0 });
 
-    const failing = new PostgresMemoryEmbeddingLifecycle(pool, { dimension: 768, embed: () => Promise.reject(new Error("provider unavailable")) }, "fake-embed");
+    const failing = new PostgresMemoryEmbeddingLifecycle(createRuntimeDatabase(pool), { dimension: 768, embed: () => Promise.reject(new Error("provider unavailable")) }, "fake-embed");
     await expect(failing.embedMemoryIds("embedding-b", ["embedding-memory-b"])).resolves.toEqual({ attempted: 1, ready: 0, failed: 1 });
     expect((await pool.query<{ embedding_status: string; embedding_error: string }>("SELECT embedding_status,embedding_error FROM memories WHERE id='embedding-memory-b'")).rows[0]).toEqual({ embedding_status: "failed", embedding_error: "provider unavailable" });
     await expect(lifecycle.backfill({ agentId: "embedding-b" })).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
@@ -256,7 +256,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const embedding = new FakeEmbeddingProvider({ [summary]: vector, [changedSummary]: vector, "vector search": vector });
     const root = await mkdtemp(join(tmpdir(), "web-archive-"));
     const summarizer = { summarize: (input: { markdown: string }) => Promise.resolve(input.markdown === markdown ? summary : changedSummary) };
-    const archive = new PostgresWebArchive(pool, embedding, summarizer, new SequenceIdGenerator(["resource-web", "snapshot-web", "resource-repeat", "resource-changed", "snapshot-changed"]), () => new Date("2026-04-01T00:00:00Z"), "web-fake", root);
+    const archive = new PostgresWebArchive(createRuntimeDatabase(pool), embedding, summarizer, new SequenceIdGenerator(["resource-web", "snapshot-web", "resource-repeat", "resource-changed", "snapshot-changed"]), () => new Date("2026-04-01T00:00:00Z"), "web-fake", root);
     const context = { agentId: "a", runId: "web-run", eventId: "web-event", toolCallId: "tool-1" };
     const pageRegistry = new ToolRegistry(createWebTools("http://web.local", { archive, fetcher: () => Promise.resolve(new Response(JSON.stringify({ docs: [{ url: "https://EXAMPLE.com/article?b=2&a=1#top", title: "Postgres vectors", markdown }] }), { status: 200 })) }));
     const pageResult = await pageRegistry.execute("web_page", { urls: "https://example.com/article" }, { ...context, idempotencyKey: "web-run:tool-1" }, new AbortController().signal);
@@ -294,7 +294,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
     const contextToolRegistry = new ToolRegistry([...createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool))), ...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
     const loader = new PostgresAgentContextLoader({
-      pool, ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: contextToolRegistry,
+      database: createRuntimeDatabase(pool), ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: contextToolRegistry,
       persona: { version: 1, identity: { displayName: "Agent A" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } },
       budget: { maxTokens: 10_000, maxMemories: 10, maxSocialContexts: 10 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
@@ -379,7 +379,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-40, NFR-6: claims a due Scheduled Task once and records its execution Event", async () => {
     await pool.query("INSERT INTO scheduled_tasks(id,agent_id,execute_at,instruction,status,idempotency_key,source_event_id,source_run_id) VALUES ('task-due','a','2026-01-01','結果を知らせる','scheduled','task-key','source-event','source-run')");
-    const first = new PostgresScheduleRepository(pool); const second = new PostgresScheduleRepository(pool);
+    const first = new PostgresScheduleRepository(createRuntimeDatabase(pool)); const second = new PostgresScheduleRepository(createRuntimeDatabase(pool));
     const claims = (await Promise.all([first.claimDue(new Date("2026-01-02T00:00:00Z"), 10), second.claimDue(new Date("2026-01-02T00:00:00Z"), 10)])).flat().filter(({ id }) => id === "task-due");
     expect(claims).toEqual([{ id: "task-due", agentId: "a", kind: "scheduled-task", reason: "Scheduled Taskの期限到来", instruction: "結果を知らせる" }]);
     const task = claims[0]; if (task === undefined) throw new Error("Scheduled Task was not claimed");
@@ -398,7 +398,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("NFR-11: never claims a legacy or unknown autonomous schedule kind", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','autonomy-review','legacy','2026-01-01'),('idle-due','a','idle','idle','2026-01-01')");
-    const repository = new PostgresScheduleRepository(pool);
+    const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool));
     const claims = await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10);
     expect(claims.map(({ id }) => id)).toContain("idle-due");
     expect(claims.map(({ id }) => id)).not.toContain("legacy-drive");
@@ -407,7 +407,7 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-26, FR-28: reschedules idle without persisted exploration state", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('idle-mode:b','b','idle','explore','2026-01-01')");
-    const repository = new PostgresScheduleRepository(pool, 60_000, "b");
+    const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "b");
     const first = (await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ id }) => id === "idle-mode:b");
     expect(first).toMatchObject({ kind: "idle" });
     if (first === undefined) throw new Error("Idle schedule was not claimed");
@@ -425,7 +425,7 @@ describeDatabase("PostgreSQL persistence", () => {
     for (let index = 0; index < 9; index += 1) {
       await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,failure_reason) VALUES ($1,'a',0,'failed','{}','invalid output')", [`reflection-cap-${String(index)}`]);
     }
-    const repository = new PostgresScheduleRepository(pool, 60_000, "a", 400_000);
+    const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 400_000);
     await repository.release({ id: "reflection:cap", agentId: "a", kind: "reflection", reason: "maintenance" });
     const row = (await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='reflection:cap'")).rows[0];
     // Retry delay is deliberately disabled while autonomous-flow debugging is enabled.
@@ -439,7 +439,7 @@ describeDatabase("PostgreSQL persistence", () => {
     for (const id of ["reflection-failed-1", "reflection-failed-2", "reflection-failed-3"]) {
       await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,failure_reason) VALUES ($1,'a',0,'failed','{}','invalid output')", [id]);
     }
-    const repository = new PostgresScheduleRepository(pool, 60_000, "a", 1_000);
+    const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 1_000);
     await repository.release({ id: "reflection:a", agentId: "a", kind: "reflection", reason: "maintenance" });
     const row = (await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='reflection:a'")).rows[0];
     expect(row?.delay_ms).toBe(0);
@@ -448,7 +448,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("FR-42, FR-60: increases backoff when one retryable Reflection Session fails repeatedly", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('reflection:retry-one','b','reflection','maintenance',now())");
     await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,failure_reason) VALUES ('reflection-retry-one','b',0,'pending','{}','Reflection has retryable target failures')");
-    const repository = new PostgresScheduleRepository(pool, 60_000, "b", 1_000);
+    const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "b", 1_000);
     const target = { id: "reflection:retry-one", agentId: "b", kind: "reflection" as const, reason: "maintenance" };
     await repository.release(target);
     let row = (await pool.query<{ delay_ms: number }>("SELECT round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE id='reflection:retry-one'" )).rows[0];
@@ -462,8 +462,8 @@ describeDatabase("PostgreSQL persistence", () => {
   });
 
   it("NFR-10: shares correlation-loop and rate limits across Runtime instances", async () => {
-    const first = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
-    const second = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const first = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const second = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const event = { id: "policy-event-1", agentId: "a", kind: "external" as const, occurredAt: fixtureInstant, payload: {}, correlationId: "shared-correlation" };
     await expect(first.authorizeInbound(event, "policy-message-1", 10)).resolves.toBeUndefined();
     await expect(second.authorizeInbound({ ...event, id: "policy-event-2" }, "policy-message-2", 10)).rejects.toMatchObject({ code: "VALIDATION" });
@@ -473,7 +473,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("NFR-7, NFR-8: expires only old runtime correlation and rate-window state", async () => {
     await pool.query("INSERT INTO runtime_correlations(agent_id,correlation_id,message_id,created_at) VALUES ('a','expired-correlation','old-message','2026-01-01T00:00:00Z'),('a','live-correlation','new-message','2026-11-14T00:00:00Z')");
     await pool.query("INSERT INTO runtime_rate_windows(agent_id,window_start,event_count) VALUES ('a','2026-01-01T00:00:00Z',1),('a','2026-11-14T00:00:00Z',1)");
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     await expect(persistence.cleanupRuntimeState(new Date("2026-11-01T00:00:00Z"), new Date("2026-11-01T00:00:00Z"))).resolves.toEqual({ correlations: 1, rateWindows: 1 });
     expect((await pool.query<{ correlation_id: string }>("SELECT correlation_id FROM runtime_correlations WHERE correlation_id IN ('expired-correlation','live-correlation') ORDER BY correlation_id")).rows).toEqual([{ correlation_id: "live-correlation" }]);
     expect((await pool.query<{ window_start: Date }>("SELECT window_start FROM runtime_rate_windows WHERE window_start IN ('2026-01-01T00:00:00Z','2026-11-14T00:00:00Z')")).rows.map(({ window_start }) => window_start.toISOString())).toEqual(["2026-11-14T00:00:00.000Z"]);
@@ -483,8 +483,8 @@ describeDatabase("PostgreSQL persistence", () => {
     const envelopeA = messageFixture({ id: "outbox-agent-a", destination: "discord:a" });
     const envelopeB = messageFixture({ id: "outbox-agent-b", destination: "discord:b" });
     await pool.query("INSERT INTO outbox_messages(id,agent_id,envelope) VALUES ($1,'a',$2),($3,'b',$4)", [envelopeA.id, JSON.stringify(envelopeA), envelopeB.id, JSON.stringify(envelopeB)]);
-    const forA = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), "a");
-    const forB = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), "b");
+    const forA = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), "a");
+    const forB = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant), "b");
     const pendingA = await forA.pendingOutbox(100);
     const pendingB = await forB.pendingOutbox(100);
     expect(pendingA.map(({ envelope }) => envelope.id)).toContain(envelopeA.id);
@@ -504,7 +504,7 @@ describeDatabase("PostgreSQL persistence", () => {
     input.memories = [{ id: "proposal-evidence", agentId: "a", kind: "self-related", content: "Repeated follow-through", occurredAt: fixtureInstant, createdAt: fixtureInstant, relatedSubjectIds: [], importance: "Relevant", retrievalPriority: "normal", evidenceEventIds: [] }];
     input.availableTools = [{ name: "concern_get", description: "Concern", inputSchema: {} }, { name: "concern_history", description: "Concern history", inputSchema: {} }, { name: "lookup", description: "Lookup", inputSchema: {} }];
     input.memoryRetrievalTrace = [{ memoryId: "proposal-evidence", finalRank: 1, matchedBy: ["subject", "recency"], kind: "self-related", selected: true }];
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "integration-job", "motive-new", "memory-new", "state-change-mood", "state-change-social", "state-change-motive"]), () => new Date(fixtureInstant));
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(input), new SequenceIdGenerator(["tool-record", "integration-job", "motive-new", "memory-new", "state-change-mood", "state-change-social", "state-change-motive"]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "runtime-message", destination: "agent:a" });
     const event = { id: "runtime-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" }, causationId: "incoming-message", correlationId: "conversation-1" };
     const result = {
@@ -546,7 +546,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const legacyTools = toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId }));
     await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [legacy.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions: legacyTools })]);
     await pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ('integration-current',$1,'failed'),('integration-legacy',$2,'failed')", [current.run.runId, legacy.run.runId]);
-    const pending = await new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
+    const pending = await new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
     expect(pending.find(({ integrationId }) => integrationId === "integration-current")?.result.toolExecutions).toEqual(toolExecutions);
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTools);
   });
@@ -561,14 +561,14 @@ describeDatabase("PostgreSQL persistence", () => {
     const input = { ...core, run: { ...core.run, agentId, eventId, runId: "experience-projection-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ('experience-projection-run',$1,$2,0,$3,$4,$5,$5)", [agentId, eventId, input, { output: { desire: "予定を整理したい", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
     const request = { integrationId: "experience-projection-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: {} }, sourceRunId: input.run.runId, input, result: { output: { desire: "予定を整理したい", action: { type: "no-external-action" as const, reason: "maintenance" } }, toolExecutions: [] } };
-    const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const repository = new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     await repository.begin(request);
     await repository.apply(request, { experience: { summary: "展示の予定を確かめた", facts: ["展示の予定を確認した"] }, memories: [] });
     expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id=$1", [eventId])).rowCount).toBe(1);
     const projection = (await pool.query<{ content_hash: string | null; content: string | null; agent_id: string | null }>("SELECT content_hash,content,agent_id FROM event_projections WHERE event_id=$1", [eventId])).rows[0];
     expect(projection?.content_hash).toMatch(/^[a-f0-9]{64}$/u);
     expect(projection).toMatchObject({ content: null, agent_id: null });
-    await expect((new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"))).load("experience-projection-reflection", agentId)).resolves.toMatchObject({ events: [expect.objectContaining({ id: eventId, summary: "展示の予定を確かめた" })] });
+    await expect((new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"))).load("experience-projection-reflection", agentId)).resolves.toMatchObject({ events: [expect.objectContaining({ id: eventId, summary: "展示の予定を確かめた" })] });
   });
 
   it("NFR-8: rolls back Event Experience and Projection together when Projection persistence fails", async () => {
@@ -583,7 +583,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const result = { output: { desire: "整理する", action: { type: "no-external-action" as const, reason: "maintenance" } }, toolExecutions: [] };
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ($1,$2,$3,0,$4,$5,$6,$6)", [runId, agentId, eventId, input, result, fixtureInstant]);
     const request = { integrationId: "experience-atomic-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: {} }, sourceRunId: runId, input, result };
-    const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant), { prepareMemory: () => Promise.resolve({ status: "ready", vector: [1, 0], model: "invalid-dimension", dimension: 2 }) });
+    const repository = new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant), { prepareMemory: () => Promise.resolve({ status: "ready", vector: [1, 0], model: "invalid-dimension", dimension: 2 }) });
     await repository.begin(request);
     await expect(repository.apply(request, { experience: { summary: "atomic experience", facts: ["all or nothing"] }, memories: [] })).rejects.toThrow();
     expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id=$1", [eventId])).rowCount).toBe(0);
@@ -634,7 +634,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('experience-requeue-tool-event',$1,'tool-result',$2,'test','completed',$3)", [agentId, { summary: "検索結果" }, fixtureInstant]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-requeue-tool-run',$1,'experience-requeue-tool-event',0,$2,$3,$3)", [agentId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
     await pool.query("INSERT INTO experience_integrations(id,source_run_id,status,output,completed_at) VALUES ('experience-requeue-tool-integration','experience-requeue-tool-run','completed',$1,$2)", [{ experience: null, memories: [] }, fixtureInstant]);
-    const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const repository = new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     await expect(repository.missingEventExperienceCandidates(agentId)).resolves.toEqual([{ id: "experience-requeue-integration", agentId }]);
     const core = agentCoreInputFixture();
     const input = { ...core, run: { ...core.run, agentId, eventId: "experience-requeue-event", runId: "experience-requeue-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId: "experience-requeue-event" }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
@@ -648,7 +648,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
     await recordExperience("reflection-event", "約束を果たした");
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('reflection-evidence','a','episodic','約束を果たした経験','信頼が深まった',now(),'pending') ON CONFLICT DO NOTHING");
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-concern", "reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reflection-concern", "reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "create" as const, concern: { description: "次の約束の進め方を確かめる", whyItMatters: "信頼を続けるため", status: "active" as const, reconsiderAt: "2026-01-03T00:00:00Z" } }, { operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: ["reflection-evidence"] };
     await expect(repository.commit(input, output)).resolves.toBe("committed");
@@ -669,11 +669,11 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("UPDATE agent_states SET concerns=$2,version=version+1 WHERE agent_id=$1", ["a", JSON.stringify(concerns)]);
     const tools = new ToolRegistry(createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool))));
     const loader = new PostgresAgentContextLoader({
-      pool, ids: new SequenceIdGenerator(["context-boundary-run"]), embedding: new FakeEmbeddingProvider({}), tools,
+      database: createRuntimeDatabase(pool), ids: new SequenceIdGenerator(["context-boundary-run"]), embedding: new FakeEmbeddingProvider({}), tools,
       budget: { maxTokens: 6_000, maxMemories: 1, maxSocialContexts: 1 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
     });
-    const persistence = new PostgresRuntimePersistence(pool, (event) => loader.load(event), new SequenceIdGenerator(["context-boundary-state-change"]), () => new Date(fixtureInstant));
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), (event) => loader.load(event), new SequenceIdGenerator(["context-boundary-state-change"]), () => new Date(fixtureInstant));
     const runtime = new AgentRuntime({
       destination: "a", defaultOutputDestination: "terminal", persistence,
       queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
@@ -707,14 +707,16 @@ describeDatabase("PostgreSQL persistence", () => {
     if (!firstPage.ok) throw new Error("Concern history was not available");
     const nextCursor = (firstPage.value as { nextCursor: { occurredAt: string; id: string } }).nextCursor;
     const secondPage = await registry.execute("concern_history", { concernId: "history-old", limit: 1, cursor: nextCursor }, { ...context, idempotencyKey: "history-page-2" }, signal);
-    expect(secondPage).toEqual({ ok: true, value: expect.objectContaining({ history: [expect.any(Object)] }) });
+    expect(secondPage.ok).toBe(true);
+    if (!secondPage.ok) throw new Error("Second Concern history page was not available");
+    expect((secondPage.value as { history: readonly unknown[] }).history).toHaveLength(1);
     await pool.query("UPDATE agent_states SET concerns='[]' WHERE agent_id='a'");
   });
 
   it("FR-60, AC-15: records memory failure as blocked targets and leaves the reflection retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-fail-event','a','user-message',$1,'test','completed',now())", [{ summary: "再試行対象の出来事" }]);
     await recordExperience("reflection-fail-event", "再試行対象の出来事");
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-fail-memory"]), () => new Date("2026-01-02T00:00:00Z"), { enqueue: () => Promise.resolve(), enqueueAndWait: () => Promise.reject(new Error("memory unavailable")) });
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reflection-fail-memory"]), () => new Date("2026-01-02T00:00:00Z"), { enqueue: () => Promise.resolve(), enqueueAndWait: () => Promise.reject(new Error("memory unavailable")) });
     const input = await repository.load("reflection-fail", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     const output = { memories: [{ summary: "失敗時の記憶", significance: "再試行の確認", subjects: [], occurredAt: fixtureInstant }], concernChanges: [], relationshipChanges: [], evidenceMemoryIds: [] };
     await expect(repository.commit(input, output)).resolves.toBe("committed");
@@ -726,7 +728,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("FR-42, NFR-7: records Reflection validation paths without persisting invalid model output", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-validation-event','a','internal',$1,'test','completed',now())", [{ summary: "検証失敗を監査する" }]);
     await recordExperience("reflection-validation-event", "検証失敗を監査する");
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-validation", "a");
     if (input === undefined) throw new Error("Reflection input was not created");
     await repository.fail(input, new DomainError("VALIDATION", "Reflection output failed schema validation", { cause: { validationIssues: [{ code: "custom", path: ["selfChangeReason"], message: "selfChangeReason requires all Self fields", invalidOutput: "must-not-persist" }] } }));
@@ -744,7 +746,7 @@ describeDatabase("PostgreSQL persistence", () => {
     ])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-lifecycle-event','a','internal',$1,'test','completed',now())", [{ summary: "Concernを整理する経験" }]);
     await recordExperience("reflection-lifecycle-event", "Concernを整理する経験");
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-lifecycle", "a");
     if (input === undefined) throw new Error("Reflection input was not created");
     await expect(repository.commit(input, {
@@ -781,7 +783,7 @@ describeDatabase("PostgreSQL persistence", () => {
       ('stale-presented-2','a','stale-close','presented','stale-session-2','[]','2026-01-10T00:00:00.000Z')`);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('stale-close-event','a','internal',$1,'test','completed','2026-02-10T00:00:00.000Z')", [{ summary: "Concernを再検討する" }]);
     await recordExperience("stale-close-event", "Concernを再検討する");
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
     const input = await repository.load("stale-close-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     const output = { memories: [], concernChanges: [{ operation: "upsert" as const, concern: { id: "reviewed-now", description: "今回見直す関心", whyItMatters: "まだ判断する", status: "active" as const } }], relationshipChanges: [], evidenceMemoryIds: [] };
     await expect(repository.commit(input, output)).resolves.toBe("committed");
@@ -801,7 +803,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Targeted Concern Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]',$2,'[]','Calm')", [agentId, JSON.stringify([{ id: "targeted-stale", description: "進展のないConcern", whyItMatters: "以前は重要だった", status: "active" }])]);
     await pool.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,evidence_memory_ids,occurred_at) VALUES ('targeted-stale-baseline',$1,'targeted-stale','baseline','[]','2025-12-01T00:00:00.000Z')", [agentId]);
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('targeted-close-event-1',$1,'internal',$2,'test','completed',now()-interval '1 hour')", [agentId, { summary: "Concernを再検討する" }]);
     await recordExperience("targeted-close-event-1", "Concernを再検討する");
     const first = await repository.load("targeted-close-reflection-1", agentId);
@@ -828,7 +830,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("FR-60, NFR-17: persists target attempts and leaves only failed targets retryable", async () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('target-attempt-event','a','internal',$1,'test','completed',now())", [{ summary: "対象別に統合する" }]);
     await recordExperience("target-attempt-event", "対象別に統合する");
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["target-attempt-resolution", "target-attempt-spare", "target-attempt-retry-resolution"]), () => new Date("2026-01-02T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["target-attempt-resolution", "target-attempt-spare", "target-attempt-retry-resolution"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("target-attempt-reflection", "a"); if (input === undefined) throw new Error("Reflection input was not created");
     await expect(repository.beginTarget(input, "memory")).resolves.toBe("pending");
     await repository.commitTarget(input, "memory", { output: { memories: [] }, toolExecutions: [{ callId: "reflector-tool-1", runId: input.reflectionId, eventId: input.reflectionId, name: "memory_search", input: { query: "約束" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }] });
@@ -891,7 +893,7 @@ describeDatabase("PostgreSQL persistence", () => {
       ('reconciliation-formed',$1,'self-change','今回Formationした経験','まだ後続Eventがない','2026-01-02T00:00:00Z','pending')`, [agentId]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reconciliation-later-event',$1,'internal',$2,'test','completed','2026-01-02T00:00:00Z')", [agentId, { summary: "既存Memoryより後の経験" }]);
     await pool.query("INSERT INTO memory_mutations(id,agent_id,memory_id,operation,source_event_id,intent_index,intent) VALUES ('reconciliation-formed-mutation',$1,'reconciliation-formed','create',$2,0,'{}')", [agentId, `${reflectionId}:memory:0`]);
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reconciliation-resolution-audit"]), () => new Date("2026-01-03T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reconciliation-resolution-audit"]), () => new Date("2026-01-03T00:00:00Z"));
     const session: ReflectionInput = {
       reflectionId, agentId, expectedVersion: 0,
       self: { identity: "Reconciliation Agent", disposition: "Careful", selfStory: "Story", commitments: [] },
@@ -927,7 +929,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Evidence story','[]','[]','[]','Calm')", [agentId]);
     const eventIds = Array.from({ length: 32 }, (_, index) => `reflection-evidence-event-${String(index + 1).padStart(2, "0")}`);
     for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 1, 0, index, 0)); const summary = index === 2 ? "ユーザーは展示を訪れる予定を話した" : `経験 ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, summary); }
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["reflection-memory-evidence-resolution", "reflection-memory-evidence-id"]), () => new Date("2026-03-02T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reflection-memory-evidence-resolution", "reflection-memory-evidence-id"]), () => new Date("2026-03-02T00:00:00Z"));
     const input = await repository.load("reflection-memory-evidence", agentId); if (input === undefined) throw new Error("Reflection input was not created");
     expect(input.events).toHaveLength(32);
     await repository.beginTarget(input, "memory");
@@ -952,7 +954,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Batch story','[]','[]','[]','Calm')", [agentId]);
     const eventIds = Array.from({ length: 64 }, (_, index) => `reflection-batch-event-${String(index + 1).padStart(2, "0")}`);
     for (const [index, eventId] of eventIds.entries()) { const occurredAt = new Date(Date.UTC(2026, 2, 3, 0, index, 0)); const summary = `batch experience ${String(index + 1)}`; await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'user-message',$3,'test','completed',$4)", [eventId, agentId, { summary }, occurredAt]); await recordExperience(eventId, summary); }
-    const repository = new PostgresReflectionRepository(pool, new SequenceIdGenerator(["memory-batch-resolution-0", "memory-batch-0", "memory-batch-resolution-1", "memory-batch-1", "memory-batch-resolution-2", "memory-batch-2", "memory-batch-resolution-3", "memory-batch-3"]), () => new Date("2026-03-04T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["memory-batch-resolution-0", "memory-batch-0", "memory-batch-resolution-1", "memory-batch-1", "memory-batch-resolution-2", "memory-batch-2", "memory-batch-resolution-3", "memory-batch-3"]), () => new Date("2026-03-04T00:00:00Z"));
     const input = await repository.load("reflection-memory-batches", agentId); if (input === undefined) throw new Error("Reflection input was not created");
     expect(input.events).toHaveLength(64);
     await repository.beginTarget(input, "memory");
@@ -988,7 +990,7 @@ describeDatabase("PostgreSQL persistence", () => {
     input.run = { runId: "failed-run", eventId: "failed-event", agentId: "a", occurredAt: fixtureInstant };
     input.currentSelf = { ...input.currentSelf, agentId: "a", version }; input.state = { ...input.state, agentId: "a" };
     input.availableTools = [{ name: "lookup", description: "Lookup", inputSchema: {} }];
-    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(input), new SequenceIdGenerator(["failed-tool-record"]), () => new Date(fixtureInstant));
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(input), new SequenceIdGenerator(["failed-tool-record"]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "failed-message", destination: "agent:a" });
     const event = { id: "failed-event", agentId: "a", kind: "user-message" as const, occurredAt: fixtureInstant, payload: { text: "hello" } };
     await persistence.recordFailure(message, event, input, new Error("invalid final output"), [{ callId: "tool-1", runId: "failed-run", eventId: "failed-event", name: "lookup", input: { q: "x" }, ok: true, result: { answer: 1 }, startedAt: fixtureInstant, finishedAt: fixtureInstant }]);

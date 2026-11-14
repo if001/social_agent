@@ -2,6 +2,9 @@ import type { Pool } from "pg";
 
 import type { BackgroundExperienceFile } from "../domain/contracts.js";
 import { validateBackgroundExperienceFile } from "../config/background-experience.js";
+import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
+import { backgroundExperiences } from "../infrastructure/persistence/schema.js";
+import { eq } from "drizzle-orm";
 
 /**
  * Replaces the configured background experiences for one agent.
@@ -10,38 +13,15 @@ import { validateBackgroundExperienceFile } from "../config/background-experienc
 export async function replaceBackgroundExperiences(pool: Pool, file: BackgroundExperienceFile, expectedAgentId: string): Promise<number> {
   const validated = validateBackgroundExperienceFile(file);
   if (validated.agentId !== expectedAgentId) throw new Error("Background Experience agentId does not match the target agent");
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("DELETE FROM background_experiences WHERE agent_id=$1", [validated.agentId]);
-    for (const experience of validated.experiences) {
-      await client.query(
-        `INSERT INTO background_experiences(
-          id,agent_id,occurred_at,phase,place,participants,relationship,action,feeling,outcome,lesson,importance,tags,embedding_status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending')`,
-        [
-          experience.id,
-          validated.agentId,
-          experience.occurredAt,
-          experience.phase,
-          experience.place,
-          JSON.stringify(experience.participants),
-          experience.relationship,
-          experience.action,
-          experience.feeling,
-          experience.outcome,
-          experience.lesson,
-          experience.importance,
-          JSON.stringify(experience.tags)
-        ]
-      );
-    }
-    await client.query("COMMIT");
-    return validated.experiences.length;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const database = createRuntimeDatabase(pool);
+  await database.transaction(async (tx) => {
+    await tx.delete(backgroundExperiences).where(eq(backgroundExperiences.agentId, validated.agentId));
+    if (validated.experiences.length > 0) await tx.insert(backgroundExperiences).values(validated.experiences.map((experience) => ({
+      id: experience.id, agentId: validated.agentId, occurredAt: new Date(experience.occurredAt), phase: experience.phase,
+      place: experience.place, participants: experience.participants, relationship: experience.relationship,
+      action: experience.action, feeling: experience.feeling, outcome: experience.outcome, lesson: experience.lesson,
+      importance: experience.importance, tags: experience.tags, embeddingStatus: "pending"
+    })));
+  });
+  return validated.experiences.length;
 }

@@ -5,6 +5,7 @@ import type { PredictionRecord } from "../../src/application/prediction.js";
 import type { G3Task } from "../../src/application/g3.js";
 import { PostgresG3TaskRepository } from "../../src/infrastructure/persistence/postgres-g3-task-repository.js";
 import { PostgresPredictionRepository } from "../../src/infrastructure/persistence/postgres-prediction-repository.js";
+import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
 import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 
 const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
@@ -41,7 +42,7 @@ describeDatabase("Prediction persistence", () => {
   });
 
   it("FR-48, FR-62, NFR-14: stores and loads prediction history per agent", async () => {
-    const repository = new PostgresPredictionRepository(pool);
+    const repository = new PostgresPredictionRepository(createRuntimeDatabase(pool));
     await repository.save(record("prediction-1", "event-1", "2026-10-31T00:00:00.000Z"));
     await repository.save({ ...record("prediction-2", "event-2", "2026-10-31T01:00:00.000Z"), sourceRunId: "run-2", output: { ...record("prediction-2").output, predictionEvaluations: [{ group: "g2", candidateIndex: 0, match: "primary", surprise: "none", difference: "ずれなし", interpretation: "継続", uncertainty: "低い", observed: "継続", errorDirection: "matched", effect: "unchanged" }] } });
     const latest = await repository.latest("a");
@@ -62,7 +63,7 @@ describeDatabase("Prediction persistence", () => {
       output: { ...record("prediction-legacy").output, remember: [{ content: "obsolete" }], observationCandidates: [{ summary: "obsolete" }] }
     };
     await pool.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [legacy.id, legacy.agentId, legacy.sourceEventId, legacy.sourceRunId, legacy.output, legacy.createdAt]);
-    const repository = new PostgresPredictionRepository(pool);
+    const repository = new PostgresPredictionRepository(createRuntimeDatabase(pool));
     const loaded = await repository.latest("a");
     const context = await repository.context("a");
     expect(loaded?.id).toBe("prediction-legacy");
@@ -72,10 +73,10 @@ describeDatabase("Prediction persistence", () => {
   });
 
   it("NFR-7, NFR-8: validates and persists the G3 work-item ownership snapshot", async () => {
-    const predictions = new PostgresPredictionRepository(pool);
+    const predictions = new PostgresPredictionRepository(createRuntimeDatabase(pool));
     await predictions.save(record("prediction-g3", "event-1"));
     const task: G3Task = { id: "g3-task", agentId: "a", sourcePredictionId: "prediction-g3", sourceEventId: "event-1", sourceRunId: "run-1", status: "pending", attempt: 0, deadlineAt: "2026-10-31T00:01:00Z", input: { agentId: "a", sourcePredictionId: "prediction-g3", sourceEventId: "event-1", sourceRunId: "run-1", observation: { eventId: "event-1", summary: "G3", facts: [], observedAt: "2026-10-31T00:00:00Z" }, prediction: record("prediction-g3").output }, createdAt: "2026-10-31T00:00:00Z" };
-    const repository = new PostgresG3TaskRepository(pool, "a");
+    const repository = new PostgresG3TaskRepository(createRuntimeDatabase(pool), "a");
     await repository.save(task);
     expect((await pool.query("SELECT agent_id,source_prediction_id,source_event_id,source_run_id,status,attempt,deadline_at,lease_until FROM g3_tasks WHERE id='g3-task'")).rows[0]).toMatchObject({ agent_id: "a", source_prediction_id: "prediction-g3", source_event_id: "event-1", source_run_id: "run-1", status: "pending", attempt: 0 });
     const claimed = await repository.claim("g3-task", "2026-10-31T00:00:01Z", "2026-10-31T00:00:30Z", 3);

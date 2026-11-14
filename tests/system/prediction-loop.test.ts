@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { AgentRuntime } from "../../src/application/agent-runtime.js";
 import { PredictionLoop } from "../../src/application/prediction-loop.js";

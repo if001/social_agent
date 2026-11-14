@@ -6,6 +6,7 @@ import { createOllamaEventExperienceRepairModel } from "../src/infrastructure/ag
 import { OllamaEmbeddingProvider } from "../src/infrastructure/embedding/ollama-embedding.js";
 import { PostgresExperienceIntegrationRepository } from "../src/infrastructure/persistence/postgres-experience-integration.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../src/infrastructure/persistence/postgres-memory-embedding.js";
+import { createRuntimeDatabase } from "../src/infrastructure/persistence/runtime-database.js";
 import { UuidGenerator } from "../src/infrastructure/system.js";
 
 type Options = { readonly agentId?: string; readonly apply: boolean };
@@ -30,8 +31,8 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: app.database.url.replace("postgresql+psycopg://", "postgresql://") });
   try {
     const ids = new UuidGenerator();
-    const embedding = new PostgresMemoryEmbeddingLifecycle(pool, new OllamaEmbeddingProvider(app.embedding), app.embedding.model);
-    const repository = new PostgresExperienceIntegrationRepository(pool, ids, () => new Date(), embedding);
+    const embedding = new PostgresMemoryEmbeddingLifecycle(createRuntimeDatabase(pool), new OllamaEmbeddingProvider(app.embedding), app.embedding.model);
+    const repository = new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), ids, () => new Date(), embedding);
     const candidates = await repository.missingEventExperienceCandidates(config.agentId);
     let completed = 0; let failed = 0;
     if (config.apply) {

@@ -4,8 +4,9 @@ import { resolve, sep } from "node:path";
 import type { Pool } from "pg";
 import type { InitialSelfConfig } from "../domain/contracts.js";
 import type { SchedulerTimings } from "../config/config.js";
-
-const historyTables = ["state_changes", "tool_executions", "concern_activities", "reflection_attempts", "reflection_memory_batches", "agent_runs", "events", "reflection_runs", "memory_web_evidence", "memory_subjects", "memory_mutations", "memories", "web_snapshots", "web_resources", "scheduled_tasks", "autonomous_schedules", "outbox_messages", "message_receipts", "runtime_correlations", "runtime_rate_windows"];
+import { asc, eq, sql } from "drizzle-orm";
+import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
+import { advisoryLocks, agentRuns, agents, agentStates, autonomousSchedules, concernActivities, events, memories, memoryMutations, memorySubjects, memoryWebEvidence, messageReceipts, outboxMessages, reflectionAttempts, reflectionMemoryBatches, reflectionRuns, runtimeCorrelations, runtimeRateWindows, scheduledTasks, stateChanges, toolExecutions, webResources, webSnapshots } from "../infrastructure/persistence/schema.js";
 
 // Move runtime-owned data out of the active roots; never recursively delete a configured path.
 type ResetTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> & Partial<Pick<SchedulerTimings, "concernFormationIntervalMs">>;
@@ -24,49 +25,53 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
       if (info?.isSymbolicLink()) throw new Error("Reset roots must not contain symbolic links");
     }
   }
-  const client = await pool.connect();
   const moved: { from: string; to: string }[] = [];
   let committed = false;
   try {
-    await client.query("BEGIN");
-    await client.query("SET LOCAL lock_timeout = '5s'");
-    await client.query("LOCK TABLE agents, agent_lock_keys IN EXCLUSIVE MODE");
-    const agents = (await client.query<{ id: string }>("SELECT id FROM agents ORDER BY id")).rows;
-    if (agents.length === 0) throw new Error("No agents to reset");
-    for (const { id } of agents) {
-      if (configs.filter(config => config.agent.id === id).length !== 1) throw new Error(`Exactly one initial Self config is required for ${id}`);
-      const stored = await client.query<{ key: string }>("SELECT lock_key::text AS key FROM agent_lock_keys WHERE agent_id=$1", [id]);
-      const key = stored.rows[0]?.key ?? createHash("sha256").update(id).digest().readBigInt64BE().toString();
-      const lock = await client.query<{ acquired: boolean }>("SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired", [key]);
-      if (!lock.rows[0]?.acquired) throw new Error(`Stop the bot before resetting: ${id}`);
-    }
-    for (const table of historyTables) await client.query(`DELETE FROM ${table}`);
-    for (const { id } of agents) {
+    const database = createRuntimeDatabase(pool);
+    const agentIds = await database.transaction(async (tx) => {
+      // PostgreSQL-native: reset must serialize against process advisory locks.
+      await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
+      await tx.execute(sql.raw("LOCK TABLE app.agents, app.agent_lock_keys IN EXCLUSIVE MODE"));
+      const storedAgents = await tx.select({ id: agents.id }).from(agents).orderBy(asc(agents.id));
+      if (storedAgents.length === 0) throw new Error("No agents to reset");
+      for (const { id } of storedAgents) {
+        if (configs.filter(config => config.agent.id === id).length !== 1) throw new Error(`Exactly one initial Self config is required for ${id}`);
+        const stored = await tx.select({ key: advisoryLocks.lockKey }).from(advisoryLocks).where(eq(advisoryLocks.agentId, id)).limit(1);
+        const key = stored[0]?.key ?? createHash("sha256").update(id).digest().readBigInt64BE();
+        const lock = await tx.execute(sql<{ acquired: boolean }>`SELECT pg_try_advisory_xact_lock(${key}) AS acquired`);
+        if (lock.rows[0]?.acquired !== true) throw new Error(`Stop the bot before resetting: ${id}`);
+      }
+      for (const table of [stateChanges, toolExecutions, concernActivities, reflectionAttempts, reflectionMemoryBatches, agentRuns, events, reflectionRuns, memoryWebEvidence, memorySubjects, memoryMutations, memories, webSnapshots, webResources, scheduledTasks, autonomousSchedules, outboxMessages, messageReceipts, runtimeCorrelations, runtimeRateWindows]) await tx.delete(table);
+      for (const { id } of storedAgents) {
       const config = configs.find(config => config.agent.id === id);
       if (!config) throw new Error(`Missing initial Self: ${id}`);
       const { agent, initialState } = config;
-      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle','一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する',now()+$3*interval '1 millisecond')", [`idle:${id}`, id, timings.autonomyReviewIntervalMs]);
-      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-formation','Self、経験、関係、探索領域から今後も残る関心を形成する',now()+$3*interval '1 millisecond')", [`concern-formation:${id}`, id, timings.concernFormationIntervalMs ?? timings.autonomyReviewIntervalMs]);
-      await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'reflection','蓄積したEvent logをMemoryと長期状態へ統合する',now()+$3*interval '1 millisecond')", [`reflection:${id}`, id, timings.stateReviewIntervalMs]);
+      const now = Date.now();
+      await tx.insert(autonomousSchedules).values([
+        { id: `idle:${id}`, agentId: id, kind: "idle", reason: "一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する", nextDueAt: new Date(now + timings.autonomyReviewIntervalMs) },
+        { id: `concern-formation:${id}`, agentId: id, kind: "concern-formation", reason: "Self、経験、関係、探索領域から今後も残る関心を形成する", nextDueAt: new Date(now + (timings.concernFormationIntervalMs ?? timings.autonomyReviewIntervalMs)) },
+        { id: `reflection:${id}`, agentId: id, kind: "reflection", reason: "蓄積したEvent logをMemoryと長期状態へ統合する", nextDueAt: new Date(now + timings.stateReviewIntervalMs) }
+      ]);
       const disposition = [config.family.sharedDisposition, agent.initialDisposition].join("\n");
       const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
       const commitments = agent.raisonDetre === undefined ? [] : [agent.raisonDetre];
-      await client.query("UPDATE agent_states SET disposition=$2,self_story=$3,commitments=$4,concerns=$5,relationships=$6,mood=$7,version=0,updated_at=now() WHERE agent_id=$1", [id, disposition, selfStory, JSON.stringify(commitments), JSON.stringify(initialState.concerns), JSON.stringify(initialState.relationships), initialState.mood]);
-    }
+      await tx.update(agentStates).set({ disposition, selfStory, commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood, version: 0, updatedAt: new Date() }).where(eq(agentStates.agentId, id));
+      }
     const suffix = `.before-reset-${randomUUID()}`;
     for (const from of paths) {
       const to = from + suffix;
       try { await rename(from, to); moved.push({ from, to }); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
-    await client.query("COMMIT");
+      return storedAgents.map(({ id }) => id);
+    });
     committed = true;
-    return { agents: agents.map(agent => agent.id), archivedDirectories: moved.map(item => item.to) };
+    return { agents: agentIds, archivedDirectories: moved.map(item => item.to) };
   } catch (error) {
     if (!committed) {
-      await client.query("ROLLBACK");
       for (const item of moved.reverse()) await rename(item.to, item.from);
     }
     throw error;
-  } finally { client.release(); }
+  } finally { /* transaction owns its client */ }
 }

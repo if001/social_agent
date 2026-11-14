@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   if (process.argv.slice(2).filter((value) => value !== "--").join(" ") !== "--apply") usage();
   const journal = JSON.parse(await readFile(journalPath, "utf8")) as Journal;
   const last = journal.entries.at(-1);
-  if (last?.idx !== failedMigrationIndex || last.tag.startsWith("0036_") !== true) throw new Error(`Expected an unapplied final 0036 migration, found '${last?.tag ?? "none"}'`);
+  if (last?.idx !== failedMigrationIndex || !last.tag.startsWith("0036_")) throw new Error(`Expected an unapplied final 0036 migration, found '${last?.tag ?? "none"}'`);
 
   const failedSql = resolve(root, `drizzle/${last.tag}.sql`);
   const failedSnapshot = resolve(metaDirectory, `${String(failedMigrationIndex).padStart(4, "0")}_snapshot.json`);

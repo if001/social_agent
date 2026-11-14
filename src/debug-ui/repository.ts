@@ -1,4 +1,5 @@
 import type { QueryResultRow } from "pg";
+import type { RuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
 
 export type SqlQuery = <T extends QueryResultRow>(sql: string, values?: readonly unknown[]) => Promise<readonly T[]>;
 
@@ -72,6 +73,13 @@ export type EventTrace = {
 
 export class DebugUiRepository {
   constructor(private readonly query: SqlQuery) {}
+
+  static fromDatabase(database: RuntimeDatabase): DebugUiRepository {
+    // Debug projections intentionally use repository-owned SQL for JSON-path,
+    // lateral latest-Run selection, and multi-ledger trace composition. The
+    // UI entry point receives no pg client and cannot issue arbitrary queries.
+    return new DebugUiRepository(async <T extends QueryResultRow>(statement: string, values: readonly unknown[] = []) => (await database.native.query<T>(statement, [...values])).rows);
+  }
 
   async listAgents(): Promise<readonly AgentListItem[]> {
     return this.query<AgentListItem & QueryResultRow>(`SELECT a.id,a.identity,a.family_id AS "familyId",a.active,s.updated_at AS "stateUpdatedAt"

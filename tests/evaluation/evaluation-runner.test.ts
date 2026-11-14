@@ -42,14 +42,14 @@ describe("live evaluation runner", () => {
     const drifted = { ...stateful, agentCoreInputs: stateful.agentCoreInputs.map((value) => ({ ...value, observation: { ...value.observation, summary: "different" } })) };
     expect(validateScenarioPairs([baseline, drifted])).toContain("praise: observations differ");
   });
-  it("FR-23: applies next state and records evaluation-sink delivery through the runtime executor", async () => {
+  it("FR-23: leaves commit-layer state unchanged and records evaluation-sink delivery through the runtime executor", async () => {
     const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
     const executor = new AgentCoreScenarioExecutor({ run: () => Promise.resolve({ output: { desire: "称賛へ応えたい", action: { type: "respond", content: "ありがとう" }, patch: { mood: "嬉しい" } }, toolExecutions: [] }) }, () => Promise.resolve());
     const result = await executor.execute(scenario, 1, new AbortController().signal);
     expect(result.deliverySucceeded).toBe(true);
     expect(result.deliveryRecords).toMatchObject([{ destination: "evaluation-sink", delivered: true }]);
     const states = result.nextState as Record<string, { readonly mood?: string }>;
-    expect(states["agent-a"]?.mood).toBe("嬉しい");
+    expect(states["agent-a"]?.mood).toBe("落ち着いている");
   });
   it("FR-3, NFR-7, NFR-13, AC-4: runs twenty paired variants five times and writes traceable, secret-free artifacts", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope);

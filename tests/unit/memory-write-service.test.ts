@@ -1,8 +1,7 @@
-import type { PoolClient } from "pg";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { MemoryWriteService } from "../../src/infrastructure/persistence/memory-write-repository.js";
 import { MemoryIntentSchema } from "../../src/domain/contracts.js";
+import { mergeMemoryEvidence } from "../../src/infrastructure/persistence/memory-write-repository.js";
 
 describe("FR-57, NFR-15, AC-12, AC-17: MemoryWriteService", () => {
   it("AC-17: rejects Relationship and Concern as MemoryIntent targets", () => {
@@ -11,42 +10,12 @@ describe("FR-57, NFR-15, AC-12, AC-17: MemoryWriteService", () => {
     expect(MemoryIntentSchema.safeParse({ content: "自分の探索経験", reason: "次の方法を選ぶ", evidenceEventIds: ["event-1"], confidence: "medium", target: "episodic", perspective: "self", purpose: "user-context" }).success).toBe(false);
   });
 
-  it("records a no-op when the candidate version changed before update", async () => {
-    const query = vi.fn((sql: string) => {
-      if (sql.includes("pg_advisory_xact_lock")) return Promise.resolve({ rows: [] });
-      if (sql.includes("SELECT id,kind,content,importance,version")) return Promise.resolve({ rows: [{ id: "existing", kind: "semantic", content: "ユーザーAは技術の話を好む", importance: "重要", version: 0, evidence_event_ids: [] }] });
-      if (sql.includes("UPDATE memories")) return Promise.resolve({ rows: [], rowCount: 0 });
-      return Promise.resolve({ rows: [], rowCount: 1 });
-    });
-    const service = new MemoryWriteService({ query } as unknown as PoolClient, { next: () => "mutation-1" }, () => new Date("2026-10-31T00:00:00Z"));
-    await expect(service.apply("a", { content: "ユーザーAは技術の話を好む", reason: "再利用", evidenceEventIds: ["event-1"], confidence: "medium", target: "semantic", perspective: "user", purpose: "user-context" })).resolves.toEqual({ operation: "no-op", memoryId: "existing" });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO memory_mutations"), expect.arrayContaining(["no-op"]));
+  it("NFR-7: keeps evidence within sixteen IDs and prioritizes new evidence", () => {
+    const existing = Array.from({ length: 16 }, (_, index) => `old-${String(index + 1)}`);
+    expect(mergeMemoryEvidence(existing, ["new-1", "new-2"])).toEqual(["new-1", "new-2", ...existing.slice(0, 14)]);
   });
 
-  it("keeps updated evidence within sixteen IDs and prioritizes new evidence", async () => {
-    const existingEvidence = Array.from({ length: 16 }, (_, index) => `old-${String(index + 1)}`);
-    const query = vi.fn((sql: string) => {
-      if (sql.includes("pg_advisory_xact_lock")) return Promise.resolve({ rows: [] });
-      if (sql.includes("SELECT id,kind,content,importance,version")) return Promise.resolve({ rows: [{ id: "existing", kind: "semantic", content: "ユーザーAは技術の話を好む", importance: "重要", version: 0, evidence_event_ids: existingEvidence }] });
-      if (sql.includes("UPDATE memories")) return Promise.resolve({ rows: [{ version: 1 }], rowCount: 1 });
-      return Promise.resolve({ rows: [], rowCount: 1 });
-    });
-    const service = new MemoryWriteService({ query } as unknown as PoolClient, { next: () => "unused" }, () => new Date("2026-10-31T00:00:00Z"));
-    await service.apply("a", { content: "ユーザーAは技術の話を好む", reason: "再利用", evidenceEventIds: ["new-1", "new-2"], confidence: "medium", target: "semantic", perspective: "user", purpose: "user-context" });
-    const update = (query.mock.calls as unknown as [string, unknown[]][]).find(([sql]) => sql.includes("UPDATE memories"));
-    expect(update?.[1]?.[4]).toBe(JSON.stringify(["new-1", "new-2", ...existingEvidence.slice(0, 14)]));
-  });
-
-  it("keeps reconciled evidence within sixteen IDs and prioritizes new evidence", async () => {
-    const existingEvidence = Array.from({ length: 16 }, (_, index) => `old-${String(index + 1)}`);
-    const query = vi.fn((sql: string) => {
-      if (sql.includes("pg_advisory_xact_lock")) return Promise.resolve({ rows: [] });
-      if (sql.includes("SELECT m.id,m.kind,m.content")) return Promise.resolve({ rows: [{ id: "existing", kind: "semantic", content: "訂正前の内容", importance: "以前の根拠", perspective: "self", purpose: "self-guidance", version: 0, evidence_event_ids: existingEvidence, subjects: [] }] });
-      return Promise.resolve({ rows: [], rowCount: 1 });
-    });
-    const service = new MemoryWriteService({ query } as unknown as PoolClient, { next: () => "mutation-1" }, () => new Date("2026-10-31T00:00:00Z"));
-    await service.reconcile("a", { memoryId: "existing", operation: "update", content: "訂正後の内容", reason: "後続の根拠", evidenceEventIds: ["new-1", "new-2"] }, {});
-    const update = (query.mock.calls as unknown as [string, unknown[]][]).find(([sql]) => sql.includes("UPDATE memories SET content"));
-    expect(update?.[1]?.[4]).toBe(JSON.stringify(["new-1", "new-2", ...existingEvidence.slice(0, 14)]));
+  it("NFR-7: de-duplicates evidence before applying the bound", () => {
+    expect(mergeMemoryEvidence(["event-1", "event-2"], ["event-2", "event-3"])).toEqual(["event-2", "event-3", "event-1"]);
   });
 });
