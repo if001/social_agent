@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-14
-status: created
+status: done
 type: change
 plan: []
 requirements: [追加, NFR-7, NFR-8]
@@ -27,10 +27,10 @@ requires: human
 
 ## Acceptance criteria
 
-- [ ] 追加：一次仕様への変更についてユーザー承認を得る。
-- [ ] NFR-7 / NFR-8：監査・atomic commitを失わない永続化境界が正の文書で定義される。
-- [ ] 追加：後続Issueが参照できる正本・派生・監査の用語と移行規則が定義される。
+- [x] 追加：一次仕様への変更についてユーザー承認を得る。
+- [x] NFR-7 / NFR-8：監査・atomic commitを失わない永続化境界が正の文書で定義される。
+- [x] 追加：後続Issueが参照できる正本・派生・監査の用語と移行規則が定義される。
 
 ## Tests
 
-- 追加：`spec-analyze change`でCRITICAL / HIGHがない。
+- [x] 追加：`spec-analyze change`でCRITICAL / HIGHがない。

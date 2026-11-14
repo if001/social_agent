@@ -38,7 +38,7 @@ describeDatabase("Background Experience persistence and retrieval", () => {
     await database.close();
   });
 
-  it("FR-53, FR-54, NFR-19: replaces only background experiences and preserves conversation memory", async () => {
+  it("FR-53, FR-54, FR-86, NFR-19: replaces only background experiences and preserves conversation memory", async () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,embedding_status) VALUES ('m1','a','episodic','東京で友人と話した','普通','normal',now(),now(),'pending')");
     await expect(replaceBackgroundExperiences(pool, file([
       experience("e1", "2018-04-01T00:00:00+09:00", "初期", { tags: ["散歩", "発見"], importance: "高い" }),

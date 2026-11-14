@@ -59,7 +59,7 @@
 
 ### PostgreSQL integration
 
-実migrationを一時的な隔離databaseの`app` schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern Activity、baseline migration、stale close、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。
+実migrationを一時的な隔離databaseの`app` schemaへ適用し、repositoryとtransaction境界を検証する。state version競合、rollback、advisory lock、Conversation Memory検索、Background Experience検索、Reflection commit、Concern Activity、baseline migration、stale close、Tool trace、Recent ExperienceへのTool本文非混入、Outbox冪等性、Runtime resetを含む。Prediction Evaluation、Prediction Context、memory mutation、memory-update Eventの冪等性、Memory version競合、Reflectionの対象別statusも検証する。さらに、同じ論理EventのRun retryがEvent Experienceを重複形成しないこと、Experience summary変更時にProjectionをstale化して再embeddingすること、Tool ResultがEvent Retrievalへ混入しないこと、G3 EventがExperience Integrationを経ずにProjectionを作らないことを検証する。data migration scriptはdry-runと`--apply`の結果件数、参照整合性、不一致・active work itemによる非0終了を実DBで検証する。
 
 接続設定はtest processが実行時に読み込めるが、値を標準出力やartifactへ表示しない。専用の共有test databaseは事前に`TEST_ADMIN_POSTGRES_URL`でmigration済みにする。統合テスト中は`TEST_POSTGRES_URL`でruntime検証を行い、`TEST_ADMIN_POSTGRES_URL`では不要レコードの消去だけを行う。schema・tableの作成、削除、migrationはtest suite内で行わない。共有databaseを使うため、integration test fileは並列実行しない。
 
@@ -172,6 +172,8 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-52 | System | `tests/system/g3-event.test.ts` | MainAgent再判断、G3の通知例外 |
 | FR-53 | Integration | `tests/integration/background-experience.test.ts` | 別Store、不変、起動中の上書きなし |
 | FR-54 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | Schema、AI/if001プロフィール、段階、共有経験の不在、実在人物、分布 |
+| FR-86 | Integration | `tests/integration/background-experience.test.ts` | 対象AgentのBackground Experienceだけを置換し、会話Memoryを保持する |
+| FR-87 | Unit | `tests/unit/agent-prompts.test.ts` | 自律探索のappraisalが前向きな感情へ丸めない |
 | FR-55 | Unit, Integration | `tests/unit/retrieval-service.test.ts`, `tests/integration/persistence.test.ts` | 共通rankingとadapter |
 | FR-56 | Unit, Contract | `tests/unit/memory-intent.test.ts`, `tests/contract/prediction-contracts.test.ts` | Memory kind限定、Patch/Concern経路 |
 | FR-57 | Unit, Integration | `tests/unit/memory-write-service.test.ts`, `tests/integration/persistence.test.ts` | create/update/no-op、version、直接INSERT不在 |
