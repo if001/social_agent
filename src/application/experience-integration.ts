@@ -11,7 +11,7 @@ export const EventExperienceSchema = z.object({
 }).strict().describe("commit後に形成する、Reflectionと検索のためのEvent固有経験");
 
 export const ExperienceIntegrationOutputSchema = z.object({
-  experience: EventExperienceSchema.nullable().default(null).describe("今回のEventから再利用可能な具体的経験。形成不能または保存不要ならnull"),
+  experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
   memories: z.array(z.object({ content: z.string().trim().min(1).max(16_000), reason: z.string().trim().min(1).max(16_000), target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
   relationship: z.object({ operation: z.enum(["upsert", "remove"]), currentDescription: z.string().trim().min(1).max(16_000).optional(), description: z.string().trim().min(1).max(16_000).optional(), reason: z.string().trim().min(1).max(800) }).strict().optional().describe("今回のactorとの関係候補。IDを出さず、Runtimeがactorと現在本文から対象を解決する"),
   mood: MoodSchema.optional().describe("次の複数Eventに残る背景的な気分。今回だけのFeelingや待機理由は入れない")

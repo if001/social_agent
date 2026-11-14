@@ -1,4 +1,4 @@
-import { ExperienceIntegration, memorySubjectsForIntegration } from "../../src/application/experience-integration.js";
+import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubjectsForIntegration } from "../../src/application/experience-integration.js";
 import { experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 
@@ -9,16 +9,22 @@ const input = () => {
 };
 
 describe("ExperienceIntegration", () => {
+  it("FR-82: requires an Event-specific Experience even when no long-term Memory is retained", () => {
+    expect(ExperienceIntegrationOutputSchema.safeParse({ experience: null, memories: [] }).success).toBe(false);
+    expect(ExperienceIntegrationOutputSchema.parse({ experience: { summary: "展示の予定を確認した", facts: ["ユーザーは週末に展示へ行く予定だと話した"] }, memories: [] })).toMatchObject({ experience: { summary: "展示の予定を確認した" }, memories: [] });
+  });
+
   it("FR-82: states the ID-free Memory candidate contract and the empty-memory form", () => {
     for (const field of ["content", "reason", "target", "perspective", '{"memories":[]}']) expect(experienceIntegrationSystemPrompt).toContain(field);
     expect(experienceIntegrationSystemPrompt).not.toContain("evidenceEventIds");
+    expect(experienceIntegrationSystemPrompt).toContain("必ず形成する");
     expect(experienceIntegrationSystemPrompt).toContain("変化がなければ省略します");
     expect(experienceIntegrationSystemPrompt).not.toContain("省略または空配列");
   });
 
   it("AC-017-1: uses the committed Core context and saves user memory with only the current actor as subject", async () => {
     const request = input(); const applied: unknown[] = [];
-    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ memories: [{ content: "ユーザーは来週旅行に行く予定だと話した", reason: "次回の自然な問いかけに使う", target: "episodic", perspective: "user" }] }) });
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ experience: { summary: "ユーザーが来週の旅行予定を話した", facts: ["来週に旅行へ行く予定がある"] }, memories: [{ content: "ユーザーは来週旅行に行く予定だと話した", reason: "次回の自然な問いかけに使う", target: "episodic", perspective: "user" }] }) });
     await integration.process(request, new AbortController().signal);
     expect(memorySubjectsForIntegration(request, (applied[0] as { memories: [] }).memories)).toEqual([["user-1"]]);
   });
@@ -40,7 +46,7 @@ describe("ExperienceIntegration", () => {
 
   it("AC-017-6: retries a persisted pending Integration during a later drain", async () => {
     const request = input(); let applied = 0;
-    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("duplicate" as const), pending: () => Promise.resolve([request]), apply: () => { applied += 1; return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ memories: [] }) });
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("duplicate" as const), pending: () => Promise.resolve([request]), apply: () => { applied += 1; return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ experience: { summary: "予定を確認した", facts: ["ユーザーの予定を確認した"] }, memories: [] }) });
     await integration.retryPending(new AbortController().signal);
     expect(applied).toBe(1);
   });
@@ -56,7 +62,7 @@ describe("ExperienceIntegration", () => {
     const request = input(); const applied: unknown[] = []; const repairs: unknown[] = [];
     const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, {
       integrate: () => Promise.resolve({ memories: [{ content: "ユーザーは週末に展示へ行く予定", perspective: "user", purpose: "user-context" }] } as never),
-      repair: (_input, issues) => { repairs.push(issues); return Promise.resolve({ memories: [{ content: "ユーザーは週末に展示へ行く予定", reason: "週明けに結果を自然に尋ねられる", target: "episodic", perspective: "user" }] }); }
+      repair: (_input, issues) => { repairs.push(issues); return Promise.resolve({ experience: { summary: "ユーザーが週末の展示予定を話した", facts: ["週末に展示へ行く予定がある"] }, memories: [{ content: "ユーザーは週末に展示へ行く予定", reason: "週明けに結果を自然に尋ねられる", target: "episodic", perspective: "user" }] }); }
     });
     await integration.process(request, new AbortController().signal);
     expect(repairs).toHaveLength(1);

@@ -523,6 +523,48 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTrace.toolExecutions);
   });
 
+  it("FR-82, FR-78: persists an Event Experience without a long-term Memory and exposes it to Reflection", async () => {
+    const agentId = "experience-projection-agent";
+    const eventId = "experience-projection-event";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Experience Projection Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','[]','Calm')", [agentId]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'internal',$3,'test','completed',$4)", [eventId, agentId, { summary: "展示の予定を確かめた" }, fixtureInstant]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-projection-run',$1,$2,0,$3,$4,$4)", [agentId, eventId, { output: { desire: "予定を整理したい", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
+    const core = agentCoreInputFixture();
+    const input = { ...core, run: { ...core.run, agentId, eventId, runId: "experience-projection-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
+    const request = { integrationId: "experience-projection-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: {} }, sourceRunId: input.run.runId, input, result: { output: { desire: "予定を整理したい", action: { type: "no-external-action" as const, reason: "maintenance" } }, toolExecutions: [] } };
+    const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    await repository.begin(request);
+    await pool.query("INSERT INTO event_projections(event_id,agent_id,kind,content,subjects,occurred_at,embedding_status) VALUES ($1,$2,'internal','古いprojection','[]',$3,'pending')", [eventId, agentId, fixtureInstant]);
+    await repository.apply(request, { experience: { summary: "展示の予定を確かめた", facts: ["展示の予定を確認した"] }, memories: [] });
+    expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id=$1", [eventId])).rowCount).toBe(1);
+    expect((await pool.query<{ content: string }>("SELECT content FROM event_projections WHERE event_id=$1", [eventId])).rows[0]?.content).toBe("展示の予定を確かめた");
+    await expect((new PostgresReflectionRepository(pool, new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"))).load("experience-projection-reflection", agentId)).resolves.toMatchObject({ events: [expect.objectContaining({ id: eventId, summary: "展示の予定を確かめた" })] });
+  });
+
+  it("FR-82: repairs only the Event Experience of completed Integrations after the latest Reflection", async () => {
+    const agentId = "experience-requeue-agent";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Experience Requeue Agent','Careful')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','[]','Calm')", [agentId]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('experience-requeue-event',$1,'internal',$2,'test','completed',$3)", [agentId, { summary: "補完対象のEvent" }, fixtureInstant]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-requeue-run',$1,'experience-requeue-event',0,$2,$3,$3)", [agentId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
+    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input,output,completed_at) VALUES ('experience-requeue-integration',$1,'experience-requeue-event','experience-requeue-run','completed','{}',$2,$3)", [agentId, { experience: null, memories: [] }, fixtureInstant]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('experience-requeue-old-event',$1,'internal',$2,'test','completed','2026-01-01T00:00:00.000Z')", [agentId, { summary: "既にReflection済みのEvent" }]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-requeue-old-run',$1,'experience-requeue-old-event',0,$2,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')", [agentId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }]);
+    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input,output,completed_at) VALUES ('experience-requeue-old-integration',$1,'experience-requeue-old-event','experience-requeue-old-run','completed','{}',$2,'2026-01-01T00:00:00.000Z')", [agentId, { experience: null, memories: [] }]);
+    await pool.query("INSERT INTO reflection_runs(id,agent_id,input_state_version,status,input,completed_at) VALUES ('experience-requeue-reflection',$1,0,'completed',$2,'2026-01-02T00:01:00.000Z')", [agentId, { eventWindowEnd: "2026-01-02T00:00:00.000Z" }]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('experience-requeue-tool-event',$1,'tool-result',$2,'test','completed',$3)", [agentId, { summary: "検索結果" }, fixtureInstant]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('experience-requeue-tool-run',$1,'experience-requeue-tool-event',0,$2,$3,$3)", [agentId, { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
+    await pool.query("INSERT INTO experience_integrations(id,agent_id,source_event_id,source_run_id,status,input,output,completed_at) VALUES ('experience-requeue-tool-integration',$1,'experience-requeue-tool-event','experience-requeue-tool-run','completed','{}',$2,$3)", [agentId, { experience: null, memories: [] }, fixtureInstant]);
+    const repository = new PostgresExperienceIntegrationRepository(pool, new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    await expect(repository.missingEventExperienceCandidates(agentId)).resolves.toEqual([{ id: "experience-requeue-integration", agentId }]);
+    const core = agentCoreInputFixture();
+    const input = { ...core, run: { ...core.run, agentId, eventId: "experience-requeue-event", runId: "experience-requeue-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId: "experience-requeue-event" }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
+    await repository.repairEventExperience({ integrationId: "experience-requeue-integration", agentId, sourceEvent: { id: "experience-requeue-event", agentId, kind: "internal", occurredAt: fixtureInstant, payload: {} }, sourceRunId: "experience-requeue-run", input, result: { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] } }, { summary: "補完対象のEventを整理した", facts: ["Event Experienceを補完した"] });
+    expect((await pool.query<{ status: string; mood: string; output: { memories: unknown[]; experience: { summary: string } } }>("SELECT i.status,i.output,s.mood FROM experience_integrations i JOIN agent_states s ON s.agent_id=i.agent_id WHERE i.id='experience-requeue-integration' ")).rows[0]).toMatchObject({ status: "completed", mood: "Calm", output: { memories: [], experience: { summary: "補完対象のEventを整理した" } } });
+    expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id='experience-requeue-event'")).rowCount).toBe(1);
+  });
+
   it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {
     await pool.query("UPDATE agent_states SET concerns=$2 WHERE agent_id=$1", ["a", JSON.stringify([{ id: "concern-1", description: "信頼を守る方法を確認する", whyItMatters: "約束を重視している", status: "active" }])]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
