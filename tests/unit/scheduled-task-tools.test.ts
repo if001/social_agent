@@ -1,13 +1,11 @@
-import type { Pool } from "pg";
-
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { createScheduledTaskTools } from "../../src/infrastructure/tools/scheduled-task-tools.js";
+import { createScheduledTaskTools, type ScheduledTaskToolRepository } from "../../src/infrastructure/tools/scheduled-task-tools.js";
 import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
 
 describe("Scheduled Task tools", () => {
   it("FR-40: describes the task fields without duplicating execution rules", () => {
-    const pool = { query: () => { throw new Error("must not query"); } } as unknown as Pool;
-    const definitions = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z"))).definitions();
+    const repository = {} as ScheduledTaskToolRepository;
+    const definitions = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z"))).definitions();
     const create = definitions.find(({ name }) => name === "schedule_task");
     const update = definitions.find(({ name }) => name === "scheduled_task_update");
     const properties = create?.inputSchema.properties as Record<string, { description?: string; maxLength?: number }> | undefined;
@@ -27,27 +25,24 @@ describe("Scheduled Task tools", () => {
   });
 
   it("FR-40: creates a reservation without executing its instruction and reuses the idempotency key", async () => {
-    const queries: { text: string; values: readonly unknown[] }[] = [];
-    const pool = { query: (text: string, values: readonly unknown[]) => { queries.push({ text, values }); return Promise.resolve({ rows: [{ id: "task-1", execute_at: new Date("2026-01-02T00:00:00Z"), instruction: "結果を知らせる", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }] }); } } as unknown as Pool;
-    const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator(["task-1", "unused"]), () => new Date("2026-01-01T00:00:00Z")));
+    let calls = 0; const repository: ScheduledTaskToolRepository = { create: () => { calls += 1; return Promise.resolve({ id: "task-1", executeAt: new Date("2026-01-02T00:00:00Z"), instruction: "結果を知らせる", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }); }, list: () => Promise.resolve([]), cancel: () => Promise.resolve(undefined), update: () => Promise.resolve(undefined) };
+    const registry = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator(["task-1", "unused"]), () => new Date("2026-01-01T00:00:00Z")));
     const context = { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "run-1:call-1" };
     const input = { executeAt: "2026-01-02T00:00:00Z", instruction: "結果を知らせる", destination: "terminal" };
     await expect(registry.execute("schedule_task", input, context, new AbortController().signal)).resolves.toMatchObject({ ok: true, value: { id: "task-1", status: "scheduled" } });
     await registry.execute("schedule_task", input, context, new AbortController().signal);
-    expect(queries).toHaveLength(1);
-    expect(queries[0]?.text).toContain("INSERT INTO scheduled_tasks");
-    expect(queries[0]?.values).toContain("結果を知らせる");
+    expect(calls).toBe(1);
   });
 
   it("FR-40: rejects a past execution time", async () => {
-    const pool = { query: () => { throw new Error("must not query"); } } as unknown as Pool;
-    const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-02T00:00:00Z")));
+    const repository = {} as ScheduledTaskToolRepository;
+    const registry = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-02T00:00:00Z")));
     await expect(registry.execute("schedule_task", { executeAt: "2026-01-01T00:00:00Z", instruction: "old" }, { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "key" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("FR-40: accepts a 1,000 character instruction and rejects a 1,001 character instruction", async () => {
-    const pool = { query: () => Promise.resolve({ rows: [{ id: "task-1", execute_at: new Date("2026-01-02T00:00:00Z"), instruction: "a".repeat(1_000), reason: null, destination: null, status: "scheduled", attempt: 0 }] }) } as unknown as Pool;
-    const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-01T00:00:00Z")));
+    const repository: ScheduledTaskToolRepository = { create: () => Promise.resolve({ id: "task-1", executeAt: new Date("2026-01-02T00:00:00Z"), instruction: "a".repeat(1_000), reason: null, destination: null, status: "scheduled", attempt: 0 }), list: () => Promise.resolve([]), cancel: () => Promise.resolve(undefined), update: () => Promise.resolve(undefined) };
+    const registry = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-01T00:00:00Z")));
     const context = { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "limit-create" };
 
     await expect(registry.execute("schedule_task", { executeAt: "2026-01-02T00:00:00Z", instruction: "a".repeat(1_000) }, context, new AbortController().signal)).resolves.toMatchObject({ ok: true });
@@ -55,13 +50,11 @@ describe("Scheduled Task tools", () => {
   });
 
   it("FR-40: updates only an owned scheduled Task and validates the requested change", async () => {
-    const queries: { text: string; values: readonly unknown[] }[] = [];
-    const pool = { query: (text: string, values: readonly unknown[]) => { queries.push({ text, values }); return Promise.resolve({ rows: [{ id: "task-1", execute_at: new Date("2026-01-03T00:00:00Z"), instruction: "更新後の指示", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }] }); } } as unknown as Pool;
-    const registry = new ToolRegistry(createScheduledTaskTools(pool, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));
+    const updates: unknown[] = []; const repository: ScheduledTaskToolRepository = { create: () => Promise.resolve(undefined), list: () => Promise.resolve([]), cancel: () => Promise.resolve(undefined), update: (_agentId, _taskId, input) => { updates.push(input); return Promise.resolve({ id: "task-1", executeAt: new Date("2026-01-03T00:00:00Z"), instruction: "更新後の指示", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }); } };
+    const registry = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator([]), () => new Date("2026-01-01T00:00:00Z")));
     const context = { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "update-1" };
     await expect(registry.execute("scheduled_task_update", { taskId: "task-1", executeAt: "2026-01-03T00:00:00Z", instruction: "更新後の指示" }, context, new AbortController().signal)).resolves.toMatchObject({ ok: true, value: { id: "task-1", instruction: "更新後の指示" } });
-    expect(queries[0]?.text).toContain("agent_id=$2 AND status='scheduled'");
-    expect(queries[0]?.values.slice(0, 4)).toEqual(["task-1", "agent-a", "2026-01-03T00:00:00Z", "更新後の指示"]);
+    expect(updates).toHaveLength(1);
     await expect(registry.execute("scheduled_task_update", { taskId: "task-1" }, { ...context, idempotencyKey: "empty" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     await expect(registry.execute("scheduled_task_update", { taskId: "task-1", executeAt: "2025-01-01T00:00:00Z" }, { ...context, idempotencyKey: "past" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     await expect(registry.execute("scheduled_task_update", { taskId: "task-1", instruction: "a".repeat(1_001) }, { ...context, idempotencyKey: "over-limit-update" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });

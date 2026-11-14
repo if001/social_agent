@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 
 import { EventExperienceSchema, memorySubjectsForIntegration, type ExperienceIntegrationInput, type ExperienceIntegrationOutput, type ExperienceIntegrationRepository } from "../../application/experience-integration.js";
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
-import { MemoryWriteService } from "../../application/memory-write-service.js";
+import { MemoryWriteService } from "./memory-write-repository.js";
 import { errorLogContext } from "../../observability/logger.js";
 import { AgentStateRepository, PostgresUnitOfWork } from "./postgres.js";
 import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent, type MemoryIntent } from "../../domain/contracts.js";

@@ -2,7 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 import type { z } from "zod";
 
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
-import { MemoryWriteService } from "../../application/memory-write-service.js";
+import { MemoryWriteService } from "./memory-write-repository.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";

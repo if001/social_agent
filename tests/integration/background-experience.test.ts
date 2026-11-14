@@ -1,8 +1,10 @@
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { BackgroundExperienceFile } from "../../src/domain/contracts.js";
 import { PostgresRetrievalService } from "../../src/infrastructure/persistence/postgres-retrieval-service.js";
+import { PostgresAgentContextToolRepository } from "../../src/infrastructure/persistence/postgres-agent-context-tool-repository.js";
+import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
 import { replaceBackgroundExperiences } from "../../src/operations/background-experiences.js";
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
 import { FakeEmbeddingProvider } from "../../src/infrastructure/embedding/ollama-embedding.js";
@@ -63,7 +65,7 @@ describeDatabase("Background Experience persistence and retrieval", () => {
     expect((await service.retrieve({ agentId: "a", query: "東京", scope: "conversation", limit: 5 })).every(({ source }) => source === "conversation")).toBe(true);
     expect(await service.retrieve({ agentId: "b", query: "東京", scope: "all", limit: 5 })).toEqual([]);
 
-    const tool = createAgentContextTools(pool, service).find(({ name }) => name === "retrieval_search");
+    const tool = createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool), service)).find(({ name }) => name === "retrieval_search");
     const result = await tool?.execute({ query: "東京", scope: "all", limit: 5 }, { agentId: "a", runId: "run", idempotencyKey: "retrieval" }, new AbortController().signal);
     expect(result?.ok).toBe(true);
     if (result?.ok !== true || typeof result.value !== "object" || result.value === null || !("items" in result.value)) throw new Error("Expected retrieval items");

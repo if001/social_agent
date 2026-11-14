@@ -1,7 +1,7 @@
 import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
 import type { MemoryIntent, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
 import type { IdGenerator, MemoryEmbedding, MemoryEmbeddingPreparer } from "../../application/ports.js";
-import { MemoryWriteService, type MemoryCandidate } from "../../application/memory-write-service.js";
+import { MemoryWriteService, type MemoryCandidate } from "./memory-write-repository.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
 

@@ -28,6 +28,10 @@ import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgr
 import { PostgresExperienceIntegrationRepository } from "../infrastructure/persistence/postgres-experience-integration.js";
 import { createOllamaExperienceIntegrationModel } from "../infrastructure/agent/experience-integration-harness.js";
 import { PostgresReflectionRepository } from "../infrastructure/persistence/postgres-reflection.js";
+import { PostgresScheduledTaskToolRepository } from "../infrastructure/persistence/postgres-scheduled-task-tool-repository.js";
+import { PostgresAgentContextToolRepository } from "../infrastructure/persistence/postgres-agent-context-tool-repository.js";
+import { PostgresMemoryUpdateRepository } from "../infrastructure/persistence/postgres-memory-update-repository.js";
+import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
 import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
 import { noopLogger, type Logger } from "../observability/logger.js";
@@ -55,10 +59,11 @@ export function createBotComposition(options: BotCompositionOptions) {
   const queue = options.queue ?? new AddressedFileQueue(config.queueRoot);
   const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 27, maxToolCalls: 25, maxHops: 4, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
+  const database = createRuntimeDatabase(pool);
   const retrievalService = new PostgresRetrievalService(pool, embeddingProvider);
   const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(pool, embeddingProvider, config.embedding.model);
   const predictionRepository = new PostgresPredictionRepository(pool);
-  const memoryUpdateHandler = new MemoryUpdateHandler(pool, ids, () => clock.now(), retrievalService, memoryEmbedding);
+  const memoryUpdateHandler = new MemoryUpdateHandler(new PostgresMemoryUpdateRepository(database, ids, () => clock.now(), retrievalService, memoryEmbedding));
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
   const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(pool, ids, () => clock.now(), memoryEmbedding), createOllamaExperienceIntegrationModel(config.chat, logger)), ids);
   const runtimeRef: { current?: AgentRuntime } = {};
@@ -69,11 +74,11 @@ export function createBotComposition(options: BotCompositionOptions) {
   } };
   const webArchive = new PostgresWebArchive(pool, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
-    ...createAgentContextTools(pool, retrievalService),
+    ...createAgentContextTools(new PostgresAgentContextToolRepository(database, retrievalService)),
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
     ...createSkillTools({ skillsRoot: resolve(process.cwd(), "skills") }),
-    ...createScheduledTaskTools(pool, ids, () => clock.now()),
+    ...createScheduledTaskTools(new PostgresScheduledTaskToolRepository(database), ids, () => clock.now()),
     createAgentSendTool({ queue, clock, maxHops: limits.maxHops, provenance: (context) => ({
       parentHop: context.transport?.hop ?? 0,
       expiresAt: context.transport?.expiresAt ?? new Date(clock.now().getTime() + 86_400_000).toISOString(),

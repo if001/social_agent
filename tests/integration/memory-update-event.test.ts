@@ -1,7 +1,9 @@
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { MemoryUpdateHandler } from "../../src/application/memory-update.js";
+import { PostgresMemoryUpdateRepository } from "../../src/infrastructure/persistence/postgres-memory-update-repository.js";
+import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
 import type { DomainEvent } from "../../src/domain/contracts.js";
 import { createIntegrationDatabase, integrationDatabaseConfigured } from "../support/integration-database.js";
 
@@ -38,12 +40,12 @@ describeDatabase("memory-update Event", () => {
 
   it("FR-58, FR-61, AC-13: applies intents without an LLM and is idempotent", async () => {
     const embedded: string[] = [];
-    const handler = new MemoryUpdateHandler(pool, { next: () => `id-${String(++sequence)}` }, () => new Date("2026-10-31T00:00:00Z"), undefined, {
+    const handler = new MemoryUpdateHandler(new PostgresMemoryUpdateRepository(createRuntimeDatabase(pool), { next: () => `id-${String(++sequence)}` }, () => new Date("2026-10-31T00:00:00Z"), undefined, {
       prepareMemory: (content) => {
         embedded.push(content);
         return Promise.resolve({ status: "ready" as const, vector: Array.from({ length: 768 }, () => 0), model: "fake", dimension: 768 });
       }
-    });
+    }));
     const first = await handler.handle(event(["event-1"]));
     expect(first.map(({ result }) => result.operation)).toEqual(["create", "no-op"]);
     const second = await handler.handle(event(["event-1"]));

@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
-import { MemoryWriteService } from "../../src/application/memory-write-service.js";
+import { MemoryWriteService } from "../../src/infrastructure/persistence/memory-write-repository.js";
 import { MemoryIntentSchema } from "../../src/domain/contracts.js";
 
 describe("FR-57, NFR-15, AC-12, AC-17: MemoryWriteService", () => {
