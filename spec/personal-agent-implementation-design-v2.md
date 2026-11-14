@@ -734,6 +734,10 @@ Reflectorに公開するread-only ToolはReflection専用adapterとする。検�
 
 Runtimeはresolver version、query要約、候補数、採用・却下根拠、score、時系列判定、最終分類を監査する。軽量Reflector callはSession共有の設定可能な予算を持ち、既定32、上限96、並列数は既定4とする。候補が尽きた場合は予算を使い切らず終了する。
 
+### 23.1.3 Reflection Sessionの監査保存
+
+Session共通の初期Self、State、Event窓、Memory窓は`reflection_runs`に一度だけ固定する。先行passのcommit後に入力が変わるtargetは、実際に使ったSelf、State、Event窓、Memory窓を同じ親Sessionのtarget snapshotとして保存する。Reconciliationで初期窓外から選んだanchorも、モデル実行前に親Sessionへ追記する。targetとMemory batchの子監査recordは、target、batch index、Event ID、anchor Memory IDなど再開対象を示すselectorと、結果、statusだけを保持し、snapshot本文を複写しない。Tool実行は1 call 1 recordとしてReflection、target、任意のbatch / anchorへ関連付ける。retryは完了済みtarget / batch / anchorを再実行せず、失敗scopeのTool traceだけを置換する。Agent所有者はSessionから導出し、子recordの独立した正本にしない。
+
 ### 23.2 Reflectionの制約
 
 - 入力にない事実、ID、日時、関係を作らない。
