@@ -33,8 +33,9 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
       const serializedMessages = JSON.stringify(messages);
       if (modelCall > context.maxModelCalls) throw new DomainError("VALIDATION", "Final structured output could not be produced within the model call limit");
       const toolLimitReached = context.collector.count >= context.maxToolCalls;
-      const finalizing = context.collector.structuredOutputFailed || toolLimitReached || modelCall === context.maxModelCalls;
-      const finalizingReason = context.collector.structuredOutputFailed ? "structured-output-repair" : toolLimitReached ? "tool-call-limit" : modelCall === context.maxModelCalls ? "model-call-budget" : undefined;
+      const explorationBudgetReached = modelCall > context.maxExplorationModelCalls;
+      const finalizing = context.collector.structuredOutputFailed || toolLimitReached || explorationBudgetReached;
+      const finalizingReason = context.collector.structuredOutputFailed ? "structured-output-repair" : toolLimitReached ? "tool-call-limit" : explorationBudgetReached ? "reserved-finalization" : undefined;
       const phaseTools = request.tools.filter((candidate) => {
         const name = toolName(candidate);
         if (name === "read_file") return false;

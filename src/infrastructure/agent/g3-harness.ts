@@ -7,6 +7,7 @@ import { G3OutputSchema } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { createDeepAgentTools, createDeepAgentToolRunContext, DeepAgentToolRunContextSchema } from "./deep-agent-tools.js";
+import { createAgentCoreMiddleware } from "./deep-agent-middleware.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { toModelRecordView } from "./model-record-view.js";
 
@@ -21,6 +22,7 @@ export const g3SystemPrompt = `あなたはAgentのG3担当です。ユーザー
 - newHypotheses: 新しい仮説
 - findings: 調査結果
 - memories: Memory候補。content、reason、target、perspectiveだけを返す。根拠Event、subject、更新対象はRuntimeが検索結果から解決する
+- 4つの配列を常に返す。該当しない項目は空配列にする
 
 制約:
 - Memoryを直接書き換えない
@@ -41,11 +43,11 @@ export function createOllamaG3Model(config: OllamaChatConfig & { readonly toolRe
     logger.log("warn", "g3.structured_output_invalid", errorLogContext(error));
     return "最終出力がSchema不一致です。本文やMarkdownを返さず、構造化出力専用Toolを1回だけ呼んでください。";
   } });
-  const agent = createDeepAgent({ model, tools, systemPrompt: g3SystemPrompt, responseFormat, contextSchema: DeepAgentToolRunContextSchema });
+  const agent = createDeepAgent({ model, tools, systemPrompt: g3SystemPrompt, responseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware: [createAgentCoreMiddleware(registry, logger, () => new Date())] });
   return {
     async analyze(input: G3Input, signal: AbortSignal): Promise<G3ModelResult> {
       try {
-        const context = createDeepAgentToolRunContext({ agentId: input.agentId, runId: input.sourcePredictionId, eventId: input.sourceEventId, eventKind: "internal", maxModelCalls: 4, maxToolCalls: 8, signal });
+        const context = createDeepAgentToolRunContext({ agentId: input.agentId, runId: input.sourcePredictionId, eventId: input.sourceEventId, eventKind: "internal", maxModelCalls: 4, maxExplorationModelCalls: 2, maxToolCalls: 8, signal });
         const result = await agent.invoke({ messages: [{ role: "user", content: JSON.stringify(toModelRecordView(input)) }] }, { signal, recursionLimit: 16, context });
         return { output: G3OutputSchema.parse(result.structuredResponse), toolEvidence: context.collector.executions.map(({ name, ok, result: toolResult, error }) => ({ name, ok, ...(toolResult === undefined ? {} : { result: toolResult }), ...(error === undefined ? {} : { error }) })) };
       } catch (error) {

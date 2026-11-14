@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { G3Service, MemoryG3ResultSink, type G3Input, type G3ModelResult, type G3Output, type G3ResultSink, type G3Task, type G3TaskRepository } from "../../src/application/g3.js";
+import { DomainError } from "../../src/domain/contracts.js";
 import type { PredictionOutput } from "../../src/domain/contracts.js";
 
 const prediction: PredictionOutput = {
@@ -30,9 +31,10 @@ describe("FR-51, FR-52, AC-16: G3", () => {
     const result = { handle: vi.fn(() => Promise.resolve()) };
     const task: G3Task = { id: "g3-task", agentId: "a", sourcePredictionId: "prediction-1", sourceEventId: "event-1", sourceRunId: "run-1", status: "running", attempt: 1, deadlineAt: "2026-11-01T00:01:00.000Z", leaseUntil: "2026-11-01T00:01:00.000Z", input, createdAt: "2026-11-01T00:00:00.000Z" };
     const repo: G3TaskRepository = { save: () => Promise.resolve(), claim: () => Promise.resolve(task), claimDue: () => Promise.resolve(undefined), saveResult: () => Promise.resolve(true), complete: () => Promise.resolve(true), retryOrFail: (_id, _lease, reason) => { failed.push(reason); return Promise.resolve(); } };
-    const service = new G3Service(repo, { analyze: () => Promise.reject(new Error("provider")) }, result, { next: () => "g3-task" }, () => new Date("2026-11-01T00:00:00Z"));
+    const providerError = new DomainError("EXTERNAL", "G3 provider failed", { cause: new Error("structured output rejected") });
+    const service = new G3Service(repo, { analyze: () => Promise.reject(providerError) }, result, { next: () => "g3-task" }, () => new Date("2026-11-01T00:00:00Z"));
     await expect(service.run(input, new AbortController().signal)).resolves.toBeUndefined();
-    expect(failed).toEqual(["provider"]);
+    expect(JSON.parse(failed[0] ?? "{}")).toMatchObject({ errorType: "DomainError", errorCode: "EXTERNAL", errorMessage: "G3 provider failed", causes: [{ type: "Error", message: "structured output rejected" }] });
     expect(result.handle).not.toHaveBeenCalled();
   });
 

@@ -435,7 +435,12 @@ export const G3OutputSchema = z.object({
   hypothesisEvaluations: z.array(G3HypothesisEvaluationSchema).max(6).describe("前回仮説の評価。仮説がなければ空配列"),
   newHypotheses: z.array(NaturalLanguage).max(5).describe("新しく立てた仮説"),
   findings: z.array(NaturalLanguage).max(5).describe("ToolやMemoryから得た調査結果"),
-  memories: z.array(z.object({ content: NaturalLanguage, reason: NaturalLanguage, target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("G3が意味づけたMemory候補。根拠Event、subject、更新対象はRuntimeが検索結果から解決する")
+  memories: z.array(z.object({
+    content: NaturalLanguage.describe("今後も再利用できる経験として残す短い内容。入力又はTool結果に根拠がある事実・経験だけを書く"),
+    reason: NaturalLanguage.describe("この候補を残す理由。今回のObservation、予測評価、又はTool結果との関係を短く書く"),
+    target: MemoryIntentTargetSchema,
+    perspective: MemoryPerspectiveSchema
+  }).strict()).max(3).describe("G3が意味づけたMemory候補。根拠Event、subject、更新対象はRuntimeが検索結果から解決する")
 }).strict().describe("G3の構造化出力");
 export type G3EvaluationOutput = z.infer<typeof G3OutputSchema>;
 

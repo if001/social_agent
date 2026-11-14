@@ -69,6 +69,23 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     expect(visible).not.toContain("concern_list"); expect(visible).not.toContain("concern_get"); expect(visible).toContain("self_get");
   });
 
+  it("FR-12, FR-13: reserves two Tool-free calls for structured output after exploration", async () => {
+    const definitions = [{ name: "lookup", description: "Lookup", schema: z.object({}), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true as const }) }];
+    const middleware = createAgentCoreMiddleware(new ToolRegistry(definitions), noopLogger, () => new Date(fixtureInstant)) as unknown as {
+      wrapModelCall(request: { tools: { name: string }[]; messages: { type: string; content: string }[]; systemMessage: { content: string }; runtime: { context: ReturnType<typeof createDeepAgentToolRunContext> } }, handler: (request: { tools: { name: string }[] }) => Promise<unknown>): Promise<unknown>
+    };
+    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "reserved-final", eventId: "reserved-final-event", maxModelCalls: 4, maxExplorationModelCalls: 2, maxToolCalls: 8, signal: new AbortController().signal });
+    const request = { tools: [{ name: "lookup" }], messages: [], systemMessage: { content: "system" }, runtime: { context: runContext } };
+    const visible: string[][] = [];
+    const handler = (effective: { tools: { name: string }[] }) => { visible.push(effective.tools.map(({ name }) => name)); return Promise.resolve({ content: "done" }); };
+    await middleware.wrapModelCall(request, handler);
+    await middleware.wrapModelCall(request, handler);
+    await middleware.wrapModelCall(request, handler);
+    await middleware.wrapModelCall(request, handler);
+    expect(visible).toEqual([["lookup"], ["lookup"], [], []]);
+    await expect(middleware.wrapModelCall(request, handler)).rejects.toMatchObject({ code: "VALIDATION", message: "Final structured output could not be produced within the model call limit" });
+  });
+
   it("FR-11, FR-33, NFR-5: configures the compatibility adapter with the requested bounded Tool budget", async () => {
     let effects = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "lookup", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { effects += 1; return Promise.resolve({ ok: true, value: { answer: 42 } }); } }]);

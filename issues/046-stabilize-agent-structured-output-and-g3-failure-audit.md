@@ -50,3 +50,10 @@ requires: agent
 ## 上流への反映
 
 - 不要：既存のFR-12、FR-13、FR-51、FR-52、NFR-4、NFR-21で要求済み。
+
+## 実装メモ
+
+- idle失敗Runの計測では、system promptは約901 token、flat output schemaは約417 token、Tool schema群は約4,936 tokenだった。過剰な出力fieldではなく、探索が25 Tool callまで進んだ後にfinal structured outputへ移るmodel-call枠が1回しかないことが主因だった。
+- total model-call budget内に、Tool-free finalizationとschema repairの2 callを予約する。G3にも同じ境界を適用する。
+- G3 taskのfailure reasonには、top-level wrapperだけでなく、sanitize済みのerror code/message/cause chainを保存する。
+- G3の`memories[].content`と`reason`へdescriptionを追加し、4つの出力配列を常に返すようpromptで明示した。

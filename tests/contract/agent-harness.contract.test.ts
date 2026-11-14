@@ -95,12 +95,13 @@ describe("AgentHarness contract", () => {
   });
 
   it("NFR-4: warns but still invokes the provider when the estimated input exceeds the internal threshold", async () => {
-    const warnings: string[] = []; let invoked = false;
-    const logger = { child: () => logger, log: (level: string, step: string) => { if (level === "warn") warnings.push(step); } };
+    const warnings: string[] = []; const infos: { step: string; context: Record<string, unknown> | undefined }[] = []; let invoked = false;
+    const logger = { child: () => logger, log: (level: string, step: string, context?: Record<string, unknown>) => { if (level === "warn") warnings.push(step); if (level === "info") infos.push({ step, context }); } };
     const invoker: DeepAgentInvoker = { invoke: () => { invoked = true; return Promise.resolve({ structuredResponse: output }); } };
     const input = agentCoreInputFixture(); input.observation = { ...input.observation, summary: "x".repeat(MAX_MODEL_INPUT_TOKENS * 4) };
     await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(), logger }).run(input, new AbortController().signal)).resolves.toMatchObject(result);
     expect(invoked).toBe(true); expect(warnings).toContain("agent_core.model_input_budget_exceeded");
+    expect(infos).toContainEqual(expect.objectContaining({ step: "agent_core.model_input_budget", context: expect.objectContaining({ budgetComponents: expect.any(String) }) }));
   });
 
   it("NFR-4: counts the system prompt, messages, Tool schemas, and output schema in the final input gate", () => {
@@ -186,7 +187,7 @@ describe("AgentHarness contract", () => {
     const input = agentCoreInputFixture();
     input.limits = { ...input.limits, maxSteps: 27, maxToolCalls: 15 };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(received).toMatchObject({ maxModelCalls: 26, maxToolCalls: 15, recursionLimit: 73 });
+    expect(received).toMatchObject({ maxModelCalls: 27, maxExplorationModelCalls: 25, maxToolCalls: 15, recursionLimit: 75 });
   });
 
   it("NFR-5: recovers one final Action with collected Tool evidence after graph recursion stops exploration", async () => {
@@ -204,8 +205,8 @@ describe("AgentHarness contract", () => {
     const recovered = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
     expect(recovered).toMatchObject({ output, toolExecutions: [toolExecution], budget: { consumed: { modelCalls: 4, toolCalls: 1 } } });
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.options).toMatchObject({ maxModelCalls: 3, maxToolCalls: 2, recursionLimit: 14 });
-    expect(calls[1]?.options).toMatchObject({ maxModelCalls: 1, maxToolCalls: 0, recursionLimit: 8 });
+    expect(calls[0]?.options).toMatchObject({ maxModelCalls: 4, maxExplorationModelCalls: 2, maxToolCalls: 2, recursionLimit: 16 });
+    expect(calls[1]?.options).toMatchObject({ maxModelCalls: 1, maxExplorationModelCalls: 0, maxToolCalls: 0, recursionLimit: 8 });
     expect(calls[1]?.content).toContain("通常の探索は上限で停止しました");
     expect(calls[1]?.content).toContain("dotsは継続作業を行うエージェント");
   });
