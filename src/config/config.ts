@@ -67,6 +67,8 @@ const ConfigSchema = z.object({
   FILE_READ_ROOTS: z.string().default("./var/files"),
   FILE_WRITE_ROOTS: z.string().default("./var/files"),
   RUN_DEADLINE_MS: z.coerce.number().int().positive().default(120_000),
+  RUNTIME_CORRELATION_TTL_MS: z.coerce.number().int().positive().default(604_800_000),
+  RUNTIME_RATE_WINDOW_RETENTION_MS: z.coerce.number().int().positive().default(3_600_000),
   ...SchedulerTimingsSchema.shape,
   OUTBOX_INTERVAL_MS: z.coerce.number().int().positive().default(1_000)
 }).superRefine((value, context) => {
@@ -95,6 +97,8 @@ export type AppConfig = {
   readonly fileReadRoots: readonly string[];
   readonly fileWriteRoots: readonly string[];
   readonly runDeadlineMs: number;
+  readonly runtimeCorrelationTtlMs: number;
+  readonly runtimeRateWindowRetentionMs: number;
   readonly schedulerTimings: SchedulerTimings;
   readonly outboxIntervalMs: number;
 };
@@ -143,6 +147,8 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
     fileReadRoots: paths(cwd, value.FILE_READ_ROOTS),
     fileWriteRoots: paths(cwd, value.FILE_WRITE_ROOTS),
     runDeadlineMs: value.RUN_DEADLINE_MS,
+    runtimeCorrelationTtlMs: value.RUNTIME_CORRELATION_TTL_MS,
+    runtimeRateWindowRetentionMs: value.RUNTIME_RATE_WINDOW_RETENTION_MS,
     schedulerTimings: parseSchedulerTimings(value),
     outboxIntervalMs: value.OUTBOX_INTERVAL_MS
   };

@@ -470,6 +470,15 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(second.authorizeInbound({ ...event, id: "policy-event-3", correlationId: "rate-correlation-1" }, "policy-message-3", 1)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
+  it("NFR-7, NFR-8: expires only old runtime correlation and rate-window state", async () => {
+    await pool.query("INSERT INTO runtime_correlations(agent_id,correlation_id,message_id,created_at) VALUES ('a','expired-correlation','old-message','2026-01-01T00:00:00Z'),('a','live-correlation','new-message','2026-11-14T00:00:00Z')");
+    await pool.query("INSERT INTO runtime_rate_windows(agent_id,window_start,event_count) VALUES ('a','2026-01-01T00:00:00Z',1),('a','2026-11-14T00:00:00Z',1)");
+    const persistence = new PostgresRuntimePersistence(pool, () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    await expect(persistence.cleanupRuntimeState(new Date("2026-11-01T00:00:00Z"), new Date("2026-11-01T00:00:00Z"))).resolves.toEqual({ correlations: 1, rateWindows: 1 });
+    expect((await pool.query<{ correlation_id: string }>("SELECT correlation_id FROM runtime_correlations WHERE correlation_id IN ('expired-correlation','live-correlation') ORDER BY correlation_id")).rows).toEqual([{ correlation_id: "live-correlation" }]);
+    expect((await pool.query<{ window_start: Date }>("SELECT window_start FROM runtime_rate_windows WHERE window_start IN ('2026-01-01T00:00:00Z','2026-11-14T00:00:00Z')")).rows.map(({ window_start }) => window_start.toISOString())).toEqual(["2026-11-14T00:00:00.000Z"]);
+  });
+
   it("NFR-1, NFR-9: loads only the owning Agent's pending Outbox records", async () => {
     const envelopeA = messageFixture({ id: "outbox-agent-a", destination: "discord:a" });
     const envelopeB = messageFixture({ id: "outbox-agent-b", destination: "discord:b" });
@@ -934,7 +943,7 @@ describeDatabase("PostgreSQL persistence", () => {
       toolExecutions: []
     });
     expect((await pool.query<{ evidence_event_ids: string[] }>("SELECT evidence_event_ids FROM memories WHERE id='reflection-memory-evidence-id'")).rows[0]?.evidence_event_ids).toEqual([eventIds[2]]);
-    expect((await pool.query<{ intent: { evidenceEventIds: string[]; confidence: string; purpose: string } }>("SELECT intent FROM memory_mutations WHERE agent_id=$1 AND source_event_id='reflection-memory-evidence'", [agentId])).rows[0]?.intent).toMatchObject({ evidenceEventIds: [eventIds[2]], confidence: "medium", purpose: "user-context" });
+    expect((await pool.query<{ intent: { evidenceEventIds: string[]; confidence: string; purpose: string } }>("SELECT intent FROM memory_mutations WHERE agent_id=$1 AND source_kind='reflection-formation' AND source_id='reflection-memory-evidence'", [agentId])).rows[0]?.intent).toMatchObject({ evidenceEventIds: [eventIds[2]], confidence: "medium", purpose: "user-context" });
   });
 
   it("FR-71: persists and resumes four 16 Event Formation batches without duplicating their writes", async () => {
@@ -960,10 +969,11 @@ describeDatabase("PostgreSQL persistence", () => {
     const persistedBatches = (await pool.query<{ batch_index: number; status: string; input: { eventIds: string[] } }>("SELECT batch_index,status,input FROM reflection_memory_batches WHERE reflection_id='reflection-memory-batches' ORDER BY batch_index")).rows;
     expect(persistedBatches.map(({ batch_index, status, input: batchInput }) => ({ batchIndex: batch_index, status, eventCount: batchInput.eventIds.length }))).toEqual([0, 1, 2, 3].map((batchIndex) => ({ batchIndex, status: "completed", eventCount: 16 })));
     expect(persistedBatches.every(({ input: batchInput }) => !("events" in batchInput))).toBe(true);
-    const mutations = (await pool.query<{ source_event_id: string; intent: { evidenceEventIds: string[] } }>("SELECT source_event_id,intent FROM memory_mutations WHERE agent_id=$1 ORDER BY source_event_id", [agentId])).rows;
+    const mutations = (await pool.query<{ source_id: string; source_event_id: string | null; intent: { evidenceEventIds: string[] } }>("SELECT source_id,source_event_id,intent FROM memory_mutations WHERE agent_id=$1 AND source_kind='reflection-formation' ORDER BY source_id", [agentId])).rows;
     expect(mutations).toHaveLength(4);
     for (const [batchIndex, mutation] of mutations.entries()) {
-      expect(mutation.source_event_id).toBe(`reflection-memory-batches:memory:${String(batchIndex)}`);
+      expect(mutation.source_id).toBe(`reflection-memory-batches:memory:${String(batchIndex)}`);
+      expect(mutation.source_event_id).toBeNull();
       const evidence = mutation.intent.evidenceEventIds;
       const batchEventIds = eventIds.slice(batchIndex * 16, (batchIndex + 1) * 16);
       expect(evidence).toContain(eventIds[batchIndex * 16]);

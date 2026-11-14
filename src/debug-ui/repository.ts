@@ -134,10 +134,10 @@ export class DebugUiRepository {
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,target,operation,before,after,reason,evidence_ids AS "evidenceIds",created_at AS "createdAt" FROM state_changes WHERE run_id=$1 ORDER BY created_at,id`, [runId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,error IS NULL AS ok,started_at AS "startedAt",finished_at AS "finishedAt" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId]),
       this.query<QueryResultRow>(`SELECT id,memory_id AS "memoryId",operation,candidate_memory_id AS "candidateMemoryId",intent_index AS "intentIndex",intent,created_at AS "createdAt" FROM memory_mutations WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
-      this.query<QueryResultRow>(`SELECT id,source_run_id AS "sourceRunId",output,created_at AS "createdAt" FROM prediction_records WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
+      this.query<QueryResultRow>(`SELECT p.id,p.source_run_id AS "sourceRunId",p.output,p.created_at AS "createdAt" FROM prediction_records p LEFT JOIN agent_runs r ON r.id=p.source_run_id LEFT JOIN events e ON e.id=r.event_id WHERE COALESCE(e.agent_id,p.agent_id)=$1 AND COALESCE(e.id,p.source_event_id)=$2 ORDER BY p.created_at,p.id`, [agentId, eventId]),
       this.query<QueryResultRow>(`SELECT pe.id,pe.prediction_id AS "predictionId",pe."group" AS "group",pe.candidate_index AS "candidateIndex",pe.match,pe.surprise,pe.difference,pe.interpretation,pe.uncertainty,pe.attribution,pe.observed,pe.error_direction AS "errorDirection",pe.effect,pe.effect_evidence AS "effectEvidence",pe.created_at AS "createdAt"
-        FROM prediction_evaluations pe JOIN prediction_records pr ON pr.id=pe.prediction_id
-        WHERE pe.agent_id=$1 AND pr.source_event_id=$2 ORDER BY pe.created_at,pe.id`, [agentId, eventId]),
+        FROM prediction_evaluations pe JOIN prediction_records pr ON pr.id=pe.prediction_id LEFT JOIN agent_runs r ON r.id=pr.source_run_id LEFT JOIN events e ON e.id=r.event_id
+        WHERE COALESCE(e.agent_id,pr.agent_id,pe.agent_id)=$1 AND COALESCE(e.id,pr.source_event_id)=$2 ORDER BY pe.created_at,pe.id`, [agentId, eventId]),
       this.query<QueryResultRow>(`SELECT id,source_prediction_id AS "sourcePredictionId",status,input,output,failure_reason AS "failureReason",created_at AS "createdAt",completed_at AS "completedAt" FROM g3_tasks WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
       this.query<QueryResultRow>(`SELECT i.id,i.status,i.output,i.applied,i.failure_reason AS "failureReason",i.created_at AS "createdAt",i.completed_at AS "completedAt" FROM experience_integrations i JOIN agent_runs r ON r.id=i.source_run_id WHERE r.agent_id=$1 AND r.event_id=$2 ORDER BY i.created_at,i.id`, [agentId, eventId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 AND source_run_id=$2 ORDER BY execute_at,id`, [agentId, runId]),
@@ -174,12 +174,12 @@ export class DebugUiRepository {
 
   async listPredictions(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {
     const bounded = Math.min(Math.max(limit, 1), 100);
-    return this.query<QueryResultRow>(`SELECT id,source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",output,created_at AS "createdAt" FROM prediction_records WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
+    return this.query<QueryResultRow>(`SELECT p.id,COALESCE(e.id,p.source_event_id) AS "sourceEventId",p.source_run_id AS "sourceRunId",p.output,p.created_at AS "createdAt" FROM prediction_records p LEFT JOIN agent_runs r ON r.id=p.source_run_id LEFT JOIN events e ON e.id=r.event_id WHERE COALESCE(e.agent_id,p.agent_id)=$1 ORDER BY p.created_at DESC,p.id LIMIT $2`, [agentId, bounded]);
   }
 
   async listMemoryUpdates(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {
     const bounded = Math.min(Math.max(limit, 1), 100);
-    return this.query<QueryResultRow>(`SELECT id,memory_id AS "memoryId",operation,candidate_memory_id AS "candidateMemoryId",source_event_id AS "sourceEventId",intent_index AS "intentIndex",source_agent_id AS "sourceAgentId",intent,created_at AS "createdAt" FROM memory_mutations WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
+    return this.query<QueryResultRow>(`SELECT id,memory_id AS "memoryId",operation,candidate_memory_id AS "candidateMemoryId",candidate_memory_ids AS "candidateMemoryIds",source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",source_kind AS "sourceKind",source_id AS "sourceId",intent_index AS "intentIndex",attempt,source_agent_id AS "sourceAgentId",intent,before,after,reason,evidence_event_ids AS "evidenceEventIds",evidence_memory_ids AS "evidenceMemoryIds",status,failure_reason AS "failureReason",idempotency_key AS "idempotencyKey",applied_at AS "appliedAt",created_at AS "createdAt" FROM memory_mutations WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
   }
 
   /** Operations whose source Event is not present in the Event ledger. */
@@ -198,6 +198,6 @@ export class DebugUiRepository {
 
   async listG3Tasks(agentId: string, limit = 50): Promise<readonly Record<string, unknown>[]> {
     const bounded = Math.min(Math.max(limit, 1), 100);
-    return this.query<QueryResultRow>(`SELECT id,source_prediction_id AS "sourcePredictionId",source_event_id AS "sourceEventId",status,input,output,failure_reason AS "failureReason",created_at AS "createdAt",completed_at AS "completedAt" FROM g3_tasks WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
+    return this.query<QueryResultRow>(`SELECT id,source_prediction_id AS "sourcePredictionId",source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",status,attempt,deadline_at AS "deadlineAt",lease_until AS "leaseUntil",input,output,failure_reason AS "failureReason",created_at AS "createdAt",completed_at AS "completedAt" FROM g3_tasks WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT $2`, [agentId, bounded]);
   }
 }

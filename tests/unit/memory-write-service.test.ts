@@ -41,7 +41,7 @@ describe("FR-57, NFR-15, AC-12, AC-17: MemoryWriteService", () => {
     const existingEvidence = Array.from({ length: 16 }, (_, index) => `old-${String(index + 1)}`);
     const query = vi.fn((sql: string) => {
       if (sql.includes("pg_advisory_xact_lock")) return Promise.resolve({ rows: [] });
-      if (sql.includes("SELECT m.id,m.kind,m.evidence_event_ids")) return Promise.resolve({ rows: [{ id: "existing", kind: "semantic", evidence_event_ids: existingEvidence, subjects: [] }] });
+      if (sql.includes("SELECT m.id,m.kind,m.content")) return Promise.resolve({ rows: [{ id: "existing", kind: "semantic", content: "訂正前の内容", importance: "以前の根拠", perspective: "self", purpose: "self-guidance", version: 0, evidence_event_ids: existingEvidence, subjects: [] }] });
       return Promise.resolve({ rows: [], rowCount: 1 });
     });
     const service = new MemoryWriteService({ query } as unknown as PoolClient, { next: () => "mutation-1" }, () => new Date("2026-10-31T00:00:00Z"));

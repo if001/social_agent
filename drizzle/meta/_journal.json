@@ -281,6 +281,13 @@
       "when": 1794656392523,
       "tag": "0039_early_black_tom",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794662755884,
+      "tag": "0040_military_marvel_zombies",
+      "breakpoints": true
     }
   ]
 }

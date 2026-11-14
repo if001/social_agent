@@ -125,6 +125,16 @@ describe("ST-01 Terminal round trip", () => {
 });
 
 describe("autonomous response outbox", () => {
+  it("NFR-8: skips a committed internal Event before rerunning Agent Core or Tools", async () => {
+    const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
+    let harnessCalls = 0;
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() }, persistence, ids: new SequenceIdGenerator([]), now: () => new Date("2026-01-01T00:00:00Z"), harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { desire: "結果を評価する", action: { type: "no-external-action" as const, reason: "配送不要" } }, toolExecutions: [] }); } } });
+    const event = { id: "prediction:g3-result", agentId: "agent-a", kind: "internal" as const, occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind: "prediction-g3-result" } };
+    await runtime.process(event, new AbortController().signal);
+    await expect(runtime.process(event, new AbortController().signal)).resolves.toEqual({ type: "no-external-action", reason: "Internal Event was already committed" });
+    expect(harnessCalls).toBe(1);
+  });
+
   it("FR-20, FR-21: commits an autonomous decision not to speak without requiring a Tool", async () => {
     const persistence = new InMemoryRuntimePersistence(() => agentCoreInputFixture());
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };

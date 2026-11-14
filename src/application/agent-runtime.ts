@@ -44,6 +44,7 @@ export class AgentRuntime {
     return this.#serialize(async () => {
       const occurredAt = new Date(event.occurredAt);
       const message: MessageEnvelope = { id: `internal:${event.id}`, destination: event.agentId, source: "scheduler", sentAt: occurredAt.toISOString(), availableAt: occurredAt.toISOString(), expiresAt: new Date(occurredAt.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "internal-event", eventId: event.id } };
+      if (await this.options.persistence.hasReceipt(message.destination, message.id)) return { type: "no-external-action", reason: "Internal Event was already committed" };
       const configuredDestination = typeof event.payload.destination === "string" ? event.payload.destination : this.options.defaultOutputDestination;
       const destination = configuredDestination.trim() !== "" ? configuredDestination : undefined;
       if (destination === undefined) throw new DomainError("VALIDATION", "Autonomous Event requires an owner or default destination");
@@ -113,7 +114,7 @@ export class AgentRuntime {
     // particular, Experience Integration persists and later strictly parses
     // `input` as AgentCoreInput when retrying a pending integration.
     const input: AgentCoreInput = "persistentState" in loaded
-      ? (({ persistentState: _persistentState, ...coreInput }) => coreInput)(loaded)
+      ? (() => { const coreInput = { ...loaded }; Reflect.deleteProperty(coreInput, "persistentState"); return coreInput; })()
       : loaded;
     const persistentState = "persistentState" in loaded ? loaded.persistentState : input.state;
     const logger = eventLogger.child({ runId: input.run.runId });

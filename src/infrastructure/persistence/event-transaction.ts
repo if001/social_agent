@@ -1,6 +1,6 @@
 import type { MemoryIntent, MessageEnvelope, ToolExecutionRecord } from "../../domain/contracts.js";
 import type { IdGenerator, MemoryEmbedding } from "../../application/ports.js";
-import { MemoryWriteService, type MemoryCandidate } from "./memory-write-repository.js";
+import { MemoryWriteService, recordMemoryMutationFailure, type MemoryCandidate, type MemoryWriteOptions } from "./memory-write-repository.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
 
@@ -26,7 +26,8 @@ export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" 
 export class PostgresEventTransaction {
   constructor(private readonly unitOfWork: PostgresUnitOfWork, private readonly ids?: IdGenerator, private readonly now?: () => Date) {}
   async commit(input: CommitEventInput): Promise<"committed" | "duplicate"> {
-    return this.unitOfWork.transaction(async (client) => {
+    let failedIntent: MemoryIntent | undefined; let failedOptions: MemoryWriteOptions | undefined;
+    try { return await this.unitOfWork.transaction(async (client) => {
       const reserved = await client.query("INSERT INTO message_receipts(destination,message_id,status) VALUES ($1,$2,'processing') ON CONFLICT DO NOTHING RETURNING message_id", [input.destination, input.messageId]);
       if (reserved.rowCount === 0) return "duplicate";
       await client.query("INSERT INTO events(id,agent_id,kind,observation,source,causation_id,correlation_id,status,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'processing',$8)", [input.event.id, input.event.agentId, input.event.kind, input.event.observation, input.event.source, input.event.causationId ?? null, input.event.correlationId ?? null, input.event.occurredAt]);
@@ -38,7 +39,10 @@ export class PostgresEventTransaction {
       for (const activity of input.concernActivities ?? []) await client.query("INSERT INTO concern_activities(id,agent_id,concern_id,kind,event_id,run_id,evidence_memory_ids,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING", [activity.id, input.event.agentId, activity.concernId, activity.kind, activity.eventId, input.run.id, JSON.stringify(activity.evidenceMemoryIds ?? []), input.event.occurredAt]);
       for (const [index, intent] of (input.memoryIntents ?? []).entries()) {
         if (this.ids === undefined || this.now === undefined) throw new Error("MemoryWriteService requires ids and now");
-        await new MemoryWriteService(client, this.ids, this.now).apply(input.event.agentId, intent, { subjectIds: input.memorySubjects?.[index] ?? [], sourceEventId: input.event.id, intentIndex: index, ...(input.memoryCandidates === undefined ? {} : { candidates: input.memoryCandidates }), ...(input.memoryEmbeddings?.[index] === undefined ? {} : { embedding: input.memoryEmbeddings[index] }) });
+        const options: MemoryWriteOptions = { subjectIds: input.memorySubjects?.[index] ?? [], sourceEventId: input.event.id, sourceRunId: input.run.id, sourceKind: "agent-run", sourceId: input.run.id, intentIndex: index, ...(input.memoryCandidates === undefined ? {} : { candidates: input.memoryCandidates }), ...(input.memoryEmbeddings?.[index] === undefined ? {} : { embedding: input.memoryEmbeddings[index] }) };
+        failedIntent = intent; failedOptions = options;
+        await new MemoryWriteService(client, this.ids, this.now).apply(input.event.agentId, intent, options);
+        failedIntent = undefined; failedOptions = undefined;
       }
       for (const evidence of input.memoryWebEvidence ?? []) for (const snapshotId of evidence.snapshotIds) await client.query("INSERT INTO memory_web_evidence(memory_id,snapshot_id) SELECT $1,s.id FROM web_snapshots s WHERE s.id=$2 ON CONFLICT DO NOTHING", [evidence.memoryId, snapshotId]);
       await this.#insertToolExecutions(client, input, input.toolExecutions ?? []);
@@ -47,7 +51,7 @@ export class PostgresEventTransaction {
       await client.query("UPDATE events SET status='completed' WHERE id=$1", [input.event.id]);
       await client.query("UPDATE message_receipts SET status='completed',processed_at=now() WHERE destination=$1 AND message_id=$2", [input.destination, input.messageId]);
       return "committed";
-    });
+    }); } catch (error) { if (failedIntent !== undefined && failedOptions !== undefined && this.now !== undefined) await recordMemoryMutationFailure(this.unitOfWork.native, input.event.agentId, failedIntent, failedOptions, error, this.now()); throw error; }
   }
 
   async recordFailure(input: FailedEventInput): Promise<void> {

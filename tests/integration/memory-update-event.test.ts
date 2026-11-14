@@ -16,6 +16,9 @@ const event = (ids: string[]): DomainEvent => ({
   occurredAt: "2026-10-31T00:00:00.000Z",
   payload: {
     targetKind: "memory-update",
+    sourceEventId: "event-1",
+    sourceKind: "memory-update",
+    sourceId: "memory-update-event",
     intents: [
       { content: "ユーザーAは技術の話を好む", reason: "次の対話で使う", evidenceEventIds: [ids[0] ?? "event-1"], confidence: "medium", target: "semantic" },
       { content: "低確度の推測", reason: "推測", evidenceEventIds: [ids[0] ?? "event-1"], confidence: "low", target: "episodic" }
@@ -33,6 +36,7 @@ describeDatabase("memory-update Event", () => {
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm')");
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ('a','Careful','Growing','[]','[]','[]','Calm')");
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('event-1','a','user-message','{}','test','completed','2026-10-31T00:00:00Z')");
   });
   afterAll(async () => {
     await database.close();
@@ -52,7 +56,7 @@ describeDatabase("memory-update Event", () => {
     expect(second.map(({ result }) => result.operation)).toEqual(["create", "no-op"]);
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE content='ユーザーAは技術の話を好む'")).rows[0]).toEqual({ count: 1 });
     expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE content='ユーザーAは技術の話を好む'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "fake" });
-    expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memory_mutations WHERE source_event_id='memory-update-event'")).rows[0]?.count).toBe(2);
+    expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memory_mutations WHERE source_event_id='event-1' AND source_id='memory-update-event'")).rows[0]?.count).toBe(2);
     const schedule = (await pool.query<{ id: string; kind: string; reason: string }>("SELECT id,kind,reason FROM autonomous_schedules WHERE id='concern-due:memory:a'")).rows[0];
     expect(schedule?.id).toBe("concern-due:memory:a");
     expect(schedule?.kind).toBe("concern-due");

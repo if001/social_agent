@@ -42,6 +42,11 @@ export class PostgresPredictionRepository implements PredictionRepository {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const source = await client.query<{ agent_id: string; event_id: string }>("SELECT agent_id,event_id FROM agent_runs WHERE id=$1", [record.sourceRunId]);
+      const parent = source.rows[0];
+      if (parent === undefined || parent.agent_id !== record.agentId || parent.event_id !== record.sourceEventId) throw new Error("Prediction source Run does not match its Agent and Event");
+      // Keep compatibility columns populated until #045 validates existing data
+      // and switches every reader/writer in one deployment.
       await client.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [record.id, record.agentId, record.sourceEventId, record.sourceRunId, JSON.stringify(output), record.createdAt]);
       for (const [index, evaluation] of output.predictionEvaluations.entries()) {
         await client.query(
@@ -59,13 +64,13 @@ export class PostgresPredictionRepository implements PredictionRepository {
   }
 
   async latest(agentId: string): Promise<PredictionRecord | undefined> {
-    const result = await this.pool.query<Row>("SELECT id,agent_id,source_event_id,source_run_id,output,created_at FROM prediction_records WHERE agent_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [agentId]);
+    const result = await this.pool.query<Row>("SELECT p.id,COALESCE(e.agent_id,p.agent_id) AS agent_id,COALESCE(e.id,p.source_event_id) AS source_event_id,p.source_run_id,p.output,p.created_at FROM prediction_records p LEFT JOIN agent_runs r ON r.id=p.source_run_id LEFT JOIN events e ON e.id=r.event_id WHERE COALESCE(e.agent_id,p.agent_id)=$1 ORDER BY p.created_at DESC,p.id DESC LIMIT 1", [agentId]);
     const row = result.rows[0];
     return row === undefined ? undefined : toRecord(row);
   }
 
   async context(agentId: string): Promise<PredictionContext | undefined> {
-    const result = await this.pool.query<Row>("SELECT id,agent_id,source_event_id,source_run_id,output,created_at FROM prediction_records WHERE agent_id=$1 ORDER BY created_at DESC,id DESC LIMIT 3", [agentId]);
+    const result = await this.pool.query<Row>("SELECT p.id,COALESCE(e.agent_id,p.agent_id) AS agent_id,COALESCE(e.id,p.source_event_id) AS source_event_id,p.source_run_id,p.output,p.created_at FROM prediction_records p LEFT JOIN agent_runs r ON r.id=p.source_run_id LEFT JOIN events e ON e.id=r.event_id WHERE COALESCE(e.agent_id,p.agent_id)=$1 ORDER BY p.created_at DESC,p.id DESC LIMIT 3", [agentId]);
     if (result.rows.length === 0) return undefined;
     const latestRow = result.rows[0];
     if (latestRow === undefined) return undefined;

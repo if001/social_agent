@@ -440,6 +440,10 @@ export const G3OutputSchema = z.object({
 export type G3EvaluationOutput = z.infer<typeof G3OutputSchema>;
 
 export const MemoryUpdatePayloadSchema = z.looseObject({
+  sourceEventId: Id.optional(),
+  sourceRunId: Id.optional(),
+  sourceKind: z.enum(["agent-run", "experience-integration", "memory-update", "reflection-formation", "reflection-reconciliation"]).optional(),
+  sourceId: Id.optional(),
   intents: z.array(MemoryIntentSchema).min(1).max(10),
   subjectsByIntent: z.array(z.array(Id)).optional(),
   sourceAgentIds: z.array(Id.optional()).optional(),
