@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
-import type { Pool } from "pg";
 
 import { EventExperienceSchema, memorySubjectsForIntegration, type ExperienceIntegrationInput, type ExperienceIntegrationOutput, type ExperienceIntegrationRepository } from "../../application/experience-integration.js";
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
 import { MemoryWriteService, recordMemoryMutationFailure, type MemoryWriteOptions } from "./memory-write-repository.js";
 import { errorLogContext } from "../../observability/logger.js";
-import { AgentStateRepository, PostgresUnitOfWork } from "./postgres.js";
+import { AgentStateRepository } from "./postgres.js";
 import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent, type MemoryIntent } from "../../domain/contracts.js";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import type { RuntimeDatabase } from "./runtime-database.js";
+import { agentRuns, eventExperiences, eventProjections, eventSubjects, events, experienceIntegrations, stateChanges } from "./schema.js";
 
 type PendingIntegrationRow = { id: string; agent_id: string; source_event_id: string; source_run_id: string; kind: DomainEvent["kind"]; occurred_at: Date; observation: Record<string, unknown>; input_snapshot: unknown; result: Record<string, unknown> };
 const experienceContent = (experience: { readonly summary: string; readonly facts: readonly string[] }) => `${experience.summary}\n${experience.facts.join("\n")}`;
@@ -23,17 +25,17 @@ function parseDecisionInput(value: unknown) {
 }
 
 export class PostgresExperienceIntegrationRepository implements ExperienceIntegrationRepository {
-  constructor(private readonly pool: Pool, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly embedding?: MemoryEmbeddingPreparer) {}
+  constructor(private readonly database: RuntimeDatabase, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly embedding?: MemoryEmbeddingPreparer) {}
   async begin(input: ExperienceIntegrationInput): Promise<"created" | "duplicate"> {
-    const result = await this.pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ($1,$2,'pending') ON CONFLICT (source_run_id) DO NOTHING RETURNING id", [input.integrationId, input.sourceRunId]);
-    return result.rowCount === 1 ? "created" : "duplicate";
+    const result = await this.database.db.insert(experienceIntegrations).values({ id: input.integrationId, sourceRunId: input.sourceRunId, status: "pending" }).onConflictDoNothing({ target: experienceIntegrations.sourceRunId }).returning({ id: experienceIntegrations.id });
+    return result.length === 1 ? "created" : "duplicate";
   }
   async apply(input: ExperienceIntegrationInput, output: ExperienceIntegrationOutput): Promise<void> {
     const embedding = this.embedding;
     const embeddings = embedding === undefined ? [] : await Promise.all(output.memories.map(({ content }) => embedding.prepareMemory(content)));
     const experienceEmbedding = embedding === undefined ? undefined : await embedding.prepareMemory(experienceContent(output.experience));
     let failedIntent: MemoryIntent | undefined; let failedOptions: MemoryWriteOptions | undefined;
-    try { await new PostgresUnitOfWork(this.pool).transaction(async (client) => {
+    try { await this.database.transaction(async (client) => {
       const stateRepository = new AgentStateRepository(client);
       const row = await stateRepository.find<{ version: number; mood: string; relationships: unknown }>(input.agentId);
       if (row === undefined) throw new Error("Agent state is unavailable for Experience Integration");
@@ -58,7 +60,7 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
         }
       }
       if (changes.length > 0) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships });
-      for (const change of changes) await client.query("INSERT INTO state_changes(id,run_id,target,operation,before,after,reason,evidence_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [this.ids.next(), input.sourceRunId, change.target, change.operation, JSON.stringify(change.before), JSON.stringify(change.after), "Experience Integration", JSON.stringify([input.sourceEvent.id])]);
+      if (changes.length > 0) await client.insert(stateChanges).values(changes.map((change) => ({ id: this.ids.next(), runId: input.sourceRunId, target: change.target, operation: change.operation, before: change.before, after: change.after, reason: "Experience Integration", evidenceIds: [input.sourceEvent.id] })));
       const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories);
       for (const [index, candidate] of output.memories.entries()) {
         const intent: MemoryIntent = { ...candidate, evidenceEventIds: [input.sourceEvent.id], confidence: "medium", purpose: candidate.perspective === "user" ? "user-context" : "self-guidance" };
@@ -68,64 +70,59 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
         failedIntent = undefined; failedOptions = undefined;
       }
       const subjectsForExperience = actor?.type === "human" || actor?.type === "agent" ? [actor.id] : [];
-      const vector = experienceEmbedding?.vector === undefined ? null : `[${experienceEmbedding.vector.join(",")}]`;
+      const vector = experienceEmbedding?.vector === undefined ? null : [...experienceEmbedding.vector];
       const status = experienceEmbedding?.status ?? "pending";
-      await client.query("INSERT INTO event_experiences(event_id,integration_id,summary,facts) VALUES ($1,$2,$3,$4) ON CONFLICT (event_id) DO NOTHING", [input.sourceEvent.id, input.integrationId, output.experience.summary, JSON.stringify(output.experience.facts)]);
-      for (const subjectId of subjectsForExperience) await client.query("INSERT INTO event_subjects(event_id,subject_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [input.sourceEvent.id, subjectId]);
-      await client.query("INSERT INTO event_projections(event_id,content_hash,embedding,embedding_model,embedding_dimension,embedding_status,embedding_error,embedding_last_attempt_at) VALUES ($1,$2,$3::vector,$4,$5,$6,$7,now()) ON CONFLICT (event_id) DO UPDATE SET content_hash=EXCLUDED.content_hash,embedding=EXCLUDED.embedding,embedding_model=EXCLUDED.embedding_model,embedding_dimension=EXCLUDED.embedding_dimension,embedding_status=EXCLUDED.embedding_status,embedding_error=EXCLUDED.embedding_error,embedding_last_attempt_at=EXCLUDED.embedding_last_attempt_at,updated_at=now()", [input.sourceEvent.id, experienceHash(output.experience), vector, experienceEmbedding?.model ?? null, experienceEmbedding?.dimension ?? null, status, experienceEmbedding?.error ?? null]);
-      await client.query("UPDATE experience_integrations SET status='completed',output=$2,applied=$3,failure_reason=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [input.integrationId, JSON.stringify(output), JSON.stringify({ memoryCount: output.memories.length, stateChanges: changes.map(({ target, operation }) => ({ target, operation })) })]);
-    }); } catch (error) { if (failedIntent !== undefined && failedOptions !== undefined) await recordMemoryMutationFailure(this.pool, input.agentId, failedIntent, failedOptions, error, this.now()); throw error; }
+      await client.insert(eventExperiences).values({ eventId: input.sourceEvent.id, integrationId: input.integrationId, summary: output.experience.summary, facts: output.experience.facts }).onConflictDoNothing();
+      if (subjectsForExperience.length > 0) await client.insert(eventSubjects).values(subjectsForExperience.map((subjectId) => ({ eventId: input.sourceEvent.id, subjectId }))).onConflictDoNothing();
+      await client.insert(eventProjections).values({ eventId: input.sourceEvent.id, contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date() }).onConflictDoUpdate({ target: eventProjections.eventId, set: { contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date(), updatedAt: new Date() } });
+      await client.update(experienceIntegrations).set({ status: "completed", output, applied: { memoryCount: output.memories.length, stateChanges: changes.map(({ target, operation }) => ({ target, operation })) }, failureReason: null, completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId));
+    }); } catch (error) { if (failedIntent !== undefined && failedOptions !== undefined) await recordMemoryMutationFailure(this.database.native, input.agentId, failedIntent, failedOptions, error, this.now()); throw error; }
   }
-  async fail(input: ExperienceIntegrationInput, error: unknown): Promise<void> { await this.pool.query("UPDATE experience_integrations SET status='failed',failure_reason=$2,completed_at=now(),updated_at=now() WHERE id=$1", [input.integrationId, JSON.stringify(errorLogContext(error))]); }
+  async fail(input: ExperienceIntegrationInput, error: unknown): Promise<void> { await this.database.db.update(experienceIntegrations).set({ status: "failed", failureReason: JSON.stringify(errorLogContext(error)), completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId)); }
   async missingEventExperienceCandidates(agentId?: string): Promise<readonly { id: string; agentId: string }[]> {
-    const candidates = await this.pool.query<{ id: string; agent_id: string }>(`SELECT i.id,e.agent_id
-      FROM experience_integrations i
-      JOIN agent_runs ar ON ar.id=i.source_run_id
-      JOIN events e ON e.id=ar.event_id
-      LEFT JOIN event_experiences x ON x.event_id=e.id
-      WHERE i.status='completed' AND e.kind<>'tool-result' AND x.event_id IS NULL
-        AND ($1::text IS NULL OR e.agent_id=$1)
-        AND e.occurred_at>COALESCE((SELECT COALESCE(NULLIF(r.input->>'eventWindowEnd','')::timestamptz,r.completed_at)
-          FROM reflection_runs r WHERE r.agent_id=e.agent_id AND r.status='completed'
-          ORDER BY r.completed_at DESC,r.id DESC LIMIT 1),'-infinity'::timestamptz)
-      ORDER BY e.occurred_at,i.id`, [agentId ?? null]);
-    return candidates.rows.map(({ id, agent_id: resultAgentId }) => ({ id, agentId: resultAgentId }));
+    const owner = agentId === undefined ? undefined : eq(events.agentId, agentId);
+    const candidates = await this.database.db.select({ id: experienceIntegrations.id, agentId: events.agentId }).from(experienceIntegrations)
+      .innerJoin(agentRuns, eq(agentRuns.id, experienceIntegrations.sourceRunId))
+      .innerJoin(events, eq(events.id, agentRuns.eventId))
+      .leftJoin(eventExperiences, eq(eventExperiences.eventId, events.id))
+      .where(and(eq(experienceIntegrations.status, "completed"), ne(events.kind, "tool-result"), isNull(eventExperiences.eventId), owner,
+        sql`${events.occurredAt}>coalesce((select coalesce(nullif(r.input->>'eventWindowEnd','')::timestamptz,r.completed_at) from app.reflection_runs r where r.agent_id=${events.agentId} and r.status='completed' order by r.completed_at desc,r.id desc limit 1),'-infinity'::timestamptz)`))
+      .orderBy(asc(events.occurredAt), asc(experienceIntegrations.id));
+    return candidates;
   }
   async completedByIds(ids: readonly string[]): Promise<readonly ExperienceIntegrationInput[]> {
     if (ids.length === 0) return [];
-    const result = await this.#inputs("i.status='completed' AND i.id=ANY($1::text[])", [[...new Set(ids)]]);
-    return this.#restorePending(result.rows);
+    return this.#restorePending(await this.#inputs(["completed"], [...new Set(ids)]));
   }
   async repairEventExperience(input: ExperienceIntegrationInput, value: unknown): Promise<void> {
     const experience = EventExperienceSchema.parse(value);
     const embedded = this.embedding === undefined ? undefined : await this.embedding.prepareMemory(experienceContent(experience));
     const actor = input.input.observation.actor;
     const subjects = actor?.type === "human" || actor?.type === "agent" ? [actor.id] : [];
-    const vector = embedded?.vector === undefined ? null : `[${embedded.vector.join(",")}]`;
     const status = embedded?.status ?? "pending";
-    await new PostgresUnitOfWork(this.pool).transaction(async (client) => {
-      await client.query("INSERT INTO event_experiences(event_id,integration_id,summary,facts) VALUES ($1,$2,$3,$4) ON CONFLICT (event_id) DO NOTHING", [input.sourceEvent.id, input.integrationId, experience.summary, JSON.stringify(experience.facts)]);
-      for (const subjectId of subjects) await client.query("INSERT INTO event_subjects(event_id,subject_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [input.sourceEvent.id, subjectId]);
-      await client.query("INSERT INTO event_projections(event_id,content_hash,embedding,embedding_model,embedding_dimension,embedding_status,embedding_error,embedding_last_attempt_at) VALUES ($1,$2,$3::vector,$4,$5,$6,$7,now()) ON CONFLICT (event_id) DO UPDATE SET content_hash=EXCLUDED.content_hash,embedding=EXCLUDED.embedding,embedding_model=EXCLUDED.embedding_model,embedding_dimension=EXCLUDED.embedding_dimension,embedding_status=EXCLUDED.embedding_status,embedding_error=EXCLUDED.embedding_error,embedding_last_attempt_at=EXCLUDED.embedding_last_attempt_at,updated_at=now()", [input.sourceEvent.id, experienceHash(experience), vector, embedded?.model ?? null, embedded?.dimension ?? null, status, embedded?.error ?? null]);
-      await client.query("UPDATE experience_integrations SET output=jsonb_set(COALESCE(output,'{}'::jsonb),'{experience}',$2::jsonb,true),applied=COALESCE(applied,'{}'::jsonb)||$3::jsonb,updated_at=now() WHERE id=$1 AND status='completed'", [input.integrationId, JSON.stringify(experience), JSON.stringify({ eventExperienceRepaired: true })]);
+    await this.database.transaction(async (client) => {
+      await client.insert(eventExperiences).values({ eventId: input.sourceEvent.id, integrationId: input.integrationId, summary: experience.summary, facts: experience.facts }).onConflictDoNothing();
+      if (subjects.length > 0) await client.insert(eventSubjects).values(subjects.map((subjectId) => ({ eventId: input.sourceEvent.id, subjectId }))).onConflictDoNothing();
+      await client.insert(eventProjections).values({ eventId: input.sourceEvent.id, contentHash: experienceHash(experience), embedding: embedded?.vector === undefined ? null : [...embedded.vector], embeddingModel: embedded?.model ?? null, embeddingDimension: embedded?.dimension ?? null, embeddingStatus: status, embeddingError: embedded?.error ?? null, embeddingLastAttemptAt: new Date() }).onConflictDoUpdate({ target: eventProjections.eventId, set: { contentHash: experienceHash(experience), embedding: embedded?.vector === undefined ? null : [...embedded.vector], embeddingModel: embedded?.model ?? null, embeddingDimension: embedded?.dimension ?? null, embeddingStatus: status, embeddingError: embedded?.error ?? null, embeddingLastAttemptAt: new Date(), updatedAt: new Date() } });
+      await client.update(experienceIntegrations).set({ output: sql`jsonb_set(coalesce(${experienceIntegrations.output},'{}'::jsonb),'{experience}',${JSON.stringify(experience)}::jsonb,true)`, applied: sql`coalesce(${experienceIntegrations.applied},'{}'::jsonb)||${JSON.stringify({ eventExperienceRepaired: true })}::jsonb`, updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId));
     });
   }
   async pending(agentId?: string): Promise<readonly ExperienceIntegrationInput[]> {
-    const result = await this.#inputs("i.status IN ('pending','failed') AND ($1::text IS NULL OR e.agent_id=$1)", [agentId ?? null]);
-    return this.#restorePending(result.rows);
+    return this.#restorePending(await this.#inputs(["pending", "failed"], undefined, agentId));
   }
   async pendingByIds(ids: readonly string[]): Promise<readonly ExperienceIntegrationInput[]> {
     if (ids.length === 0) return [];
-    const result = await this.#inputs("i.status IN ('pending','failed') AND i.id=ANY($1::text[])", [[...new Set(ids)]]);
-    return this.#restorePending(result.rows);
+    return this.#restorePending(await this.#inputs(["pending", "failed"], [...new Set(ids)]));
   }
   #restorePending(rows: readonly PendingIntegrationRow[]): readonly ExperienceIntegrationInput[] {
     return rows.map((row) => ({ integrationId: row.id, agentId: row.agent_id, sourceEvent: { id: row.source_event_id, agentId: row.agent_id, kind: row.kind, occurredAt: row.occurred_at.toISOString(), payload: row.observation }, sourceRunId: row.source_run_id, input: parseDecisionInput(row.input_snapshot), result: AgentRunResultSchema.parse(row.result) }));
   }
-  async #inputs(where: string, values: readonly unknown[]): Promise<{ rows: PendingIntegrationRow[] }> {
-    return this.pool.query<PendingIntegrationRow>(`SELECT i.id,e.agent_id,e.id AS source_event_id,i.source_run_id,e.kind,e.occurred_at,e.observation,r.input_snapshot,r.result
-      FROM experience_integrations i JOIN agent_runs r ON r.id=i.source_run_id JOIN events e ON e.id=r.event_id
-      WHERE ${where} ORDER BY i.created_at,i.id`, [...values]);
+  async #inputs(statuses: readonly string[], ids?: readonly string[], agentId?: string): Promise<PendingIntegrationRow[]> {
+    return this.database.db.select({ id: experienceIntegrations.id, agent_id: events.agentId, source_event_id: events.id, source_run_id: experienceIntegrations.sourceRunId, kind: events.kind, occurred_at: events.occurredAt, observation: events.observation, input_snapshot: agentRuns.inputSnapshot, result: agentRuns.result }).from(experienceIntegrations)
+      .innerJoin(agentRuns, eq(agentRuns.id, experienceIntegrations.sourceRunId))
+      .innerJoin(events, eq(events.id, agentRuns.eventId))
+      .where(and(inArray(experienceIntegrations.status, [...statuses]), ids === undefined ? undefined : inArray(experienceIntegrations.id, [...ids]), agentId === undefined ? undefined : eq(events.agentId, agentId)))
+      .orderBy(asc(experienceIntegrations.createdAt), asc(experienceIntegrations.id)) as Promise<PendingIntegrationRow[]>;
   }
-  async claim(integrationId: string): Promise<boolean> { return (await this.pool.query("UPDATE experience_integrations SET status='processing',updated_at=now() WHERE id=$1 AND status IN ('pending','failed')", [integrationId])).rowCount === 1; }
+  async claim(integrationId: string): Promise<boolean> { return (await this.database.db.update(experienceIntegrations).set({ status: "processing", updatedAt: new Date() }).where(and(eq(experienceIntegrations.id, integrationId), inArray(experienceIntegrations.status, ["pending", "failed"]))).returning({ id: experienceIntegrations.id })).length === 1; }
 }

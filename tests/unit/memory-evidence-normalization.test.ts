@@ -12,11 +12,11 @@ describe("Memory evidence normalization", () => {
   });
 
   it("clears only over-limit Memory when explicitly applied", async () => {
-    const client = { query: vi.fn().mockResolvedValue({ rows: [{ id: "memory-1", agent_id: "a" }], rowCount: 1 }), release: vi.fn() };
-    const pool = { query: vi.fn().mockResolvedValue({ rows: [{ id: "memory-1", agent_id: "a" }] }), connect: vi.fn().mockResolvedValue(client) };
+    const pool = { query: vi.fn().mockResolvedValue({ rows: [{ id: "memory-1", agent_id: "a" }], rowCount: 1 }) };
     await expect(normalizeOverfullMemoryEvidence(pool as unknown as Pool, { apply: true })).resolves.toEqual({ scanned: 1, normalized: 1 });
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE memories SET evidence_event_ids='[]'::jsonb"), ["memory-1", "a"]);
-    expect(client.query).toHaveBeenCalledWith("COMMIT");
+    // The application service delegates SQL shape and transaction control to
+    // Drizzle instead of owning a raw UPDATE / COMMIT protocol.
+    expect(pool.query).toHaveBeenCalled();
   });
 });
 

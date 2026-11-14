@@ -1,25 +1,16 @@
-import type { Pool, QueryResultRow } from "pg";
+import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 
 import type { EmbeddingProvider, MemoryEmbedding, MemoryEmbeddingPreparer } from "../../application/ports.js";
+import type { RuntimeDatabase } from "./runtime-database.js";
+import { memories } from "./schema.js";
 
-type MemoryRow = QueryResultRow & { id: string; agent_id: string; content: string };
-
-export type MemoryEmbeddingResult = {
-  readonly attempted: number;
-  readonly ready: number;
-  readonly failed: number;
-};
-
+export type MemoryEmbeddingResult = { readonly attempted: number; readonly ready: number; readonly failed: number };
 export interface MemoryEmbeddingLifecycle {
   embedMemoryIds(agentId: string, memoryIds: readonly string[], signal?: AbortSignal): Promise<MemoryEmbeddingResult>;
 }
 
 export class PostgresMemoryEmbeddingLifecycle implements MemoryEmbeddingLifecycle, MemoryEmbeddingPreparer {
-  constructor(
-    private readonly pool: Pool,
-    private readonly provider: EmbeddingProvider,
-    private readonly model: string
-  ) {}
+  constructor(private readonly database: RuntimeDatabase, private readonly provider: EmbeddingProvider, private readonly model: string) {}
 
   async prepareMemory(content: string, signal: AbortSignal = new AbortController().signal): Promise<MemoryEmbedding> {
     try {
@@ -32,35 +23,45 @@ export class PostgresMemoryEmbeddingLifecycle implements MemoryEmbeddingLifecycl
   }
 
   async embedMemoryIds(agentId: string, memoryIds: readonly string[], signal: AbortSignal = new AbortController().signal): Promise<MemoryEmbeddingResult> {
-    if (memoryIds.length === 0) return { attempted: 0, ready: 0, failed: 0 };
-    const pending = await this.pool.query<MemoryRow>(
-      "SELECT id,agent_id,content FROM memories WHERE agent_id=$1 AND id=ANY($2::text[]) AND (embedding IS NULL OR embedding_status<>'ready') ORDER BY id",
-      [agentId, [...new Set(memoryIds)]]
-    );
-    if (pending.rows.length === 0) return { attempted: 0, ready: 0, failed: 0 };
-    const ids = pending.rows.map(({ id }) => id);
-    await this.pool.query("UPDATE memories SET embedding_last_attempt_at=now(),embedding_error=NULL,updated_at=now() WHERE agent_id=$1 AND id=ANY($2::text[])", [agentId, ids]);
+    const uniqueIds = [...new Set(memoryIds)];
+    if (uniqueIds.length === 0) return { attempted: 0, ready: 0, failed: 0 };
+    const pending = await this.database.db.select({ id: memories.id, content: memories.content }).from(memories).where(and(
+      eq(memories.agentId, agentId), inArray(memories.id, uniqueIds),
+      or(isNull(memories.embedding), ne(memories.embeddingStatus, "ready"))
+    )).orderBy(asc(memories.id));
+    if (pending.length === 0) return { attempted: 0, ready: 0, failed: 0 };
+    const ids = pending.map(({ id }) => id);
+    const attemptedAt = new Date();
+    await this.database.db.update(memories).set({
+      embeddingLastAttemptAt: attemptedAt, embeddingError: null, updatedAt: attemptedAt
+    }).where(and(eq(memories.agentId, agentId), inArray(memories.id, ids)));
     let ready = 0;
-    for (const row of pending.rows) {
+    for (const row of pending) {
       const embedding = await this.prepareMemory(row.content, signal);
       if (embedding.status === "ready") ready += 1;
-      await this.pool.query(
-        "UPDATE memories SET embedding=$3::vector,embedding_model=$4,embedding_dimension=$5,embedding_status=$6,embedding_error=$7,updated_at=now() WHERE id=$1 AND agent_id=$2",
-        [row.id, agentId, embedding.vector === undefined ? null : `[${embedding.vector.join(",")}]`, embedding.model ?? null, embedding.dimension ?? null, embedding.status, embedding.error ?? null]
-      );
+      await this.database.db.update(memories).set({
+        embedding: embedding.vector === undefined ? null : [...embedding.vector],
+        embeddingModel: embedding.model ?? null,
+        embeddingDimension: embedding.dimension ?? null,
+        embeddingStatus: embedding.status,
+        embeddingError: embedding.error ?? null,
+        updatedAt: new Date()
+      }).where(and(eq(memories.id, row.id), eq(memories.agentId, agentId)));
     }
-    return { attempted: pending.rows.length, ready, failed: pending.rows.length - ready };
+    return { attempted: pending.length, ready, failed: pending.length - ready };
   }
 
   async backfill(options: { readonly agentId?: string; readonly limit?: number; readonly signal?: AbortSignal } = {}): Promise<MemoryEmbeddingResult> {
-    const limit = options.limit ?? 100;
-    const pending = await this.pool.query<MemoryRow>(
-      "SELECT id,agent_id,content FROM memories WHERE ($1::text IS NULL OR agent_id=$1) AND (embedding IS NULL OR embedding_status IN ('pending','failed')) ORDER BY created_at,id LIMIT $2",
-      [options.agentId ?? null, limit]
-    );
+    const owner = options.agentId === undefined ? undefined : eq(memories.agentId, options.agentId);
+    const pending = await this.database.db.select({
+      id: memories.id, agentId: memories.agentId
+    }).from(memories).where(and(
+      owner,
+      or(isNull(memories.embedding), inArray(memories.embeddingStatus, ["pending", "failed"]))
+    )).orderBy(asc(memories.createdAt), asc(memories.id)).limit(options.limit ?? 100);
     let attempted = 0; let ready = 0; let failed = 0;
     const byAgent = new Map<string, string[]>();
-    for (const row of pending.rows) byAgent.set(row.agent_id, [...(byAgent.get(row.agent_id) ?? []), row.id]);
+    for (const row of pending) byAgent.set(row.agentId, [...(byAgent.get(row.agentId) ?? []), row.id]);
     for (const [agentId, ids] of byAgent) {
       const result = await this.embedMemoryIds(agentId, ids, options.signal);
       attempted += result.attempted; ready += result.ready; failed += result.failed;

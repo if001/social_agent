@@ -1,14 +1,13 @@
 import { abortableDelay } from "../shared/abortable-delay.js";
-import { createHash } from "node:crypto";
-
 import { Pool, type PoolClient } from "pg";
 
 import { Scheduler } from "../application/scheduler.js";
 import type { AppConfig } from "../config/config.js";
-import { DomainError } from "../domain/contracts.js";
 import { checkOllamaChatCapability } from "../infrastructure/agent/deep-agent-harness.js";
 import { checkOllamaEmbeddingCapability } from "../infrastructure/embedding/ollama-embedding.js";
 import { PostgresScheduleRepository } from "../infrastructure/persistence/postgres-schedule-repository.js";
+import { PostgresAgentLeaseRepository } from "../infrastructure/persistence/postgres-agent-lease-repository.js";
+import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
 import { DiscordAdapter } from "../infrastructure/ui/discord-adapter.js";
 import { DiscordJsGateway } from "../infrastructure/ui/discord-js-gateway.js";
 import { createStdoutLogger, errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
@@ -30,13 +29,13 @@ export type BotHostOptions = {
 };
 
 
-const agentLockKey = (agentId: string): string => createHash("sha256").update(agentId).digest().readBigInt64BE().toString();
 const isAborted = (signal: AbortSignal): boolean => signal.aborted;
 
 export class BotHost {
   readonly #tasks: Promise<void>[] = [];
+  readonly #leaseRepository: PostgresAgentLeaseRepository;
   #lockClient: PoolClient | undefined; #started = false; #stopped = false;
-  constructor(private readonly options: BotHostOptions) {}
+  constructor(private readonly options: BotHostOptions) { this.#leaseRepository = new PostgresAgentLeaseRepository(createRuntimeDatabase(options.pool)); }
 
   async start(): Promise<void> {
     if (this.#started) throw new Error("Bot Host already started");
@@ -44,10 +43,8 @@ export class BotHost {
     const logger = this.options.logger ?? noopLogger;
     try {
       logger.log("info", "bot.starting");
-      await this.options.pool.query("SELECT 1");
+      await this.#leaseRepository.assertReady(this.options.agentId);
       logger.log("info", "bot.database_ready");
-      const agent = await this.options.pool.query<{ active: boolean }>("SELECT active FROM agents WHERE id=$1", [this.options.agentId]);
-      if (agent.rows[0]?.active !== true) throw new DomainError("NOT_FOUND", `Active Agent not found: ${this.options.agentId}`);
       await this.options.capabilityCheck();
       logger.log("info", "bot.capabilities_ready");
       await this.#acquireLock();
@@ -84,20 +81,12 @@ export class BotHost {
   }
 
   async #acquireLock(): Promise<void> {
-    const client = await this.options.pool.connect();
-    try {
-      await client.query("INSERT INTO agent_lock_keys(agent_id,lock_key) VALUES ($1,$2) ON CONFLICT (agent_id) DO NOTHING", [this.options.agentId, agentLockKey(this.options.agentId)]);
-      const stored = await client.query<{ lock_key: string }>("SELECT lock_key::text AS lock_key FROM agent_lock_keys WHERE agent_id=$1", [this.options.agentId]);
-      const lockKey = stored.rows[0]?.lock_key; if (lockKey === undefined) throw new Error("Agent lock key is unavailable");
-      const acquired = await client.query<{ acquired: boolean }>("SELECT pg_try_advisory_lock($1::bigint) AS acquired", [lockKey]);
-      if (acquired.rows[0]?.acquired !== true) throw new DomainError("CONFLICT", `Agent is already running: ${this.options.agentId}`);
-      this.#lockClient = client;
-    } catch (error) { client.release(); throw error; }
+    this.#lockClient = await this.#leaseRepository.acquire(this.options.agentId);
   }
   async #releaseLock(): Promise<void> {
     const client = this.#lockClient; if (client === undefined) return;
     this.#lockClient = undefined;
-    try { await client.query("SELECT pg_advisory_unlock_all()"); } finally { client.release(); }
+    await this.#leaseRepository.release(client);
   }
   async #cleanupAfterFailedStart(): Promise<void> {
     if (this.options.lifecycle.state !== "stopping" && this.options.lifecycle.state !== "stopped") this.options.lifecycle.transition("stopping");
@@ -133,12 +122,12 @@ export async function createProductionBotHost(config: AppConfig): Promise<BotHos
   try {
     // Existing agents predate concern-formation.  Install the new recurring
     // schedule without moving an already scheduled next run.
-    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) SELECT $1,id,'concern-formation',$2,now()+$3*interval '1 millisecond' FROM agents WHERE id=$4 ON CONFLICT (id) DO NOTHING", [`concern-formation:${config.botId}`, "Self、経験、関係、探索領域から今後も残る関心を形成する", timings.concernFormationIntervalMs, config.botId]);
+    await new PostgresAgentLeaseRepository(createRuntimeDatabase(pool)).ensureConcernFormation(config.botId, timings.concernFormationIntervalMs);
     composition = createBotComposition({ pool, config, logger });
   }
   catch (error) { await pool.end(); throw error; }
   const lifecycle = new ProcessLifecycle();
-  const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(pool, timings.leaseMs, config.botId, timings.retryDelayMs), runtime: composition.router, reflection: composition.reflection, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, defaultReplyContext: () => config.defaultOutputDestination === config.discord?.queueDestination && config.discord.channelIds[0] !== undefined ? { channelId: config.discord.channelIds[0] } : undefined, explorationDomains: config.explorationDomains, autonomyReviewIntervalMs: timings.autonomyReviewIntervalMs, concernFormationIntervalMs: timings.concernFormationIntervalMs, stateReviewIntervalMs: timings.stateReviewIntervalMs, ...(timings.idleQuietHours === undefined ? {} : { idleQuietHours: timings.idleQuietHours }) });
+  const scheduler = new Scheduler({ repository: new PostgresScheduleRepository(createRuntimeDatabase(pool), timings.leaseMs, config.botId, timings.retryDelayMs), runtime: composition.router, reflection: composition.reflection, clock: composition.clock, ids: composition.ids, lifecycle, logger, defaultDestination: () => config.defaultOutputDestination, defaultReplyContext: () => config.defaultOutputDestination === config.discord?.queueDestination && config.discord.channelIds[0] !== undefined ? { channelId: config.discord.channelIds[0] } : undefined, explorationDomains: config.explorationDomains, autonomyReviewIntervalMs: timings.autonomyReviewIntervalMs, concernFormationIntervalMs: timings.concernFormationIntervalMs, stateReviewIntervalMs: timings.stateReviewIntervalMs, ...(timings.idleQuietHours === undefined ? {} : { idleQuietHours: timings.idleQuietHours }) });
   const discord = new DiscordAdapter({ gateway: new DiscordJsGateway(config.discord.token, logger), queue: composition.queue, clock: composition.clock, ids: composition.ids, agentId: config.botId, botUserId: config.discord.botUserId, ownerIds: new Set(config.discord.ownerIds), guildIds: new Set(config.discord.guildIds), channelIds: new Set(config.discord.channelIds), queueDestination: config.discord.queueDestination, logger });
   return new BotHost({ pool, agentId: config.botId, lifecycle, runtime: composition.runtime, scheduler, outbox: composition.outbox, discord, experienceIntegration: composition.experienceIntegration, g3: composition.g3, logger, schedulerIntervalMs: timings.scanIntervalMs, outboxIntervalMs: config.outboxIntervalMs, closePool: true, capabilityCheck: async () => {
     await checkOllamaChatCapability(config.chat); await checkOllamaEmbeddingCapability(config.embedding);

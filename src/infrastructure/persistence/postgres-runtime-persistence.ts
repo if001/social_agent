@@ -1,4 +1,4 @@
-import type { Pool, QueryResultRow } from "pg";
+import { and, asc, eq, lte, lt, sql } from "drizzle-orm";
 import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, RuntimeExecutionInput, RuntimePersistence } from "../../application/agent-runtime.js";
@@ -7,47 +7,51 @@ import type { AgentStatePatchResult } from "../../application/agent-state-patch.
 import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
 import { PostgresUnitOfWork } from "./postgres.js";
+import type { RuntimeDatabase } from "./runtime-database.js";
+import { messageReceipts, outboxMessages, runtimeCorrelations, runtimeRateWindows } from "./schema.js";
 
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput | RuntimeExecutionInput>;
-type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
-
 /** The canonical pre-execution Agent Core input used by audit and Integration. */
 function decisionInputSnapshot(input: AgentCoreInput): AgentCoreInput { return input; }
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly agentId?: string, private readonly correlationTtlMs = 7 * 86_400_000, private readonly rateWindowRetentionMs = 3_600_000) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), ids, now); }
+  constructor(private readonly database: RuntimeDatabase, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly agentId?: string, private readonly correlationTtlMs = 7 * 86_400_000, private readonly rateWindowRetentionMs = 3_600_000) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(database.native), ids, now); }
 
-  async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
+  async hasReceipt(destination: string, messageId: string): Promise<boolean> {
+    return (await this.database.db.select({ messageId: messageReceipts.messageId }).from(messageReceipts).where(and(
+      eq(messageReceipts.destination, destination),
+      eq(messageReceipts.messageId, messageId),
+      eq(messageReceipts.status, "completed")
+    )).limit(1)).length === 1;
+  }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
   async authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query("DELETE FROM runtime_correlations WHERE created_at<now()-$1*interval '1 millisecond'", [this.correlationTtlMs]);
-      await client.query("DELETE FROM runtime_rate_windows WHERE window_start<now()-$1*interval '1 millisecond'", [this.rateWindowRetentionMs]);
+    await this.database.transaction(async (tx) => {
+      await tx.delete(runtimeCorrelations).where(lt(runtimeCorrelations.createdAt, new Date(Date.now() - this.correlationTtlMs)));
+      await tx.delete(runtimeRateWindows).where(lt(runtimeRateWindows.windowStart, new Date(Date.now() - this.rateWindowRetentionMs)));
       const correlation = event.correlationId ?? event.id;
-      const claimed = await client.query<{ message_id: string }>("INSERT INTO runtime_correlations(agent_id,correlation_id,message_id) VALUES ($1,$2,$3) ON CONFLICT (agent_id,correlation_id) DO UPDATE SET message_id=runtime_correlations.message_id RETURNING message_id", [event.agentId, correlation, messageId]);
-      if (claimed.rows[0]?.message_id !== messageId) throw new DomainError("VALIDATION", "Correlation loop detected");
-      const rate = await client.query<{ event_count: number }>("INSERT INTO runtime_rate_windows(agent_id,window_start,event_count) VALUES ($1,date_trunc('minute',now()),1) ON CONFLICT (agent_id,window_start) DO UPDATE SET event_count=runtime_rate_windows.event_count+1 RETURNING event_count", [event.agentId]);
-      if ((rate.rows[0]?.event_count ?? 0) > maxEventsPerMinute) throw new DomainError("VALIDATION", "Agent event rate limit exceeded");
-      await client.query("COMMIT");
-    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+      const claimed = await tx.insert(runtimeCorrelations).values({
+        agentId: event.agentId, correlationId: correlation, messageId
+      }).onConflictDoUpdate({
+        target: [runtimeCorrelations.agentId, runtimeCorrelations.correlationId],
+        set: { messageId: sql`${runtimeCorrelations.messageId}` }
+      }).returning({ messageId: runtimeCorrelations.messageId });
+      if (claimed[0]?.messageId !== messageId) throw new DomainError("VALIDATION", "Correlation loop detected");
+      // PostgreSQL-native: incrementing a rate window must be one atomic upsert.
+      const rate = await tx.execute(sql<{ event_count: number }>`INSERT INTO app.runtime_rate_windows(agent_id,window_start,event_count)
+        VALUES (${event.agentId},date_trunc('minute',now()),1)
+        ON CONFLICT (agent_id,window_start) DO UPDATE SET event_count=app.runtime_rate_windows.event_count+1
+        RETURNING event_count`);
+      if (Number(rate.rows[0]?.event_count ?? 0) > maxEventsPerMinute) throw new DomainError("VALIDATION", "Agent event rate limit exceeded");
+    });
   }
   async cleanupRuntimeState(correlationBefore: Date, rateWindowBefore: Date): Promise<{ readonly correlations: number; readonly rateWindows: number }> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const correlations = await client.query("DELETE FROM runtime_correlations WHERE created_at<$1", [correlationBefore]);
-      const rateWindows = await client.query("DELETE FROM runtime_rate_windows WHERE window_start<$1", [rateWindowBefore]);
-      await client.query("COMMIT");
-      return { correlations: correlations.rowCount ?? 0, rateWindows: rateWindows.rowCount ?? 0 };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    return this.database.transaction(async (tx) => {
+      const correlations = await tx.delete(runtimeCorrelations).where(lt(runtimeCorrelations.createdAt, correlationBefore)).returning({ id: runtimeCorrelations.correlationId });
+      const rateWindows = await tx.delete(runtimeRateWindows).where(lt(runtimeRateWindows.windowStart, rateWindowBefore)).returning({ at: runtimeRateWindows.windowStart });
+      return { correlations: correlations.length, rateWindows: rateWindows.length };
+    });
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
@@ -87,10 +91,17 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
 
   async pendingOutbox(limit: number): Promise<readonly PendingOutput[]> {
-    const result = await this.pool.query<OutboxRow>("SELECT id,envelope FROM outbox_messages WHERE status='pending' AND available_at<=now() AND ($2::text IS NULL OR agent_id=$2) ORDER BY created_at,id LIMIT $1", [limit, this.agentId ?? null]);
-    return result.rows.map(({ envelope }) => ({ envelope }));
+    const owner = this.agentId === undefined ? undefined : eq(outboxMessages.agentId, this.agentId);
+    const rows = await this.database.db.select({ envelope: outboxMessages.envelope }).from(outboxMessages).where(and(
+      eq(outboxMessages.status, "pending"),
+      lte(outboxMessages.availableAt, sql`now()`),
+      owner
+    )).orderBy(asc(outboxMessages.createdAt), asc(outboxMessages.id)).limit(limit);
+    return rows.map(({ envelope }) => ({ envelope: envelope as MessageEnvelope }));
   }
-  async markOutboxSent(id: string): Promise<void> { await this.pool.query("UPDATE outbox_messages SET status='sent',sent_at=now() WHERE id=$1", [id]); }
+  async markOutboxSent(id: string): Promise<void> {
+    await this.database.db.update(outboxMessages).set({ status: "sent", sentAt: new Date() }).where(eq(outboxMessages.id, id));
+  }
 
   #validateTools(input: AgentCoreInput, executions: readonly ToolExecutionRecord[]): readonly ToolExecutionRecord[] {
     const allowed = new Set(input.availableTools.map(({ name }) => name));

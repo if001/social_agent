@@ -1,19 +1,64 @@
-import type { QueryResultRow } from "pg";
+import { and, desc, eq } from "drizzle-orm";
 
 import type { ScheduledTaskRecord, ScheduledTaskToolRepository } from "../tools/scheduled-task-tools.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
+import { scheduledTasks } from "./schema.js";
 
-type Row = QueryResultRow & { id: string; execute_at: Date; instruction: string; reason: string | null; destination: string | null; status: string; attempt: number };
-const record = (row: Row): ScheduledTaskRecord => ({ id: row.id, executeAt: row.execute_at, instruction: row.instruction, reason: row.reason, destination: row.destination, status: row.status, attempt: row.attempt });
+type Row = typeof scheduledTasks.$inferSelect;
+const record = (row: Row): ScheduledTaskRecord => ({
+  id: row.id, executeAt: row.executeAt, instruction: row.instruction,
+  reason: row.reason, destination: row.destination, status: row.status, attempt: row.attempt
+});
 
 /** PostgreSQL adapter; Tool definitions only depend on ScheduledTaskToolRepository. */
 export class PostgresScheduledTaskToolRepository implements ScheduledTaskToolRepository {
   constructor(private readonly database: RuntimeDatabase) {}
+
   async create(input: Parameters<ScheduledTaskToolRepository["create"]>[0]): Promise<ScheduledTaskRecord | undefined> {
-    const rows = await this.database.native.query<Row>("INSERT INTO scheduled_tasks(id,agent_id,execute_at,instruction,reason,destination,status,attempt,idempotency_key,source_run_id) VALUES($1,$2,$3,$4,$5,$6,'scheduled',0,$7,$8) ON CONFLICT(agent_id,idempotency_key) DO UPDATE SET updated_at=scheduled_tasks.updated_at RETURNING id,execute_at,instruction,reason,destination,status,attempt", [input.id, input.agentId, input.executeAt, input.instruction, input.reason ?? null, input.destination ?? null, input.idempotencyKey, input.runId]);
-    return rows.rows[0] === undefined ? undefined : record(rows.rows[0]);
+    const rows = await this.database.db.insert(scheduledTasks).values({
+      id: input.id, agentId: input.agentId, executeAt: input.executeAt,
+      instruction: input.instruction, reason: input.reason ?? null,
+      destination: input.destination ?? null, idempotencyKey: input.idempotencyKey,
+      sourceRunId: input.runId
+    }).onConflictDoNothing({
+      target: [scheduledTasks.agentId, scheduledTasks.idempotencyKey]
+    }).returning();
+    if (rows[0] !== undefined) return record(rows[0]);
+    const existing = await this.database.db.select().from(scheduledTasks).where(and(
+      eq(scheduledTasks.agentId, input.agentId),
+      eq(scheduledTasks.idempotencyKey, input.idempotencyKey)
+    )).limit(1);
+    return existing[0] === undefined ? undefined : record(existing[0]);
   }
-  async list(agentId: string, status: string | undefined, limit: number): Promise<readonly ScheduledTaskRecord[]> { return (await this.database.native.query<Row>("SELECT id,execute_at,instruction,reason,destination,status,attempt FROM scheduled_tasks WHERE agent_id=$1 AND ($2::text IS NULL OR status=$2) ORDER BY execute_at DESC,id LIMIT $3", [agentId, status ?? null, limit])).rows.map(record); }
-  async cancel(agentId: string, taskId: string): Promise<ScheduledTaskRecord | undefined> { const rows = await this.database.native.query<Row>("UPDATE scheduled_tasks SET status='cancelled',lease_until=NULL,updated_at=now() WHERE id=$1 AND agent_id=$2 AND status='scheduled' RETURNING id,execute_at,instruction,reason,destination,status,attempt", [taskId, agentId]); return rows.rows[0] === undefined ? undefined : record(rows.rows[0]); }
-  async update(agentId: string, taskId: string, input: Parameters<ScheduledTaskToolRepository["update"]>[2]): Promise<ScheduledTaskRecord | undefined> { const rows = await this.database.native.query<Row>("UPDATE scheduled_tasks SET execute_at=COALESCE($3,execute_at),instruction=COALESCE($4,instruction),reason=COALESCE($5,reason),destination=COALESCE($6,destination),updated_at=now() WHERE id=$1 AND agent_id=$2 AND status='scheduled' RETURNING id,execute_at,instruction,reason,destination,status,attempt", [taskId, agentId, input.executeAt ?? null, input.instruction ?? null, input.reason ?? null, input.destination ?? null]); return rows.rows[0] === undefined ? undefined : record(rows.rows[0]); }
+
+  async list(agentId: string, status: string | undefined, limit: number): Promise<readonly ScheduledTaskRecord[]> {
+    const condition = status === undefined
+      ? eq(scheduledTasks.agentId, agentId)
+      : and(eq(scheduledTasks.agentId, agentId), eq(scheduledTasks.status, status));
+    return (await this.database.db.select().from(scheduledTasks).where(condition)
+      .orderBy(desc(scheduledTasks.executeAt), scheduledTasks.id).limit(limit)).map(record);
+  }
+
+  async cancel(agentId: string, taskId: string): Promise<ScheduledTaskRecord | undefined> {
+    const rows = await this.database.db.update(scheduledTasks).set({
+      status: "cancelled", leaseUntil: null, updatedAt: new Date()
+    }).where(and(
+      eq(scheduledTasks.id, taskId), eq(scheduledTasks.agentId, agentId),
+      eq(scheduledTasks.status, "scheduled")
+    )).returning();
+    return rows[0] === undefined ? undefined : record(rows[0]);
+  }
+
+  async update(agentId: string, taskId: string, input: Parameters<ScheduledTaskToolRepository["update"]>[2]): Promise<ScheduledTaskRecord | undefined> {
+    const values: Partial<typeof scheduledTasks.$inferInsert> = { updatedAt: new Date() };
+    if (input.executeAt !== undefined) values.executeAt = input.executeAt;
+    if (input.instruction !== undefined) values.instruction = input.instruction;
+    if (input.reason !== undefined) values.reason = input.reason;
+    if (input.destination !== undefined) values.destination = input.destination;
+    const rows = await this.database.db.update(scheduledTasks).set(values).where(and(
+      eq(scheduledTasks.id, taskId), eq(scheduledTasks.agentId, agentId),
+      eq(scheduledTasks.status, "scheduled")
+    )).returning();
+    return rows[0] === undefined ? undefined : record(rows[0]);
+  }
 }

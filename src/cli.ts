@@ -10,12 +10,13 @@ import { replaceBackgroundExperiences } from "./operations/background-experience
 import { loadInitialSelfFile } from "./config/initial-self.js";
 import { loadBackgroundExperienceFile } from "./config/background-experience.js";
 import { parseSchedulerTimings } from "./config/config.js";
+import { createRuntimeDatabase } from "./infrastructure/persistence/runtime-database.js";
 
 const [command, ...args] = process.argv.slice(2);
 const databaseUrl = (process.env.POSTGRES_URL ?? "").replace("postgresql+psycopg://", "postgresql://");
 
 async function main(): Promise<void> {
-  if (command === "agent:init") { const [configPath, option] = args; if (configPath === undefined || args.length > 2 || (option !== undefined && option !== "--overwrite-configured-self")) throw new Error("Usage: agent:init <initial-self-yaml> [--overwrite-configured-self]"); const config = await loadInitialSelfFile(configPath); const backgroundPath = join(process.cwd(), "config", "background-experiences", `${config.agent.id}.yaml`); const backgroundExperience = existsSync(backgroundPath) ? await loadBackgroundExperienceFile(backgroundPath) : undefined; const pool = new Pool({ connectionString: databaseUrl }); try { await initializeAgent(pool, config, parseSchedulerTimings(process.env), { overwriteConfiguredSelf: option === "--overwrite-configured-self", ...(backgroundExperience === undefined ? {} : { backgroundExperience }) }); if (backgroundExperience !== undefined) { const baseUrl = process.env.OLLAMA_EMBEDDING_BASE_URL; const model = process.env.OLLAMA_EMBEDDING_MODEL; const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10); if (baseUrl !== undefined && model !== undefined && Number.isInteger(dimension) && dimension > 0) await new PostgresBackgroundExperienceEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model).backfill({ agentId: config.agent.id, limit: backgroundExperience.experiences.length, signal: AbortSignal.timeout(120_000) }); } } finally { await pool.end(); } return; }
+  if (command === "agent:init") { const [configPath, option] = args; if (configPath === undefined || args.length > 2 || (option !== undefined && option !== "--overwrite-configured-self")) throw new Error("Usage: agent:init <initial-self-yaml> [--overwrite-configured-self]"); const config = await loadInitialSelfFile(configPath); const backgroundPath = join(process.cwd(), "config", "background-experiences", `${config.agent.id}.yaml`); const backgroundExperience = existsSync(backgroundPath) ? await loadBackgroundExperienceFile(backgroundPath) : undefined; const pool = new Pool({ connectionString: databaseUrl }); try { await initializeAgent(pool, config, parseSchedulerTimings(process.env), { overwriteConfiguredSelf: option === "--overwrite-configured-self", ...(backgroundExperience === undefined ? {} : { backgroundExperience }) }); if (backgroundExperience !== undefined) { const baseUrl = process.env.OLLAMA_EMBEDDING_BASE_URL; const model = process.env.OLLAMA_EMBEDDING_MODEL; const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10); if (baseUrl !== undefined && model !== undefined && Number.isInteger(dimension) && dimension > 0) await new PostgresBackgroundExperienceEmbeddingLifecycle(createRuntimeDatabase(pool), new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model).backfill({ agentId: config.agent.id, limit: backgroundExperience.experiences.length, signal: AbortSignal.timeout(120_000) }); } } finally { await pool.end(); } return; }
   if (command === "background:load") {
     const [path] = args;
     if (path === undefined || args.length !== 1) throw new Error("Usage: background:load <background-experience-yaml>");
@@ -28,7 +29,7 @@ async function main(): Promise<void> {
       const dimension = Number.parseInt(process.env.OLLAMA_EMBEDDING_DIMENSION ?? "", 10);
       const embedding = baseUrl === undefined || model === undefined || !Number.isInteger(dimension) || dimension <= 0
         ? undefined
-        : await new PostgresBackgroundExperienceEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model).backfill({ agentId: backgroundExperience.agentId, limit: replaced, signal: AbortSignal.timeout(120_000) });
+        : await new PostgresBackgroundExperienceEmbeddingLifecycle(createRuntimeDatabase(pool), new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model).backfill({ agentId: backgroundExperience.agentId, limit: replaced, signal: AbortSignal.timeout(120_000) });
       process.stdout.write(`${JSON.stringify({ agentId: backgroundExperience.agentId, replaced, ...(embedding === undefined ? {} : { embedding }) })}\n`);
     } finally { await pool.end(); }
     return;
@@ -40,7 +41,7 @@ async function main(): Promise<void> {
     if (!Number.isInteger(limit) || limit <= 0) throw new Error("Usage: memory:backfill [agent-id] [positive-limit]");
     const pool = new Pool({ connectionString: databaseUrl });
     try {
-      const lifecycle = new PostgresMemoryEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model);
+      const lifecycle = new PostgresMemoryEmbeddingLifecycle(createRuntimeDatabase(pool), new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model);
       process.stdout.write(`${JSON.stringify(await lifecycle.backfill({ ...(agentId === undefined ? {} : { agentId }), limit, signal: AbortSignal.timeout(120_000) }))}\n`);
     } finally { await pool.end(); }
     return;
@@ -52,7 +53,7 @@ async function main(): Promise<void> {
     if (!Number.isInteger(limit) || limit <= 0) throw new Error("Usage: background:embed [agent-id] [positive-limit]");
     const pool = new Pool({ connectionString: databaseUrl });
     try {
-      const lifecycle = new PostgresBackgroundExperienceEmbeddingLifecycle(pool, new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model);
+      const lifecycle = new PostgresBackgroundExperienceEmbeddingLifecycle(createRuntimeDatabase(pool), new OllamaEmbeddingProvider({ baseUrl, model, dimension }), model);
       process.stdout.write(`${JSON.stringify(await lifecycle.backfill({ ...(agentId === undefined ? {} : { agentId }), limit, signal: AbortSignal.timeout(120_000) }))}\n`);
     } finally { await pool.end(); }
     return;

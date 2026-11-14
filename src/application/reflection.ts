@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import type { ReactivationCandidate } from "./memory-reconciliation.js";
 import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
@@ -269,7 +268,6 @@ export class TargetedReflection {
   }
 
   #validateTargetOutput(target: ReflectionTarget, raw: unknown, input: ReflectionInput): void {
-    const memoryIds = new Set(input.memories.map(({ id }) => id));
     if (target === "reconciliation") {
       const output = MemoryReconciliationOutputSchema.parse(raw);
       if (input.memories.length !== 1) throw new DomainError("VALIDATION", "Memory Reconciliation requires one Runtime-bound anchor");

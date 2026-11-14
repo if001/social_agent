@@ -92,7 +92,7 @@ describe("Reflection", () => {
       beginMemoryBatch: (_input, batch) => Promise.resolve(batch.batchIndex === 0 ? "completed" : "pending"),
       commitMemoryBatch: (_input, batch) => { retried.push(batch.events.map(({ id }) => id)); return Promise.resolve(); }, failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
       commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
-    }, { reflect: (target, value) => {
+    }, { reflect: (target) => {
       calls.push(target);
       if (target === "memory") return Promise.resolve({ output: { memories: [{ content: "Retry memory", reason: "batch", target: "episodic", perspective: "self" }] }, toolExecutions: [] });
       if (target === "concern") return Promise.resolve({ output: { concernChanges: [] }, toolExecutions: [] });

@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
 
-import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type { Pool, QueryResultRow } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { and, eq, sql } from "drizzle-orm";
 import { migrate as runDrizzleMigrations } from "drizzle-orm/node-postgres/migrator";
 
 import { DomainError } from "../../domain/contracts.js";
@@ -18,29 +19,26 @@ export async function migrate(pool: Pool, migrationsFolder = fileURLToPath(new U
 export class PostgresUnitOfWork {
   readonly database: RuntimeDatabase;
   readonly native: Pool;
-  constructor(private readonly pool: Pool) { this.native = pool; this.database = createRuntimeDatabase(pool); }
-  async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try { await client.query("BEGIN"); const result = await work(client); await client.query("COMMIT"); return result; }
-    catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+  constructor(pool: Pool) { this.native = pool; this.database = createRuntimeDatabase(pool); }
+  transaction<T>(work: Parameters<RuntimeDatabase["transaction"]>[0]): Promise<T> {
+    return this.database.transaction(work) as Promise<T>;
   }
 }
 
 export class AgentStateRepository {
-  constructor(private readonly client: Pick<Pool, "query"> | Pick<PoolClient, "query">) {}
+  constructor(private readonly client: RuntimeDatabase["db"] | Parameters<Parameters<RuntimeDatabase["transaction"]>[0]>[0]) {}
   async find<T extends QueryResultRow>(agentId: string): Promise<T | undefined> {
-    const result = await this.client.query<T>("SELECT * FROM agent_states WHERE agent_id = $1", [agentId]);
-    return result.rows[0];
+    return (await this.client.select().from(schema.agentStates).where(eq(schema.agentStates.agentId, agentId)).limit(1))[0] as T | undefined;
   }
   async update(agentId: string, expectedVersion: number, values: Readonly<Record<string, unknown>>): Promise<number> {
     const allowed = ["disposition", "self_story", "commitments", "concerns", "relationships", "mood"];
     const entries = Object.entries(values).filter(([key]) => allowed.includes(key));
     if (entries.length !== Object.keys(values).length || entries.length === 0) throw new DomainError("VALIDATION", "Invalid state fields");
-    const assignments = entries.map(([key], index) => `${key} = $${String(index + 3)}`).join(", ");
-    const jsonFields = new Set(["commitments", "concerns", "relationships"]);
-    const result = await this.client.query<{ version: number }>(`UPDATE agent_states SET ${assignments}, version = version + 1, updated_at = now() WHERE agent_id = $1 AND version = $2 RETURNING version`, [agentId, expectedVersion, ...entries.map(([key, value]) => jsonFields.has(key) ? JSON.stringify(value) : value)]);
-    const version = result.rows[0]?.version;
+    const columnMap = { disposition: "disposition", self_story: "selfStory", commitments: "commitments", concerns: "concerns", relationships: "relationships", mood: "mood" } as const;
+    const update: Record<string, unknown> = { version: sql`${schema.agentStates.version}+1`, updatedAt: new Date() };
+    for (const [key, value] of entries) update[columnMap[key as keyof typeof columnMap]] = value;
+    const result = await this.client.update(schema.agentStates).set(update).where(and(eq(schema.agentStates.agentId, agentId), eq(schema.agentStates.version, expectedVersion))).returning({ version: schema.agentStates.version });
+    const version = result[0]?.version;
     if (version === undefined) throw new DomainError("CONFLICT", "Agent state version conflict");
     return version;
   }

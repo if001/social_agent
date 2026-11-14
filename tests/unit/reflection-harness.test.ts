@@ -65,8 +65,10 @@ describe("structured Reflection model", () => {
   });
 
   it("FR-71: gives each Memory Event batch an independent stable tool idempotency scope", () => {
-    const firstBatch = { ...input, events: [{ ...input.events[0]!, id: "event-1" }] };
-    const secondBatch = { ...input, events: [{ ...input.events[0]!, id: "event-33" }] };
+    const event = input.events[0];
+    if (event === undefined) throw new Error("Reflection fixture Event is missing");
+    const firstBatch = { ...input, events: [{ ...event, id: "event-1" }] };
+    const secondBatch = { ...input, events: [{ ...event, id: "event-33" }] };
 
     expect(reflectionToolRunScope("memory", firstBatch)).toBe("reflection-1:memory:event-1");
     expect(reflectionToolRunScope("memory", firstBatch)).toBe(reflectionToolRunScope("memory", firstBatch));

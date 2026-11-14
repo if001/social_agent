@@ -7,31 +7,39 @@ import type { SchedulerTimings } from "../config/config.js";
 import type { AddressedFileQueue, DeadLetter } from "../infrastructure/queue/addressed-file-queue.js";
 import type { LifecycleState } from "../bootstrap/lifecycle.js";
 import { redactSecrets } from "../observability/redaction.js";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
+import { agentFamilies, agents, agentStates, autonomousSchedules } from "../infrastructure/persistence/schema.js";
 
 type InitializationTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> & Partial<Pick<SchedulerTimings, "concernFormationIntervalMs">>;
 
 export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: InitializationTimings = { autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }, options: { readonly overwriteConfiguredSelf?: boolean; readonly backgroundExperience?: BackgroundExperienceFile } = {}): Promise<void> {
   const { family, agent, initialState } = config;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [family.id, family.name, family.sharedDisposition, family.baseInstruction]);
-    await client.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [agent.id, family.id, agent.identity, agent.initialDisposition]);
-    const disposition = [family.sharedDisposition, agent.initialDisposition].join("\n");
-    const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
-    const commitments = agent.raisonDetre === undefined ? [] : [agent.raisonDetre];
-    await client.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (agent_id) DO NOTHING", [agent.id, disposition, selfStory, JSON.stringify(commitments), JSON.stringify(initialState.concerns), JSON.stringify(initialState.relationships), initialState.mood]);
+  const disposition = [family.sharedDisposition, agent.initialDisposition].join("\n");
+  const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
+  const commitments = agent.raisonDetre === undefined ? [] : [agent.raisonDetre];
+  const database = createRuntimeDatabase(pool);
+  await database.transaction(async (tx) => {
+    await tx.insert(agentFamilies).values({ id: family.id, name: family.name, sharedDisposition: family.sharedDisposition, baseInstruction: family.baseInstruction }).onConflictDoNothing({ target: agentFamilies.id });
+    await tx.insert(agents).values({ id: agent.id, familyId: family.id, identity: agent.identity, initialDisposition: agent.initialDisposition }).onConflictDoNothing({ target: agents.id });
+    await tx.insert(agentStates).values({ agentId: agent.id, disposition, selfStory, commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood }).onConflictDoNothing({ target: agentStates.agentId });
     if (options.overwriteConfiguredSelf === true) {
-      await client.query("UPDATE agent_families SET name=$2,shared_disposition=$3,base_instruction=$4,updated_at=now() WHERE id=$1", [family.id, family.name, family.sharedDisposition, family.baseInstruction]);
-      await client.query("UPDATE agents SET family_id=$2,identity=$3,initial_disposition=$4,updated_at=now() WHERE id=$1", [agent.id, family.id, agent.identity, agent.initialDisposition]);
-      await client.query("UPDATE agent_states SET disposition=$2,self_story=$3,commitments=$4,version=version+1,updated_at=now() WHERE agent_id=$1", [agent.id, disposition, selfStory, JSON.stringify(commitments)]);
+      const now = new Date();
+      await tx.update(agentFamilies).set({ name: family.name, sharedDisposition: family.sharedDisposition, baseInstruction: family.baseInstruction, updatedAt: now }).where(eq(agentFamilies.id, family.id));
+      await tx.update(agents).set({ familyId: family.id, identity: agent.identity, initialDisposition: agent.initialDisposition, updatedAt: now }).where(eq(agents.id, agent.id));
+      await tx.update(agentStates).set({ disposition, selfStory, commitments, version: sql`${agentStates.version}+1`, updatedAt: now }).where(eq(agentStates.agentId, agent.id));
     }
-    await client.query("DELETE FROM autonomous_schedules WHERE agent_id=$1 AND kind=ANY($2::text[])", [agent.id, ["state-review", "memory-recall", "autonomy-review"]]);
-    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'idle',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`idle:${agent.id}`, agent.id, "一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する", timings.autonomyReviewIntervalMs]);
-    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'concern-formation',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`concern-formation:${agent.id}`, agent.id, "Self、経験、関係、探索領域から今後も残る関心を形成する", timings.concernFormationIntervalMs ?? timings.autonomyReviewIntervalMs]);
-    await client.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ($1,$2,'reflection',$3,now()+$4*interval '1 millisecond') ON CONFLICT (id) DO NOTHING", [`reflection:${agent.id}`, agent.id, "蓄積したEvent logをMemoryと長期状態へ統合する", timings.stateReviewIntervalMs]);
-    await client.query("COMMIT");
-  } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+    await tx.delete(autonomousSchedules).where(and(eq(autonomousSchedules.agentId, agent.id), inArray(autonomousSchedules.kind, ["state-review", "memory-recall", "autonomy-review"])));
+    // Persist the same clock value as `updatedAt`; otherwise a slow transaction
+    // shortens an interval before the scheduler has ever seen it.
+    const scheduledAt = new Date();
+    const now = scheduledAt.getTime();
+    await tx.insert(autonomousSchedules).values([
+      { id: `idle:${agent.id}`, agentId: agent.id, kind: "idle", reason: "一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する", nextDueAt: new Date(now + timings.autonomyReviewIntervalMs), updatedAt: scheduledAt },
+      { id: `concern-formation:${agent.id}`, agentId: agent.id, kind: "concern-formation", reason: "Self、経験、関係、探索領域から今後も残る関心を形成する", nextDueAt: new Date(now + (timings.concernFormationIntervalMs ?? timings.autonomyReviewIntervalMs)), updatedAt: scheduledAt },
+      { id: `reflection:${agent.id}`, agentId: agent.id, kind: "reflection", reason: "蓄積したEvent logをMemoryと長期状態へ統合する", nextDueAt: new Date(now + timings.stateReviewIntervalMs), updatedAt: scheduledAt }
+    ]).onConflictDoNothing({ target: autonomousSchedules.id });
+  });
   if (options.backgroundExperience !== undefined) {
     if (options.backgroundExperience.agentId !== agent.id) throw new Error("Background Experience agentId does not match the initialized agent");
     await replaceBackgroundExperiences(pool, options.backgroundExperience, agent.id);

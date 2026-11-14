@@ -5,7 +5,7 @@ import { z } from "zod";
 import { estimateTokens } from "../../application/context-builder.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
-import { DomainError } from "../../domain/contracts.js";
+import { DomainError, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { ToolRegistry } from "../../application/tool-registry.js";
@@ -123,7 +123,7 @@ function domainOutputFromModel(raw: unknown): unknown {
 }
 
 export interface ReflectionInvoker {
-  invoke(messages: readonly { readonly role: "user"; readonly content: string }[], options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId?: string; readonly reflectionId?: string; readonly reflectorTarget?: ReflectionTarget }): Promise<{ readonly structuredResponse?: unknown; readonly toolExecutions?: readonly import("../../domain/contracts.js").ToolExecutionRecord[] }>;
+  invoke(messages: readonly { readonly role: "user"; readonly content: string }[], options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly agentId?: string; readonly reflectionId?: string; readonly reflectorTarget?: ReflectionTarget }): Promise<{ readonly structuredResponse?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[] }>;
 }
 
 export const MAX_REFLECTION_MODEL_INPUT_TOKENS = 8_000;
@@ -247,7 +247,7 @@ export class TargetStructuredReflectionModel {
   constructor(private readonly invoker: ReflectionInvoker, private readonly repairInvoker: ReflectionInvoker, private readonly schema: z.ZodType, private readonly prompt: string, private readonly logger: Logger) {}
   async reflect(input: unknown, signal: AbortSignal, agentId: string, reflectionId: string): Promise<ReflectorResult> {
     let raw: unknown; let issues: unknown;
-    let toolExecutions: readonly import("../../domain/contracts.js").ToolExecutionRecord[] = [];
+    let toolExecutions: readonly ToolExecutionRecord[] = [];
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const content = attempt === 0 ? JSON.stringify(input) : JSON.stringify(targetedReflectorRepairInput(input, this.schema, issues, raw));
       if (estimateTokens([{ role: "system", content: this.prompt }, { role: "user", content }]) + estimateTokens(modelJsonSchema(this.schema)) > MAX_REFLECTION_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Reflector input exceeds estimated ${String(MAX_REFLECTION_MODEL_INPUT_TOKENS)} token budget`);
@@ -273,10 +273,10 @@ export class TargetStructuredReflectionModel {
   }
 }
 
-function toolExecutionsFrom(error: unknown): readonly import("../../domain/contracts.js").ToolExecutionRecord[] {
+function toolExecutionsFrom(error: unknown): readonly ToolExecutionRecord[] {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null || !("toolExecutions" in error.cause)) return [];
   const records = error.cause.toolExecutions;
-  return Array.isArray(records) ? records as readonly import("../../domain/contracts.js").ToolExecutionRecord[] : [];
+  return Array.isArray(records) ? records as readonly ToolExecutionRecord[] : [];
 }
 
 /**
