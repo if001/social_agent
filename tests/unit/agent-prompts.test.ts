@@ -47,7 +47,7 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("既知のユーザーの予定、試み、関心、未完了の話題へ自発的な関心");
   });
 
-  it("FR-70: appraises autonomous exploration without forcing positive emotion", () => {
+  it("FR-87: appraises autonomous exploration without forcing positive emotion", () => {
     expect(completeAgentCoreSystemPrompt).toContain("相手に共有しやすい前向きな感情へ丸めません");
     expect(idleSkill).toContain("喜びだけでなく失望、がっかり、苛立ち、驚き、警戒、怒りを正当なFeelingとして評価");
     expect(idleSkill).toContain("一度のTool失敗だけで怒りを捏造せず");

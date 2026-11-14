@@ -35,7 +35,7 @@
 | ADR-5 | 最終Actionをrespond、refuse、notify-no-execution、no-external-actionに限定し、Patch対象を限定する。 | FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23 |
 | ADR-6 | ToolはDeep Agent内のloopで実行し、登録、権限、回数、冪等性、結果投影をRuntimeが管理する。 | FR-4, FR-32, FR-33, FR-35, FR-36, FR-37, FR-38 |
 | ADR-7 | 自律EventはRuntimeが生成し、Reflectionを通常Action選択から分離した、Memory→Concern / Relationship→Self / Moodの対象別maintenance Sessionとする。 | FR-24, FR-39, FR-40, FR-41, FR-42, NFR-6 |
-| ADR-8 | PostgreSQLを正本とし、Event、State、Conversation Memory、Prediction、MemoryMutation、Outboxをtransactionとadvisory lockで確定する。 | NFR-7, NFR-8, NFR-9, NFR-10, NFR-11 |
+| ADR-8 | PostgreSQLを正本とし、Event、State、Conversation Memory、Prediction、MemoryMutation、Outboxをtransactionとadvisory lockで確定する。通常CRUDはDrizzle repository、PostgreSQL固有操作だけはrepository内の限定SQLに閉じる。 | NFR-7, NFR-8, NFR-9, NFR-10, NFR-11 |
 | ADR-9 | Debug UIは読取り専用とし、secretは実行時だけ読み込む。 | NFR-12, NFR-13 |
 | ADR-10 | 概念語彙をSelf、State、Conversation Memory、Background Experience、Prediction、Reflectionの境界へ簡略化し、予測LoopとMemoryUpdateに必要な最小のtableとmoduleだけを追加する。それ以外の個別tableや認知moduleを増やさない。 | FR-5, FR-6, FR-7, NFR-11 |
 | ADR-11 | モジュールはAgent Loop、Prediction、MemoryUpdate、Retrieval、Autonomy、Reflection、Model、Persistence、Tools、Eventsの境界に留める。 | FR-1, FR-2, NFR-10 |
@@ -261,6 +261,10 @@ Context Builderは独立した認知moduleにせず、`agent-loop`が利用す�
 ## 永続化と運用保証
 
 PostgreSQLを正本とする。Agentごとの状態・Conversation Memory・Background Experience分離、advisory lock、optimistic state version、Queue receipt、Outbox、Tool冪等性、correlation、TTL、hop、rate limitを通常コードが保証する。Conversation Memoryの書込みはMemoryWriteServiceに集約し、Memory versionの楽観ロックとAgent単位の直列処理を行う。predictionEvaluation、Prediction Context、MemoryIntent、memory-update Event、memory mutation、Reflectionの対象別statusを監査可能にする。MainAgentは権限やsystem constraintを上書きできない。
+
+`events`は論理EventとObservationの不変な正本、`agent_runs`は一つのEventへ複数存在し得る実行attemptの入力・出力監査である。retryは新しいRunを作るが新しいEvent Experienceを作らない。成功EventのExperience IntegrationがEvent Experienceを一度だけ形成し、Event ProjectionはExperience summaryのhashに対応するembedding・model・状態だけを持つ従属indexとする。summaryが変わればProjectionをpendingへ戻し、再embeddingできるまでvector検索から外す。Tool Resultは`tool_executions`に完全保存する監査recordであり、通常のEvent Projection・Reflection検索へ投影しない。G3を含む検索対象EventもExperience Integration後にだけProjectionを作る。
+
+通常CRUD、transaction、schema DDLはDrizzle ORMのschemaとrepositoryを経由する。vector / hybrid RAG、`FOR UPDATE SKIP LOCKED`、advisory lock、rate-window原子更新だけを、repository内のDrizzle transactionで実行するPostgreSQL固有SQLとして許容する。application service、Tool adapter、Debug UIはdatabase clientを直接受け取らない。schema移行はexpand → data migration → reader切替 → writer切替 → contract → dropで行い、data migrationはdry-run既定・`--apply`明示、参照不整合またはactive work itemがあれば切替停止とする。
 
 Debug UIは状態、Event、Run、Tool実績、Conversation Memory、Prediction Evaluation、MemoryIntent、memory-update Event、Background Experience、Outbox等を観測する運用UIであり、別の認知経路や状態更新規則を持たない。Event traceは発火入力、Run開始時の判断入力断面、Tool実行、外部化済みの評価・Action、更新、派生処理を結ぶ。ReflectionとEvent台帳に起点のない更新は通常traceと区別して表示し、モデルの内部思考過程やprompt全文は監査対象にしない。
 
