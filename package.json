@@ -24,6 +24,7 @@
     "memory:embed:migrate": "node --env-file=.env --import tsx scripts/backfill-memory-embeddings.ts",
     "memory:evidence:normalize": "node --env-file=.env --import tsx scripts/normalize-overfull-memory-evidence.ts",
     "event:embed:migrate": "node --env-file=.env --import tsx scripts/backfill-event-projection-embeddings.ts",
+    "event:storage:migrate": "node --env-file=.env --import tsx scripts/migrate-normalized-event-storage.ts",
     "experience:requeue:missing-event-experience": "node --env-file=.env --import tsx scripts/requeue-integrations-missing-event-experience.ts",
     "prediction:normalize": "node --env-file=.env --import tsx scripts/normalize-legacy-predictions.ts",
     "start:all": "bash scripts/start-all.sh",

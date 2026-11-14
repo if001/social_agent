@@ -2,8 +2,7 @@ import type { Pool, QueryResultRow } from "pg";
 import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, RuntimeExecutionInput, RuntimePersistence } from "../../application/agent-runtime.js";
-import type { IdGenerator, MemoryEmbeddingPreparer, RetrievalService } from "../../application/ports.js";
-import type { ToolRegistry } from "../../application/tool-registry.js";
+import type { IdGenerator } from "../../application/ports.js";
 import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
 import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
@@ -12,33 +11,12 @@ import { PostgresUnitOfWork } from "./postgres.js";
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput | RuntimeExecutionInput>;
 type OutboxRow = QueryResultRow & { id: string; envelope: MessageEnvelope };
 
-/**
- * An immutable, UI-facing record of the decision materials available before
- * Tool execution. It deliberately omits prompt text and Tool JSON schemas:
- * the former is not an audit artifact and the latter does not help explain a
- * particular decision. The selected context and callable Tool identities do.
- */
-function decisionInputSnapshot(input: AgentCoreInput): Record<string, unknown> {
-  return {
-    version: 1,
-    observation: input.observation,
-    ...(input.previousAssessment === undefined ? {} : { previousAssessment: input.previousAssessment }),
-    ...(input.previousDesire === undefined ? {} : { previousDesire: input.previousDesire }),
-    recentExperiences: input.recentExperiences,
-    currentSelf: input.currentSelf,
-    state: input.state,
-    memories: input.memories,
-    memoryRetrievalTrace: input.memoryRetrievalTrace,
-    ...(input.predictionContext === undefined ? {} : { predictionContext: input.predictionContext }),
-    availableTools: input.availableTools.map(({ name, description }) => ({ name, description })),
-    runtimeConstraints: input.runtimeConstraints,
-    limits: input.limits
-  };
-}
+/** The canonical pre-execution Agent Core input used by audit and Integration. */
+function decisionInputSnapshot(input: AgentCoreInput): AgentCoreInput { return input; }
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, memoryEmbedding?: MemoryEmbeddingPreparer, tools?: ToolRegistry, private readonly agentId?: string, retrievalService?: RetrievalService) { void retrievalService; this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), tools, ids, now, memoryEmbedding); }
+  constructor(private readonly pool: Pool, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly agentId?: string) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool), ids, now); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> { return (await this.pool.query("SELECT 1 FROM message_receipts WHERE destination=$1 AND message_id=$2 AND status='completed'", [destination, messageId])).rowCount === 1; }
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return this.inputLoader(event); }
@@ -57,14 +35,14 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     const focusedConcerns = validatedTools.flatMap((execution) => {
-      if (!execution.ok || (execution.name !== "concern_get" && execution.name !== "concern_history") || typeof execution.input !== "object" || execution.input === null || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
+      if (!execution.ok || (execution.name !== "concern_get" && execution.name !== "concern_history") || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
       return [{ concernId: execution.input.concernId, kind: "focused" as const, eventId: event.id }];
     });
     // A generic successful Tool call is not necessarily about the selected
     // Concern. concern_history is the narrow read seam that carries both the
     // Concern ID and the evidence it retrieved, so only it proves progress.
     const progressedConcerns = validatedTools.flatMap((execution) => {
-      if (!execution.ok || execution.name !== "concern_history" || typeof execution.input !== "object" || execution.input === null || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
+      if (!execution.ok || execution.name !== "concern_history" || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
       return [{ concernId: execution.input.concernId, kind: "progressed" as const, eventId: event.id }];
     });
     const committed = await this.#transaction.commit({

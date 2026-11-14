@@ -90,10 +90,12 @@ export class PostgresRetrievalService implements RetrievalService, EventRetrieva
     }
     const vector = embedding.length === 0 ? null : `[${embedding.join(",")}]`;
     const rows = await this.pool.query<{ event_id: string; kind: string; content: string; occurred_at: Date; vector_rank: string | null; keyword_rank: string | null; subject_rank: string | null }>(`WITH scored AS (
-      SELECT ep.*, CASE WHEN $2::text IS NULL OR ep.embedding IS NULL OR ep.embedding_status<>'ready' THEN NULL ELSE 1-(ep.embedding <=> $2::vector) END AS similarity,
-        (SELECT count(*)::int FROM unnest($3::text[]) keyword WHERE length(keyword)>=2 AND position(keyword IN lower(ep.content))>0) AS keyword_hits,
-        (SELECT count(*)::int FROM jsonb_array_elements_text(ep.subjects) subject WHERE subject=ANY($4::text[])) AS subject_hits
-      FROM event_projections ep WHERE ep.agent_id=$1 AND ep.kind<>'tool-result' AND ($5::text[] IS NULL OR ep.kind=ANY($5::text[])) AND ($6::timestamptz IS NULL OR ep.occurred_at >= $6) AND ($7::timestamptz IS NULL OR ep.occurred_at <= $7)
+      SELECT ep.event_id,e.kind,e.occurred_at,x.summary || CASE WHEN jsonb_array_length(x.facts)=0 THEN '' ELSE E'\n' || (SELECT string_agg(value,E'\n') FROM jsonb_array_elements_text(x.facts)) END AS content,
+        CASE WHEN $2::text IS NULL OR ep.embedding IS NULL OR ep.embedding_status<>'ready' THEN NULL ELSE 1-(ep.embedding <=> $2::vector) END AS similarity,
+        (SELECT count(*)::int FROM unnest($3::text[]) keyword WHERE length(keyword)>=2 AND position(keyword IN lower(x.summary || ' ' || x.facts::text))>0) AS keyword_hits,
+        (SELECT count(*)::int FROM event_subjects es WHERE es.event_id=e.id AND es.subject_id=ANY($4::text[])) AS subject_hits
+      FROM event_projections ep JOIN event_experiences x ON x.event_id=ep.event_id JOIN events e ON e.id=ep.event_id
+      WHERE e.agent_id=$1 AND ($5::text[] IS NULL OR e.kind=ANY($5::text[])) AND ($6::timestamptz IS NULL OR e.occurred_at >= $6) AND ($7::timestamptz IS NULL OR e.occurred_at <= $7)
     ), ranked AS (SELECT *,
       CASE WHEN similarity IS NULL THEN NULL ELSE row_number() OVER (ORDER BY similarity DESC NULLS LAST,occurred_at DESC,event_id) END AS vector_rank,
       CASE WHEN keyword_hits=0 THEN NULL ELSE row_number() OVER (ORDER BY keyword_hits DESC,occurred_at DESC,event_id) END AS keyword_rank,

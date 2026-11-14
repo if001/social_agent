@@ -66,7 +66,7 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
   }
 
   async listToolExecutions(agentId: string, eventId: string, limit: number): Promise<readonly ToolExecutionObservation[]> {
-    const rows = (await this.database.native.query<{ tool: string; result: unknown; error: string | null; finished_at: Date }>("SELECT tool,result,error,finished_at FROM tool_executions WHERE event_id=$1 AND run_id IN (SELECT id FROM agent_runs WHERE event_id=$1 AND agent_id=$2) ORDER BY finished_at,id LIMIT $3", [eventId, agentId, limit])).rows;
+    const rows = (await this.database.native.query<{ tool: string; result: unknown; error: string | null; finished_at: Date }>("SELECT t.tool,t.result,t.error,t.finished_at FROM tool_executions t JOIN agent_runs r ON r.id=t.run_id WHERE r.event_id=$1 AND r.agent_id=$2 ORDER BY t.finished_at,t.id LIMIT $3", [eventId, agentId, limit])).rows;
     return rows.map((row) => ({ tool: row.tool, result: row.result, error: row.error, finishedAt: row.finished_at }));
   }
 

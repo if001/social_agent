@@ -384,11 +384,12 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const query = `${memory.content} ${memory.reason}`;
     const embedding = this.memoryEmbedding === undefined ? undefined : await this.memoryEmbedding.prepareMemory(query);
     const vector = embedding?.status === "ready" && embedding.vector !== undefined ? `[${embedding.vector.join(",")}]` : null;
-    const projections = await this.pool.query<EventProjectionRow>(`SELECT ep.event_id AS id,ep.content,ep.subjects,ep.occurred_at,
+    const projections = await this.pool.query<EventProjectionRow>(`SELECT ep.event_id AS id,x.summary || ' ' || x.facts::text AS content,
+        COALESCE((SELECT jsonb_agg(es.subject_id ORDER BY es.subject_id) FROM event_subjects es WHERE es.event_id=ep.event_id),'[]'::jsonb) AS subjects,e.occurred_at,
         CASE WHEN $3::vector IS NULL OR ep.embedding IS NULL THEN NULL ELSE 1-(ep.embedding <=> $3::vector) END AS vector_score
-      FROM event_projections ep
-      WHERE ep.agent_id=$1 AND ep.event_id=ANY($2::text[])
-      ORDER BY ep.occurred_at DESC,ep.event_id DESC`, [input.agentId, input.events.map(({ id }) => id), vector]);
+      FROM event_projections ep JOIN event_experiences x ON x.event_id=ep.event_id JOIN events e ON e.id=ep.event_id
+      WHERE e.agent_id=$1 AND ep.event_id=ANY($2::text[])
+      ORDER BY e.occurred_at DESC,ep.event_id DESC`, [input.agentId, input.events.map(({ id }) => id), vector]);
     const byId = new Map(projections.rows.map((row) => [row.id, row]));
     const terms = formationTerms(query);
     const ranked = input.events.map((event) => {
