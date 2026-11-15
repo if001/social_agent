@@ -89,7 +89,7 @@ export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
 export type { EventAssessment } from "../../domain/contracts.js";
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly maxExplorationModelCalls?: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
   invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>;
 }
@@ -206,18 +206,18 @@ export class DeepAgentHarness implements AgentHarness {
           ? JSON.stringify({ promptVersion: "agent-core-v3-ja", input: promptInput })
           : JSON.stringify({ instruction: "元の入力Contextと今回のTool結果を根拠に、直前の無効な出力をAgent Coreのフラット出力Schemaへ適合するよう修正してください。新しい調査や通常Tool呼び出しは行わず、構造化出力専用Toolを1件だけ呼び出してください。action objectは出力せず、actionTypeと、そのActionに必要なcontent、reason、refusalBasisだけをトップレベルへ出力してください。Memory、Relationship、Moodは出力しません。Contextを推測せず、与えられた内容だけを使ってください。", input: promptInput, toolEvidence: repairToolEvidence(observedToolExecutions), outputSchema: AgentCoreModelOutputJsonSchema, validationIssues, invalidOutput: agentCoreModelView(raw) });
         const modelBudget = modelInputBudget(input, content);
+        logger.log("info", "agent_core.model_input_budget", { estimatedTokens: modelBudget.total, budgetComponents: JSON.stringify(modelBudget.components) });
         if (modelBudget.total > MAX_MODEL_INPUT_TOKENS) logger.log("warn", "agent_core.model_input_budget_exceeded", { estimatedTokens: modelBudget.total, warningThreshold: MAX_MODEL_INPUT_TOKENS, budgetComponents: JSON.stringify(modelBudget.components) });
         const remainingModelCalls = input.limits.maxSteps - consumedModelCalls;
         const attemptToolCalls = attempt === 0 ? input.limits.maxToolCalls : 0;
-        // Keep one model call for a Tool-free final Action if LangGraph stops the
-        // exploratory graph at its own safety limit. Its internal graph has model,
-        // Tool, and structured-output nodes, so it needs more than the business
-        // count of model and Tool calls.
-        const exploratoryModelCalls = remainingModelCalls > 1 ? remainingModelCalls - 1 : remainingModelCalls;
-        const recursionLimit = exploratoryModelCalls * 2 + attemptToolCalls + 6;
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        // A structured-output attempt may need one call to switch out of Tool use
+        // and one repair call. Keep these two calls inside the total model budget.
+        const finalizationReserveModelCalls = Math.min(2, remainingModelCalls);
+        const exploratoryModelCalls = remainingModelCalls - finalizationReserveModelCalls;
+        const recursionLimit = remainingModelCalls * 2 + attemptToolCalls + 6;
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: remainingModelCalls, maxExplorationModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
-        if (invokedModelCalls > exploratoryModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the exploratory model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
+        if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the total model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
         consumedModelCalls += invokedModelCalls;
         observedToolExecutions.push(...(result.toolExecutions ?? []));
         raw = result.structuredResponse;
@@ -247,7 +247,7 @@ export class DeepAgentHarness implements AgentHarness {
             outputSchema: AgentCoreModelOutputJsonSchema
           });
           try {
-            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, maxExplorationModelCalls: 0, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
             const recoveryModelCalls = recovery.modelCalls ?? 1;
             if (recoveryModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Recovery invoker exceeded the reserved final model call", { cause: { modelCalls: recoveryModelCalls, toolExecutions: recovery.toolExecutions ?? [] } });
             consumedModelCalls += recoveryModelCalls;
@@ -332,6 +332,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         eventKind: options.eventKind,
         eventTargetKind: options.eventTargetKind,
         maxModelCalls: options.maxModelCalls,
+        ...(options.maxExplorationModelCalls === undefined ? {} : { maxExplorationModelCalls: options.maxExplorationModelCalls }),
         maxToolCalls: Math.min(25, options.maxToolCalls),
         signal: options.signal,
         ...(options.transport === undefined ? {} : { transport: options.transport })

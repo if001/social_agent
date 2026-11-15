@@ -50,6 +50,9 @@ export type DeepAgentToolRunContext = {
   readonly eventKind?: AgentCoreInput["observation"]["kind"];
   readonly eventTargetKind?: string | undefined;
   readonly maxModelCalls: number;
+  /** Model calls available for exploration. The remaining calls are reserved
+   * for the Tool-free structured-output protocol and its one repair. */
+  readonly maxExplorationModelCalls: number;
   readonly maxToolCalls: number;
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
@@ -63,14 +66,21 @@ export const DeepAgentToolRunContextSchema = z.object({
   eventKind: z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]).optional(),
   eventTargetKind: z.string().min(1).optional(),
   maxModelCalls: z.number().int().positive(),
+  maxExplorationModelCalls: z.number().int().nonnegative(),
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
   transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
 });
 
-export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "maxModelCalls"> & { readonly maxModelCalls?: number }): DeepAgentToolRunContext {
-  return { ...options, maxModelCalls: options.maxModelCalls ?? 8, collector: new ToolExecutionCollector() };
+export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "maxModelCalls" | "maxExplorationModelCalls"> & { readonly maxModelCalls?: number; readonly maxExplorationModelCalls?: number }): DeepAgentToolRunContext {
+  const maxModelCalls = options.maxModelCalls ?? 8;
+  return {
+    ...options,
+    maxModelCalls,
+    maxExplorationModelCalls: Math.min(maxModelCalls, options.maxExplorationModelCalls ?? maxModelCalls),
+    collector: new ToolExecutionCollector()
+  };
 }
 
 export type DeepAgentRunTool = { invoke(input: Record<string, unknown>, config?: unknown): Promise<unknown> };

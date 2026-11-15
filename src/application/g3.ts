@@ -1,5 +1,6 @@
 import type { IdGenerator } from "./ports.js";
 import type { Observation, PredictionOutput } from "../domain/contracts.js";
+import { errorLogContext } from "../observability/logger.js";
 
 export type G3HypothesisEvaluation = { readonly statement: string; readonly status: "supported" | "contradicted" | "undecidable"; readonly rationale: string };
 export type G3Output = {
@@ -34,6 +35,14 @@ export interface G3TaskRepository {
 export interface G3ResultSink { handle(result: G3ModelResult, input: G3Input): Promise<void>; }
 export interface G3Sink { enqueue(input: G3Input): Promise<void>; }
 
+/** Persist an auditable, bounded error classification rather than merely the
+ * top-level provider wrapper. This is a task record, never model context. */
+export function g3FailureReason(error: unknown): string {
+  const context = errorLogContext(error);
+  const causes = typeof context.errorCauses === "string" ? JSON.parse(context.errorCauses) : [];
+  return JSON.stringify({ errorType: context.errorType, errorCode: context.errorCode, errorMessage: context.errorMessage, causes });
+}
+
 export class G3Service {
   constructor(private readonly repository: G3TaskRepository, private readonly model: G3Model, private readonly resultSink: G3ResultSink, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly taskDeadlineMs = 300_000, private readonly leaseMs = 60_000, private readonly maxAttempts = 3) {}
   async run(input: G3Input, signal: AbortSignal): Promise<G3Output | undefined> {
@@ -62,7 +71,7 @@ export class G3Service {
       if (!await this.repository.complete(task.id, leaseToken, result, this.now().toISOString())) return undefined;
       return result.output;
     } catch (error) {
-      await this.repository.retryOrFail(task.id, leaseToken, error instanceof Error ? error.message : "G3 failed", this.now().toISOString(), this.maxAttempts);
+      await this.repository.retryOrFail(task.id, leaseToken, g3FailureReason(error), this.now().toISOString(), this.maxAttempts);
       return undefined;
     }
   }

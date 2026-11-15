@@ -271,7 +271,7 @@ Schedulerの`targetKind`は`idle`、`concern-formation`、`concern-due`、`exter
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
 - `no-external-action`: Actionを生成しない内部Eventの完了にだけ使用する。`idle`では選択できない。`concern-formation`は関心地図を形成する内部Eventであり、生成できない場合はこれで完了する。Tool利用の有無とは独立する。
 
-G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`prediction-g3-result` Eventは通知必須の例外とし、`no-external-action`を正常系として許容する。`prediction-g3`と`memory-update` EventはActionを生成しない。
+G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`prediction-g3-result` Eventは、Agent自身に共有する動機がある場合だけ発話し、`no-external-action`を正常系として許容する。`prediction-g3`と`memory-update` EventはActionを生成しない。
 
 自律EventではTool利用と発話判断を独立させる。調査後にも共有価値があれば発話し、Toolを使わなくても話したいことがあれば発話する。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。`idle`では`respond`または`refuse`を必須とし、`no-external-action`を選ばない。情報が不十分なら`respond`で不十分な旨を伝える。`notify-no-execution`を発話の代替にしない。`idle`の次回時刻はActionに依存せず、通知の後も通常間隔で再開する。
 

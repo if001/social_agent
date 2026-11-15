@@ -70,7 +70,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const fallbackG3Result: G3ResultSink = new MemoryG3ResultSink();
   const g3ResultSink: G3ResultSink = { async handle(result, g3Input) {
     if (runtimeRef.current === undefined) { await fallbackG3Result.handle(result, g3Input); return; }
-    await runtimeRef.current.process({ id: `${g3Input.sourcePredictionId}:g3-result`, agentId: g3Input.agentId, kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "prediction-g3-result", output: result.output, toolEvidence: result.toolEvidence, sourcePredictionId: g3Input.sourcePredictionId } }, AbortSignal.timeout(20_000));
+    await runtimeRef.current.process({ id: `${g3Input.sourcePredictionId}:g3-result`, agentId: g3Input.agentId, kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "prediction-g3-result", output: result.output, toolEvidence: result.toolEvidence, sourcePredictionId: g3Input.sourcePredictionId } }, AbortSignal.timeout(config.runDeadlineMs));
   } };
   const webArchive = new PostgresWebArchive(database, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
@@ -86,8 +86,8 @@ export function createBotComposition(options: BotCompositionOptions) {
     }) })
   ];
   const toolRegistry = new ToolRegistry(configuredTools);
-  const g3Service = new G3Service(new PostgresG3TaskRepository(database, config.botId), createOllamaG3Model({ ...config.chat, toolRegistry }), g3ResultSink, ids, () => clock.now(), 300_000, 60_000, 3);
-  const g3Sink = new DirectG3Sink(g3Service, 20_000);
+  const g3Service = new G3Service(new PostgresG3TaskRepository(database, config.botId), createOllamaG3Model({ ...config.chat, toolRegistry }), g3ResultSink, ids, () => clock.now(), config.runDeadlineMs, config.runDeadlineMs, 3);
+  const g3Sink = new DirectG3Sink(g3Service, config.runDeadlineMs);
   const prediction = new PredictionLoop({ repository: predictionRepository, model: createOllamaPredictionModel(config.chat, logger), ids, now: () => clock.now(), retrieval: retrievalService, memoryUpdateSink, g3Sink, limits: { deadlineMs: 180_000, maxAttempts: 1 }, logger });
   const contextLoader = new PostgresAgentContextLoader({
     database, ids, tools: toolRegistry,
