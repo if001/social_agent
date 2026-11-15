@@ -55,7 +55,7 @@ Agentを便利なAssistantではなく、ユーザーとは別の価値傾向・
 - 通知先を解決できない自律Eventは成功扱いにせず、再試行・運用通知の対象にする。
 - `idle`、`concern-formation`、`concern-due`、`external-change`は別Event sourceでよいが、同じAgent CoreとAction契約を通る。
 - 明示的Scheduled Taskは自律判断と区別し、System Eventとして実行契約を維持する。
-- `prediction-g3`はG3専用処理でActionを生成しない。`prediction-g3-result`は通知必須の例外とし、`no-external-action`を成功として扱う。
+- `prediction-g3`はG3専用処理でActionを生成しない。`prediction-g3-result`は通常Agent Loopで再判断し、Agent自身に共有する動機がある場合だけ発話する。`no-external-action`を成功として扱う。
 
 ## 評価方針
 
@@ -218,7 +218,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-49：G1/G2は1回のLLM callで、予測候補、predictionEvaluation、G3起動判断を返す。観測候補とrememberは返さず、長期経験の統合を担わない。（C-34, C-35, C-36, C-37, C-38、更新）
 - FR-50：G1/G2はFeelingを出力せず、Meaning / FeelingはMainAgentだけが確定する。（C-65）
 - FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。G3自身はMemoryIntent又は永続Recordを直接指定しない。（C-39, C-40, C-42、更新）
-- FR-52：G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` Eventは通知必須の例外とする。`prediction-g3`はActionを生成しない。（C-41）
+- FR-52：G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` EventはAgent自身に共有する動機がある場合だけ発話する。`no-external-action`を成功として扱う。`prediction-g3`はActionを生成しない。（C-41、更新）
 - FR-53：背景経験はConversation Memoryと別Storeに保持し、起動前の初期化時だけYAMLで置換し、プロセス起動中は変更しない。（C-43, C-45）
 - FR-54：背景経験は、AIである自身と作成者if001のプロフィール、曖昧な段階、状況、複数ユーザーやif001との対話・探索、感じたこと、結果、学びを持ち、今回のユーザーとの共有経験を含めない。年齢、出身地、家族構成を持たない。（C-44, C-47）
 - FR-55：Conversation Memoryと背景経験は、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。（C-46, C-56）

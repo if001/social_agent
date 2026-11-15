@@ -40,7 +40,7 @@
 | ADR-10 | 概念語彙をSelf、State、Conversation Memory、Background Experience、Prediction、Reflectionの境界へ簡略化し、予測LoopとMemoryUpdateに必要な最小のtableとmoduleだけを追加する。それ以外の個別tableや認知moduleを増やさない。 | FR-5, FR-6, FR-7, NFR-11 |
 | ADR-11 | モジュールはAgent Loop、Prediction、MemoryUpdate、Retrieval、Autonomy、Reflection、Model、Persistence、Tools、Eventsの境界に留める。 | FR-1, FR-2, NFR-10 |
 | ADR-12 | 予測LoopをMainAgentの外側に置き、G1/G2は応答後に1回のLLM callで次ターンのユーザー発話を予測する。predictionEvaluationはMeaning / Feelingではなく、FeelingはMainAgentだけが確定する。 | FR-48, FR-49, FR-50, NFR-16 |
-| ADR-13 | G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。`prediction-g3-result` Eventは通知必須の例外とし、`prediction-g3`はActionを生成しない。 | FR-51, FR-52, FR-84 |
+| ADR-13 | G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。`prediction-g3-result` Eventは通常Loopで再判断し、Agent自身に共有する動機がある場合だけ発話する。`prediction-g3`はActionを生成しない。 | FR-51, FR-52, FR-84 |
 | ADR-14 | Conversation MemoryとBackground Experienceを別Storeに保持し、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。Reflectionの関連Event検索は、元Eventから作る検索専用Event projectionを同じ契約へ追加する。 | FR-53, FR-54, FR-55, FR-74, NFR-19 |
 | ADR-15 | MemoryIntentのtargetはMemory kindに限定し、MemoryWriteServiceを唯一の書込み経路としてversion楽観ロックを行う。G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用し、G3結果は通常Agent Loop後のExperience Integrationで統合する。 | FR-56, FR-57, FR-58, NFR-15 |
 | ADR-16 | Event優先順位はuser-message、memory-update、G3、reflectionの順とし、協調的スケジューリングでuser-messageを待たせない。 | FR-59, NFR-18 |
@@ -127,7 +127,7 @@ Concernのライフサイクルは新しい数値counterを増やさず、`activ
 
 G1/G2は応答commit後に追加の1回のLLM callで実行する。Context BuilderがConversation MemoryとBackground Experienceから予測材料を取得し、G1/G2は予測候補、predictionEvaluation、G3起動判断だけを返す。G1/G2は長期Memoryを作らず、Feelingも返さない。予測誤差は1ターン遅れでMainAgentのappraisal入力として渡し、長期経験の統合はExperience Integration又はG3結果を受けた通常Agent Loopに委譲する。
 
-G3はMainAgentとは別の`createDeepAgent`で構成する。G3は`retrieval_search`、`self_get`、`concern_list`、`concern_get`を使い、前回仮説の支持・反証・判断不能、新しい仮説、調査結果、Memory候補を返す。LLMへ返すTool結果にはIDを含めず、Runtimeがsource Eventと実行中の非公開evidence poolから根拠を解決する。G3はConversation Memoryを直接書き換えず、結果を`prediction-g3-result` EventでMainAgentへ渡す。`prediction-g3-result` Eventは通知必須の例外とし、`no-external-action`を正常系として許容する。`prediction-g3`はActionを生成しない。
+G3はMainAgentとは別の`createDeepAgent`で構成する。G3は`retrieval_search`、`self_get`、`concern_list`、`concern_get`を使い、前回仮説の支持・反証・判断不能、新しい仮説、調査結果、Memory候補を返す。LLMへ返すTool結果にはIDを含めず、Runtimeがsource Eventと実行中の非公開evidence poolから根拠を解決する。G3はConversation Memoryを直接書き換えず、結果を`prediction-g3-result` EventでMainAgentへ渡す。`prediction-g3-result` Eventは通常Loopで再判断し、Agent自身に共有する動機がある場合だけ発話する。`no-external-action`を正常系として許容する。`prediction-g3`はActionを生成しない。
 
 G1/G2/ReflectionのMemoryIntentは`memory-update` Eventで適用する。MemoryUpdateHandlerはLLMを呼ばず、MemoryWriteServiceがmemoryCandidatesとMemoryIntentからcreate / update / no-opを決める。G3結果は通常Agent Loop後のExperience Integrationがsource EventとRuntime evidenceからMemory候補を統合する。MainAgentはMemoryIntentを出力しない。
 
@@ -146,7 +146,7 @@ Tool利用とユーザーへの発話判断は独立する。Toolの前後を問
 
 Patchは任意のmood、Relationship 1件、`remember`（MemoryIntent）に限定する。Concernは`concern_propose` Toolで提案し、成功したcommit時だけ反映する。Runtimeがupsert/remove、Agent所有権、evidence、versionを検証し、DB metadataやIDは通常コードが付与する。MainAgentの`remember`はそのEventのtransactionでMemoryWriteServiceが適用し、G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用する。
 
-G3結果のMainAgent再判断は通常のAgent Loopに通す。`prediction-g3-result` Eventは通知必須の例外とし、`no-external-action`を正常系として許容する。`prediction-g3`と`memory-update` EventはActionを生成しない。
+G3結果のMainAgent再判断は通常のAgent Loopに通す。`prediction-g3-result` Eventは、Agent自身に共有する動機がある場合だけ発話し、`no-external-action`を正常系として許容する。`prediction-g3`と`memory-update` EventはActionを生成しない。
 
 ## Tool実行
 
@@ -203,7 +203,7 @@ Selfは`identity`、`disposition`、`selfStory`、`commitments`を持つ。State
 - 自律性は常時思考loopではなく、`idle`、`concern-due`、`external-change`、`scheduled-task`などのEvent sourceで起動する。
 - `reflection`は通常のAction生成ではなく、専用のmaintenance処理へ送る。
 - `memory-update`は決定済みのMemoryIntentを適用するEventであり、Actionを生成しない。
-- G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` Eventは通知必須の例外とする。`prediction-g3`はActionを生成しない。
+- G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` EventはAgent自身に共有する動機がある場合だけ発話する。`prediction-g3`はActionを生成しない。
 - 最終Actionは`respond`、`refuse`、`notify-no-execution`、`no-external-action`の4種である。
 - 自律Eventの成功runは、具体的なTool、送信、記録、予約、または`notify-no-execution`を持つ。
 - 何も実行しない判断は`notify-no-execution`としてユーザーへ配送する。

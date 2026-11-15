@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-15
-status: doing
+status: done
 type: fix
 plan: []
 requirements: [FR-12, FR-13, FR-51, FR-52, NFR-4, NFR-21]
@@ -38,7 +38,7 @@ requires: agent
 - [x] FR-12 / FR-13：idleが探索後にflat schemaの最終Actionを返せる。
 - [x] NFR-4：system prompt、model view、Tool schema、output schemaのtoken内訳を記録する。
 - [x] NFR-21：G3 taskの失敗recordだけでprovider、schema、Tool、timeout又は予算を判別できる。
-- [ ] FR-51 / FR-52：`needsG3: true`からG3 task完了、`prediction-g3-result` Event、通常Agent Loopまで実行される。
+- [x] FR-51 / FR-52：`needsG3: true`からG3 task完了、`prediction-g3-result` Event、通常Agent Loopまで実行される。
 
 ## Tests
 
@@ -58,3 +58,6 @@ requires: agent
 - G3 taskのfailure reasonには、top-level wrapperだけでなく、sanitize済みのerror code/message/cause chainを保存する。
 - G3の`memories[].content`と`reason`へdescriptionを追加し、4つの出力配列を常に返すようpromptで明示した。
 - 実LLM・隔離した実PostgreSQLでG3 taskの正常系を確認した。不要なDeepAgent file ToolをG3から隠し、`memories[].target` / `perspective` の許可値をprompt・repair指示へ明記した結果、`g3_tasks.status=completed` と構造化出力の保存まで到達した。
+- `user-message`後のPredictionLoopは`needsG3`時にsource Event / Run / Predictionを持つtaskをenqueueする。完了後はCompositionのresult sinkが`prediction-g3-result`をRuntimeへ渡し、ContextLoaderがG3 outputを`predictionContext`へ変換して通常Agent Loopに渡す。G3 task、result Event、通常Loopのtimeoutはすべて`config.runDeadlineMs`へ統一した。
+- FR-52の「通知必須」はFR-76およびEvent overviewと矛盾していたため、発話任意へ要件・Architecture・Motivation Modelを統一した。実装どおり、通常Loopが`no-external-action`を選べる。
+- 検証：`pnpm test`（240 passed）、`pnpm test:system`（58 passed）、`pnpm typecheck`、実LLM・隔離実PostgreSQLのG3 task正常系。`trace_check`はERROR 0、既存の要件テスト不足WARN 7件。
