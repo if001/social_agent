@@ -9,7 +9,8 @@ export function stripSkillsSystemPrompt(prompt: string): string {
   return prompt.replace(/## Skills System[\s\S]*?(?=\n## |$)/u, "").trim();
 }
 
-export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogger: Logger, now: () => Date): ReturnType<typeof createMiddleware> {
+export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, baseLogger: Logger, now: () => Date, options: { readonly allowUnregisteredTools?: boolean } = {}): ReturnType<typeof createMiddleware> {
+  const allowUnregisteredTools = options.allowUnregisteredTools ?? true;
   const registeredToolNames = new Set(registry?.registered().map(({ name }) => name) ?? []);
   const builtInToolNames = new Set<string>();
   const operationalToolNames = new Set([...registeredToolNames, ...builtInToolNames]);
@@ -39,7 +40,8 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
       const phaseTools = request.tools.filter((candidate) => {
         const name = toolName(candidate);
         if (name === "read_file") return false;
-        if (name === undefined || !registeredToolNames.has(name)) return true;
+        if (name === undefined) return true;
+        if (!registeredToolNames.has(name)) return allowUnregisteredTools;
         if (context.eventKind === "user-message" && userMessageHiddenToolNames.has(name)) return false;
         if (context.collector.focusConcernAcquired && ["concern_list", "concern_get"].includes(name)) return false;
         return true;

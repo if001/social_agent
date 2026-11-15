@@ -86,6 +86,18 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     await expect(middleware.wrapModelCall(request, handler)).rejects.toMatchObject({ code: "VALIDATION", message: "Final structured output could not be produced within the model call limit" });
   });
 
+  it("FR-51: can hide DeepAgent built-in file Tools for a bounded specialist", async () => {
+    const middleware = createAgentCoreMiddleware(new ToolRegistry([]), noopLogger, () => new Date(fixtureInstant), { allowUnregisteredTools: false }) as unknown as {
+      wrapModelCall(request: { tools: { name: string }[]; messages: { type: string; content: string }[]; systemMessage: { content: string }; runtime: { context: ReturnType<typeof createDeepAgentToolRunContext> } }, handler: (request: { tools: { name: string }[] }) => Promise<unknown>): Promise<unknown>
+    };
+    const runContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "g3", eventId: "g3-event", maxToolCalls: 8, signal: new AbortController().signal });
+    let visible: string[] = [];
+    await middleware.wrapModelCall({ tools: [{ name: "ls" }, { name: "write_file" }, { name: "extract-1" }], messages: [], systemMessage: { content: "system" }, runtime: { context: runContext } }, (effective) => { visible = effective.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
+    // The structured-output Tool is attached by toolStrategy, not supplied as a
+    // normal DeepAgent Tool in this request.
+    expect(visible).toEqual([]);
+  });
+
   it("FR-11, FR-33, NFR-5: configures the compatibility adapter with the requested bounded Tool budget", async () => {
     let effects = 0;
     const registry = new ToolRegistry([{ name: "lookup", description: "lookup", schema: z.object({}), resultPolicy: { kind: "standard" }, execute: () => { effects += 1; return Promise.resolve({ ok: true, value: { answer: 42 } }); } }]);

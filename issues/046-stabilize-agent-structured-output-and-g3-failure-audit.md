@@ -35,9 +35,9 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] FR-12 / FR-13：idleが探索後にflat schemaの最終Actionを返せる。
-- [ ] NFR-4：system prompt、model view、Tool schema、output schemaのtoken内訳を記録する。
-- [ ] NFR-21：G3 taskの失敗recordだけでprovider、schema、Tool、timeout又は予算を判別できる。
+- [x] FR-12 / FR-13：idleが探索後にflat schemaの最終Actionを返せる。
+- [x] NFR-4：system prompt、model view、Tool schema、output schemaのtoken内訳を記録する。
+- [x] NFR-21：G3 taskの失敗recordだけでprovider、schema、Tool、timeout又は予算を判別できる。
 - [ ] FR-51 / FR-52：`needsG3: true`からG3 task完了、`prediction-g3-result` Event、通常Agent Loopまで実行される。
 
 ## Tests
@@ -57,3 +57,4 @@ requires: agent
 - total model-call budget内に、Tool-free finalizationとschema repairの2 callを予約する。G3にも同じ境界を適用する。
 - G3 taskのfailure reasonには、top-level wrapperだけでなく、sanitize済みのerror code/message/cause chainを保存する。
 - G3の`memories[].content`と`reason`へdescriptionを追加し、4つの出力配列を常に返すようpromptで明示した。
+- 実LLM・隔離した実PostgreSQLでG3 taskの正常系を確認した。不要なDeepAgent file ToolをG3から隠し、`memories[].target` / `perspective` の許可値をprompt・repair指示へ明記した結果、`g3_tasks.status=completed` と構造化出力の保存まで到達した。
