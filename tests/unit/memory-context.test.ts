@@ -45,6 +45,13 @@ describe("embedding and context", () => {
     expect(result.currentSelf.commitments).toHaveLength(12);
   });
 
+  it("NFR-12: keeps an internal Event targetKind when oversized payload content is removed", () => {
+    const input = agentCoreInputFixture();
+    input.observation = { ...input.observation, kind: "internal", content: { targetKind: "prediction-g3-result", output: "x".repeat(100_000), toolEvidence: "y".repeat(100_000) } };
+    const result = new ContextBuilder().build(input, { maxTokens: 4_000, maxMemories: 1, maxSocialContexts: 1 });
+    expect(result.observation.content).toEqual({ targetKind: "prediction-g3-result" });
+  });
+
   it("FR-3, FR-43: passes previous Desire with occurredAt and bounds its text", () => {
     const input = agentCoreInputFixture();
     input.previousDesire = { occurredAt: "2026-01-02T02:54:05.000Z", desire: "d".repeat(900) };

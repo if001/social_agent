@@ -9,7 +9,15 @@ const texts = (values: readonly string[], count = 16, limit = 500): string[] => 
 
 function observation(value: Observation): Observation {
   const serializedContent = value.content === undefined ? undefined : JSON.stringify(value.content);
-  return { ...value, summary: text(value.summary, 1_000), facts: texts(value.facts, 8, 240), ...(serializedContent === undefined || serializedContent.length > 4_000 ? { content: undefined } : {}) };
+  const targetKind = value.kind === "internal" && typeof value.content === "object" && value.content !== null && "targetKind" in value.content && typeof value.content.targetKind === "string"
+    ? value.content.targetKind
+    : undefined;
+  return {
+    ...value,
+    summary: text(value.summary, 1_000),
+    facts: texts(value.facts, 8, 240),
+    ...(serializedContent === undefined || serializedContent.length > 4_000 ? { content: targetKind === undefined ? undefined : { targetKind } } : {})
+  };
 }
 
 function persona(value: BotPersona | undefined): BotPersona | undefined {
