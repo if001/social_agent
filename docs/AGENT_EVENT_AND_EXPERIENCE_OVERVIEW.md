@@ -70,6 +70,25 @@ flowchart TD
 
 優先順位は `user-message`、`memory-update`、G3、`reflection` の順である。低優先度処理は、ユーザーへの応答を待たせない。なお `tool-result` は Tool 実行結果を監査可能に残す Domain Event であり、上表の判断 Event を補助する。
 
+## Reflection の処理
+
+Reflectionは通常の応答を決めるLoopではなく、蓄積した経験を長期状態へ統合するmaintenance Sessionである。外部Webの探索、ユーザーへの発話、日常的なConcern消化は行わない。
+
+```mermaid
+flowchart LR
+    W[未処理の Event Experience 窓を固定] --> F[Memory Formation<br/>新しい経験を形成]
+    F --> R[Memory Reconciliation<br/>関連Memoryを局所的に再統合]
+    R --> C[Concern / Relationship<br/>を整理]
+    C --> S[Self / Mood<br/>を長期更新]
+    S --> A[対象別の監査・完了状態を保存]
+```
+
+- Session開始時に根拠となるEvent範囲を固定する。Memory Formationは最大16件のEvent Experienceから、今後も再利用すべき経験を形成する。
+- Reconciliationは形成結果・利用履歴・未再検討のMemoryなどから候補を取得し、関連するMemoryを補強・更新・分割・維持する。全Memoryを一括で書き換えない。
+- Memoryの整理後に、根拠Memoryを用いてConcern、Relationship、Self、Moodを順に見直す。Selfは通常Eventでは変更せず、Reflectionだけが更新できる。
+- Concernは作成・統合・具体化・終了を扱える。長く扱われず、再検討でも進展しないConcernはRuntimeが決定論的に`abandoned`へ移す。
+- 各対象は独立したstatusと監査を持つ。失敗した対象だけを次回Sessionで再試行し、完了済みのbatchや対象は重複実行しない。Memoryが失敗した場合は後続の長期状態更新を`blocked`にする。
+
 ## 通常会話のフロー
 
 ```mermaid
