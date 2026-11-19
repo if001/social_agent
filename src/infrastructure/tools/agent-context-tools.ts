@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { EventRetrievalInput, RetrievedEvent, RetrievalInput } from "../../application/ports.js";
 import { userMainSubjectId, type CanonicalSubjectResolver } from "../../application/canonical-subject.js";
 import type { RegisteredTool } from "../../application/tool-registry.js";
-import { ConcernProposalSchema, ConcernSchema, RelationshipSchema, SelfSchema, type Observation, type RetrievedItem } from "../../domain/contracts.js";
+import { ConcernProposalSchema, ConcernSchema, PersistedSelfSchema, RelationshipSchema, type Observation, type RetrievedItem } from "../../domain/contracts.js";
 export type AgentContextState = { readonly concerns: unknown; readonly relationships: unknown; readonly mood: string };
 export type ConcernActivity = { readonly id: string; readonly kind: string; readonly occurredAt: Date; readonly eventId: string | null; readonly runId: string | null; readonly reflectionId: string | null; readonly evidenceMemoryIds: unknown };
 export type EvidenceMemory = { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date };
@@ -183,7 +183,7 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
       execute: async ({ fields }: { fields: ("disposition" | "selfStory" | "commitments" | "mood")[] }, context) => {
         const row = await repository.loadSelf(context.agentId);
         if (row === undefined) return { ok: false, error: "Agent not found" };
-        const self = SelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.selfStory, commitments: row.commitments });
+        const self = PersistedSelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.selfStory, commitments: row.commitments });
         const value: Record<string, unknown> = {};
         for (const field of fields) value[field] = field === "mood" ? compact(row.mood, 300) : field === "commitments" ? self.commitments.slice(0, 8).map((item) => compact(item, 240)) : compact(self[field], 800);
         return success(value);

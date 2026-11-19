@@ -3,7 +3,19 @@ import { z } from "zod";
 const Id = z.string().min(1);
 const Instant = z.iso.datetime({ offset: true });
 const NaturalLanguage = z.string().trim().min(1).max(16_000);
+export const CurrentSelfIdentitySchema = NaturalLanguage.describe("Agentが自分が誰であるかを表す現在の自己認識。出来事の履歴、現在のTask、今回のDesireは書かない");
+export const CurrentDispositionSchema = NaturalLanguage.describe("価値を感じやすい対象と意味づけの持続的な傾向。今回の出来事の結論や実行計画は書かない");
 export const CurrentSelfStorySchema = z.string().trim().min(1).max(600).describe("現在の自己理解・継続する役割・現在の変化だけを表す。出来事の時系列、調査結果、完了済みTaskの履歴はMemoryへ残す");
+export const CurrentCommitmentSchema = z.string().trim().min(1).max(400).describe("Selfが長期に守りたいもの、続けたい関係、または譲りたくないことを一つだけ表す。出来事の履歴はMemory、実行日時と仕事はScheduled Task、継続的な関心はConcern、今回のDesireは書かない");
+export const CurrentCommitmentsSchema = z.array(CurrentCommitmentSchema).max(12).describe("全Eventで参照する、守りたいもの・続けたい関係・譲りたくないことからなる現在のCommitmentsの完全な配列。今回の差分や優先順位ではなく、残す全項目を最大12件で返す");
+/**
+ * Stored Self is deliberately more permissive than the model-facing writer.
+ * A deployment can contain Self written before the current output bounds were
+ * introduced; reading it must not stop ordinary Event processing.  Every
+ * writer still uses SelfSchema below, so newly persisted values converge on
+ * the bounded shape without silently rewriting old state during a read.
+ */
+export const PersistedCommitmentsSchema = z.array(NaturalLanguage).describe("永続化済みのCommitments。旧データを安全に読むため、writerより広い形を許す");
 export const CurrentRelationshipDescriptionSchema = z.string().trim().min(1).max(400).describe("現在の関係の型、会話上の安定した前提、未解決の約束だけを表す。個別出来事や日付の列挙はMemoryへ残す");
 const AgentDesire = z.string().trim().min(1).max(800);
 const AgentContent = z.string().trim().min(1).max(6_000);
@@ -20,12 +32,21 @@ const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEvent�
 export const PersistentMoodDescription = "次の複数Eventの意味づけと行動の調子を変える、Agent自身の持続的な感情的構えを短い一文で書く。期待、苛立ち、警戒、退屈、安心など感情と傾きを中心にする。出来事、探索テーマ、固有名詞、ユーザー、返答待ち、約束、Concern、行動計画、願望、理由は書かない。持続する変化がなければ省略する。";
 export const PersistentMoodSchema = z.string().trim().min(1).max(120).describe(PersistentMoodDescription);
 
-export const SelfSchema = z.object({
-  identity: NaturalLanguage,
-  disposition: NaturalLanguage,
+export const PersistedSelfSchema = z.object({
+  identity: CurrentSelfIdentitySchema,
+  disposition: CurrentDispositionSchema,
   selfStory: CurrentSelfStorySchema,
-  commitments: z.array(NaturalLanguage)
-});
+  commitments: PersistedCommitmentsSchema
+}).describe("永続化済みの現在Self。既存データを読むための互換形");
+export type PersistedSelf = z.infer<typeof PersistedSelfSchema>;
+
+/** Model-facing and write-side Self contract. */
+export const SelfSchema = z.object({
+  identity: CurrentSelfIdentitySchema,
+  disposition: CurrentDispositionSchema,
+  selfStory: CurrentSelfStorySchema,
+  commitments: CurrentCommitmentsSchema
+}).describe("Agent自身の比較的安定した現在の自己認識。通常Eventでは変更せず、Reflectionが十分なMemory根拠と理由を持つ場合だけ完全値で更新する");
 export type Self = z.infer<typeof SelfSchema>;
 
 export const ConcernSchema = z.object({
@@ -76,7 +97,7 @@ export const AgentStateSchema = z.object({
   relationships: z.array(RelationshipSchema)
 });
 export type AgentState = z.infer<typeof AgentStateSchema>;
-export const CurrentSelfSchema = SelfSchema.extend({ agentId: Id, version: z.number().int().nonnegative() });
+export const CurrentSelfSchema = PersistedSelfSchema.extend({ agentId: Id, version: z.number().int().nonnegative() });
 export type CurrentSelf = z.infer<typeof CurrentSelfSchema>;
 export const CurrentAgentStateSchema = AgentStateSchema.extend({ agentId: Id, updatedAt: Instant });
 export type CurrentAgentState = z.infer<typeof CurrentAgentStateSchema>;
@@ -163,6 +184,18 @@ export const InitialSelfConfigSchema = z.object({
   }).default({ mood: "静かな好奇心を保っている", concerns: [], relationships: [] })
 });
 export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
+
+/** Construct the initial persisted Self through the same bounded writer
+ * contract used by Reflection.  Initialization and reset must never bypass
+ * the output boundary merely because their source is YAML rather than an LLM. */
+export function initialSelfFromConfig(config: InitialSelfConfig): Self {
+  return SelfSchema.parse({
+    identity: config.agent.identity,
+    disposition: [config.family.sharedDisposition, config.agent.initialDisposition].join("\n"),
+    selfStory: [config.agent.selfNarrative, config.agent.selfContinuity].join("\n"),
+    commitments: config.agent.raisonDetre === undefined ? [] : [config.agent.raisonDetre]
+  });
+}
 export const EventKindSchema = z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]);
 export const EventSchema = z.object({
   id: Id,

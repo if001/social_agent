@@ -10,7 +10,7 @@ export const experienceIntegrationSystemPrompt = `あなたはExperience Integra
 
 experienceは、今回実際に起きたこと・選択・確認済みの結果をsummaryとfactsで短く残し、必ず形成する。長期Memoryとして残すことがなくても、今回のEvent固有の経験は残す。定期Scheduleのreason、Meaning、Feeling、Desire、未確認の推測、Tool失敗だけはexperienceに書かない。
 Memoryは最大3件。各Memoryはcontent、reason、target、perspectiveだけを持つ。根拠Event、subject、confidence、purpose、IDはRuntimeが今回のsource Eventから解決する。保存する経験がなければ必ず {"memories":[]} を返す。単発のTool失敗、単なる応答文、未確認の推測はMemoryにしない。
-Relationshipは今回のEventの相手との持続的変化だけを出します。Moodは${PersistentMoodDescription} 変化がなければ省略します。Memory、Concern、Relationship、Desireの代わりに出来事や計画を置かないでください。SelfとConcernは扱いません。構造化出力だけを返してください。`;
+Relationshipは今回のactorとの持続的変化だけを出します。本文は現在の関係の型・安定した会話前提・未解決の約束だけとし、個別Event、人物プロフィール、Concern、Feeling、応答方針は入れません。Moodは${PersistentMoodDescription} 変化がなければ省略します。Memory、Concern、Relationship、Desireの代わりに出来事や計画を置かないでください。SelfとConcernは扱いません。構造化出力だけを返してください。`;
 
 const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.map((part) => { if (typeof part !== "object" || part === null || !("text" in part)) return ""; const text = (part as Record<string, unknown>).text; return typeof text === "string" ? text : ""; }).join("") : "";
 const parseJson = (content: string): unknown => JSON.parse(content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""));

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 
 import { MemoryReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput } from "../../src/application/reflection.js";
 import {
@@ -74,9 +75,28 @@ describe("structured Reflection model", () => {
     expect(SelfMoodReflectorOutputSchema.safeParse({ mood: "少しせっかちで、期待が強まっている。" }).success).toBe(true);
     expect(SelfMoodReflectorOutputSchema.safeParse({ mood: "あ".repeat(121) }).success).toBe(false);
     for (const phrase of ["感情的構え", "固有名詞", "返答待ち", "Concern", "行動計画", "理由"]) {
-      expect(skill("reflection-self-mood")).toContain(phrase);
       expect(targetedReflectionSystemPrompt("self-mood")).toContain(phrase);
     }
+    for (const phrase of ["感情的構え", "一時的なFeeling", "計画", "待機"]) expect(skill("reflection-self-mood")).toContain(phrase);
+  });
+
+  it("FR-6, FR-41, FR-42: describes the complete Self and keeps its skill focused", () => {
+    const schema = z.toJSONSchema(SelfMoodReflectorOutputSchema);
+    const self = (schema.properties as Record<string, Record<string, unknown>>).self;
+    const properties = self?.properties as Record<string, Record<string, unknown>>;
+    expect(properties.commitments?.description).toContain("守りたいもの");
+    expect(properties.commitments).toMatchObject({ maxItems: 12 });
+    const text = skill("reflection-self-mood");
+    expect(text).toContain("Scheduled Task");
+    expect(text).toContain("Concern");
+    expect(text).toContain("Desire");
+  });
+
+  it("FR-42: keeps the Relationship skill to durable current state only", () => {
+    const text = skill("reflection-relationship");
+    expect(text).toContain("現在の関係の型");
+    expect(text).toContain("人物プロフィール");
+    expect(text).toContain("Feeling");
   });
 
   it("FR-71: gives each Memory Event batch an independent stable tool idempotency scope", () => {

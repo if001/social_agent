@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat, rename } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { Pool } from "pg";
-import type { InitialSelfConfig } from "../domain/contracts.js";
+import { initialSelfFromConfig, type InitialSelfConfig } from "../domain/contracts.js";
 import type { SchedulerTimings } from "../config/config.js";
 import { asc, eq, sql } from "drizzle-orm";
 import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
@@ -53,10 +53,8 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
         { id: `concern-formation:${id}`, agentId: id, kind: "concern-formation", reason: "Self、経験、関係、探索領域から今後も残る関心を形成する", nextDueAt: new Date(now + (timings.concernFormationIntervalMs ?? timings.autonomyReviewIntervalMs)) },
         { id: `reflection:${id}`, agentId: id, kind: "reflection", reason: "蓄積したEvent logをMemoryと長期状態へ統合する", nextDueAt: new Date(now + timings.stateReviewIntervalMs) }
       ]);
-      const disposition = [config.family.sharedDisposition, agent.initialDisposition].join("\n");
-      const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
-      const commitments = agent.raisonDetre === undefined ? [] : [agent.raisonDetre];
-      await tx.update(agentStates).set({ disposition, selfStory, commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood, version: 0, updatedAt: new Date() }).where(eq(agentStates.agentId, id));
+      const initialSelf = initialSelfFromConfig(config);
+      await tx.update(agentStates).set({ disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood, version: 0, updatedAt: new Date() }).where(eq(agentStates.agentId, id));
       }
     const suffix = `.before-reset-${randomUUID()}`;
     for (const from of paths) {

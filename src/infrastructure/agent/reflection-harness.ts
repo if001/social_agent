@@ -5,7 +5,7 @@ import { z } from "zod";
 import { estimateTokens } from "../../application/context-builder.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
-import { CurrentRelationshipDescriptionSchema, CurrentSelfStorySchema, DomainError, PersistentMoodDescription, PersistentMoodSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CurrentCommitmentsSchema, CurrentDispositionSchema, CurrentRelationshipDescriptionSchema, CurrentSelfIdentitySchema, CurrentSelfStorySchema, DomainError, PersistentMoodDescription, PersistentMoodSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { ToolRegistry } from "../../application/tool-registry.js";
@@ -55,10 +55,10 @@ export const ReflectionModelOutputSchema = z.object({
   concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("現在Stateのconcernsへ適用する変更。新規作成は最大3件。気に掛けていることが変わらなければ空配列"),
   relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("現在Stateのrelationshipsへ適用する変更。関係が変わらなければ空配列"),
   mood: PersistentMoodSchema.optional(),
-  selfIdentity: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
-  selfDisposition: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、価値を感じやすい対象と意味づけの傾向。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
+  selfIdentity: CurrentSelfIdentitySchema.optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
+  selfDisposition: CurrentDispositionSchema.optional().describe("全Eventで使う、価値を感じやすい対象と意味づけの傾向。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfStory: CurrentSelfStorySchema.optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
-  selfCommitments: z.array(z.string().trim().min(1).max(16_000)).max(12).optional().describe("全Eventで守るもの、続ける関係、譲らないこと。十分なMemory根拠で変化した場合だけ、完全な配列を指定する"),
+  selfCommitments: CurrentCommitmentsSchema.optional().describe("全Eventで守るもの、続ける関係、譲らないこと。十分なMemory根拠で変化した場合だけ、完全な配列を指定する"),
   selfChangeReason: z.string().trim().min(1).max(16_000).optional().describe("どの反復経験または強い経験によりSelfがどう変わったか。Selfの全fieldと一緒にだけ指定する"),
   evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更または新規ConcernをRuntimeが検証するための根拠Memory ID。どちらも変更しない場合は空配列")
 }).strict().superRefine((value, context) => {
