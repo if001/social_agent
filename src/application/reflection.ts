@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AgentStateSchema, ConcernChangeSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, CurrentRelationshipDescriptionSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
 const Text = z.string().trim().min(1).max(16_000);
@@ -154,8 +154,8 @@ export const ConcernReflectorOutputSchema = z.object({
 });
 export const RelationshipReflectorOutputSchema = z.object({
   relationshipChanges: z.array(z.discriminatedUnion("operation", [
-    z.object({ operation: z.literal("upsert"), currentDescription: Text.describe("更新対象を示す現在のRelationship本文。IDや局所参照ではない"), description: Text }).strict(),
-    z.object({ operation: z.literal("remove"), currentDescription: Text.describe("削除対象を示す現在のRelationship本文。IDや局所参照ではない") }).strict()
+    z.object({ operation: z.literal("upsert"), currentDescription: CurrentRelationshipDescriptionSchema.describe("更新対象を示す現在のRelationship本文。IDや局所参照ではない"), description: CurrentRelationshipDescriptionSchema }).strict(),
+    z.object({ operation: z.literal("remove"), currentDescription: CurrentRelationshipDescriptionSchema.describe("削除対象を示す現在のRelationship本文。IDや局所参照ではない") }).strict()
   ])).max(4).describe("持続的なRelationship差分。Runtimeが本文から対象を解決する。新規の対象IDは作らない")
 }).strict();
 export const SelfMoodReflectorOutputSchema = z.object({

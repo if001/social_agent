@@ -7,6 +7,7 @@ import { MemoryWriteService, recordMemoryMutationFailure } from "./memory-write-
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
+import { userMainSubjectId } from "../../application/canonical-subject.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type ConcernChangeSchema, type Relationship, type RelationshipChangeSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
@@ -507,7 +508,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const row = state[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
     const current = AgentStateSchema.parse({ concerns: [], relationships: row.relationships }).relationships;
     const changes: RelationshipChange[] = output.relationshipChanges.flatMap<RelationshipChange>((change) => {
-      const previous = current.find((relationship) => relationship.description === change.currentDescription);
+      const previous = current.find((relationship) => relationship.subjectId === userMainSubjectId && relationship.description === change.currentDescription);
       if (previous === undefined) return [];
       return change.operation === "remove"
         ? [{ operation: "remove" as const, subjectId: previous.subjectId }]

@@ -1,4 +1,5 @@
 import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubjectsForIntegration } from "../../src/application/experience-integration.js";
+import { createCanonicalSubjectResolver } from "../../src/application/canonical-subject.js";
 import { experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 
@@ -24,9 +25,10 @@ describe("ExperienceIntegration", () => {
 
   it("AC-017-1: uses the committed Core context and saves user memory with only the current actor as subject", async () => {
     const request = input(); const applied: unknown[] = [];
-    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ experience: { summary: "ユーザーが来週の旅行予定を話した", facts: ["来週に旅行へ行く予定がある"] }, memories: [{ content: "ユーザーは来週旅行に行く予定だと話した", reason: "次回の自然な問いかけに使う", target: "episodic", perspective: "user" }] }) });
+    const subjects = createCanonicalSubjectResolver(["user-1"]);
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ experience: { summary: "ユーザーが来週の旅行予定を話した", facts: ["来週に旅行へ行く予定がある"] }, memories: [{ content: "ユーザーは来週旅行に行く予定だと話した", reason: "次回の自然な問いかけに使う", target: "episodic", perspective: "user" }] }) }, subjects);
     await integration.process(request, new AbortController().signal);
-    expect(memorySubjectsForIntegration(request, (applied[0] as { memories: [] }).memories)).toEqual([["user-1"]]);
+    expect(memorySubjectsForIntegration(request, (applied[0] as { memories: [] }).memories, subjects)).toEqual([["user-main"]]);
   });
 
   it("AC-017-3: records an Integration failure without changing the already committed runtime result", async () => {

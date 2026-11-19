@@ -27,6 +27,7 @@ import { PostgresWebArchive } from "../../src/infrastructure/persistence/postgre
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 import { createScheduledTaskTools } from "../../src/infrastructure/tools/scheduled-task-tools.js";
 import { createAgentContextTools } from "../../src/infrastructure/tools/agent-context-tools.js";
+import { createCanonicalSubjectResolver } from "../../src/application/canonical-subject.js";
 import { initializeAgent } from "../../src/operations/operations.js";
 import { AgentRuntime } from "../../src/application/agent-runtime.js";
 import { normalizeOverfullMemoryEvidence } from "../../src/application/memory-evidence-normalization.js";
@@ -292,7 +293,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-tool-a','failed-run-a','failed-experience-a','call-1','web_list',$1,$2,NULL,now(),now())", [JSON.stringify({ q: "agent memory" }), JSON.stringify({ results: [] })]);
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-file-tool-a','failed-run-a','failed-experience-a','call-2','file_read',$1,$2,NULL,now(),now())", [JSON.stringify({ path: "notes.md", content: "raw input must not enter recent experiences".repeat(100) }), JSON.stringify({ path: "notes.md", content: "raw file must not enter recent experiences", truncated: false })]);
     const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
-    const contextToolRegistry = new ToolRegistry([...createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool))), ...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
+    const contextToolRegistry = new ToolRegistry([...createAgentContextTools(new PostgresAgentContextToolRepository(createRuntimeDatabase(pool)), createCanonicalSubjectResolver(["owner"])), ...createWebTools("http://web.local"), { name: "file_read", description: "Read", schema: z.object({}), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) }]);
     const loader = new PostgresAgentContextLoader({
       database: createRuntimeDatabase(pool), ids: new SequenceIdGenerator(["context-run", "context-run-2", "context-run-b"]), embedding: new FakeEmbeddingProvider({ hello: vector }), tools: contextToolRegistry,
       persona: { version: 1, identity: { displayName: "Agent A" }, communication: { language: "ja", firstPerson: "僕", tone: ["明るい"], responseStyle: [], avoid: [] } },
@@ -328,15 +329,17 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
     expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_propose", "user_context_get", "memory_search", "event_search", "event_tool_results_get", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
+    await pool.query("UPDATE agent_states SET relationships=$1::jsonb WHERE agent_id='a'", [JSON.stringify([{ subjectId: "user-main", description: "Trusted" }])]);
+    await pool.query("UPDATE memory_subjects SET subject_id='user-main' WHERE memory_id='memory-a1' AND subject_id='owner'");
     const toolContext = { agentId: "a", runId: "context-run", eventId: "context-event", idempotencyKey: "context-tool" };
     const memorySearch = await contextToolRegistry.execute("memory_search", { query: "agent", limit: 3 }, toolContext, new AbortController().signal);
     expect(memorySearch.ok).toBe(true); expect(typeof memorySearch.value === "object" && memorySearch.value !== null && "memories" in memorySearch.value && Array.isArray(memorySearch.value.memories)).toBe(true);
-    await expect(contextToolRegistry.execute("relationship_search", { subjectId: "owner", limit: 3 }, { ...toolContext, idempotencyKey: "relationship-tool" }, new AbortController().signal)).resolves.toMatchObject({ value: { relationships: [{ subjectId: "owner" }] } });
+    await expect(contextToolRegistry.execute("relationship_search", {}, { ...toolContext, idempotencyKey: "relationship-tool" }, new AbortController().signal)).resolves.toMatchObject({ value: { relationships: [{ description: "Trusted" }] } });
     const userContext = await contextToolRegistry.execute("user_context_get", {}, { ...toolContext, idempotencyKey: "user-context-tool" }, new AbortController().signal);
     expect(userContext.ok).toBe(true);
     if (!userContext.ok || typeof userContext.value !== "object" || userContext.value === null) throw new Error("Expected user context");
     const userContextValue = userContext.value as Record<string, unknown>;
-    expect(userContextValue.subjectId).toBe("owner");
+    expect(userContextValue.subjectId).toBeUndefined();
     expect(typeof userContextValue.factCount).toBe("number");
     expect(Array.isArray(userContextValue.knownFacts) ? userContextValue.knownFacts.length : 99).toBeLessThanOrEqual(5);
     expect(userContextValue.relationshipSummary).toBe("Trusted");

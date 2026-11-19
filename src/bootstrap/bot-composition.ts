@@ -6,6 +6,7 @@ import { AgentRuntime, OutboxDispatcher } from "../application/agent-runtime.js"
 import { PredictionLoop } from "../application/prediction-loop.js";
 import { DirectMemoryUpdateSink, MemoryUpdateHandler } from "../application/memory-update.js";
 import { DirectExperienceIntegrationSink, ExperienceIntegration } from "../application/experience-integration.js";
+import { createCanonicalSubjectResolver } from "../application/canonical-subject.js";
 import { DirectG3Sink, G3Service, MemoryG3ResultSink, type G3ResultSink } from "../application/g3.js";
 import { TargetedReflection } from "../application/reflection.js";
 import type { Clock, IdGenerator, MessageQueue } from "../application/ports.js";
@@ -65,7 +66,8 @@ export function createBotComposition(options: BotCompositionOptions) {
   const predictionRepository = new PostgresPredictionRepository(database);
   const memoryUpdateHandler = new MemoryUpdateHandler(new PostgresMemoryUpdateRepository(database, ids, () => clock.now(), retrievalService, memoryEmbedding));
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
-  const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding), createOllamaExperienceIntegrationModel(config.chat, logger)), ids);
+  const subjects = createCanonicalSubjectResolver(config.discord?.ownerIds ?? []);
+  const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding, subjects), createOllamaExperienceIntegrationModel(config.chat, logger), subjects), ids);
   const runtimeRef: { current?: AgentRuntime } = {};
   const fallbackG3Result: G3ResultSink = new MemoryG3ResultSink();
   const g3ResultSink: G3ResultSink = { async handle(result, g3Input) {
@@ -74,7 +76,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   } };
   const webArchive = new PostgresWebArchive(database, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [
-    ...createAgentContextTools(new PostgresAgentContextToolRepository(database, retrievalService)),
+    ...createAgentContextTools(new PostgresAgentContextToolRepository(database, retrievalService), subjects),
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
     ...createSkillTools({ skillsRoot: resolve(process.cwd(), "skills") }),

@@ -3,6 +3,8 @@ import { z } from "zod";
 const Id = z.string().min(1);
 const Instant = z.iso.datetime({ offset: true });
 const NaturalLanguage = z.string().trim().min(1).max(16_000);
+export const CurrentSelfStorySchema = z.string().trim().min(1).max(600).describe("現在の自己理解・継続する役割・現在の変化だけを表す。出来事の時系列、調査結果、完了済みTaskの履歴はMemoryへ残す");
+export const CurrentRelationshipDescriptionSchema = z.string().trim().min(1).max(400).describe("現在の関係の型、会話上の安定した前提、未解決の約束だけを表す。個別出来事や日付の列挙はMemoryへ残す");
 const AgentDesire = z.string().trim().min(1).max(800);
 const AgentContent = z.string().trim().min(1).max(6_000);
 const AgentReason = z.string().trim().min(1).max(800);
@@ -13,7 +15,7 @@ const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEvent�
 export const SelfSchema = z.object({
   identity: NaturalLanguage,
   disposition: NaturalLanguage,
-  selfStory: NaturalLanguage,
+  selfStory: CurrentSelfStorySchema,
   commitments: z.array(NaturalLanguage)
 });
 export type Self = z.infer<typeof SelfSchema>;
@@ -55,7 +57,7 @@ export const ConcernProposalSchema = z.object({
 }).describe("Agent実行中は永続化せず、成功したEvent commit時だけ適用するConcern提案");
 export type ConcernProposal = z.infer<typeof ConcernProposalSchema>;
 
-export const RelationshipSchema = z.object({ subjectId: Id.describe("関係する相手を識別するID"), description: NaturalLanguage.describe("現在の関係性について経験に基づき保持する簡潔な記述") }).describe("特定の相手との持続的な関係状態");
+export const RelationshipSchema = z.object({ subjectId: Id.describe("関係する相手を識別するID"), description: CurrentRelationshipDescriptionSchema }).describe("特定の相手との持続的な関係状態");
 export type Relationship = z.infer<typeof RelationshipSchema>;
 
 export const AgentStateSchema = z.object({

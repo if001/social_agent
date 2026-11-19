@@ -47,7 +47,7 @@
 | ADR-17 | Reflectionは開始時にEvent範囲を固定し、最大16 EventのMemory Formation、有限予算のMemory Reconciliation、Concern / Relationship / Self / Moodの順で統合する。対象別statusとSession / Reflector attemptを保存し、完了batchを重複せず失敗対象だけ再試行する。 | FR-25, FR-41, FR-60, FR-71, FR-72, NFR-7, NFR-17 |
 | ADR-18 | 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、deadlineとcall予算を持つ。 | FR-63, FR-64, NFR-16 |
 | ADR-19 | 予測、G3 Task、Memory mutationは監査・集計のため専用tableに保存し、Conversation MemoryとBackground Experienceは別Storeにする。既存Run/Event/StateChangeは意味判断と行動の監査に限定する。 | FR-50, FR-57, FR-60, FR-61, NFR-17 |
-| ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。LLM向けschemaは永続canonical ID・局所参照を含めず、Runtimeが検索・範囲制約から根拠と対象を解決する。 | FR-65, FR-77, NFR-20 |
+| ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。LLM向けschemaは永続canonical ID・局所参照を含めず、Runtimeが検索・範囲制約から根拠と対象を解決する。human actorはDiscord owner設定に一致するときだけRuntime-owned canonical subject `user-main`へ解決し、LLMは`current-user` scopeだけを扱う。 | FR-65, FR-77, FR-82, NFR-20 |
 
 ADR-12〜ADR-19は追加設計であり、現行コードには未実装である。実装Issueでコード、migration、testを追加する。
 

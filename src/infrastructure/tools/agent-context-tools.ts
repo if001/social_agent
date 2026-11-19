@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 import type { EventRetrievalInput, RetrievedEvent, RetrievalInput } from "../../application/ports.js";
+import { userMainSubjectId, type CanonicalSubjectResolver } from "../../application/canonical-subject.js";
 import type { RegisteredTool } from "../../application/tool-registry.js";
-import { ConcernProposalSchema, ConcernSchema, RelationshipSchema, SelfSchema, type RetrievedItem } from "../../domain/contracts.js";
+import { ConcernProposalSchema, ConcernSchema, RelationshipSchema, SelfSchema, type Observation, type RetrievedItem } from "../../domain/contracts.js";
 export type AgentContextState = { readonly concerns: unknown; readonly relationships: unknown; readonly mood: string };
 export type ConcernActivity = { readonly id: string; readonly kind: string; readonly occurredAt: Date; readonly eventId: string | null; readonly runId: string | null; readonly reflectionId: string | null; readonly evidenceMemoryIds: unknown };
 export type EvidenceMemory = { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date };
@@ -29,13 +30,16 @@ export interface AgentContextToolRepository {
   listConcernActivityTimes(agentId: string, concernIds: readonly string[]): Promise<ReadonlyMap<string, Date>>;
   listConcernActivities(agentId: string, concernId: string, cursor: { readonly occurredAt: string; readonly id: string } | undefined, limit: number): Promise<readonly ConcernActivity[]>;
   listEvidenceMemories(agentId: string, ids: readonly string[], limit: number): Promise<readonly EvidenceMemory[]>;
-  findEventActor(agentId: string, eventId: string): Promise<string | undefined>;
-  findRecentHumanActor(agentId: string, limit: number): Promise<string | undefined>;
-  listRecentActionResults(agentId: string, subjectId: string, limit: number): Promise<readonly unknown[]>;
+  findEventActor(agentId: string, eventId: string): Promise<Observation["actor"] | undefined>;
+  findRecentHumanActor(agentId: string, limit: number): Promise<Observation["actor"] | undefined>;
+  listRecentActionResults(agentId: string, actorIds: readonly string[], limit: number): Promise<readonly unknown[]>;
   listToolExecutions(agentId: string, eventId: string, limit: number): Promise<readonly ToolExecutionObservation[]>;
   loadSelf(agentId: string): Promise<AgentSelfState | undefined>;
 }
-export function createAgentContextTools(repository: AgentContextToolRepository): readonly RegisteredTool[] {
+const currentUserSubject = z.literal("current-user").describe("現在会話しているユーザーだけに絞る。IDは指定しない");
+const noSubjects: CanonicalSubjectResolver = { resolve: () => undefined, actorIdsFor: () => [] };
+
+export function createAgentContextTools(repository: AgentContextToolRepository, subjects: CanonicalSubjectResolver = noSubjects): readonly RegisteredTool[] {
   return [
     {
       name: "retrieval_search",
@@ -44,12 +48,13 @@ export function createAgentContextTools(repository: AgentContextToolRepository):
         query: z.string().trim().min(1).max(240).describe("探す出来事、対象、仮説、または判断材料"),
         scope: z.enum(["conversation", "background", "all"]).default("all").describe("検索対象。会話Memory、背景経験、または両方"),
         kinds: z.array(z.enum(["episodic", "semantic", "self-related", "self-change", "common-ground", "background"])).min(1).max(6).optional().describe("会話Memoryのkind、またはbackgroundで絞る"),
-        subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"),
+        subject: currentUserSubject.optional(),
         limit: z.number().int().min(1).max(8).default(5).describe("返す最大件数")
       }).strict(),
       resultPolicy: { kind: "standard" },
-      execute: async ({ query, scope, kinds, subject, limit }: { query: string; scope: "conversation" | "background" | "all"; kinds?: ("episodic" | "semantic" | "self-related" | "self-change" | "common-ground" | "background")[]; subject?: string; limit: number }, context) => {
-        const items = await repository.retrieve({ agentId: context.agentId, query, scope, ...(kinds === undefined ? {} : { kinds }), ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
+      execute: async ({ query, scope, kinds, subject, limit }: { query: string; scope: "conversation" | "background" | "all"; kinds?: ("episodic" | "semantic" | "self-related" | "self-change" | "common-ground" | "background")[]; subject?: "current-user"; limit: number }, context) => {
+        const subjectId = subject === undefined ? undefined : userMainSubjectId;
+        const items = await repository.retrieve({ agentId: context.agentId, query, scope, ...(kinds === undefined ? {} : { kinds }), ...(subjectId === undefined ? {} : { subjectIds: [subjectId], subjectFilter: true }), limit });
         return success({ items: items.map((item) => ({ source: item.source, id: item.id, kind: item.kind, summary: compact(item.content, 400), importance: compact(item.importance, 180), occurredAt: item.occurredAt, matchedBy: item.matchedBy })) });
       }
     },
@@ -108,25 +113,20 @@ export function createAgentContextTools(repository: AgentContextToolRepository):
     {
       name: "user_context_get",
       description: "対話相手について既に知っている事実、現在の関係、直近に尋ねた質問を小さく取得する。相手への質問前に重複と境界を確認する。",
-      schema: z.object({ subjectId: z.string().trim().min(1).max(160).optional().describe("対象ユーザーのID。省略時は今回Eventの話者、いなければ直近の人間の話者") }).strict(),
+      schema: z.object({}).strict(),
       resultPolicy: { kind: "standard" },
-      execute: async ({ subjectId }: { subjectId?: string }, context) => {
-        let resolvedSubjectId = subjectId;
-        if (resolvedSubjectId === undefined && context.eventId !== undefined) {
-          resolvedSubjectId = await repository.findEventActor(context.agentId, context.eventId);
-        }
-        if (resolvedSubjectId === undefined) {
-          resolvedSubjectId = await repository.findRecentHumanActor(context.agentId, 32);
-        }
-        if (resolvedSubjectId === undefined) return success({ subjectId: null, knownFacts: [], factCount: 0, recentlyAskedTopics: [] });
+      execute: async (_input: Record<string, never>, context) => {
+        const eventActor = context.eventId === undefined ? undefined : await repository.findEventActor(context.agentId, context.eventId);
+        const recentActor = eventActor === undefined ? await repository.findRecentHumanActor(context.agentId, 32) : undefined;
+        const resolvedSubjectId = subjects.resolve(eventActor ?? recentActor);
+        if (resolvedSubjectId === undefined) return success({ knownFacts: [], factCount: 0, recentlyAskedTopics: [] });
 
         const facts = await repository.retrieve({ agentId: context.agentId, query: "", scope: "conversation", subjectIds: [resolvedSubjectId], subjectFilter: true, limit: 5 });
         const state = await repository.loadState(context.agentId);
         const relationship = z.array(RelationshipSchema).parse(state?.relationships ?? []).find((value) => value.subjectId === resolvedSubjectId);
-        const recentActions = await repository.listRecentActionResults(context.agentId, resolvedSubjectId, 12);
+        const recentActions = await repository.listRecentActionResults(context.agentId, subjects.actorIdsFor(resolvedSubjectId), 12);
         const recentlyAskedTopics = recentActions.flatMap((result) => { const question = responseQuestion(result); return question === undefined ? [] : [question]; }).slice(0, 3);
         return success({
-          subjectId: resolvedSubjectId,
           knownFacts: facts.map((item) => compact(item.content, 240)),
           factCount: facts.length,
           ...(relationship === undefined ? {} : { relationshipSummary: compact(relationship.description, 300) }),
@@ -137,20 +137,20 @@ export function createAgentContextTools(repository: AgentContextToolRepository):
     {
       name: "memory_search",
       description: "判断に必要な自分のMemoryだけを語句で検索し、短い要点を取得する。",
-      schema: z.object({ query: z.string().trim().min(1).max(160).describe("探す出来事、対象、または判断材料"), subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"), limit: z.number().int().min(1).max(5).default(3).describe("返す最大件数") }).strict(),
+      schema: z.object({ query: z.string().trim().min(1).max(160).describe("探す出来事、対象、または判断材料"), subject: currentUserSubject.optional(), limit: z.number().int().min(1).max(5).default(3).describe("返す最大件数") }).strict(),
       resultPolicy: { kind: "standard" },
-      execute: async ({ query, subject, limit }: { query: string; subject?: string; limit: number }, context) => {
-        const items = await repository.retrieve({ agentId: context.agentId, query, scope: "conversation", ...(subject === undefined ? {} : { subjectIds: [subject], subjectFilter: true }), limit });
+      execute: async ({ query, subject, limit }: { query: string; subject?: "current-user"; limit: number }, context) => {
+        const items = await repository.retrieve({ agentId: context.agentId, query, scope: "conversation", ...(subject === undefined ? {} : { subjectIds: [userMainSubjectId], subjectFilter: true }), limit });
         return success({ memories: items.map((item) => ({ id: item.id, summary: compact(item.content, 320), significance: compact(item.importance, 180), occurredAt: item.occurredAt })) });
       }
     },
     {
       name: "event_search",
       description: "過去の主Event Experienceのprojectionを語句・subject・新しさ・意味の近さで局所検索する。Tool結果単体は監査用であり返さない。Reflectionで既存Memoryの確認・訂正・矛盾の根拠を読むために使う。返されたEvent以外を根拠にしない。",
-      schema: z.object({ query: z.string().trim().min(1).max(240).describe("確認または訂正したいMemoryに関係する語句"), subject: z.string().trim().min(1).max(120).optional().describe("関係主体で絞る場合のsubject ID"), kinds: z.array(z.string().trim().min(1).max(80)).max(8).optional().describe("Event kindで絞る場合の種類"), occurredAfter: z.iso.datetime({ offset: true }).optional().describe("この時刻以後のEventだけを読む"), occurredBefore: z.iso.datetime({ offset: true }).optional().describe("この時刻以前のEventだけを読む"), limit: z.number().int().min(1).max(16).default(8).describe("返す最大Event数") }).strict(),
+      schema: z.object({ query: z.string().trim().min(1).max(240).describe("確認または訂正したいMemoryに関係する語句"), subject: currentUserSubject.optional(), kinds: z.array(z.string().trim().min(1).max(80)).max(8).optional().describe("Event kindで絞る場合の種類"), occurredAfter: z.iso.datetime({ offset: true }).optional().describe("この時刻以後のEventだけを読む"), occurredBefore: z.iso.datetime({ offset: true }).optional().describe("この時刻以前のEventだけを読む"), limit: z.number().int().min(1).max(16).default(8).describe("返す最大Event数") }).strict(),
       resultPolicy: { kind: "standard" },
-      execute: async ({ query, subject, kinds, occurredAfter, occurredBefore, limit }: { query: string; subject?: string; kinds?: string[]; occurredAfter?: string; occurredBefore?: string; limit: number }, context) => {
-        const events = await repository.retrieveEvents({ agentId: context.agentId, query, ...(subject === undefined ? {} : { subjectIds: [subject] }), ...(kinds === undefined ? {} : { kinds }), ...(occurredAfter === undefined ? {} : { occurredAfter }), ...(occurredBefore === undefined ? {} : { occurredBefore }), limit });
+      execute: async ({ query, subject, kinds, occurredAfter, occurredBefore, limit }: { query: string; subject?: "current-user"; kinds?: string[]; occurredAfter?: string; occurredBefore?: string; limit: number }, context) => {
+        const events = await repository.retrieveEvents({ agentId: context.agentId, query, ...(subject === undefined ? {} : { subjectIds: [userMainSubjectId] }), ...(kinds === undefined ? {} : { kinds }), ...(occurredAfter === undefined ? {} : { occurredAfter }), ...(occurredBefore === undefined ? {} : { occurredBefore }), limit });
         return success({ events: events.map((event) => ({ ...event, summary: compact(event.content, 500) })) });
       }
     },
@@ -166,12 +166,12 @@ export function createAgentContextTools(repository: AgentContextToolRepository):
     },
     {
       name: "relationship_search",
-      description: "特定の相手との現在のRelationshipを取得する。相手IDが不明なら短い語句でも検索できる。",
-      schema: z.object({ subjectId: z.string().min(1).optional().describe("既知の相手ID"), query: z.string().trim().min(1).max(120).optional().describe("説明から探す語句"), limit: z.number().int().min(1).max(5).default(3).describe("返す最大件数") }).strict().refine((value) => value.subjectId !== undefined || value.query !== undefined, { message: "subjectId or query is required" }),
+      description: "現在のユーザーとのRelationshipを取得する。IDは扱わず、必要なら短い語句で説明を絞る。",
+      schema: z.object({ query: z.string().trim().min(1).max(120).optional().describe("関係の説明から絞る語句"), limit: z.number().int().min(1).max(1).default(1).describe("返す最大件数") }).strict(),
       resultPolicy: { kind: "standard" },
-      execute: async ({ subjectId, query, limit }: { subjectId?: string; query?: string; limit: number }, context) => {
+      execute: async ({ query, limit }: { query?: string; limit: number }, context) => {
         const row = await repository.loadState(context.agentId);
-        const relationships = z.array(RelationshipSchema).parse(row?.relationships ?? []).filter((value) => subjectId !== undefined ? value.subjectId === subjectId : value.description.toLowerCase().includes((query ?? "").toLowerCase())).slice(0, limit).map((value) => ({ ...value, description: compact(value.description, 400) }));
+        const relationships = z.array(RelationshipSchema).parse(row?.relationships ?? []).filter((value) => value.subjectId === userMainSubjectId && (query === undefined || value.description.toLowerCase().includes(query.toLowerCase()))).slice(0, limit).map((value) => ({ description: compact(value.description, 400) }));
         return success({ relationships });
       }
     },

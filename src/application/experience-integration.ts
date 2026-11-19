@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 import type { IdGenerator } from "./ports.js";
+import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 import type { AgentCoreInput, AgentRunResult, DomainEvent, MemoryIntent } from "../domain/contracts.js";
-import { MemoryIntentTargetSchema, MemoryPerspectiveSchema } from "../domain/contracts.js";
+import { CurrentRelationshipDescriptionSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema } from "../domain/contracts.js";
 
 const MoodSchema = z.string().trim().min(1).max(160);
 export const EventExperienceSchema = z.object({
@@ -13,7 +14,7 @@ export const EventExperienceSchema = z.object({
 export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
   memories: z.array(z.object({ content: z.string().trim().min(1).max(16_000), reason: z.string().trim().min(1).max(16_000), target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
-  relationship: z.object({ operation: z.enum(["upsert", "remove"]), currentDescription: z.string().trim().min(1).max(16_000).optional(), description: z.string().trim().min(1).max(16_000).optional(), reason: z.string().trim().min(1).max(800) }).strict().optional().describe("今回のactorとの関係候補。IDを出さず、Runtimeがactorと現在本文から対象を解決する"),
+  relationship: z.object({ operation: z.enum(["upsert", "remove"]), currentDescription: CurrentRelationshipDescriptionSchema.optional(), description: CurrentRelationshipDescriptionSchema.optional(), reason: z.string().trim().min(1).max(800) }).strict().optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
   mood: MoodSchema.optional().describe("次の複数Eventに残る背景的な気分。今回だけのFeelingや待機理由は入れない")
 }).strict().describe("応答commit後のExperience Integration出力。SelfとConcernは扱わない");
 export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;
@@ -40,8 +41,10 @@ export interface ExperienceIntegrationRepository {
   claim?(integrationId: string): Promise<boolean>;
 }
 
+const noSubjects: CanonicalSubjectResolver = { resolve: () => undefined, actorIdsFor: () => [] };
+
 export class ExperienceIntegration {
-  constructor(private readonly repository: ExperienceIntegrationRepository, private readonly model: ExperienceIntegrationModel) {}
+  constructor(private readonly repository: ExperienceIntegrationRepository, private readonly model: ExperienceIntegrationModel, private readonly subjects: CanonicalSubjectResolver = noSubjects) {}
 
   async reserve(input: ExperienceIntegrationInput): Promise<boolean> { return (await this.repository.begin(input)) === "created"; }
 
@@ -57,8 +60,7 @@ export class ExperienceIntegration {
       let output = first.success ? first.data : this.model.repair === undefined
         ? (() => { throw first.error; })()
         : ExperienceIntegrationOutputSchema.parse(await this.model.repair(input, first.error.issues, signal));
-      const actorId = input.input.observation.actor?.type === "human" || input.input.observation.actor?.type === "agent" ? input.input.observation.actor.id : undefined;
-      if (output.relationship !== undefined && actorId === undefined) output = { ...output, relationship: undefined };
+      if (output.relationship !== undefined && this.subjects.resolve(input.input.observation.actor) === undefined) output = { ...output, relationship: undefined };
       await this.repository.apply(input, output);
     } catch (error) {
       await this.repository.fail(input, error);
@@ -92,7 +94,7 @@ export class DirectExperienceIntegrationSink implements ExperienceIntegrationSin
   drain(signal: AbortSignal): Promise<void> { return this.integration.retryPending(signal); }
 }
 
-export function memorySubjectsForIntegration(input: ExperienceIntegrationInput, intents: readonly Pick<MemoryIntent, "perspective">[]): readonly (readonly string[])[] {
-  const actorId = input.input.observation.actor?.type === "human" || input.input.observation.actor?.type === "agent" ? input.input.observation.actor.id : undefined;
-  return intents.map((intent) => intent.perspective === "user" && actorId !== undefined ? [actorId] : []);
+export function memorySubjectsForIntegration(input: ExperienceIntegrationInput, intents: readonly Pick<MemoryIntent, "perspective">[], subjects: CanonicalSubjectResolver = noSubjects): readonly (readonly string[])[] {
+  const subjectId = subjects.resolve(input.input.observation.actor);
+  return intents.map((intent) => intent.perspective === "user" && subjectId !== undefined ? [subjectId] : []);
 }

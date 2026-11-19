@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-19
-status: created
+status: doing
 type: change
 plan: []
 requirements: [FR-6, FR-42, FR-77, FR-82, NFR-12, NFR-22]
@@ -39,7 +39,7 @@ requires: human
 ## Out of scope
 
 - 複数の人間ユーザーを同時に区別するsubject model
-- 他Botのcanonical subject設定。未設定時はno-opとする。
+- 他Botのcanonical subject設定。未設定時はno-opとする（#052）。
 - Memory本文の再要約・削除
 
 ## Detailed design
@@ -73,12 +73,19 @@ requires: human
 
 ## Acceptance criteria
 
-- [ ] AC-051-1：ownerのhuman actorから書かれるRelationship、Memory subject、Event subjectは`user-main`である。
-- [ ] AC-051-2：owner外または未設定のagent actorはRelationship、ユーザー視点Memory subject、Event subjectを更新しない。
-- [ ] AC-051-3：ReflectionのLLM schema / repair / tool viewに`subjectId`等の永続IDが含まれず、Runtimeが`user-main`だけを更新する。
-- [ ] AC-051-4：Self Storyは600文字、Relationship descriptionは400文字を超えて永続化できず、履歴列挙を避ける指示を持つ。
-- [ ] AC-051-5：migration scriptはdry-run既定で、承認済みshiro aliasを`user-main`へ統合できる。
-- [ ] AC-051-6：実LLM compaction commandはdry-run既定で、`--apply`時だけ有効な上限内のSelf / Relationshipへ更新する。
+- [x] AC-051-1：ownerのhuman actorから書かれるRelationship、Memory subject、Event subjectは`user-main`である。
+- [x] AC-051-2：owner外または未設定のagent actorはRelationship、ユーザー視点Memory subject、Event subjectを更新しない。
+- [x] AC-051-3：ReflectionのLLM schema / repair / tool viewに`subjectId`等の永続IDが含まれず、Runtimeが`user-main`だけを更新する。
+- [x] AC-051-4：Self Storyは600文字、Relationship descriptionは400文字を超えて永続化できず、履歴列挙を避ける指示を持つ。
+- [x] AC-051-5：migration scriptはdry-run既定で、承認済みshiro aliasを`user-main`へ統合できる。
+- [x] AC-051-6：実LLM compaction commandはdry-run既定で、`--apply`時だけ有効な上限内のSelf / Relationshipへ更新する。
+
+## 実施前の運用手順
+
+実運用の既存値には上限超過のSelf / Relationshipがあるため、コードを稼働させる前に人が次の順で実行する。両コマンドは`--apply`なしではDBを更新しない。
+
+1. `pnpm subject:canonicalize -- --agent-id shiro` で対象数を確認し、`--apply`付きでaliasを`user-main`へ統合する。
+2. `pnpm state:compact -- --agent-id shiro` でLLMの圧縮案を確認し、問題なければ`--apply`付きでCurrent Stateを上限内へ更新する。
 
 ## Tests
 
