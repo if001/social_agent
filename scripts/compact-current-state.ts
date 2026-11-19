@@ -32,11 +32,15 @@ async function main(): Promise<void> {
       currentDisposition: state.disposition,
       recentMemories: memories
     };
-    const response = await model.invoke([
-      { role: "system", content: "Current Selfと現在のユーザーRelationshipを一度だけ圧縮する。selfStoryは現在の自己理解・継続する役割・現在の変化だけを600文字以内で書く。relationshipDescriptionは現在の関係の型、安定した会話上の前提、未解決の約束だけを400文字以内で書く。出来事、日付、調査結果、完了済みTaskの履歴を列挙しない。根拠がなくRelationshipを残せない場合はrelationshipDescriptionを省略する。ID、Markdown、説明文を出さず構造化出力だけを返す。" },
-      { role: "user", content: JSON.stringify(prompt) }
-    ], { signal: AbortSignal.timeout(120_000) });
-    const output = OutputSchema.parse(JSON.parse(contentOf(response.content).trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "")));
+    const system = "Current Selfと現在のユーザーRelationshipを一度だけ圧縮する。selfStoryは現在の自己理解・継続する役割・現在の変化だけを600文字以内で書く。relationshipDescriptionは現在の関係の型、安定した会話上の前提、未解決の約束だけを400文字以内で書く。出来事、日付、調査結果、完了済みTaskの履歴を列挙しない。根拠がなくRelationshipを残せない場合はrelationshipDescriptionを省略する。ID、Markdown、説明文を出さず構造化出力だけを返す。";
+    const invoke = (content: unknown) => model.invoke([{ role: "system", content: system }, { role: "user", content: JSON.stringify(content) }], { signal: AbortSignal.timeout(120_000) });
+    const raw = async (content: unknown): Promise<{ readonly value?: unknown; readonly error?: string }> => {
+      const text = contentOf(await invoke(content)).trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "");
+      try { return { value: JSON.parse(text) }; } catch (error) { return { error: error instanceof Error ? error.message : "Invalid JSON" }; }
+    };
+    const firstRaw = await raw(prompt);
+    const first = firstRaw.value === undefined ? undefined : OutputSchema.safeParse(firstRaw.value);
+    const output = first?.success ? first.data : OutputSchema.parse((await raw({ instruction: "直前の出力はschema検証に失敗した。内容を新たに判断せず、同じinputからselfStoryを必須の文字列として返す。currentSelfStoryやcurrentRelationshipsを出力へ複製せず、構造化出力だけを返す。", input: prompt, validationIssues: first === undefined ? [{ path: [], message: firstRaw.error ?? "Empty output" }] : first.error.issues.map(({ path, message }) => ({ path, message })) })).value);
     const report = { agentId: input.agentId, apply: input.apply, selfStoryLength: output.selfStory.length, relationshipLength: output.relationshipDescription?.length ?? 0, output };
     if (input.apply) {
       const relationships = output.relationshipDescription === undefined ? [] : [{ subjectId: "user-main", description: output.relationshipDescription }];
