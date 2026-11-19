@@ -12,6 +12,8 @@ const skill = (name: string): string => readFileSync(join(process.cwd(), "skills
 const userMessageSkill = skill("user-message");
 const idleSkill = skill("idle");
 const lifecycleSkill = skill("concern-lifecycle");
+const dueSkill = skill("concern-due");
+const scheduledTaskSkill = skill("scheduled-task");
 const socialPrompt = completeAgentCoreSystemPrompt + userMessageSkill + idleSkill + lifecycleSkill;
 
 describe("Agent prompts", () => {
@@ -33,18 +35,35 @@ describe("Agent prompts", () => {
 
   it("FR-67: treats no reply as time for autonomous action and permits consecutive speech", () => {
     expect(completeAgentCoreSystemPrompt).toContain("自分の新たな発見、感情、Concern、関心から続けて話しかけてよく");
-    expect(idleSkill).toContain("idleごとにそれらから自分で選んだ行動を完了し、その結果を必ずユーザーへ発話します");
+    expect(idleSkill).toContain("idleごとに自分で選んだ行為または考えを必ず発話します");
     expect(idleSkill + lifecycleSkill).not.toContain("答えがなければ拒絶と推測せず減衰・終了");
     expect(lifecycleSkill).toContain("独立したConcernは並行して保持する");
     expect(reflectionSystemPrompt).toContain("未返信や件数を理由に終了しない");
   });
 
   it("FR-68: makes idle retain relational curiosity and ground exploration in experience", () => {
-    expect(idleSkill).toContain("idleごとにuser_context_getを使い");
-    expect(idleSkill).toContain("最大1件の自然な問いを添えます");
+    expect(idleSkill).toContain("自分が知りたい具体的な不確かさ");
+    expect(idleSkill).not.toContain("idleごとにuser_context_getを使い");
     expect(idleSkill).toContain("retrieval_searchで会話MemoryまたはBackground Experienceを必要に応じて確かめます");
     expect(idleSkill).toContain("背景経験は自分の過去として扱い");
-    expect(completeAgentCoreSystemPrompt).toContain("既知のユーザーの予定、試み、関心、未完了の話題へ自発的な関心");
+    expect(completeAgentCoreSystemPrompt).toContain("Agent自身が知りたい具体的な不確かさ");
+  });
+
+  it("C-17, C-14: makes autonomous speech a self-motivated utterance rather than a research report", () => {
+    expect(completeAgentCoreSystemPrompt).toContain("自分自身のDesireを満たす");
+    expect(completeAgentCoreSystemPrompt).toContain("独り言、仮説、感情、反論、途中経過");
+    expect(completeAgentCoreSystemPrompt).toContain("既知Memoryにないユーザー属性や生活型を推測しません");
+    expect(idleSkill).toContain("調査結果をユーザーに届けることは目的にしません");
+    expect(idleSkill).toContain("独り言、仮説、感情、不満、途中経過");
+    expect(dueSkill).toContain("調査結果をユーザーに届けることは目的にしません");
+  });
+
+  it("C-14: permits truthful delay, interruption, and digression while preserving commitments", () => {
+    expect(idleSkill).toContain("先送り、中断、脱線、方法変更");
+    expect(idleSkill).toContain("完了、予約、確認済み、出典を偽りません");
+    expect(dueSkill).toContain("先送り、中断、脱線、方法変更");
+    expect(scheduledTaskSkill).toContain("役割・約束を実行するEvent");
+    expect(scheduledTaskSkill).toContain("実行済み、予約済み、確認済み、出典を偽りません");
   });
 
   it("FR-87: appraises autonomous exploration without forcing positive emotion", () => {

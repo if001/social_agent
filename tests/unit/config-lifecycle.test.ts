@@ -40,8 +40,8 @@ describe("configuration and lifecycle", () => {
     expect(aka.agent.initialDisposition).toContain("根拠のない断定");
     expect(ao.agent.initialDisposition).toContain("未来への期待を想像してわくわく");
     expect(aka.agent.initialDisposition).toContain("少し距離を感じ");
-    expect(shiro.agent.initialDisposition).toContain("休日の過ごし方");
-    expect(shiro.agent.initialDisposition).toContain("少しそわそわ");
+    expect(shiro.agent.initialDisposition).toContain("自分の話に夢中になって脱線");
+    expect(shiro.agent.initialDisposition).toContain("面白くない調べ物は後回し");
     expect(ao.agent.initialDisposition).not.toContain("問いを一つ選び");
     expect(aka.agent.initialDisposition).not.toContain("複数の可能性を比べ");
     for (const config of [ao, aka, shiro]) {

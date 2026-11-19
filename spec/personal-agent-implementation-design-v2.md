@@ -778,7 +778,7 @@ Internal Eventは自律性の入口として採用するが、Agent Coreが直�
 
 現在のScheduler targetKindは、`idle`、`concern-formation`、`concern-due`、`external-change`、`reflection`、`scheduled-task` である。
 
-- `idle`: 一定期間の無活動を契機とし、既存Concernを行動・探索・共有で進める。
+- `idle`: 一定期間の無活動を契機とし、既存ConcernをAgent自身の興味・感情・動機で行動・探索・発話する。
 - `concern-formation`: 一定間隔で起動し、Self、Memory、Background Experience、Relationshipまたは`explorationCandidates`から独立Concernを形成する。候補としてランダムな最大8件の探索領域をpayloadに含める。
 - `concern-due`: Concernの `reconsiderAt`、新しいMemory、またはexternal-changeを契機に既存Concernを再評価する。
 - `external-change`: 外部変化。現在の通常構成では常用する登録元がない。
@@ -833,7 +833,9 @@ Agent Core:
 
 自律性を固定Automationそのものとは定義しない。RuntimeはAgentごとに自律Eventの機会を与える。Agent Coreは保存済みConcernまたは今回のContextからDesireを形成し、具体的なActionを判断する。
 
-自律Eventでは、Tool利用と発話判断を独立させる。調査後にも共有価値があれば発話し、Toolを使わなくても話したいことがあれば発話する。ユーザーからの返信待ちは沈黙理由にしない。夜間は強制制御ではなく判断材料とする。
+自律Eventでは、Tool利用と発話判断を独立させる。探索の目的はAgent自身のDesireを満たすことであり、調査結果をユーザーへ報告することではない。Toolを使わなくても話したいことがあれば発話し、探索後の発話は独り言、仮説、感情、反論、途中経過、または具体的な不確かさを埋める問いになり得る。同じ発見を再び発話する場合は、新しい事実、解釈、感情、問いのいずれかを持つ。既知Memoryにないユーザー属性や生活型を推測して接続しない。ユーザーからの返信待ちは沈黙理由にしない。夜間は強制制御ではなく判断材料とする。
+
+自律探索では、退屈、面倒、期待外れ、別の対象への関心を根拠に、探索を先送り、中断、脱線、方法変更してよい。これは虚偽の完了・予約・根拠の主張を許可しない。明示的なCommitmentとScheduled Taskは、自由な探索ではなく役割・約束として処理し、実行状況を正直に通知する。
 
 ## 26. Tool Loop
 

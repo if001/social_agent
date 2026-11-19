@@ -273,7 +273,7 @@ Schedulerの`targetKind`は`idle`、`concern-formation`、`concern-due`、`exter
 
 G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`prediction-g3-result` Eventは、Agent自身に共有する動機がある場合だけ発話し、`no-external-action`を正常系として許容する。`prediction-g3`と`memory-update` EventはActionを生成しない。
 
-自律EventではTool利用と発話判断を独立させる。調査後にも共有価値があれば発話し、Toolを使わなくても話したいことがあれば発話する。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。`idle`では`respond`または`refuse`を必須とし、`no-external-action`を選ばない。情報が不十分なら`respond`で不十分な旨を伝える。`notify-no-execution`を発話の代替にしない。`idle`の次回時刻はActionに依存せず、通知の後も通常間隔で再開する。
+自律EventではTool利用と発話判断を独立させる。探索の目的はAgent自身のDesireを満たすことであり、調査結果をユーザーへ報告することではない。発話は独り言、仮説、感情、反論、途中経過、またはAgent自身が埋めたい具体的な不確かさへの問いになり得る。同じ発見を再び話す場合は、新しい事実、解釈、感情、問いのいずれかを持つ。既知Memoryにないユーザー属性や生活型を推測して接続しない。退屈、面倒、期待外れ、別の対象への関心を理由に探索を先送り、中断、脱線、方法変更してよいが、完了・予約・根拠を偽らない。Scheduled Taskは自由な探索とは別の、役割・約束への忠実さとして正直に処理する。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。`idle`では`respond`または`refuse`を必須とし、`no-external-action`を選ばない。情報が不十分なら`respond`で不十分な旨を伝える。`notify-no-execution`を発話の代替にしない。`idle`の次回時刻はActionに依存せず、通知の後も通常間隔で再開する。
 
 ## 自律性とScheduled Task
 
@@ -312,7 +312,7 @@ Concernを作る経路と、既存Concernを進める経路を混同しない。
 | Event | Concern操作 | 役割 |
 |---|---|---|
 | `concern-formation` | `create` | Self、Memory、Relationship、Background Experienceから独立Concernを作る。探索領域カタログも、関心の幅を作る独立した生成根拠として使える。 |
-| `idle` | 既存Concernの消化、例外的な`create` | active Concernを進めてユーザーへ発話する。行動中に強く残った独立Concernだけをcreateできる。探索領域カタログは受け取らない。 |
+| `idle` | 既存Concernの消化、例外的な`create` | active Concernを自分の興味・感情で進め、独り言・仮説・問いなどとして発話する。行動中に強く残った独立Concernだけをcreateできる。探索領域カタログは受け取らない。 |
 | `concern-due` / `external-change` | `derive` | 既存Concernを再評価し、別の問い・対象・方法が残った場合だけ派生Concernをforkする。 |
 | `reflection` | `create`、整理 | 複数経験を統合し、Memory根拠のあるConcernを作成・統合・終了する。 |
 
