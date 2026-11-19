@@ -12,6 +12,14 @@ const AgentStateDescription = z.string().trim().min(1).max(800);
 const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない。未返信・返答待ち・連投回避を待機や抑制の意味として書かない");
 const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 喜び、期待、不安、落胆、苛立ち、怒り、驚き、警戒、安堵、退屈。例から選ぶ必要はない。Toolの失敗・探索結果・予測誤差への反応も書ける。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。未返信・返答待ち・連投回避を待機や抑制の感情として書かない");
 
+/**
+ * Mood is a compact, durable affective stance.  Its semantic boundary is an
+ * LLM judgement; the schema intentionally enforces only the mechanical
+ * shape and length limit shared by every writer.
+ */
+export const PersistentMoodDescription = "次の複数Eventの意味づけと行動の調子を変える、Agent自身の持続的な感情的構えを短い一文で書く。期待、苛立ち、警戒、退屈、安心など感情と傾きを中心にする。出来事、探索テーマ、固有名詞、ユーザー、返答待ち、約束、Concern、行動計画、願望、理由は書かない。持続する変化がなければ省略する。";
+export const PersistentMoodSchema = z.string().trim().min(1).max(120).describe(PersistentMoodDescription);
+
 export const SelfSchema = z.object({
   identity: NaturalLanguage,
   disposition: NaturalLanguage,
@@ -61,6 +69,8 @@ export const RelationshipSchema = z.object({ subjectId: Id.describe("関係す�
 export type Relationship = z.infer<typeof RelationshipSchema>;
 
 export const AgentStateSchema = z.object({
+  // Keep legacy stored State readable. Every model-facing writer uses
+  // PersistentMoodSchema above, so newly persisted Mood values are bounded.
   mood: NaturalLanguage.optional(),
   concerns: z.array(ConcernSchema),
   relationships: z.array(RelationshipSchema)
@@ -147,10 +157,10 @@ export const InitialSelfConfigSchema = z.object({
     selfContinuity: NaturalLanguage
   }).strict(),
   initialState: z.object({
-    mood: NaturalLanguage.default("特定の持続的な気分はまだ形成されていない"),
+    mood: PersistentMoodSchema.default("静かな好奇心を保っている"),
     concerns: z.array(ConcernSchema).default([]),
     relationships: z.array(RelationshipSchema).default([])
-  }).default({ mood: "特定の持続的な気分はまだ形成されていない", concerns: [], relationships: [] })
+  }).default({ mood: "静かな好奇心を保っている", concerns: [], relationships: [] })
 });
 export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
 export const EventKindSchema = z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]);
