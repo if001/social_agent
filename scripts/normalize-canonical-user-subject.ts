@@ -52,9 +52,10 @@ async function main(): Promise<void> {
     if (!options.apply) { process.stdout.write(`${JSON.stringify(report)}\n`); return; }
     await pool.query("begin");
     try {
-      await pool.query("delete from app.memory_subjects old using app.memory_subjects canonical_row, app.memories m where old.memory_id=m.id and canonical_row.memory_id=old.memory_id and m.agent_id=$1 and old.subject_id=any($2::text[]) and canonical_row.subject_id=$3", [options.agentId, options.aliases, canonical]);
+      const allSubjects = [...options.aliases, canonical];
+      await pool.query("delete from app.memory_subjects old using app.memory_subjects kept, app.memories m where old.memory_id=m.id and kept.memory_id=old.memory_id and m.agent_id=$1 and old.subject_id=any($2::text[]) and kept.subject_id=any($3::text[]) and kept.subject_id < old.subject_id", [options.agentId, options.aliases, allSubjects]);
       await pool.query("update app.memory_subjects ms set subject_id=$3 from app.memories m where m.id=ms.memory_id and m.agent_id=$1 and ms.subject_id=any($2::text[])", [options.agentId, options.aliases, canonical]);
-      await pool.query("delete from app.event_subjects old using app.event_subjects canonical_row, app.events e where old.event_id=e.id and canonical_row.event_id=old.event_id and e.agent_id=$1 and old.subject_id=any($2::text[]) and canonical_row.subject_id=$3", [options.agentId, options.aliases, canonical]);
+      await pool.query("delete from app.event_subjects old using app.event_subjects kept, app.events e where old.event_id=e.id and kept.event_id=old.event_id and e.agent_id=$1 and old.subject_id=any($2::text[]) and kept.subject_id=any($3::text[]) and kept.subject_id < old.subject_id", [options.agentId, options.aliases, allSubjects]);
       await pool.query("update app.event_subjects es set subject_id=$3 from app.events e where e.id=es.event_id and e.agent_id=$1 and es.subject_id=any($2::text[])", [options.agentId, options.aliases, canonical]);
       const relationships = nextRelationship === undefined ? relationship.preserved : [...relationship.preserved, nextRelationship];
       await pool.query("update app.agent_states set relationships=$2::jsonb, version=version+1, updated_at=now() where agent_id=$1", [options.agentId, JSON.stringify(relationships)]);
