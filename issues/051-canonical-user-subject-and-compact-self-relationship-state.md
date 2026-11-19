@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-19
-status: doing
+status: done
 type: change
 plan: []
 requirements: [FR-6, FR-42, FR-77, FR-82, NFR-12, NFR-22]
