@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-19
-status: created
+status: done
 type: change
 plan: []
 requirements: [NFR-12, FR-40]
@@ -43,11 +43,11 @@ Concern Activityは因果IDだけを表示し、現在のConcernの説明との�
 
 ## Acceptance criteria
 
-- [ ] AC-050-1：Self / State概要でdisposition、selfStory、commitments、mood、更新時刻を確認できる。
-- [ ] AC-050-2：active ConcernがSelf / Stateから分離され、descriptionを含む独立パネルに表示される。
-- [ ] AC-050-3：Concern ActivityでConcern IDに対応する現在のdescriptionとstatusを確認できる。
-- [ ] AC-050-4：予約タスクで全取得件数、状態別件数、実行日時順の直近8件を区別して確認できる。
-- [ ] AC-050-5：Debug UIは読取り専用であり、Agent IDで絞る既存query境界を維持する。
+- [x] AC-050-1：Self / State概要でdisposition、selfStory、commitments、mood、更新時刻を確認できる。
+- [x] AC-050-2：active ConcernがSelf / Stateから分離され、descriptionを含む独立パネルに表示される。
+- [x] AC-050-3：Concern ActivityでConcern IDに対応する現在のdescriptionとstatusを確認できる。
+- [x] AC-050-4：予約タスクで全取得件数、状態別件数、実行日時順の直近8件を区別して確認できる。
+- [x] AC-050-5：Debug UIは読取り専用であり、Agent IDで絞る既存query境界を維持する。
 
 ## Tests
 
@@ -77,3 +77,13 @@ Concern Activityは因果IDだけを表示し、現在のConcernの説明との�
 |---|---|---|
 | `spec/` | なし。認知・永続化の意味を変えない | 不要 |
 | `docs/REQUIREMENTS.md` | なし。NFR-12の読取り専用監査範囲内 | 不要 |
+
+## 実装メモ
+
+- `selfStateSummary`は、Selfを保持するAgent Overview queryとStateを分けずに表示用要約へ投影する。
+- `concernActivitySummary`はActivityのConcern IDを現在のStateのConcernへ対応づける。過去に消失したConcernは、その事実を表示する。
+- `scheduledTaskCounts`は取得集合のstatusごとの件数を表示する。直近8件は`executeAt DESC`の取得順であり、scheduledとcompletedを区別せず含む履歴である。
+- テスト：`pnpm exec vitest run --config vitest.config.ts tests/unit/debug-ui.test.ts`、`pnpm test`、`pnpm typecheck`、対象ESLint、`trace_check.py --root .`。
+- UIセルフチェック：`docs/work/design/2026-11-19-issue-050-debug-ui-overview.md`。
+- 変更分析：`docs/work/analyze/2026-11-19-change-issue-050.md`（CRITICAL/HIGH 0件）。
+- 独立レビュー：`docs/work/reviews/2026-11-19-issue-050.md`。Concern Activityの根拠Memory IDを一度落とす退行を検出し、元監査fieldを保持する投影へ修正した。未解消の指摘はない。
