@@ -1,19 +1,19 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { EventRetrievalInput, RetrievedEvent, RetrievalInput, RetrievalService } from "../../application/ports.js";
-import type { RetrievedItem } from "../../domain/contracts.js";
+import type { Observation, RetrievedItem } from "../../domain/contracts.js";
 import type { AgentContextState, AgentContextToolRepository, AgentSelfState, ConcernActivity, EvidenceMemory, ToolExecutionObservation } from "../tools/agent-context-tools.js";
 import { PostgresRetrievalService } from "./postgres-retrieval-service.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { agents, agentRuns, agentStates, concernActivities, events, memories, toolExecutions } from "./schema.js";
 
-function actorId(observation: unknown): string | undefined {
+function actor(observation: unknown): Observation["actor"] | undefined {
   if (typeof observation !== "object" || observation === null) return undefined;
   const actor = "actor" in observation ? observation.actor : undefined;
   if (typeof actor !== "object" || actor === null) return undefined;
   const id = "id" in actor ? actor.id : undefined;
   const type = "type" in actor ? actor.type : undefined;
-  return typeof id === "string" && (type === "human" || type === "unknown") ? id : undefined;
+  return typeof id === "string" && (type === "human" || type === "unknown" || type === "agent") ? { id, type } : undefined;
 }
 
 export class PostgresAgentContextToolRepository implements AgentContextToolRepository {
@@ -73,26 +73,27 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
     )).orderBy(desc(memories.occurredAt), asc(memories.id)).limit(limit);
   }
 
-  async findEventActor(agentId: string, eventId: string): Promise<string | undefined> {
+  async findEventActor(agentId: string, eventId: string): Promise<Observation["actor"] | undefined> {
     const row = (await this.database.db.select({ observation: events.observation }).from(events).where(and(
       eq(events.id, eventId), eq(events.agentId, agentId)
     )).limit(1))[0];
-    return actorId(row?.observation);
+    return actor(row?.observation);
   }
 
-  async findRecentHumanActor(agentId: string, limit: number): Promise<string | undefined> {
+  async findRecentHumanActor(agentId: string, limit: number): Promise<Observation["actor"] | undefined> {
     const rows = await this.database.db.select({ observation: events.observation }).from(events)
       .where(eq(events.agentId, agentId))
       .orderBy(desc(events.occurredAt), desc(events.id)).limit(limit);
-    return rows.map((row) => actorId(row.observation)).find((value) => value !== undefined);
+    return rows.map((row) => actor(row.observation)).find((value) => value?.type === "human");
   }
 
-  async listRecentActionResults(agentId: string, subjectId: string, limit: number): Promise<readonly unknown[]> {
+  async listRecentActionResults(agentId: string, actorIds: readonly string[], limit: number): Promise<readonly unknown[]> {
+    if (actorIds.length === 0) return [];
     const rows = await this.database.db.select({ result: agentRuns.result }).from(agentRuns)
       .innerJoin(events, and(eq(events.id, agentRuns.eventId), eq(events.agentId, agentRuns.agentId)))
       .where(and(
         eq(agentRuns.agentId, agentId),
-        sql`${events.observation} #>> '{actor,id}' = ${subjectId}`,
+        sql`${events.observation} #>> '{actor,id}' IN (${sql.join(actorIds.map((actorId) => sql`${actorId}`), sql`, `)})`,
         isNotNull(agentRuns.finishedAt),
         isNull(agentRuns.failureReason)
       )).orderBy(desc(events.occurredAt), desc(events.id), desc(agentRuns.startedAt)).limit(limit);

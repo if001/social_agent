@@ -5,7 +5,7 @@ import { z } from "zod";
 import { estimateTokens } from "../../application/context-builder.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
-import { DomainError, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CurrentRelationshipDescriptionSchema, CurrentSelfStorySchema, DomainError, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { ToolRegistry } from "../../application/tool-registry.js";
@@ -46,9 +46,9 @@ const ReflectionConcernChangeSchema = z.object({
 
 const ReflectionRelationshipChangeSchema = z.object({
   operation: z.enum(["upsert", "remove"]).describe("今後の対人Contextへ残すならupsert、既存Relationshipを消すならremove"),
-  subjectId: z.string().min(1).describe("関係する相手を識別する入力中のID"),
-  description: z.string().trim().min(1).max(16_000).optional().describe("今後その相手への意味づけや応答へ影響する現在の関係。今回の会話内容ではなく、関係の変化を一文で書く。upsertだけに指定する")
-}).strict().describe("特定の相手との持続的な関係の変更。関係が変わっていなければ出力しない");
+  currentDescription: CurrentRelationshipDescriptionSchema.describe("更新または削除する現在のRelationship本文。IDや局所参照は書かない"),
+  description: CurrentRelationshipDescriptionSchema.optional().describe("今後その相手への意味づけや応答へ影響する現在の関係。今回の会話内容ではなく、関係の変化を一文で書く。upsertだけに指定する")
+}).strict().describe("特定の相手との持続的な関係の変更。IDは出力せず、Runtimeが現在本文から対象を解決する。関係が変わっていなければ出力しない");
 
 export const ReflectionModelOutputSchema = z.object({
   memories: z.array(ReflectionMemorySchema).max(4).describe("Memory DBへ新規保存し、今後のContext検索に使う経験。保存価値がなければ空配列"),
@@ -57,7 +57,7 @@ export const ReflectionModelOutputSchema = z.object({
   mood: z.string().trim().min(1).max(160).optional().describe("今回だけのFeelingではなく、次の複数Eventの意味づけや行動へ影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がなければ省略する"),
   selfIdentity: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfDisposition: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、価値を感じやすい対象と意味づけの傾向。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
-  selfStory: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
+  selfStory: CurrentSelfStorySchema.optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfCommitments: z.array(z.string().trim().min(1).max(16_000)).max(12).optional().describe("全Eventで守るもの、続ける関係、譲らないこと。十分なMemory根拠で変化した場合だけ、完全な配列を指定する"),
   selfChangeReason: z.string().trim().min(1).max(16_000).optional().describe("どの反復経験または強い経験によりSelfがどう変わったか。Selfの全fieldと一緒にだけ指定する"),
   evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更または新規ConcernをRuntimeが検証するための根拠Memory ID。どちらも変更しない場合は空配列")
@@ -97,7 +97,7 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 - reflectionId、agentId、expectedVersion、入力Selfを出力へ複製しない
 - Action、ユーザー向け応答、Markdown、説明文は返さず、指定された構造化出力だけを返す${concernLifecyclePrompt}`;
 
-function domainOutputFromModel(raw: unknown): unknown {
+function domainOutputFromModel(raw: unknown, input: ReflectionInput): unknown {
   const parsed = ReflectionModelOutputSchema.safeParse(raw);
   if (!parsed.success) return raw;
   const value = parsed.data;
@@ -106,9 +106,13 @@ function domainOutputFromModel(raw: unknown): unknown {
     if (change.operation === "create") return { operation: change.operation, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } };
     return { operation: change.operation, concern: { id: change.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } };
   });
-  const relationshipChanges = value.relationshipChanges.map((change) => change.operation === "remove"
-    ? { operation: change.operation, subjectId: change.subjectId }
-    : { operation: change.operation, relationship: { subjectId: change.subjectId, description: change.description } });
+  const relationshipChanges: ReflectionOutput["relationshipChanges"] = value.relationshipChanges.flatMap<ReflectionOutput["relationshipChanges"][number]>((change) => {
+    const current = input.state.relationships.find((relationship) => relationship.description === change.currentDescription);
+    if (current === undefined) return [];
+    return change.operation === "remove"
+      ? [{ operation: change.operation, subjectId: current.subjectId }]
+      : change.description === undefined ? [] : [{ operation: change.operation, relationship: { subjectId: current.subjectId, description: change.description } }];
+  });
   const selfFields = [value.selfIdentity, value.selfDisposition, value.selfStory, value.selfCommitments];
   const hasSelf = selfFields.some((field) => field !== undefined);
   return {
@@ -162,7 +166,7 @@ export class StructuredReflectionModel implements ReflectionModel {
       if (inputTokens > MAX_REFLECTION_MODEL_INPUT_TOKENS) throw new DomainError("LIMIT_EXCEEDED", `Reflection model input exceeds estimated ${String(MAX_REFLECTION_MODEL_INPUT_TOKENS)} token budget: ${String(inputTokens)}`);
       try {
         const result = await this.invoker.invoke([{ role: "user", content }], { signal, recursionLimit: REFLECTION_RECURSION_LIMIT, agentId: input.agentId, reflectionId: input.reflectionId });
-        raw = domainOutputFromModel(result.structuredResponse);
+        raw = domainOutputFromModel(result.structuredResponse, input);
       } catch (error) {
         throw providerFailure("Reflection", error, signal);
       }

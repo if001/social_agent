@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { EventExperienceSchema, memorySubjectsForIntegration, type ExperienceIntegrationInput, type ExperienceIntegrationOutput, type ExperienceIntegrationRepository } from "../../application/experience-integration.js";
+import type { CanonicalSubjectResolver } from "../../application/canonical-subject.js";
 import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
 import { MemoryWriteService, recordMemoryMutationFailure, type MemoryWriteOptions } from "./memory-write-repository.js";
 import { errorLogContext } from "../../observability/logger.js";
@@ -25,7 +26,7 @@ function parseDecisionInput(value: unknown) {
 }
 
 export class PostgresExperienceIntegrationRepository implements ExperienceIntegrationRepository {
-  constructor(private readonly database: RuntimeDatabase, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly embedding?: MemoryEmbeddingPreparer) {}
+  constructor(private readonly database: RuntimeDatabase, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly embedding?: MemoryEmbeddingPreparer, private readonly subjects?: CanonicalSubjectResolver) {}
   async begin(input: ExperienceIntegrationInput): Promise<"created" | "duplicate"> {
     const result = await this.database.db.insert(experienceIntegrations).values({ id: input.integrationId, sourceRunId: input.sourceRunId, status: "pending" }).onConflictDoNothing({ target: experienceIntegrations.sourceRunId }).returning({ id: experienceIntegrations.id });
     return result.length === 1 ? "created" : "duplicate";
@@ -44,24 +45,24 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       const changes: { target: string; operation: string; before: unknown; after: unknown }[] = [];
       if (output.mood !== undefined && output.mood !== row.mood) { nextMood = output.mood; changes.push({ target: "mood", operation: "set", before: row.mood, after: nextMood }); }
       const actor = input.input.observation.actor;
-      const actorId = actor?.type === "human" || actor?.type === "agent" ? actor.id : undefined;
-      if (output.relationship !== undefined && actorId !== undefined) {
+      const subjectId = this.subjects?.resolve(actor);
+      if (output.relationship !== undefined && subjectId !== undefined) {
         const before = relationships;
         const relationship = output.relationship;
-        const current = relationships.find(({ subjectId }) => subjectId === actorId);
+        const current = relationships.find((value) => value.subjectId === subjectId);
         if (relationship.operation === "remove") {
           if (current !== undefined && relationship.currentDescription === current.description) {
-            nextRelationships = relationships.filter(({ subjectId }) => subjectId !== actorId);
+            nextRelationships = relationships.filter((value) => value.subjectId !== subjectId);
             changes.push({ target: "relationships", operation: relationship.operation, before, after: nextRelationships });
           }
         } else if (relationship.description !== undefined && (relationship.currentDescription === undefined || relationship.currentDescription === current?.description)) {
-          nextRelationships = [...relationships.filter(({ subjectId }) => subjectId !== actorId), { subjectId: actorId, description: relationship.description }];
+          nextRelationships = [...relationships.filter((value) => value.subjectId !== subjectId), { subjectId, description: relationship.description }];
           changes.push({ target: "relationships", operation: relationship.operation, before, after: nextRelationships });
         }
       }
       if (changes.length > 0) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships });
       if (changes.length > 0) await client.insert(stateChanges).values(changes.map((change) => ({ id: this.ids.next(), runId: input.sourceRunId, target: change.target, operation: change.operation, before: change.before, after: change.after, reason: "Experience Integration", evidenceIds: [input.sourceEvent.id] })));
-      const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories);
+      const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories, this.subjects);
       for (const [index, candidate] of output.memories.entries()) {
         const intent: MemoryIntent = { ...candidate, evidenceEventIds: [input.sourceEvent.id], confidence: "medium", purpose: candidate.perspective === "user" ? "user-context" : "self-guidance" };
         const options: MemoryWriteOptions = { sourceEventId: input.sourceEvent.id, sourceRunId: input.sourceRunId, sourceKind: "experience-integration", sourceId: input.integrationId, intentIndex: 10_000 + index, subjectIds: subjects[index] ?? [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) };
@@ -69,7 +70,7 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
         await memory.apply(input.agentId, intent, options);
         failedIntent = undefined; failedOptions = undefined;
       }
-      const subjectsForExperience = actor?.type === "human" || actor?.type === "agent" ? [actor.id] : [];
+      const subjectsForExperience = subjectId === undefined ? [] : [subjectId];
       const vector = experienceEmbedding?.vector === undefined ? null : [...experienceEmbedding.vector];
       const status = experienceEmbedding?.status ?? "pending";
       await client.insert(eventExperiences).values({ eventId: input.sourceEvent.id, integrationId: input.integrationId, summary: output.experience.summary, facts: output.experience.facts }).onConflictDoNothing();
@@ -97,8 +98,8 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
   async repairEventExperience(input: ExperienceIntegrationInput, value: unknown): Promise<void> {
     const experience = EventExperienceSchema.parse(value);
     const embedded = this.embedding === undefined ? undefined : await this.embedding.prepareMemory(experienceContent(experience));
-    const actor = input.input.observation.actor;
-    const subjects = actor?.type === "human" || actor?.type === "agent" ? [actor.id] : [];
+    const subjectId = this.subjects?.resolve(input.input.observation.actor);
+    const subjects = subjectId === undefined ? [] : [subjectId];
     const status = embedded?.status ?? "pending";
     await this.database.transaction(async (client) => {
       await client.insert(eventExperiences).values({ eventId: input.sourceEvent.id, integrationId: input.integrationId, summary: experience.summary, facts: experience.facts }).onConflictDoNothing();

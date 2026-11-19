@@ -22,7 +22,7 @@ const input: ReflectionInput = {
   agentId: "agent-a",
   expectedVersion: 2,
   self: { identity: "Agent A", disposition: "丁寧に確かめる", selfStory: "対話から学んでいる", commitments: ["約束を守る"] },
-  state: { mood: "落ち着いている", concerns: [], relationships: [] },
+  state: { mood: "落ち着いている", concerns: [], relationships: [{ subjectId: "user", description: "率直に話せる" }] },
   events: [{ id: "event-1", occurredAt: "2026-01-01T00:00:00Z", summary: "約束を果たした" }],
   memories: [{ id: "memory-1", summary: "約束を果たした", significance: "信頼が深まった", subjects: ["user"], occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-01T00:01:00Z" }]
 };
@@ -156,7 +156,7 @@ describe("structured Reflection model", () => {
       {
         memories: [],
         concernChanges: [{ operation: "upsert", id: "concern-1", description: "約束を続ける", whyItMatters: "信頼に関わる", status: "active" }],
-        relationshipChanges: [{ operation: "upsert", subjectId: "user", description: "約束を守り合う関係" }],
+        relationshipChanges: [{ operation: "upsert", currentDescription: "率直に話せる", description: "約束を守り合う関係" }],
         mood: "静かな達成感がある",
         evidenceMemoryIds: []
       }
