@@ -1,5 +1,6 @@
 import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubjectsForIntegration } from "../../src/application/experience-integration.js";
 import { createCanonicalSubjectResolver } from "../../src/application/canonical-subject.js";
+import { z } from "zod";
 import { PersistentMoodSchema } from "../../src/domain/contracts.js";
 import { experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
@@ -22,6 +23,18 @@ describe("ExperienceIntegration", () => {
     expect(experienceIntegrationSystemPrompt).toContain("必ず形成する");
     expect(experienceIntegrationSystemPrompt).toContain("変化がなければ省略します");
     expect(experienceIntegrationSystemPrompt).not.toContain("省略または空配列");
+  });
+
+  it("FR-82: describes every Relationship candidate field as durable current state", () => {
+    const schema = z.toJSONSchema(ExperienceIntegrationOutputSchema);
+    const relationship = (schema.properties as Record<string, Record<string, unknown>>).relationship;
+    const properties = relationship?.properties as Record<string, Record<string, unknown>>;
+    expect(properties.operation?.description).toContain("持続的な関係");
+    expect(properties.currentDescription?.description).toContain("現在のRelationship本文");
+    expect(properties.description?.description).toContain("現在の関係の型");
+    expect(properties.reason?.description).toContain("持続的な変化");
+    expect(experienceIntegrationSystemPrompt).toContain("現在の関係の型");
+    expect(experienceIntegrationSystemPrompt).toContain("人物プロフィール");
   });
 
   it("FR-9, FR-82: accepts only a short enduring emotional stance as Mood", () => {

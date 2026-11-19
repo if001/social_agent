@@ -10,10 +10,17 @@ export const EventExperienceSchema = z.object({
   facts: z.array(z.string().trim().min(1).max(240)).max(4).describe("summaryと重複しない、今回のEventで確認できた具体的事実。固定のtrigger reasonやTool失敗そのものは書かない")
 }).strict().describe("commit後に形成する、Reflectionと検索のためのEvent固有経験");
 
+const RelationshipCandidateSchema = z.object({
+  operation: z.enum(["upsert", "remove"]).describe("今回のactorとの持続的な関係を現在状態として更新するならupsert、根拠を失った既存Relationshipを消すならremove"),
+  currentDescription: CurrentRelationshipDescriptionSchema.optional().describe("更新または削除の対象を示す現在のRelationship本文。ID、出来事の履歴、人物プロフィールは書かない"),
+  description: CurrentRelationshipDescriptionSchema.optional().describe("upsert後の現在の関係の型、安定した会話前提、未解決の約束だけを表す本文。個別Event、Concern、Feeling、応答方針は書かない"),
+  reason: z.string().trim().min(1).max(800).describe("今回の確定Eventが、なぜ関係の持続的な変化を示すかを短く書く。人物プロフィールや次の行動計画は書かない")
+}).strict();
+
 export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
   memories: z.array(z.object({ content: z.string().trim().min(1).max(16_000), reason: z.string().trim().min(1).max(16_000), target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
-  relationship: z.object({ operation: z.enum(["upsert", "remove"]), currentDescription: CurrentRelationshipDescriptionSchema.optional(), description: CurrentRelationshipDescriptionSchema.optional(), reason: z.string().trim().min(1).max(800) }).strict().optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
+  relationship: RelationshipCandidateSchema.optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
   mood: PersistentMoodSchema.optional()
 }).strict().describe("応答commit後のExperience Integration出力。SelfとConcernは扱わない");
 export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;

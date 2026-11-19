@@ -9,7 +9,7 @@ import { selectReactivationAnchors, type ReactivationCandidate } from "../../app
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { userMainSubjectId } from "../../application/canonical-subject.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
-import { AgentStateSchema, DomainError, EpisodicMemorySchema, SelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type ConcernChangeSchema, type Relationship, type RelationshipChangeSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { AgentStateSchema, DomainError, EpisodicMemorySchema, PersistedSelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type ConcernChangeSchema, type Relationship, type RelationshipChangeSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { agents, agentStates, autonomousSchedules, concernActivities, eventExperiences, events, memories, memorySubjects, reflectionAttempts, reflectionMemoryBatches, reflectionResolutions, reflectionRuns, reflectionToolExecutions } from "./schema.js";
 
@@ -123,7 +123,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     if (eventRows.length === 0) return undefined;
     const input = ReflectionInputSchema.parse({
       reflectionId, agentId, eventWindowEnd: eventWindowEnd.toISOString(), expectedVersion: row.version,
-      self: SelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.selfStory, commitments: row.commitments }),
+      self: PersistedSelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.selfStory, commitments: row.commitments }),
       state: AgentStateSchema.parse({ mood: row.mood, concerns: row.concerns, relationships: row.relationships }),
       events: eventRows.map((event) => ({ id: event.id, occurredAt: event.occurredAt.toISOString(), summary: event.summary })), memories: memoryRows
     });
@@ -146,7 +146,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       agentId: input.agentId,
       ...(input.eventWindowEnd === undefined ? {} : { eventWindowEnd: input.eventWindowEnd }),
       expectedVersion: state.version,
-      self: SelfSchema.parse({ identity: state.identity, disposition: state.disposition, selfStory: state.selfStory, commitments: state.commitments }),
+      self: PersistedSelfSchema.parse({ identity: state.identity, disposition: state.disposition, selfStory: state.selfStory, commitments: state.commitments }),
       state: AgentStateSchema.parse({ mood: state.mood, concerns: state.concerns, relationships: state.relationships }),
       events: input.events,
       ...(input.reconciliationAnchors === undefined ? {} : { reconciliationAnchors: input.reconciliationAnchors }),

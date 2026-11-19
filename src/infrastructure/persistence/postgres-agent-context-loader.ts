@@ -4,7 +4,7 @@ import { ContextBuilder, type ContextBudget } from "../../application/context-bu
 import type { RuntimeExecutionInput } from "../../application/agent-runtime.js";
 import type { EmbeddingProvider, IdGenerator, RetrievalService } from "../../application/ports.js";
 import type { PredictionRepository } from "../../application/prediction.js";
-import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, G3OutputSchema, ObservationSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, SelfSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
+import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSchema, FinalActionSchema, G3OutputSchema, ObservationSchema, PersistedSelfSchema, PreviousAssessmentSchema, PreviousDesireSchema, RecentExperienceSchema, type AgentCoreInput, type BotPersona, type DomainEvent, type Observation, type PreviousAssessment, type PreviousDesire, type RecentExperience, type RecentObservation, type RunLimits } from "../../domain/contracts.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
@@ -171,7 +171,7 @@ export class PostgresAgentContextLoader {
       ...(priorAssessment === undefined ? {} : { previousAssessment: priorAssessment }),
       ...(priorDesire === undefined ? {} : { previousDesire: priorDesire }),
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
-      currentSelf: { agentId: agent.id, version: agent.version, ...SelfSchema.parse({ identity: agent.identity, disposition: agent.disposition, selfStory: agent.self_story, commitments: agent.commitments }) },
+      currentSelf: { agentId: agent.id, version: agent.version, ...PersistedSelfSchema.parse({ identity: agent.identity, disposition: agent.disposition, selfStory: agent.self_story, commitments: agent.commitments }) },
       state,
       memories: [], memoryRetrievalTrace: [], ...(predictionContext === undefined ? {} : { predictionContext }), availableTools: [...availableTools],
       runtimeConstraints: [agent.base_instruction.trim(), "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),

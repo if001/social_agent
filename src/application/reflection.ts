@@ -1,11 +1,11 @@
 import { z } from "zod";
 
-import { AgentStateSchema, ConcernChangeSchema, CurrentRelationshipDescriptionSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistentMoodSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, CurrentRelationshipDescriptionSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistedSelfSchema, PersistentMoodSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
 const Text = z.string().trim().min(1).max(16_000);
 const ReflectionTargetSnapshotSchema = z.object({
-  self: SelfSchema,
+  self: PersistedSelfSchema,
   state: AgentStateSchema,
   events: z.array(z.object({ id: Id, occurredAt: z.iso.datetime({ offset: true }), summary: Text })),
   memories: z.array(EpisodicMemorySchema)
@@ -20,7 +20,7 @@ export const ReflectionInputSchema = z.object({
   // predate this field and remain readable.
   eventWindowEnd: z.iso.datetime({ offset: true }).optional(),
   expectedVersion: z.number().int().nonnegative(),
-  self: SelfSchema,
+  self: PersistedSelfSchema,
   state: AgentStateSchema,
   events: z.array(z.object({ id: Id, occurredAt: z.iso.datetime({ offset: true }), summary: Text })).min(1),
   memories: z.array(EpisodicMemorySchema),

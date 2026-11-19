@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, InitialSelfConfigSchema, MessageEnvelopeSchema, SelfSchema } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, initialSelfFromConfig, InitialSelfConfigSchema, MessageEnvelopeSchema, PersistedSelfSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -23,6 +23,38 @@ describe("domain contracts", () => {
     expect(EventAssessmentSchema.parse({ meaning: "大切な約束が軽視された", feeling: "怒りと失望" })).toBeDefined();
     expect(AgentTurnSchema.safeParse({ desire: "境界を伝えたい", action: { type: "notify-no-execution", content: "今回は待つ", reason: "材料不足" } }).success).toBe(true);
     expect(AgentTurnSchema.safeParse({ desire: "待つ", action: { type: "wait" } }).success).toBe(false);
+  });
+
+  it("FR-6: gives every Self field a distinct compact current-state contract", () => {
+    const schema = z.toJSONSchema(SelfSchema);
+    const properties = schema.properties as Record<string, Record<string, unknown>>;
+    expect(properties.identity?.description).toContain("自分が誰であるか");
+    expect(properties.disposition?.description).toContain("価値を感じやすい");
+    expect(properties.selfStory?.description).toContain("現在の自己理解");
+    expect(properties.commitments?.description).toContain("守りたいもの");
+    expect(properties.commitments).toMatchObject({ maxItems: 12 });
+    expect(properties.commitments?.items).toMatchObject({ maxLength: 400 });
+    expect(SelfSchema.safeParse({ identity: "探究する個体", disposition: "曖昧さを急いで埋めない", selfStory: "対話から学んできた", commitments: Array.from({ length: 13 }, () => "約束を守る") }).success).toBe(false);
+    expect(SelfSchema.safeParse({ identity: "探究する個体", disposition: "曖昧さを急いで埋めない", selfStory: "対話から学んできた", commitments: ["あ".repeat(401)] }).success).toBe(false);
+  });
+
+  it("FR-6: keeps legacy persisted Self readable while enforcing the bounded writer contract", () => {
+    const legacy = { identity: "探究する個体", disposition: "曖昧さを急いで埋めない", selfStory: "対話から学んできた", commitments: Array.from({ length: 13 }, () => "あ".repeat(401)) };
+    expect(PersistedSelfSchema.safeParse(legacy).success).toBe(true);
+    expect(SelfSchema.safeParse(legacy).success).toBe(false);
+    const input = agentCoreInputFixture();
+    expect(AgentCoreInputSchema.safeParse({ ...input, currentSelf: { ...input.currentSelf, ...legacy } }).success).toBe(true);
+  });
+
+  it("FR-6: applies the writer contract when initial configuration becomes Self", () => {
+    const config = InitialSelfConfigSchema.parse({
+      version: 1,
+      family: { id: "family", name: "family", sharedDisposition: "共通の傾向" },
+      agent: { id: "agent", identity: "Agent", initialDisposition: "初期傾向", raisonDetre: "守るもの", selfNarrative: "自己理解", selfContinuity: "継続性" }
+    });
+    expect(initialSelfFromConfig(config)).toMatchObject({ commitments: ["守るもの"], selfStory: "自己理解\n継続性" });
+    expect(() => initialSelfFromConfig(InitialSelfConfigSchema.parse({ ...config, agent: { ...config.agent, raisonDetre: "あ".repeat(401) } }))).toThrow();
+    expect(() => initialSelfFromConfig(InitialSelfConfigSchema.parse({ ...config, agent: { ...config.agent, selfNarrative: "あ".repeat(400), selfContinuity: "い".repeat(400) } }))).toThrow();
   });
 
   it("FR-23: bounds generated Agent Core text by each field's purpose", () => {

@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 
-import type { BackgroundExperienceFile, InitialSelfConfig } from "../domain/contracts.js";
+import { initialSelfFromConfig, type BackgroundExperienceFile, type InitialSelfConfig } from "../domain/contracts.js";
 import { replaceBackgroundExperiences } from "./background-experiences.js";
 import type { SchedulerTimings } from "../config/config.js";
 
@@ -15,19 +15,17 @@ type InitializationTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" |
 
 export async function initializeAgent(pool: Pool, config: InitialSelfConfig, timings: InitializationTimings = { autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 }, options: { readonly overwriteConfiguredSelf?: boolean; readonly backgroundExperience?: BackgroundExperienceFile } = {}): Promise<void> {
   const { family, agent, initialState } = config;
-  const disposition = [family.sharedDisposition, agent.initialDisposition].join("\n");
-  const selfStory = [agent.selfNarrative, agent.selfContinuity].join("\n");
-  const commitments = agent.raisonDetre === undefined ? [] : [agent.raisonDetre];
+  const initialSelf = initialSelfFromConfig(config);
   const database = createRuntimeDatabase(pool);
   await database.transaction(async (tx) => {
     await tx.insert(agentFamilies).values({ id: family.id, name: family.name, sharedDisposition: family.sharedDisposition, baseInstruction: family.baseInstruction }).onConflictDoNothing({ target: agentFamilies.id });
     await tx.insert(agents).values({ id: agent.id, familyId: family.id, identity: agent.identity, initialDisposition: agent.initialDisposition }).onConflictDoNothing({ target: agents.id });
-    await tx.insert(agentStates).values({ agentId: agent.id, disposition, selfStory, commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood }).onConflictDoNothing({ target: agentStates.agentId });
+    await tx.insert(agentStates).values({ agentId: agent.id, disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood }).onConflictDoNothing({ target: agentStates.agentId });
     if (options.overwriteConfiguredSelf === true) {
       const now = new Date();
       await tx.update(agentFamilies).set({ name: family.name, sharedDisposition: family.sharedDisposition, baseInstruction: family.baseInstruction, updatedAt: now }).where(eq(agentFamilies.id, family.id));
       await tx.update(agents).set({ familyId: family.id, identity: agent.identity, initialDisposition: agent.initialDisposition, updatedAt: now }).where(eq(agents.id, agent.id));
-      await tx.update(agentStates).set({ disposition, selfStory, commitments, version: sql`${agentStates.version}+1`, updatedAt: now }).where(eq(agentStates.agentId, agent.id));
+      await tx.update(agentStates).set({ disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, version: sql`${agentStates.version}+1`, updatedAt: now }).where(eq(agentStates.agentId, agent.id));
     }
     await tx.delete(autonomousSchedules).where(and(eq(autonomousSchedules.agentId, agent.id), inArray(autonomousSchedules.kind, ["state-review", "memory-recall", "autonomy-review"])));
     // Persist the same clock value as `updatedAt`; otherwise a slow transaction
