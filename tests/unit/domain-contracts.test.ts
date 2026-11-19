@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, MessageEnvelopeSchema, SelfSchema } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, InitialSelfConfigSchema, MessageEnvelopeSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -45,6 +45,10 @@ describe("domain contracts", () => {
     expect(properties.feeling).toMatchObject({ maxLength: 160 });
     expect(properties.feeling?.description).toContain("例から選ぶ必要はない");
     expect(properties.feeling).not.toHaveProperty("enum");
+  });
+
+  it("FR-9: gives new Agents a compact emotional Mood rather than a Mood-absence marker", () => {
+    expect(InitialSelfConfigSchema.shape.initialState.parse({}).mood).toBe("静かな好奇心を保っている");
   });
 
   it("FR-1, FR-3: maps every Event kind to an objective, provenance-aware Observation", () => {

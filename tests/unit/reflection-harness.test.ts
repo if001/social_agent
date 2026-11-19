@@ -1,4 +1,7 @@
-import { MemoryReflectorOutputSchema, type ReflectionInput } from "../../src/application/reflection.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { MemoryReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput } from "../../src/application/reflection.js";
 import {
   MAX_REFLECTION_MODEL_INPUT_TOKENS,
   REFLECTION_MAX_MODEL_CALLS,
@@ -12,10 +15,13 @@ import {
   reflectionToolResultForModel,
   reflectionToolRunScope,
   reflectionSystemPrompt,
+  targetedReflectionSystemPrompt,
   targetedReflectorRepairInput,
   type ReflectionInvoker
 } from "../../src/infrastructure/agent/reflection-harness.js";
 import { noopLogger } from "../../src/observability/logger.js";
+
+const skill = (name: string) => readFileSync(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
 
 const input: ReflectionInput = {
   reflectionId: "reflection-1",
@@ -64,6 +70,15 @@ describe("structured Reflection model", () => {
     expect(message).not.toContain("concernChanges");
   });
 
+  it("FR-9, FR-41: keeps Self/Mood Reflector output to an enduring emotional stance", () => {
+    expect(SelfMoodReflectorOutputSchema.safeParse({ mood: "少しせっかちで、期待が強まっている。" }).success).toBe(true);
+    expect(SelfMoodReflectorOutputSchema.safeParse({ mood: "あ".repeat(121) }).success).toBe(false);
+    for (const phrase of ["感情的構え", "固有名詞", "返答待ち", "Concern", "行動計画", "理由"]) {
+      expect(skill("reflection-self-mood")).toContain(phrase);
+      expect(targetedReflectionSystemPrompt("self-mood")).toContain(phrase);
+    }
+  });
+
   it("FR-71: gives each Memory Event batch an independent stable tool idempotency scope", () => {
     const event = input.events[0];
     if (event === undefined) throw new Error("Reflection fixture Event is missing");
@@ -82,7 +97,6 @@ describe("structured Reflection model", () => {
   });
 
   it("FR-60, NFR-3: keeps target-specific maintenance instructions in runtime Skills", () => {
-    const skill = (name: string) => readFileSync(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
     expect(skill("reflection-memory")).toContain("Memoryだけを扱う");
     expect(skill("reflection-concern")).toContain("局所参照は出力しない");
     expect(skill("reflection-relationship")).toContain("Relationship");
@@ -237,8 +251,8 @@ describe("structured Reflection model", () => {
     expect(properties.concernChanges?.description).toContain("気に掛けていること");
     expect(properties.relationshipChanges?.description).toContain("関係が変わらなければ");
     expect(properties.mood?.description).toContain("次の複数Event");
-    expect(properties.mood).toMatchObject({ maxLength: 160 });
-    expect(properties.mood?.description).toContain("願望、計画は書かない");
+    expect(properties.mood).toMatchObject({ maxLength: 120 });
+    expect(properties.mood?.description).toContain("行動計画");
     expect(properties.selfDisposition?.description).toContain("意味づけの傾向");
     expect(properties.evidenceMemoryIds?.description).toContain("Runtimeが検証");
     expect(reflectionSystemPrompt).toContain("空のmaintenance結果は正しい");
@@ -260,5 +274,3 @@ describe("structured Reflection model", () => {
     expect(invoked).toBe(false);
   });
 });
-import { readFileSync } from "node:fs";
-import { join } from "node:path";

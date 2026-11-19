@@ -1,5 +1,6 @@
 import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubjectsForIntegration } from "../../src/application/experience-integration.js";
 import { createCanonicalSubjectResolver } from "../../src/application/canonical-subject.js";
+import { PersistentMoodSchema } from "../../src/domain/contracts.js";
 import { experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 
@@ -21,6 +22,12 @@ describe("ExperienceIntegration", () => {
     expect(experienceIntegrationSystemPrompt).toContain("必ず形成する");
     expect(experienceIntegrationSystemPrompt).toContain("変化がなければ省略します");
     expect(experienceIntegrationSystemPrompt).not.toContain("省略または空配列");
+  });
+
+  it("FR-9, FR-82: accepts only a short enduring emotional stance as Mood", () => {
+    expect(PersistentMoodSchema.safeParse("少しせっかちで、期待が強まっている。").success).toBe(true);
+    expect(PersistentMoodSchema.safeParse("あ".repeat(121)).success).toBe(false);
+    for (const phrase of ["感情的構え", "固有名詞", "返答待ち", "Concern", "行動計画", "理由"]) expect(experienceIntegrationSystemPrompt).toContain(phrase);
   });
 
   it("AC-017-1: uses the committed Core context and saves user memory with only the current actor as subject", async () => {

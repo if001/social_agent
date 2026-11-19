@@ -5,7 +5,7 @@ import { z } from "zod";
 import { estimateTokens } from "../../application/context-builder.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
-import { CurrentRelationshipDescriptionSchema, CurrentSelfStorySchema, DomainError, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CurrentRelationshipDescriptionSchema, CurrentSelfStorySchema, DomainError, PersistentMoodDescription, PersistentMoodSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { ToolRegistry } from "../../application/tool-registry.js";
@@ -54,7 +54,7 @@ export const ReflectionModelOutputSchema = z.object({
   memories: z.array(ReflectionMemorySchema).max(4).describe("Memory DBへ新規保存し、今後のContext検索に使う経験。保存価値がなければ空配列"),
   concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("現在Stateのconcernsへ適用する変更。新規作成は最大3件。気に掛けていることが変わらなければ空配列"),
   relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("現在Stateのrelationshipsへ適用する変更。関係が変わらなければ空配列"),
-  mood: z.string().trim().min(1).max(160).optional().describe("今回だけのFeelingではなく、次の複数Eventの意味づけや行動へ影響する背景的な気分を短い1文で書く。例: 穏やかで好奇心が強い。現在のEvent、返答待ち、理由、願望、計画は書かない。持続する変化がなければ省略する"),
+  mood: PersistentMoodSchema.optional(),
   selfIdentity: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfDisposition: z.string().trim().min(1).max(16_000).optional().describe("全Eventで使う、価値を感じやすい対象と意味づけの傾向。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfStory: CurrentSelfStorySchema.optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
@@ -87,7 +87,7 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
 - Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定に加え、Memory根拠とwhyItMattersがある新しいConcernを1回1〜3件まで作成できる。Agentが複数の異なる対象・動機を並行して気に掛けることは自然な通常状態であり、Concernが空、少ない、または一つの対象に偏っているなら、記録された経験から今後も残る関心を積極的にcreateする。件数だけで機械的に作らず、未返信や件数を理由に終了しない。createではidを指定しない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
-- Mood: 今回だけのFeelingではなく、次の複数Eventへ残る背景的な気分を短い1文で書く。現在のEvent、返答待ち、理由、願望、計画は含めず、持続する変化がなければ省略する
+- Mood: ${PersistentMoodDescription}
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
 
 制約:
@@ -283,6 +283,12 @@ function toolExecutionsFrom(error: unknown): readonly ToolExecutionRecord[] {
   return Array.isArray(records) ? records as readonly ToolExecutionRecord[] : [];
 }
 
+/** Target-specific instructions stay small; the durable Mood boundary is
+ * repeated here because the self-mood Reflector is invoked independently. */
+export function targetedReflectionSystemPrompt(target: ReflectionTarget): string {
+  return `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。${target === "self-mood" ? `Moodは${PersistentMoodDescription}` : ""}通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
+}
+
 /**
  * Transitional target adapter: each maintenance pass commits only the delta for
  * its target.  It deliberately strips every other field before persistence.
@@ -291,7 +297,7 @@ function toolExecutionsFrom(error: unknown): readonly ToolExecutionRecord[] {
 export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
   readonly #models: Readonly<Record<ReflectionTarget, TargetStructuredReflectionModel>>;
   constructor(config: OllamaChatConfig, logger: Logger = noopLogger, toolRegistry?: ToolRegistry) {
-    const prompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
+    const prompt = targetedReflectionSystemPrompt;
     const repairPrompt = (target: ReflectionTarget) => `あなたはReflection Sessionの${target} Reflectorのrepair担当です。読み取りToolは利用できません。渡された固定入力、schema、validation issueだけを根拠にし、永続ID・局所参照・根拠IDを出力せず、必ず指定された構造化出力Toolを一度呼んで完了してください。本文、Markdown、通常Action、ユーザーへの発話、外部副作用は返しません。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
     const schemas: Record<ReflectionTarget, z.ZodType> = { memory: MemoryReflectorOutputSchema, reconciliation: MemoryReconciliationOutputSchema, concern: ConcernReflectorOutputSchema, relationship: RelationshipReflectorOutputSchema, "self-mood": SelfMoodReflectorOutputSchema };
     this.#models = Object.fromEntries((["memory", "reconciliation", "concern", "relationship", "self-mood"] as const).map((target) => [target, new TargetStructuredReflectionModel(

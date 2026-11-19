@@ -108,7 +108,7 @@ Shared Dispositionは、そのAgent群に共通する「種類としての性質
 次回も自発探索を選びやすくなる
 ```
 
-このように、経験はMemory、Mood、Relationship、Self Story、Dispositionへ反映され、将来の意味解釈と行動を変える。各Eventの小さな持続的反映は応答commit後のExperience Integrationが担い、複数の経験をまとめたSelf・Concernを含む長期反映はReflectionが担う。
+このように、経験はMemory、Mood、Relationship、Self Story、Dispositionへ反映され、将来の意味解釈と行動を変える。各Eventの小さな持続的反映は応答commit後のExperience Integrationが担い、複数の経験をまとめたSelf・Concernと、反復・蓄積によって形成されるMoodの長期反映はReflectionが担う。
 
 ## 4. Disposition
 
@@ -542,7 +542,7 @@ Feeling、Mood、Desire、Concern、Selfは保存されたまま固定されな�
 
 ### 経験の蓄積による変化
 
-繰り返し似た意味を持つ経験をすることで、Self StoryやDispositionが変化することがある。現在の実装では、この変化をReflectionで行う。
+繰り返し似た意味を持つ経験をすることで、Self Story、Disposition、Moodが変化することがある。現在の実装では、この複数経験にまたがる統合をReflectionで行う。単一Eventに由来するMoodの変化はExperience Integrationが担い、ReflectionはEventの単なる要約や一時的なFeelingをMoodにしない。
 
 ただし、これを単純な数式や固定的な学習率で表現することは前提としない。
 
@@ -590,7 +590,7 @@ Experience Integration（Memory / Mood / Relationship） / Reflection
 loop
 ```
 
-Agent CoreはLLMを中心とする。Observationの解釈、Final Meaningの形成、Desireの生成、Feeling、必要なMemoryの検索判断、Tool選択、Action生成を行う。Mood・Relationship・Memoryの持続更新の判断は、commit済みのEvent、確定したAssessment / Desire / Action、Tool結果、同じ初期Contextを受けるExperience Integrationが行う。Self StoryとConcernの長期更新はReflectionとConcern Eventの責務である。
+Agent CoreはLLMを中心とする。Observationの解釈、Final Meaningの形成、Desireの生成、Feeling、必要なMemoryの検索判断、Tool選択、Action生成を行う。単一EventからのMood・Relationship・Memoryの持続更新の判断は、commit済みのEvent、確定したAssessment / Desire / Action、Tool結果、同じ初期Contextを受けるExperience Integrationが行う。複数経験をまたぐSelf Story、Concern、Moodの長期更新はReflectionとConcern Eventの責務である。
 
 MeaningとFeelingは、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。Event Assessmentを独立した別のLLM callとして必須にしない。Runtimeは出力のうちMeaningとFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。Experience Integrationのschema・provider・保存失敗は、既にcommitしたActionやoutboxを失敗にしない。
 
@@ -701,7 +701,7 @@ AgentはすべてのConcern、依頼、探索を等しく勤勉に処理しな�
 
 この図は固定Pipelineを意味しない。単純な依頼であれば、Observation、Tool、Responseだけで終わってよい。
 
-一方、意味のある経験では、その結果がMemory、Mood、Relationship、Self Story、Disposition、Concernへ影響し、将来の意味解釈や行動にも影響する。現在の実装では、Event単位のMemory・Mood・RelationshipをExperience Integrationが、複数経験をまたぐSelf・ConcernをReflectionが担う。
+一方、意味のある経験では、その結果がMemory、Mood、Relationship、Self Story、Disposition、Concernへ影響し、将来の意味解釈や行動にも影響する。現在の実装では、Event単位のMemory・Mood・RelationshipをExperience Integrationが、複数経験をまたぐSelf・Concern・MoodをReflectionが担う。ReflectionのMoodは、反復・蓄積から生じる持続的な感情的構えだけを統合し、単一EventのFeelingや出来事の要約を保存しない。
 
 ## 26. 非目標
 

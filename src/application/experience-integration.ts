@@ -3,9 +3,8 @@ import { z } from "zod";
 import type { IdGenerator } from "./ports.js";
 import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 import type { AgentCoreInput, AgentRunResult, DomainEvent, MemoryIntent } from "../domain/contracts.js";
-import { CurrentRelationshipDescriptionSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema } from "../domain/contracts.js";
+import { CurrentRelationshipDescriptionSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistentMoodSchema } from "../domain/contracts.js";
 
-const MoodSchema = z.string().trim().min(1).max(160);
 export const EventExperienceSchema = z.object({
   summary: z.string().trim().min(1).max(800).describe("確定した今回のEventで起きたこと・選択・結果を1〜2文で要約する。起動理由、Meaning、Feeling、Desire、未確認の推測は書かない"),
   facts: z.array(z.string().trim().min(1).max(240)).max(4).describe("summaryと重複しない、今回のEventで確認できた具体的事実。固定のtrigger reasonやTool失敗そのものは書かない")
@@ -15,7 +14,7 @@ export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
   memories: z.array(z.object({ content: z.string().trim().min(1).max(16_000), reason: z.string().trim().min(1).max(16_000), target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
   relationship: z.object({ operation: z.enum(["upsert", "remove"]), currentDescription: CurrentRelationshipDescriptionSchema.optional(), description: CurrentRelationshipDescriptionSchema.optional(), reason: z.string().trim().min(1).max(800) }).strict().optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
-  mood: MoodSchema.optional().describe("次の複数Eventに残る背景的な気分。今回だけのFeelingや待機理由は入れない")
+  mood: PersistentMoodSchema.optional()
 }).strict().describe("応答commit後のExperience Integration出力。SelfとConcernは扱わない");
 export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;
 
