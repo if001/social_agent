@@ -142,7 +142,7 @@ Domain上の最終Actionは次の4種類である。
 - `notify-no-execution`: 自律Eventで実行しない判断と理由をownerへ配送する。
 - `no-external-action`: Actionを生成しない内部Eventの完了にだけ使う内部終端である。idleでは選択できない。Tool利用の有無とは独立する。
 
-Tool利用とユーザーへの発話判断は独立する。Toolの前後を問わず共有価値があれば`respond`でき、Toolを使わなくても発話できる。反対に、Actionを生成しない内部Eventは`no-external-action`で完了できる。ただしidleでは選択できず、情報が不十分なら`respond`でその旨を伝える。ユーザーからの返信待ちは発話を控える理由にしない。夜間は設定された時間帯にidle Eventを発生させず、次の許可時刻へ再スケジュールする。
+Tool利用とユーザーへの発話判断は独立する。自律探索はAgent自身のDesireを満たすために行い、発話は独り言、仮説、感情、反論、途中経過、またはAgentが知りたい具体的な事実への問いとして`respond`できる。Toolを使わなくても発話でき、退屈・面倒・期待外れ・別の関心を理由に探索を先送り、中断、脱線、方法変更してよい。ただし完了・予約・根拠を偽らない。Scheduled Taskは自由な探索ではなく、役割・約束として処理する。反対に、Actionを生成しない内部Eventは`no-external-action`で完了できる。ただしidleでは選択できず、情報が不十分なら`respond`でその旨を伝える。ユーザーからの返信待ちは発話を控える理由にしない。夜間は設定された時間帯にidle Eventを発生させず、次の許可時刻へ再スケジュールする。
 
 Patchは任意のmood、Relationship 1件、`remember`（MemoryIntent）に限定する。Concernは`concern_propose` Toolで提案し、成功したcommit時だけ反映する。Runtimeがupsert/remove、Agent所有権、evidence、versionを検証し、DB metadataやIDは通常コードが付与する。MainAgentの`remember`はそのEventのtransactionでMemoryWriteServiceが適用し、G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用する。
 

@@ -47,7 +47,7 @@ flowchart TD
 | Event | 主な入力 | 主な出力・更新 | ねらい |
 |---|---|---|---|
 | `user-message` | ユーザー発話、前回の評価・欲求、必要に応じて取得した文脈 | 応答、今回の Meaning / Feeling / Desire、Experience Integration による Memory・Mood・Relationship 候補 | 会話に応答する |
-| `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 気に掛かっている事柄を進める |
+| `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 自分が気に掛かる事柄を、自身の興味・感情で進める |
 | `concern-formation` | Self、Memory、Relationship、背景経験、探索候補 | 新しい Concern、または外部 Action なし | 継続して気に掛ける問いを形成する |
 | `concern-due` | 再検討時刻、新しいMemory、既存 Concern | Concern の再評価・派生、発話または拒否 | 継続して気に掛ける対象を外へ表し直す |
 | `external-change` | 外部変化、既存 Concern | Concern の再評価・派生、共有する動機があれば発話 | 変化に応じて関心を更新する |
@@ -67,6 +67,8 @@ flowchart TD
 | 発話を返さないmaintenance | `concern-formation`、`memory-update`、`reflection` |
 
 `idle`と`concern-due`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
+
+`idle`の探索はユーザーへの報告をゴールにしない。Agent自身の知りたい欲、驚き、不満、仮説、遊びから行動し、発話は独り言、途中経過、反論、または自分が知りたい具体的な事実への問いになり得る。退屈や面倒で先送り・中断・脱線してもよいが、完了・予約・確認済みの事実は偽らない。明示的な`scheduled-task`は、自由な探索ではなく約束・役割の実行である。
 
 優先順位は `user-message`、`memory-update`、G3、`reflection` の順である。低優先度処理は、ユーザーへの応答を待たせない。なお `tool-result` は Tool 実行結果を監査可能に残す Domain Event であり、上表の判断 Event を補助する。
 
