@@ -14,7 +14,7 @@ flowchart LR
     C --> X[Experience Integration]
     X --> S[短中期の更新候補<br/>Memory / Mood / Relationship]
     C --> P[G1/G2<br/>次の発話を予測]
-    P --> PE[次の user-message で<br/>予測誤差を評価]
+    P --> PE[次の direct message-received で<br/>予測誤差を評価]
     S --> N[次の Event の入力]
     PE --> N
     R[Reflection<br/>複数経験を統合] --> L[長期的な更新<br/>Self / Concern / Relationship / Memory]
@@ -27,7 +27,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    U[user-message<br/>ユーザーの発話] --> LOOP[通常 Agent Loop]
+    U[message-received<br/>人間・peerからの入力] --> LOOP[通常 Agent Loop]
     AU[自律 Event<br/>idle / concern-formation / concern-due<br/>external-change] --> LOOP
     ST[scheduled-task<br/>予約時刻] --> LOOP
     G3R[prediction-g3-result<br/>G3 の調査結果] --> LOOP
@@ -46,7 +46,7 @@ flowchart TD
 
 | Event | 主な入力 | 主な出力・更新 | ねらい |
 |---|---|---|---|
-| `user-message` | ユーザー発話、前回の評価・欲求、必要に応じて取得した文脈 | 応答、今回の Meaning / Feeling / Desire、Experience Integration による Memory・Mood・Relationship 候補 | 会話に応答する |
+| `message-received` | 人間又はallowlist peerの発話、送信者種別、宛先性、前回の評価・欲求、必要に応じて取得した相手文脈 | 応答または共有発話、今回の Meaning / Feeling / Desire、Experience Integration による Memory・Mood・Relationship候補 | 人間・peerとの社会的入力を解釈する |
 | `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 自分が気に掛かる事柄を、自身の興味・感情で進める |
 | `concern-formation` | Self、Memory、Relationship、背景経験、探索候補 | 新しい Concern、または外部 Action なし | 継続して気に掛ける問いを形成する |
 | `concern-due` | 再検討時刻、新しいMemory、既存 Concern | Concern の再評価・派生、発話または拒否 | 継続して気に掛ける対象を外へ表し直す |
@@ -59,18 +59,30 @@ flowchart TD
 
 ### 発話するEvent／しないEvent
 
-`idle`だけが自律発話の契機ではない。`concern-due`は、継続して気に掛けていた対象を再評価した結果として、各Eventで必ずユーザーへ質問・報告・話題提供または拒否を返す。`external-change`も、変化がConcernに影響して共有する理由があれば発話できる。未返信・返答待ち・連投回避は、`idle`と`concern-due`で発話を抑制する理由にしない。
+`idle`だけが自律発話の契機ではない。`concern-due`は、継続して気に掛けていた対象を再評価した結果として、各Eventで必ず共有channelへ質問・報告・話題提供または拒否を返す。`external-change`も、変化がConcernに影響して共有する理由があれば発話できる。未返信・返答待ち・連投回避は、`idle`と`concern-due`で発話を抑制する理由にしない。
 
 | 区分 | Event |
 |---|---|
-| 発話を返せる通常Loop | `user-message`、`idle`、`concern-due`、`external-change`、配送先を持つ`scheduled-task`、`prediction-g3-result` |
+| 発話を返せる通常Loop | `message-received`、`idle`、`concern-due`、`external-change`、配送先を持つ`scheduled-task`、`prediction-g3-result` |
 | 発話を返さないmaintenance | `concern-formation`、`memory-update`、`reflection` |
 
 `idle`と`concern-due`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
 
 `idle`の探索はユーザーへの報告をゴールにしない。Agent自身の知りたい欲、驚き、不満、仮説、遊びから行動し、発話は独り言、途中経過、反論、または自分が知りたい具体的な事実への問いになり得る。退屈や面倒で先送り・中断・脱線してもよいが、完了・予約・確認済みの事実は偽らない。明示的な`scheduled-task`は、自由な探索ではなく約束・役割の実行である。
 
-優先順位は `user-message`、`memory-update`、G3、`reflection` の順である。低優先度処理は、ユーザーへの応答を待たせない。なお `tool-result` は Tool 実行結果を監査可能に残す Domain Event であり、上表の判断 Event を補助する。
+優先順位はhuman/direct、peer/direct、peer/observedの`message-received`、`memory-update`、G3、`reflection` の順である。低優先度処理は、direct入力への応答を待たせない。なお `tool-result` は Tool 実行結果を監査可能に残す Domain Event であり、上表の判断 Event を補助する。
+
+### 社会的入力と配送
+
+`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。いずれも同じAgent Core、Concern、Experience Integrationを通る。異なるのは相手に束縛した文脈取得と配送だけであり、人間用／peer用のConcernや認知pipelineは作らない。
+
+| interaction | 受理 | `respond.content`の配送 | 応答義務 |
+|---|---|---|---|
+| human/direct | owner humanのmention | humanへの返信 | ある |
+| peer/direct | allowlist peerのmention | source peerへのmention返信 | ある |
+| peer/observed | allowlist peerの非mention投稿 | 共有channelへの非mention発話 | ない |
+
+peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱う。モデルは自然言語表示名だけを扱い、IDを出力しない。
 
 ## Reflection の処理
 
@@ -102,7 +114,7 @@ sequenceDiagram
     participant O as Outbox
     participant X as Experience Integration
 
-    U->>R: user-message
+    U->>R: message-received
     R->>M: Event + 最小 Context + previousAssessment
     M->>T: 必要な Self / Memory / Relationship 等だけ取得
     T-->>M: 根拠となる Context / Tool 結果
@@ -130,7 +142,7 @@ Conversation Memory の書込み経路は常に `MemoryWriteService` である�
 
 ```mermaid
 flowchart LR
-    P0[前回の予測 P(t-1)] --> OBS[今回の user-message を観測]
+    P0[前回の予測 P(t-1)] --> OBS[今回の direct message-received を観測]
     OBS --> E[ G1/G2 が誤差を評価<br/>一致・意外性・差異・不確実性・原因帰属]
     E --> CTX[次回の Prediction Context]
     CTX --> APP[MainAgent の appraisal]
@@ -140,8 +152,8 @@ flowchart LR
     D --> ACT[Action]
 ```
 
-1. 応答後、G1/G2 は次のユーザー発話を予測する。
-2. 次の `user-message` を観測したとき、前回予測との誤差を評価する（最初のターンには前回予測がない）。
+1. direct入力への応答後、G1/G2 は同じ相手の次の発話を予測する。
+2. 次の同一subjectからのdirectな`message-received`を観測したとき、前回予測との誤差を評価する（最初のターンには前回予測がない）。
 3. 評価結果は次の MainAgent の Context に渡される。
 4. MainAgent が Self、Concern、Relationship、Memory、背景経験と合わせて解釈し、感情・欲求・行動を決める。
 
