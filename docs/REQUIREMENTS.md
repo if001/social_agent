@@ -11,6 +11,7 @@
 - `memory-update` Event：MemoryIntentを適用するEvent。
 - `predictionEvaluation`：G1/G2が返す予測誤差評価。
 - `reflection plan`：Reflectionの対象別statusを持つ更新計画。
+- `message-received` Event：human又はallowlist peerからの社会的入力を、送信者種別と宛先性を添えて正規化した通常Event。
 - Memory Formation：固定された未統合Event群から、将来再利用する新しいConversation Memoryを形成するReflection内の処理。
 - Memory Reconciliation：再活性化された既存Conversation Memoryを、関連Memory・Eventとの局所的な照合で補強、訂正、分割または維持するReflection内の処理。
 
@@ -113,7 +114,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ## R1. 単一のAgent Loop
 
-- FR-1：Discord、Terminal、Agent間Message、External / Time / System / Internal Eventを同じ`AgentRuntime`へ入力する。（C-20, C-22）
+- FR-1：Discord、Terminal、Agent間Message、External / Time / System / Internal Eventを同じ`AgentRuntime`へ入力する。新規の社会的受信は`message-received`へ正規化する。（C-20, C-22）
 - FR-2：Context構築、Agent Core、Runtime検証、atomic commitを通常Eventの単一経路とする。（C-20, C-23, C-24）
 - FR-3：Agent CoreはFinal Meaning、Feeling、Desire、Action、任意のPatchを同じ構造化出力で決め、RuntimeがMeaningとFeelingをAssessmentへ分離する。（C-04, C-07, C-23, C-31）
 - FR-4：Tool continuationは同じDeep Agent内で行い、別の認知pipelineへ分岐しない。（C-16, C-20）
@@ -139,7 +140,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-13：モデル向けJSON Schemaはproviderに不要なmetadataと文字列正規表現を持たず、Domain検証は厳密なZod schemaで別途行う。（C-23, C-24）
 - FR-14：初回の不正出力にはvalidation issueを与えて設定回数までrepairし、repair中は通常Toolを呼ばせない。（C-23, C-24）
 - FR-15：repair後も不正な出力は成功commit、Receipt、Outboxを作らず、Run failureと観測済みTool実績を記録する。（C-24）
-- FR-16：user-messageの既知の`action: string`誤出力だけは空でない応答へ復旧し、自律Eventへ同じfallbackを適用しない。（C-23）
+- FR-16：`message-received`のhuman/directで既知の`action: string`誤出力だけは空でない応答へ復旧し、自律Event、peer入力、観測へ同じfallbackを適用しない。（C-23）
 
 ## R4. ActionとPatch
 
@@ -175,7 +176,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ## R6. Tool
 
-- FR-33：実装済みToolをRegistryからDeep Agentへ複数登録し、Eventごとの実行contextをmiddleware経由で渡す。Event種別に応じて公開するToolを制限し、user-messageではself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。非表示Toolが直接呼ばれても実行せず、Tool failureとして返す。（C-06, C-16, C-27）
+- FR-33：実装済みToolをRegistryからDeep Agentへ複数登録し、Eventとinteractionの実行contextをmiddleware経由で渡す。`message-received`のdirectはhuman / peerを問わずself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。相手固有の文脈ToolはRuntimeが当該Eventの解決済みsubjectへ束縛し、LLMはIDを指定しない。peer/observedは返信義務を持たず、観測・関係・記憶の文脈を取得できる。非表示Toolが直接呼ばれても実行せず、Tool failureとして返す。（C-06, C-16, C-27）
 - FR-34：Tool説明と全入力fieldへ、モデルが用途と値を判断できる具体的な説明を付ける。（C-16、追加：説明の具体度は実装判断）
 - FR-35：RuntimeはTool入力、権限、最大call数、冪等性、結果サイズ、実行記録を管理する。（C-16, C-27, C-28）
 - FR-36：Tool Resultは同じAgent loopへ返すが、別Interactionとして自動再投入して二重実行しない。（C-16）
@@ -191,10 +192,11 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与し、作成ActivityへReflection Sessionと根拠Memoryを対応付ける。（C-25）
 - FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。LLM出力は永続ID・局所参照を含めず、根拠と更新対象はRuntimeが入力範囲と検索結果から解決する。Self / Mood Reflectorは全Self fieldの意味と対象外をdescriptionで示し、完全なSelfとMemory根拠・理由だけを返す。Relationship Reflectorは現在本文と操作だけを返し、Runtimeが現在のcanonical user relationshipだけを更新する。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
-- FR-76：発話は`user-message`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`と`concern-due`は発話またはrefuseを必須とする。これは未返信・返答待ち・連投回避を抑制理由にしない配送方針であり、話題とDesireはAgent自身が選ぶ。他の許可EventはAgent自身の動機により発話しないこともできる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、ユーザーへ発話しない。（C-06, C-16, C-17、追加）
+- FR-76：発話は`message-received`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`と`concern-due`は発話またはrefuseを必須とする。これは未返信・返答待ち・連投回避を抑制理由にしない配送方針であり、話題とDesireはAgent自身が選ぶ。peer/observedは発話しない選択ができる。他の許可EventもAgent自身の動機により発話しないことができる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、外部へ発話しない。（C-06, C-16, C-17、追加）
 - FR-77：全LLM経路は、永続canonical ID、Discord ID、local handle、局所参照、cursor、その他の永続Recordを指すIDを入力・出力・repair payload・Tool結果へ含めず、自然言語上のviewと候補だけを扱う。Event監査の生actor IDはEvent / Runに残すが、Context Builderがmodel-facing actor viewから除く。自然言語のpeer表示名は候補として扱えるが、Runtimeだけが固定範囲、検索結果、所有権、時刻、種別を用いて根拠と更新対象を解決する。ID付与、検索、更新、永続化を担う。解決できない、曖昧な、又は対象外の候補はcommitしない。（追加：LLMのID幻覚を永続化・参照・更新へ伝播させず、根拠選択を再現可能なRuntimeの責務にするため）
-- FR-82：Experience Integrationは完了済みsource Eventを唯一の直接根拠として、Event固有経験、Memory候補、actorに束縛されたRelationship候補、Mood候補を意味づける。LLMは`content`、`reason`、種別、視点、Relationship本文だけを返し、Runtimeがsource Event、actor、既存Relationshipからcanonical根拠・subject・更新対象を解決する。Relationship候補のoperation、現在本文、更新本文、理由は全て説明付きschemaで返す。Mood候補はFR-9の持続的な感情的構えだけとし、今回のEventや探索の進展、相手への届け、返答待ち、次の行動を混在させない。owner humanだけを`user-main`へ、allowlistに一意一致するagent actorだけを`agent:<agentId>`へ正規化する。owner外human、未登録Bot、actor不在、対象不一致、複数一致はRelationship、Memory subject、Event subjectを書かない。peerについてのAgent自身の経験は`self / self-guidance`にpeer subjectを付与し、peer自身の視点を代理保存しない。Relationship本文は現在の関係の型、安定した前提、未解決の約束だけを400文字以内で保持する。（追加）
-- FR-88：Discord Adapterは自Botへのmentionを含むowner human又はallowlist Botだけを受理する。allowlist Botへの返信は検証済み配送metadataから相手Botをmentionする。自発的Bot通信では、既存`respond`が任意の`peer: { name, content }`を持て、Runtimeが各Botの設定内で一意にpeer・channel・Discord IDを解決する。peer由来Eventの`respond.content`はpeerへ配送する。`idle`と`concern-due`の`respond.content`はユーザーへ必ず配送し、`peer`があれば同じcommitから独立したpeer配送を追加する。人間の`user-message`、`external-change`、`scheduled-task`、`prediction-g3-result`、その他のEventでは`peer`を許可しない。`agent_send`のような任意Agent IDを受ける内部配送ToolはBot会話の経路にせず、Agent Coreへ公開しない。未登録・曖昧・自己参照・channel未設定・配送metadata不正ではpeer配送を行わず、`idle` / `concern-due`のユーザー配送は維持する。（C-09, C-16, C-17, C-20, C-27）
+- FR-82：Experience Integrationは完了済みsource Eventを唯一の直接根拠として、Event固有経験、Memory候補、actorに束縛されたRelationship候補、Mood候補を意味づける。LLMは`content`、`reason`、種別、視点、Relationship本文だけを返し、Runtimeがsource Event、解決済みinteraction subject、既存Relationshipからcanonical根拠・subject・更新対象を解決する。Relationship候補のoperation、現在本文、更新本文、理由は全て説明付きschemaで返す。Mood候補はFR-9の持続的な感情的構えだけとし、今回のEventや探索の進展、相手への届け、返答待ち、次の行動を混在させない。owner humanだけを`user-main`へ、allowlistに一意一致するpeerだけを`agent:<agentId>`へ正規化する。owner外human、未登録Bot、actor不在、対象不一致、複数一致はRelationship、Memory subject、Event subjectを書かない。peerについてのMemoryは、peerの客観的な視点・事実を代理保存せず、当該Agentがpeerの発言・観測をどう受け取ったかという`self / self-guidance`の経験としてpeer subjectを付与する。Relationship本文は現在の関係の型、安定した前提、未解決の約束だけを400文字以内で保持する。（追加）
+- FR-88：Discord Adapterはowner humanの自Bot宛mentionを`message-received/human/direct`、allowlist peerの自Bot宛mentionを`message-received/peer/direct`、allowlist peerの同一観測channelへの非mention投稿を`message-received/peer/observed`として受理する。self、owner外human、allowlist外BotはEventを作らず、direct投稿をobservationとして二重作成しない。モデルには本文、`senderKind`、`addressing`、自然言語のpeer表示名だけを渡し、actor ID、Discord ID、channel、reply metadataはRuntime監査に留める。`respond.content`はhuman/directでは人間、peer/directではsource peerへのmention、peer/observedと自律Eventでは共有channelへの非mention発話へ配送する。`respond.peer: { name, content }`は自律Eventだけで許可し、RuntimeがBotごとの設定内で一意にpeer・channel・Discord IDを解決する。配送Adapterは同じallowlistを再検証する。未登録・曖昧・自己参照・channel未設定・配送metadata不正・hop超過ではその配送を行わないが、同一commitの別の許可済み配送は維持する。`agent_send`のような任意Agent IDを受ける内部配送ToolはBot会話の経路にせず、Agent Coreへ公開しない。（C-09, C-16, C-17, C-20, C-27）
+- FR-90：`message-received`は`senderKind: human | peer`と`addressing: direct | observed`を持つ単一の社会的Eventである。human/direct、peer/direct、peer/observedは同じAgent Core、Assessment、Feeling、Desire、Action、Experience Integration、Concern lifecycleを通る。差は相手文脈の取得、応答義務、配送先だけとし、Concern、Memory、Relationshipを人間用／peer用の別モデル又は別認知pipelineへ分割しない。`user-message`は既存監査Recordの読取り互換だけに残し、新規Eventのwriterは使用しない。（C-09, C-16, C-17、追加）
 - FR-89：Memoryの所有者は`agent_id`、対象はRuntime解決済みの`memory_subjects.subject_id`、因果根拠はEvent / Run / Memory evidenceで表す。Agent IDと任意情報源を兼ねる`sourceAgentId`は持たず、伝聞の説明が必要な場合は自然言語のMemory本文又は監査Eventに残す。既存値はmigrationで除去する。（C-09, C-10, C-24）
 - FR-83：G1/G2は予測候補、予測誤差の解釈、G3起動判断だけを出力し、Memory候補、観測候補、subject又は根拠Recordを出力しない。長期経験の保存はExperience Integration又はG3後の通常Agent Loopが担う。（追加）
 - FR-84：G3は仮説、発見、Memory候補を自然言語で返す。Runtimeはsource EventとG3実行中の非公開Tool evidence poolに限定して候補`content + reason`をHybrid Retrievalし、根拠Event・subject・更新可否を解決する。仮説評価の根拠もRuntimeが対応付け、根拠なしのMemory候補はno-op、根拠なしの仮説はundecidableとする。（追加）
@@ -216,7 +218,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ## R9. 予測・予測誤差・背景経験
 
-- FR-48：G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。保存済みPredictionに廃止済みroot fieldが残る場合は、既知のfieldだけを除去して現行契約として読む。（C-30, C-32, C-33, C-48）
+- FR-48：G1/G2はdirectな`message-received`への応答後に、同じ相手からの次ターンの発話を予測し、同じ解決済みsubjectからの次のdirect入力で誤差を1ターン遅れで評価する。peer/observedと自律Eventは予測対象にしない。保存済みPredictionに廃止済みroot fieldが残る場合は、既知のfieldだけを除去して現行契約として読む。（C-30, C-32, C-33, C-48）
 - FR-49：G1/G2は1回のLLM callで、予測候補、predictionEvaluation、G3起動判断を返す。観測候補とrememberは返さず、長期経験の統合を担わない。（C-34, C-35, C-36, C-37, C-38、更新）
 - FR-50：G1/G2はFeelingを出力せず、Meaning / FeelingはMainAgentだけが確定する。（C-65）
 - FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。G3自身はMemoryIntent又は永続Recordを直接指定しない。（C-39, C-40, C-42、更新）
@@ -227,7 +229,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-56：MemoryIntentのtargetはMemory kindに限定し、RelationshipとConcernは既存PatchまたはConcern Proposalへ渡す。（C-66）
 - FR-57：Conversation Memoryの書込みはMemoryWriteServiceだけが行い、RAG候補と種別規則からcreate、update、no-op、splitを決め、Memory versionを照合する。splitは元Memoryを狭い内容へ更新し、分離した内容を元Memoryへの根拠を持つ新規Memoryとして同一transactionで作る複合操作である。（C-55, C-57, C-58, C-63, C-67、追加：Reconciliationで意味を失わず分離するため）
 - FR-58：G1/G2/ReflectionのMemoryIntentはmemory-update Eventで専用MemoryUpdateHandlerが適用し、LLMを呼ばない。Reflection Memory Reflectorは経験の解釈、理由、種別、視点、検索主体だけを出力する。根拠Event、関連Memory、更新対象はcommit層が固定Session範囲とHybrid Retrievalから解決し、confidenceとpurposeも導出する。G3結果は通常Agent Loop後のExperience Integrationがsource EventとRuntime evidenceから長期経験を統合し、G3又はMainAgentがMemoryIntentを直接指定しない。（C-59, C-60, C-63, C-66, C-69、更新）
-- FR-59：Event優先順位はuser-message、memory-update、G3、reflectionの順とし、user-messageを待たせず、強制中断しない。（C-61, C-69）
+- FR-59：Event優先順位は`message-received/human/direct`、`message-received/peer/direct`、`message-received/peer/observed`、memory-update、G3、reflectionの順とし、direct入力を待たせず、実行中の下位処理を強制中断しない。（C-61, C-69）
 - FR-60：ReflectionはMemory、Self / Mood、Relationship、Concernごとのstatusを持ち、Memory確定後にConcern / Relationship、最後にSelf / Moodを更新する。Memory batchと失敗対象だけを再試行し、完了batchを重複確定しない。選択Contextと完全commit基準Stateは分離する。（C-64, C-68）
 - FR-71：Memory Formationは、固定Reflection Session内の未統合Eventを古い順に最大16件ずつ扱い、各Eventから直接支持できる新しいConversation Memoryだけを形成する。初期入力へ既存Memory集合を含めず、保存不要なら空出力にする。Formationが既存Memoryとの重複を疑う場合だけ、限定された読み取りで確認する。古いEventを根拠に、内容一致だけで後から形成されたMemoryを更新または時系列的に巻き戻してはならない。（C-03, C-10, C-15、追加）
 - FR-72：Memory Reconciliationは、全Memoryの定期全件走査をせず、新規Formationによる影響、利用・Concernの根拠、未再検討、遠い連想のいずれかを理由として選ばれたアンカーMemoryまたは局所クラスターだけを扱う。Runtimeはembedding近傍・subject・時刻で候補をcluster化し、理由間をround-robinして最新順だけに偏らない代表anchorを選ぶ。各anchorは関連Memory最大6件と関連Event最大16件までを取得できる。候補が尽きるかSession共有の軽量Reflector call予算に達するまで処理し、Reflectorは再活性化理由、参照した根拠、結果を監査する。（C-03, C-10, C-15、追加：全件走査を避けつつ再活性化の選択を検証可能にするため）
@@ -243,7 +245,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-15：MemoryWriteServiceはAgent単位で直列化し、Memory versionの楽観ロックと冪等性を保証する。（C-67）
 - NFR-16：G1/G2の追加callはdeadline、最大試行回数、call予算を持ち、失敗しても通常会話を継続する。（C-52, C-70）
 - NFR-17：Prediction Evaluation、MemoryIntent、memory-update Event、Reflection Session / Reflector status、Concern Activityと決定論的closeを監査可能にし、再試行に耐える。（C-50, C-64, C-69）
-- NFR-18：user-messageが待っている間はmemory-update、G3、reflectionを開始しない。（C-61, C-69）
+- NFR-18：directな`message-received`が待っている間はmemory-update、G3、reflectionを開始しない。（C-61, C-69）
 - NFR-19：背景経験のYAMLはSchema、段階と日時の順序、AI・作成者if001・経験範囲のプロフィール矛盾、現在のユーザーとの共有経験の不在、実在人物の特定可能性、タグ・感情・テーマ・段階の分布を検証する。起動前の初期化時だけ置換し、会話Memoryを上書きしない。（C-45, C-47）
 - FR-86：Background Experience YAMLは`background:load <path>`で対象AgentのBackground Experience Storeへ単独で置換投入できる。YAMLのagentIdと対象を一致させ、会話Memory、Self、Stateを変更しない。Embedding設定が有効なら投入後にBackground ExperienceのEmbeddingを作成する。（C-45, C-46）
 - FR-87：予測誤差に加え、自律EventのTool成功・失敗、探索で得た事実、進展のなさを、Self、Commitment、Concern、Relationship、Background Experienceに照らしてappraisalする。喜びだけでなく、驚き、失望、苛立ち、怒り、警戒などを正当なFeelingとして扱い、相手へ共有しやすい前向きな結論へ丸めない。持続する影響はMood、Concern、Relationship、次のActionへ反映する。（C-03, C-07, C-09, C-14, C-17, C-48）
@@ -255,19 +257,19 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-2：実Ollama試験はモデルが応答・repairできることを確認する。（FR-14, FR-16）
 - AC-3：隔離PostgreSQLを使うproduction-like E2EはUIに依存せずContext、Tool binding、commit、Outbox配送まで通ることを確認する。（FR-2, FR-4, NFR-8, NFR-9）
 - AC-4：人格・状態差が行動差を生むという概念上の主張は、自動test合格だけでは完了としない。同一ObservationでSelf、Mood、Concern、Relationship、Memoryだけを変えた反復paired live evaluationと保存artifactで評価する。（C-03, C-13, C-14, C-29, C-53, FR-3, FR-41）
-- AC-5：Event種別に応じたTool公開と実行拒否を自動testで確認する。user-messageではself_getが公開され、concern_list、concern_get、concern_proposeは公開されず、直接呼ばれても実行されない。（FR-33）
+- AC-5：Event種別とinteractionに応じたTool公開と実行拒否を自動testで確認する。directな`message-received`ではself_getが公開され、concern_list、concern_get、concern_proposeは公開されず、直接呼ばれても実行されない。（FR-33, FR-90）
 - AC-6：`previousDesire`の即時引き継ぎ、時間経過、満足済みDesire、Reflectionの新規Concern作成を自動testで確認する。（FR-43, FR-44）
 - AC-7：idleのno-external-action拒否、再開間隔、夜間時間帯のidle Event抑制をUnit/Contract testで確認する。（FR-22, FR-45）
 - AC-8：共通の社会基盤を満たしつつ、質問しない選択とDispositionによる個体差を許容することをUnit testで確認する。（FR-46）
 - AC-9：Agent Coreの実効system promptは4,500文字以下を保つ。SkillsMiddlewareのskill catalogはモデルへ渡す前に除去する。（NFR-4）
-- AC-10：Event種別ごとのskillが読み込まれ、user-message / idle / concern-due / scheduled-taskのFlowに応じた指示へ到達することをUnit testで確認する。（FR-47）
+- AC-10：Event種別とinteractionごとのskillが読み込まれ、`message-received`のhuman/direct、peer/direct、peer/observed、idle、concern-due、scheduled-taskのFlowに応じた指示へ到達することをUnit testで確認する。（FR-47, FR-90）
 - AC-21：自律EventのpromptとConcern適用が、未返信を抑制根拠にせず、毎回の発話と独立Concernの並行保持を指示・実現することをUnit testで確認する。（FR-67）
 - AC-22：idleが、ユーザー自身への関心を扱う場合にだけ必要なユーザー文脈を確認し、根拠付きの最大1件の問いを選べること、およびBackground Experienceを現在のユーザーとの共有経験として扱わないことをUnit testで確認する。（FR-70）
 - AC-23：Background Experienceの単独投入がYAMLを検証し、対象Storeだけを置換して会話Memoryを保持することをIntegration testで確認する。（FR-86）
 - AC-20：Agent Coreと自律skillが、予測誤差・Tool結果・探索結果からネガティブなFeelingと持続状態への反映を許可し、前向きな結論への丸めを禁止することをUnit testで確認する。（FR-87）
 - AC-11：G1/G2の予測、1ターン遅れの誤差評価、Feelingを出力しないことをContract/System testで確認する。（FR-48, FR-49, FR-50）
 - AC-12：MemoryIntentからcreate、update、no-opが決まり、Memory versionの競合と直接INSERTの不在をIntegration testで確認する。（FR-57, NFR-15）
-- AC-13：memory-update EventがLLMを呼ばず、専用Handler、冪等性、部分commit禁止、user-message優先で動くことをSystem testで確認する。（FR-58, FR-59, FR-61, NFR-17, NFR-18）
+- AC-13：memory-update EventがLLMを呼ばず、専用Handler、冪等性、部分commit禁止、directな`message-received`優先で動くことをSystem testで確認する。（FR-58, FR-59, FR-61, NFR-17, NFR-18）
 - AC-14：背景経験が別Storeで不変であり、AI・作成者if001・段階のプロフィールを持ち、現在のユーザーとの共有経験を含まず、実在人物・分布の検証を通り、共通Retrievalで取得できることをIntegration testで確認する。（FR-53, FR-54, FR-55, NFR-19）
 - AC-15：ReflectionがMemory、Self、Relationship、Concernごとのstatusを持ち、失敗対象だけを再試行することをSystem testで確認する。（FR-60, NFR-17）
 - AC-16：G3が別DeepAgentとして遅延実行され、MainAgentの再判断が通常Loopを通り、G3 Eventが通知必須の例外になることをSystem testで確認する。（FR-51, FR-52）
@@ -293,5 +295,5 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 | 予測誤差が感情・動機・行動・記憶更新へ影響する。 | FR-48, FR-50, FR-57, FR-60, AC-11, AC-15, AC-18 |
 | 背景経験が会話Memoryと分離され、共通Retrievalで使われる。 | FR-53, FR-54, FR-55, AC-14 |
 | Memory更新が単一経路で冪等に行われる。 | FR-57, FR-58, FR-61, AC-12, AC-13 |
-| memory-update、G3、reflectionがuser-messageを待たせない。 | FR-59, NFR-18, AC-13 |
+| memory-update、G3、reflectionがdirectな`message-received`を待たせない。 | FR-59, NFR-18, AC-13 |
 | 旧continuity / memory分割後処理を戻さない。 | FR-5, FR-64, AC-18 |

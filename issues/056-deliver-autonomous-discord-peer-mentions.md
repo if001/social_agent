@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-20
-status: created
+status: stop
 type: feature
 plan: []
 requirements: [FR-77, FR-88, NFR-8, NFR-9, NFR-10, NFR-22]
@@ -9,6 +9,8 @@ requires: agent
 ---
 
 # 056 `respond`で自発的peerへのDiscord mentionを配送する
+
+> 置換済み：#061で`message-received`を正本に再設計したため、配送だけを独立して実装する本Issueは#062へ統合する。ここでは実装しない。
 
 元計画：[#052](052-design-canonical-subject-registry-for-multi-bot.md)の`respond.peer`配送設計
 

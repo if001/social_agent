@@ -40,9 +40,9 @@ flowchart LR
     RF --> ST
 ```
 
-通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。応答commit後のExperience Integrationが同じContextと確定結果からMemory、Mood、Relationshipの候補だけを判断し、MemoryWriteServiceと楽観ロックを通じて適用する。Integrationは次のActionを決めず、失敗してもcommit済みの応答を巻き戻さない。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。user-messageではself_getを公開し、concern_list、concern_get、concern_proposeは公開しない。Concernの生成・派生・消化は自律Eventに分け、許可する操作はRuntimeでも強制する。
+通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。応答commit後のExperience Integrationが同じContextと確定結果からMemory、Mood、Relationshipの候補だけを判断し、MemoryWriteServiceと楽観ロックを通じて適用する。Integrationは次のActionを決めず、失敗してもcommit済みの応答を巻き戻さない。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。`message-received`のdirectはhuman / peerを問わずself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。相手文脈はRuntimeが解決済みsubjectへ束縛し、Concernの生成・派生・消化は共通の自律Eventへ分け、許可する操作はRuntimeでも強制する。
 
-予測Loopは通常応答の外側にある。G1/G2は応答後に次ターンのユーザー発話を予測し、前回予測と観測の誤差を1ターン遅れで評価する。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。通常応答のMemory、Mood、RelationshipはExperience Integrationが初回commit後に判断して適用する。Reflectionは別のSessionとして複数経験を長期状態へ統合する。
+予測Loopは通常応答の外側にある。G1/G2はdirectな`message-received`への応答後に同じ相手の次ターンを予測し、同一subjectからの次のdirect入力で誤差を1ターン遅れで評価する。peer/observedと自律Eventは予測対象にしない。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。通常応答のMemory、Mood、RelationshipはExperience Integrationが初回commit後に判断して適用する。Reflectionは別のSessionとして複数経験を長期状態へ統合する。
 
 ## 要素と持続時間
 
@@ -176,7 +176,7 @@ flowchart TD
 - RuntimeはEvent、Action、Concern変更、Outboxを初回transactionで確定する。
 - Experience Integrationは初回commit後、同じ入力Contextと確定結果からMemoryIntent、Mood、Relationshipを判断する。MemoryIntentはMemoryWriteServiceが適用し、RelationshipとMoodは楽観ロックで更新する。ConcernはConcern ProposalまたはReflectionでのみ更新する。
 - MemoryWriteServiceは会話由来Memoryの唯一の書込み経路であり、RAG候補からcreate / update / no-opを決め、Memory versionを照合する。旧直接INSERTを残さない。
-- `memory-update` Eventは専用のMemoryUpdateHandlerが処理し、LLMを呼ばない。user-messageを優先し、強制中断はしない。
+- `memory-update` Eventは専用のMemoryUpdateHandlerが処理し、LLMを呼ばない。directな`message-received`を優先し、強制中断はしない。
 - G3はMainAgentとは別のDeepAgentであり、仮説評価とMemoryIntentをMainAgentへ渡す。
 - Reflectionだけが複数経験とMemory根拠に基づいてIdentity、Disposition、Self Story、Commitmentsを変更できる。Sessionはtargetごとのattemptとstatusを持つ。
 - ReflectionのMemory処理は二段階である。Memory Formationは未統合Eventを古い順に最大16件ずつ読み、新しい経験だけを形成する。Memory Reconciliationは、Formation、利用・Concern根拠、未再検討、遠い連想で再活性化された少数の既存Memoryを起点に、関連Memory・関連Eventを取得して局所的に再統合する。全Memoryを定期走査しない。
@@ -208,7 +208,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant U as user-message Event
+    participant U as message-received Event
     participant C as MainAgent
     participant P as G1/G2
     participant MU as MemoryUpdateHandler
@@ -227,16 +227,16 @@ sequenceDiagram
     R->>MW: Formation / Reconciliation の確定Memory
 ```
 
-- G1/G2は応答後に追加のLLM callで予測し、次ターンのユーザー発話との誤差を1ターン遅れで評価する。
+- G1/G2はdirect入力への応答後に追加のLLM callで同じ相手の次ターンを予測し、同一subjectからの次のdirect入力との誤差を1ターン遅れで評価する。
 - G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。MainAgentがpredictionEvaluationをappraisalし、Meaning / Feelingを確定する。
 - `memory-update` Eventは決定済みのMemoryIntentを適用するだけで、LLMを呼ばない。
 - G3はMainAgentとは別のDeepAgentであり、仮説評価とMemoryIntentをMainAgentへ渡す。
 - Reflectionは専用のLLM処理であり、MainAgentのAgentHarnessを通らない。
-- Eventの優先順位はuser-message、memory-update、G3、reflectionの順とする。user-messageを待たせず、強制中断はしない。
+- Eventの優先順位は`message-received/human/direct`、`message-received/peer/direct`、`message-received/peer/observed`、memory-update、G3、reflectionの順とする。direct入力を待たせず、強制中断はしない。
 
 | Event | 実行主体 | LLM | Agent Coreを通るか |
 |---|---|---|---|
-| `user-message` | MainAgent / AgentHarness | あり | 通る |
+| `message-received` | MainAgent / AgentHarness | あり | 通る |
 | `memory-update` | MemoryUpdateHandler | なし | 通らない |
 | `prediction-g3` | G3専用DeepAgent | あり | 通らない |
 | `prediction-g3-result` | MainAgent / AgentHarness | あり | 通る |
@@ -251,7 +251,7 @@ Eventには、入力経路を表すDomain Event `kind`と、Schedulerが発火�
 
 | Domain Event `kind` | 主な意味 |
 |---|---|
-| `user-message` | ユーザーからの入力 |
+| `message-received` | human又はallowlist peerからの社会的入力 |
 | `tool-result` | Tool実行結果を監査可能なEventとして保存したもの |
 | `time` | 時刻を直接契機とする入力 |
 | `external` | 他Agentや外部システムからの入力 |
@@ -389,7 +389,7 @@ Conversation Memoryは元会話やTool結果の保管場所ではない。後の
 - Conversation Memoryの書込みはMemoryWriteServiceだけが行い、Memory versionを照合する。旧直接INSERTを残さない。
 - Background ExperienceはConversation Memoryと別Storeに保持し、起動後に更新しない。
 - predictionEvaluationはFeelingではなく、Meaning / Feelingを確定するのはMainAgentだけとする。
-- Eventの優先順位はuser-message、memory-update、G3、reflectionの順とし、user-messageを待たせない。
+- Eventの優先順位は`message-received/human/direct`、`message-received/peer/direct`、`message-received/peer/observed`、memory-update、G3、reflectionの順とし、direct入力を待たせない。
 - Queue、Outbox、Tool実行、MemoryUpdate、Reflectionはretryで重複確定しない。Reflectionは`reflection_attempts`のtarget別statusで部分成功を識別し、failed / blocked targetだけをretryする。同じSessionの反復失敗はretry countでbackoffする。
 - Tool権限、期限、call数、hop数、rate limitをRuntimeで強制する。
 - Safety上の拒否と人格上の拒否を区別する。
