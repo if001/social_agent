@@ -1,9 +1,17 @@
 import { z } from "zod";
 import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, initialSelfFromConfig, InitialSelfConfigSchema, MessageEnvelopeSchema, PersistedSelfSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
-import { observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
+import { modelObservationForAgentCore, observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
 describe("domain contracts", () => {
+  it("FR-77: keeps transport actor identity only in the audit observation", () => {
+    const audit = observationFromEvent({ id: "event-peer", agentId: "shiro", kind: "user-message", occurredAt: "2026-01-01T00:00:00Z", payload: { text: "hello", actorId: "discord-peer-id", actorType: "agent", sourceType: "discord", sourceId: "discord-channel-id" } });
+    const model = modelObservationForAgentCore(audit);
+    expect(audit).toMatchObject({ actor: { id: "discord-peer-id" }, source: { id: "discord-channel-id" } });
+    expect(model).not.toHaveProperty("actor"); expect(model.source).toEqual({ type: "discord", direct: true });
+    expect(JSON.stringify(model)).not.toContain("discord-peer-id"); expect(JSON.stringify(model)).not.toContain("discord-channel-id");
+  });
+
   it("FR-17, FR-18, FR-19, FR-21: represents every action", () => {
     for (const action of [
       { type: "respond", content: "Hello" },

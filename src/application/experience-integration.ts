@@ -100,7 +100,7 @@ export class DirectExperienceIntegrationSink implements ExperienceIntegrationSin
   drain(signal: AbortSignal): Promise<void> { return this.integration.retryPending(signal); }
 }
 
-export function memorySubjectsForIntegration(input: ExperienceIntegrationInput, intents: readonly Pick<MemoryIntent, "perspective">[], subjects: CanonicalSubjectResolver = noSubjects): readonly (readonly string[])[] {
-  const subjectId = subjects.resolve(input.input.observation.actor);
-  return intents.map((intent) => intent.perspective === "user" && subjectId !== undefined ? [subjectId] : []);
+export function memorySubjectsForIntegration(input: ExperienceIntegrationInput, intents: readonly Pick<MemoryIntent, "perspective">[], subjects: CanonicalSubjectResolver = noSubjects, actor = input.input.observation.actor): readonly (readonly string[])[] {
+  const subjectId = subjects.resolve(actor);
+  return intents.map((intent) => subjectId !== undefined && (intent.perspective === "user" || (actor?.type === "agent" && intent.perspective === "self")) ? [subjectId] : []);
 }

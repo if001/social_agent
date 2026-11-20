@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { Pool } from "pg";
 
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { assertDistinctBotConfigs, loadConfig, parseSchedulerTimings } from "../../src/config/config.js";
@@ -9,6 +10,7 @@ import { loadExplorationDomainCatalog } from "../../src/config/exploration-domai
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { redactSecrets } from "../../src/observability/redaction.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
+import { createBotComposition } from "../../src/bootstrap/bot-composition.js";
 
 const required = `BOT_ID=sample\nPOSTGRES_URL=postgres://sample\nADMIN_POSTGRES_URL=postgres://admin\nSIMPLE_CLIENT_BASE_URL=http://web\nOLLAMA_BASE_URL=https://chat\nOLLAMA_API_KEY=sample-key\nOLLAMA_CHAT_MODEL=chat\nOLLAMA_EMBEDDING_BASE_URL=http://embedding\nOLLAMA_EMBEDDING_MODEL=embed\nOLLAMA_EMBEDDING_DIMENSION=768\n`;
 
@@ -70,6 +72,24 @@ describe("configuration and lifecycle", () => {
     expect(config).toMatchObject({ runtimeCorrelationTtlMs: 604_800_000, runtimeRateWindowRetentionMs: 3_600_000 });
     expect(config.schedulerTimings).toEqual({ scanIntervalMs: 30_000, autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, concernStaleAfterMs: 2_592_000_000, concernStaleMinReflectionSessions: 2, retryDelayMs: 300_000, leaseMs: 60_000 });
     await scope.close();
+  });
+
+  it("FR-88: loads only the peer configuration owned by the active bot", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope);
+    await writeFile(`${cwd}/.env.sample`, required); await mkdir(`${cwd}/config/agent-peers`, { recursive: true });
+    await writeFile(`${cwd}/config/agent-peers/sample.yaml`, "version: 1\nagentId: sample\npeers:\n  - agentId: aka\n    displayName: アカ\n    discordUserId: discord-aka\n    channelId: channel\n");
+    await expect(loadConfig({ cwd, environment: {} })).resolves.toMatchObject({ peers: { agentId: "sample", peers: [{ agentId: "aka", discordUserId: "discord-aka" }] } });
+    await writeFile(`${cwd}/config/agent-peers/sample.yaml`, "version: 1\nagentId: another\npeers: []\n");
+    await expect(loadConfig({ cwd, environment: {} })).rejects.toThrow("BOT_ID");
+    await scope.close();
+  });
+
+  it("FR-88: does not expose arbitrary internal agent delivery to Agent Core", async () => {
+    const scope = new ResourceScope(); const cwd = await temporaryDirectory(scope); await writeFile(`${cwd}/.env.sample`, required);
+    const config = await loadConfig({ cwd, environment: {} }); const pool = new Pool({ connectionString: config.database.url });
+    const composition = createBotComposition({ pool, config, queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() } });
+    expect(composition.toolRegistry.definitions().map(({ name }) => name)).not.toContain("agent_send");
+    await pool.end(); await scope.close();
   });
 
   it("NFR-10: loads runtime-state retention from environment", async () => {

@@ -9,7 +9,7 @@ export interface DiscordGateway {
   startTyping(context: DiscordReplyContext, signal: AbortSignal): Promise<() => void>;
   send(context: DiscordReplyContext, content: string, idempotencyKey: string, signal: AbortSignal): Promise<string>;
 }
-export type DiscordAdapterOptions = { readonly gateway: DiscordGateway; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly agentId: string; readonly botUserId: string; readonly ownerIds: ReadonlySet<string>; readonly guildIds: ReadonlySet<string>; readonly channelIds: ReadonlySet<string>; readonly queueDestination?: string; readonly logger?: Logger };
+export type DiscordAdapterOptions = { readonly gateway: DiscordGateway; readonly queue: MessageQueue; readonly clock: Clock; readonly ids: IdGenerator; readonly agentId: string; readonly botUserId: string; readonly ownerIds: ReadonlySet<string>; readonly peerDiscordUserIds?: ReadonlySet<string>; readonly guildIds: ReadonlySet<string>; readonly channelIds: ReadonlySet<string>; readonly queueDestination?: string; readonly logger?: Logger };
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
@@ -22,7 +22,7 @@ export class DiscordAdapter {
   async startInbound(signal: AbortSignal): Promise<void> {
     try { await this.options.gateway.start(async (message) => {
       const mention = new RegExp(`<@!?${escapeRegExp(this.options.botUserId)}>`, "gu");
-      if (!mention.test(message.content) || (message.isBot && message.authorId === this.options.botUserId) || (!message.isBot && !this.options.ownerIds.has(message.authorId)) || !this.options.channelIds.has(message.channelId) || (message.guildId !== undefined && !this.options.guildIds.has(message.guildId)) || this.#seen.has(message.id)) return;
+      if (!mention.test(message.content) || (message.isBot && (message.authorId === this.options.botUserId || !(this.options.peerDiscordUserIds ?? new Set<string>()).has(message.authorId))) || (!message.isBot && !this.options.ownerIds.has(message.authorId)) || !this.options.channelIds.has(message.channelId) || (message.guildId !== undefined && !this.options.guildIds.has(message.guildId)) || this.#seen.has(message.id)) return;
       const content = message.content.replace(mention, " ").replace(/\s+/gu, " ").trim() || "メンションされました";
       this.#seen.add(message.id); const now = this.options.clock.now();
       (this.options.logger ?? noopLogger).log("info", "discord.message_accepted", { agentId: this.options.agentId, discordMessageId: message.id, channelId: message.channelId, actorType: message.isBot ? "agent" : "human" });
