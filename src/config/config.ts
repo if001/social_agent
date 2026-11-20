@@ -70,6 +70,7 @@ const ConfigSchema = z.object({
   RUN_DEADLINE_MS: z.coerce.number().int().positive().default(120_000),
   RUNTIME_CORRELATION_TTL_MS: z.coerce.number().int().positive().default(604_800_000),
   RUNTIME_RATE_WINDOW_RETENTION_MS: z.coerce.number().int().positive().default(3_600_000),
+  RUNTIME_MAX_HOPS: z.coerce.number().int().min(1).max(32).default(5),
   ...SchedulerTimingsSchema.shape,
   OUTBOX_INTERVAL_MS: z.coerce.number().int().positive().default(1_000)
 }).superRefine((value, context) => {
@@ -101,6 +102,7 @@ export type AppConfig = {
   readonly runDeadlineMs: number;
   readonly runtimeCorrelationTtlMs: number;
   readonly runtimeRateWindowRetentionMs: number;
+  readonly runtimeMaxHops: number;
   readonly schedulerTimings: SchedulerTimings;
   readonly outboxIntervalMs: number;
 };
@@ -155,6 +157,7 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
     runDeadlineMs: value.RUN_DEADLINE_MS,
     runtimeCorrelationTtlMs: value.RUNTIME_CORRELATION_TTL_MS,
     runtimeRateWindowRetentionMs: value.RUNTIME_RATE_WINDOW_RETENTION_MS,
+    runtimeMaxHops: value.RUNTIME_MAX_HOPS,
     schedulerTimings: parseSchedulerTimings(value),
     outboxIntervalMs: value.OUTBOX_INTERVAL_MS
   };

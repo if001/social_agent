@@ -57,7 +57,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const logger = options.logger ?? noopLogger;
   const clock = options.clock ?? new SystemClock(); const ids = options.ids ?? new UuidGenerator();
   const queue = options.queue ?? new AddressedFileQueue(config.queueRoot);
-  const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 27, maxToolCalls: 25, maxHops: 4, maxAttempts: 3, ...options.limits };
+  const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 27, maxToolCalls: 25, maxHops: config.runtimeMaxHops, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
   const database = createRuntimeDatabase(pool);
   const retrievalService = new PostgresRetrievalService(pool, embeddingProvider);
