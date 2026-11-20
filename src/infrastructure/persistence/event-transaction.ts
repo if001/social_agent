@@ -4,12 +4,13 @@ import { MemoryWriteService, recordMemoryMutationFailure, type MemoryCandidate, 
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
 import { and, eq } from "drizzle-orm";
-import { agentRuns, autonomousSchedules, concernActivities, events, memoryWebEvidence, messageReceipts, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
+import { agentRuns, autonomousSchedules, concernActivities, events, eventSubjects, memoryWebEvidence, messageReceipts, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
 
 export type CommitEventInput = {
   readonly destination: string;
   readonly messageId: string;
   readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date; readonly causationId?: string; readonly correlationId?: string };
+  readonly eventSubjectIds?: readonly string[];
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly inputSnapshot?: unknown; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly { readonly id: string; readonly target: string; readonly operation: string; readonly before: unknown; readonly after: unknown; readonly reason: string; readonly evidenceIds: readonly string[] }[];
@@ -33,6 +34,8 @@ export class PostgresEventTransaction {
       const reserved = await client.insert(messageReceipts).values({ destination: input.destination, messageId: input.messageId, status: "processing" }).onConflictDoNothing().returning({ messageId: messageReceipts.messageId });
       if (reserved.length === 0) return "duplicate";
       await client.insert(events).values({ id: input.event.id, agentId: input.event.agentId, kind: input.event.kind, observation: input.event.observation, source: input.event.source, causationId: input.event.causationId ?? null, correlationId: input.event.correlationId ?? null, status: "processing", occurredAt: input.event.occurredAt });
+      const eventSubjectIds = input.eventSubjectIds ?? [];
+      if (eventSubjectIds.length > 0) await client.insert(eventSubjects).values(eventSubjectIds.map((subjectId) => ({ eventId: input.event.id, subjectId }))).onConflictDoNothing();
       await client.insert(agentRuns).values({ id: input.run.id, agentId: input.event.agentId, eventId: input.event.id, inputStateVersion: input.run.inputStateVersion, inputSnapshot: input.run.inputSnapshot ?? null, startedAt: input.run.startedAt });
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);

@@ -1,7 +1,7 @@
 export type EventSkillRoute = { readonly label: string; readonly kind: string; readonly targetKind?: string; readonly skills: readonly string[] };
 
 export const EVENT_SKILL_ROUTES: readonly EventSkillRoute[] = [
-  { label: "user-message", kind: "user-message", skills: ["user-message"] },
+  { label: "message-received", kind: "message-received", skills: ["social-message"] },
   { label: "internal + targetKind idle", kind: "internal", targetKind: "idle", skills: ["idle", "concern-lifecycle"] },
   { label: "internal + targetKind concern-formation", kind: "internal", targetKind: "concern-formation", skills: ["concern-formation", "concern-lifecycle"] },
   { label: "internal + targetKind concern-due", kind: "internal", targetKind: "concern-due", skills: ["concern-due", "concern-lifecycle"] },
@@ -37,8 +37,7 @@ ${skillRouteLines}
 - skillを読めない場合は、入力事実だけを使って安全なActionを選びます。
 
 対話と自律発話:
-- user-messageにおける共通の社会基盤:
-- user-messageでは、相手の直前の発話内容へ触れてから、自分の質問や話題を出します。現在の話題と共有している文脈を優先し、深さは相手がすでに開いた範囲より1段だけ深くします。機微話題へ先に踏み込みません。
+- message-receivedの相手・宛先・返信義務はsocial-message skillに従います。
 - idle / concern-dueなど自律Eventでは、現在のユーザー話題や共有文脈は話し方を調整する任意の材料であり、話題選択の前提ではありません。Disposition、Self Story、Commitments、Mood、Concern、Memory、今回の探索結果から自分が今扱いたい具体的対象を選んでよく、唐突な話題転換も許容します。
 - 自律発話のDesireは、選んだ対象と今回の行為に加え、その対象が今のSelf、Concern、Memory、Mood、探索結果のどれと結び付くかを短く含めます。自律探索は自分自身のDesireを満たすために行い、ユーザーに有用そうというだけで話題を選びません。発話は独り言、仮説、感情、反論、途中経過でもよく、調査報告を既定形にしません。
 - 自律Eventで相手に質問するのは、Agent自身が知りたい具体的な不確かさがあり、Memory、Relationship、現在Eventに根拠がある場合だけです。既配送の発見を新しい事実、解釈、感情、問いなしに再送せず、既知Memoryにないユーザー属性や生活型を推測しません。

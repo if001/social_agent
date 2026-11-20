@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-21
-status: created
+status: done
 type: feature
 plan: []
 requirements: [FR-16, FR-33, FR-47, FR-48, FR-59, FR-76, FR-77, FR-82, FR-88, FR-90, NFR-1, NFR-8, NFR-9, NFR-10, NFR-18]
@@ -40,13 +40,13 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] AC-062-1：新規human direct、peer direct、peer observedはいずれも`message-received`として作成され、`user-message`を新規作成しない。
-- [ ] AC-062-2：human direct、peer direct、peer observedのmodel viewはID-freeで、skill・Tool公開・Action routeが意図どおり異なる。
-- [ ] AC-062-3：allowlist peer directはsource peerへmention返信でき、peer observedは共有channelへの非mention発話又は無応答を選べる。direct投稿がobservationとして二重処理されない。
-- [ ] AC-062-4：idle / concern-dueは共有発話に加え、Agentの動機で一意なallowlist peerへ`respond.peer`を配送できる。連投回避・応答待ちは抑制理由にしない。
-- [ ] AC-062-5：peerに関するMemory / Relationship / Concern関連subjectはAgent所有・agent-localであり、LLMはIDを入出力しない。
-- [ ] AC-062-6：allowlist外、self、曖昧名、channelなし、改竄metadata、hop超過、重複配送は外部送信しない。失敗しても他の同一transaction内で許可された配送を破壊しない。
-- [ ] AC-062-7：契約test・隔離DB integration test・実Discord/実LLMを使わないadapter contract testでroute table、Outbox原子性、retry / idempotencyを検証する。
+- [x] AC-062-1：新規human direct、peer direct、peer observedはいずれも`message-received`として作成され、`user-message`を新規作成しない。
+- [x] AC-062-2：human direct、peer direct、peer observedのmodel viewはID-freeで、skill・Tool公開・Action routeが意図どおり異なる。
+- [x] AC-062-3：allowlist peer directはsource peerへmention返信でき、peer observedは共有channelへの非mention発話又は無応答を選べる。direct投稿がobservationとして二重処理されない。
+- [x] AC-062-4：idle / concern-dueは共有発話に加え、Agentの動機で一意なallowlist peerへ`respond.peer`を配送できる。連投回避・応答待ちは抑制理由にしない。
+- [x] AC-062-5：peerに関するMemory / Relationship / Concern関連subjectはAgent所有・agent-localであり、LLMはIDを入出力しない。
+- [x] AC-062-6：allowlist外、self、曖昧名、channelなし、改竄metadata、hop超過、重複配送は外部送信しない。失敗しても他の同一transaction内で許可された配送を破壊しない。
+- [x] AC-062-7：契約test・隔離DB integration test・実Discord/実LLMを使わないadapter contract testでroute table、Outbox原子性、retry / idempotencyを検証する。
 
 ## Tests
 
@@ -81,3 +81,11 @@ requires: agent
 |---|---|---|
 | #061 | 要件・Architecture・skill契約 | 完了後に着手可能 |
 | `docs/AGENT_EVENT_AND_EXPERIENCE_OVERVIEW.md` | 実装との差分がないことを確認 | #061に従う |
+
+## 実装メモ
+
+- 新規受信は`message-received`へ正規化し、旧`user-message`と`agent-message`はreader互換だけに残した。`senderKind`と`addressing`はモデルへ渡すが、actor・subject・transport IDは監査記録だけに残す。
+- `respond.peer`は自然言語の表示名をRuntimeでallowlist peerへ一意解決し、同一Outbox transactionにDiscord mention metadataを保存する。Discord Adapterは送信時にもpeer・channelを再照合する。
+- Event subjectは通常commit時に同期保存するため、direct messageのG1/G2は同一subjectのPredictionだけを前回値として読む。
+- 検証: `pnpm typecheck`、変更srcのeslint、`pnpm test`（259件）、`pnpm test:system`（56件）、`pnpm test:integration`（63件）、trace check（ERROR 0）。
+- レビュー: `docs/work/reviews/2026-11-21-issue-062.md`

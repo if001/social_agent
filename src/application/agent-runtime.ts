@@ -6,8 +6,12 @@ import type { ExperienceIntegrationSink } from "./experience-integration.js";
 import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type CurrentAgentState, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
+import type { AgentPeer } from "../config/agent-peers.js";
+import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("message-received"), text: z.string().min(1), senderKind: z.enum(["human", "peer"]), addressing: z.enum(["direct", "observed"]), actorId: z.string().min(1).optional(), sourceType: z.enum(["terminal", "discord"]).optional(), sourceId: z.string().min(1).optional(), replyContext: z.record(z.string(), z.unknown()).optional() }),
+  // Compatibility readers. No current ingress writes these payloads.
   z.object({ type: z.literal("user-message"), text: z.string().min(1), actorId: z.string().min(1).optional(), actorType: z.enum(["human", "agent"]).optional(), sourceType: z.enum(["terminal", "discord"]).optional(), sourceId: z.string().min(1).optional(), replyContext: z.record(z.string(), z.unknown()).optional() }),
   z.object({ type: z.literal("agent-message"), senderAgentId: z.string().min(1), content: z.string().min(1), provenance: z.record(z.string(), z.unknown()) }),
   z.object({ type: z.literal("external-event"), text: z.string().min(1), facts: z.array(z.string().min(1)).default([]), actorId: z.string().min(1).optional(), sourceId: z.string().min(1), content: z.unknown().optional() }),
@@ -20,14 +24,14 @@ export type RuntimeExecutionInput = AgentCoreInput & { readonly persistentState:
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput | RuntimeExecutionInput>;
-  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate">;
+  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], subjectIds?: readonly string[]): Promise<"committed" | "duplicate">;
   recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly peers?: readonly AgentPeer[]; readonly subjects?: CanonicalSubjectResolver };
 
 const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined;
 
@@ -35,6 +39,11 @@ export class AgentRuntime {
   readonly #updates = new AgentStatePatchService();
   #tail: Promise<void> = Promise.resolve();
   constructor(private readonly options: AgentRuntimeOptions) {}
+  #peer(name: string): AgentPeer | undefined {
+    const key = name.normalize("NFKC").toLocaleLowerCase("ja");
+    const peers = (this.options.peers ?? []).filter((peer) => peer.displayName.normalize("NFKC").toLocaleLowerCase("ja") === key);
+    return peers.length === 1 ? peers[0] : undefined;
+  }
 
   start(signal: AbortSignal): Promise<void> {
     return this.options.queue.subscribe(this.options.destination, (message) => this.#serialize(() => this.#handle(message, signal)), signal);
@@ -50,11 +59,13 @@ export class AgentRuntime {
       if (destination === undefined) throw new DomainError("VALIDATION", "Autonomous Event requires an owner or default destination");
       const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
         const text = externalSpeech(action);
-        return text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
+        const values = text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
         type: "agent-response", text, agentId: event.agentId, autonomous: true,
         ...(typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? { replyContext: event.payload.replyContext } : {}),
         action: { id: input.run.runId, type: action.type }
       })] : [];
+        if (action.type === "respond" && action.peer !== undefined) values.push(this.#peerEnvelope(message, event, input, action.peer.name, action.peer.content, event.correlationId ?? event.id));
+        return values;
       };
       return this.#execute(message, event, signal, outgoing);
     });
@@ -62,6 +73,15 @@ export class AgentRuntime {
   #responseEnvelope(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, destination: string, hop: number, correlationId: string, payload: Record<string, unknown>): MessageEnvelope {
     const now = this.options.now().toISOString();
     return { id: this.options.ids.next(), destination, source: event.agentId, correlationId, causationId: input.run.runId, sentAt: now, availableAt: now, expiresAt: message.expiresAt, attempt: 0, hop, payload };
+  }
+  #peerEnvelope(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, name: string, text: string, correlationId: string): MessageEnvelope {
+    const peer = this.#peer(name);
+    if (peer === undefined) throw new DomainError("VALIDATION", "respond.peer must name exactly one configured peer");
+    return this.#responseEnvelope(message, event, input, this.options.defaultOutputDestination, message.hop + 1, correlationId, {
+      type: "agent-response", text, agentId: event.agentId, autonomous: true,
+      replyContext: { channelId: peer.channelId }, peer: { agentId: peer.agentId, discordUserId: peer.discordUserId },
+      action: { id: input.run.runId, type: "respond" }
+    });
   }
   #serialize<T>(work: () => Promise<T>): Promise<T> {
     const result = this.#tail.then(work, work);
@@ -80,23 +100,27 @@ export class AgentRuntime {
     const transport = { hop: message.hop, expiresAt: message.expiresAt, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }) };
     const inheritedCorrelation = message.correlationId ?? (payload.type === "agent-message" && typeof payload.provenance.correlationId === "string" ? payload.provenance.correlationId : message.id);
     const actionCause = message.causationId ?? (payload.type === "agent-message" && typeof payload.provenance.runId === "string" ? payload.provenance.runId : message.id);
-    const kind: DomainEvent["kind"] = payload.type === "user-message" ? payload.actorType === "agent" ? "external" : "user-message" : payload.type === "time-event" ? "time" : payload.type === "system-event" ? "system" : "external";
-    const eventPayload = payload.type === "user-message" ? { text: payload.text, actorId: payload.actorId ?? message.source, actorType: payload.actorType ?? "human", sourceType: payload.sourceType ?? (message.source.startsWith("discord") ? "discord" : "terminal"), ...(payload.sourceId === undefined ? {} : { sourceId: payload.sourceId }), transport }
-      : payload.type === "agent-message" ? { senderAgentId: payload.senderAgentId, actorId: payload.senderAgentId, actorType: "agent", sourceType: "agent", reportedContent: payload.content, provenance: payload.provenance, transport }
+    const kind: DomainEvent["kind"] = payload.type === "message-received" || payload.type === "user-message" || payload.type === "agent-message" ? "message-received" : payload.type === "time-event" ? "time" : payload.type === "system-event" ? "system" : "external";
+    const eventPayload = payload.type === "message-received" ? { text: payload.text, senderKind: payload.senderKind, addressing: payload.addressing, actorId: payload.actorId ?? message.source, actorType: payload.senderKind === "peer" ? "agent" : "human", sourceType: payload.sourceType ?? (message.source.startsWith("discord") ? "discord" : "terminal"), ...(payload.sourceId === undefined ? {} : { sourceId: payload.sourceId }), ...(payload.replyContext === undefined ? {} : { replyContext: payload.replyContext }), transport }
+      : payload.type === "user-message" ? { text: payload.text, senderKind: payload.actorType === "agent" ? "peer" : "human", addressing: "direct", actorId: payload.actorId ?? message.source, actorType: payload.actorType ?? "human", sourceType: payload.sourceType ?? (message.source.startsWith("discord") ? "discord" : "terminal"), ...(payload.sourceId === undefined ? {} : { sourceId: payload.sourceId }), ...(payload.replyContext === undefined ? {} : { replyContext: payload.replyContext }), transport }
+      : payload.type === "agent-message" ? { text: payload.content, senderKind: "peer", addressing: "direct", senderAgentId: payload.senderAgentId, actorId: payload.senderAgentId, actorType: "agent", sourceType: "agent", provenance: payload.provenance, transport }
       : payload.type === "external-event" ? { text: payload.text, facts: payload.facts, actorId: payload.actorId ?? payload.sourceId, actorType: "system", sourceType: "system", sourceId: payload.sourceId, ...(payload.content === undefined ? {} : { content: payload.content }), transport }
       : payload.type === "time-event" ? { reason: payload.reason, sourceType: "scheduler", ...(payload.scheduledFor === undefined ? {} : { scheduledFor: payload.scheduledFor }), transport }
       : { reason: payload.reason, sourceType: "system", ...(payload.change === undefined ? {} : { change: payload.change }), transport };
-    const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind, occurredAt: payload.type === "time-event" && payload.scheduledFor !== undefined ? payload.scheduledFor : this.options.now().toISOString(), payload: eventPayload, causationId: actionCause, correlationId: inheritedCorrelation };
+    const subjectId = this.options.subjects?.resolve(typeof eventPayload.actorId === "string" ? { id: eventPayload.actorId, type: eventPayload.actorType === "human" || eventPayload.actorType === "agent" ? eventPayload.actorType : "unknown" } : undefined);
+    const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind, occurredAt: payload.type === "time-event" && payload.scheduledFor !== undefined ? payload.scheduledFor : this.options.now().toISOString(), payload: { ...eventPayload, ...(subjectId === undefined ? {} : { subjectId }) }, causationId: actionCause, correlationId: inheritedCorrelation };
     logger.log("info", "event.created", { eventId: event.id, eventKind: event.kind, correlationId: inheritedCorrelation });
     await this.options.persistence.authorizeInbound(event, message.id, this.options.maxEventsPerMinute ?? 60);
-    const outgoingDestination = payload.type === "agent-message" ? message.replyTo : message.replyTo ?? this.options.defaultOutputDestination;
-    const agentReply = payload.type === "agent-message" && outgoingDestination === message.source;
+    const direct = event.payload.addressing !== "observed";
+    const outgoingDestination = direct ? message.replyTo ?? this.options.defaultOutputDestination : this.options.defaultOutputDestination;
+    const peerReply = event.payload.senderKind === "peer" && event.payload.addressing === "direct";
     const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
       const content = externalSpeech(action);
-      return content !== undefined && outgoingDestination !== undefined ? [this.#responseEnvelope(message, event, input, outgoingDestination, message.hop + (agentReply ? 1 : 0), inheritedCorrelation,
-        agentReply ? { type: "agent-message", senderAgentId: event.agentId, content, provenance: { causationId: event.id, correlationId: inheritedCorrelation, runId: input.run.runId } }
-          : { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(payload.type === "user-message" && payload.replyContext !== undefined ? { replyContext: payload.replyContext } : {}) }
+      const values = content !== undefined ? [this.#responseEnvelope(message, event, input, outgoingDestination, message.hop + (peerReply ? 1 : 0), inheritedCorrelation,
+        { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? { replyContext: event.payload.addressing === "observed" ? (() => { const context = event.payload.replyContext as Record<string, unknown>; return typeof context.channelId === "string" ? { channelId: context.channelId } : {}; })() : event.payload.replyContext } : {}), ...(peerReply && typeof event.payload.actorId === "string" ? { peer: { discordUserId: event.payload.actorId } } : {}) }
       )] : [];
+      if (action.type === "respond" && action.peer !== undefined) values.push(this.#peerEnvelope(message, event, input, action.peer.name, action.peer.content, inheritedCorrelation));
+      return values;
     };
     await this.#execute(message, event, signal, outgoing);
   }
@@ -135,7 +159,8 @@ export class AgentRuntime {
     const patched = this.#updates.initial(event.agentId, persistentState);
     const update = this.#updates.applyConcernProposals(patched, result.concernProposals ?? [], event.id, () => this.options.ids.next());
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
-    const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing);
+    const subject = typeof event.payload.subjectId === "string" ? event.payload.subjectId : undefined;
+    const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing, subject === undefined ? [] : [subject]);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
     if (committed === "committed" && this.options.experienceIntegration !== undefined) {
       try { await this.options.experienceIntegration.enqueue({ agentId: event.agentId, sourceEvent: event, sourceRunId: input.run.runId, input, result }); }

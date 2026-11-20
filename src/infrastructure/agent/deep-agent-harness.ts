@@ -23,6 +23,8 @@ const AgentCoreFlatOutputSchema = z.object({
   desire: z.string().trim().min(1).max(800).describe("今回のEventを受けて今具体的に望むこと。現在のコミットメントとして、入力中の具体的な対象と今回の行為に結び付けて短く書く。自律Eventでは、その対象が今のSelf、Concern、会話Memory、Background Experience、Mood、探索結果のどれと結び付くかも含める。既存Concernの言い換えにしない"),
   actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない内部Eventはno-external-actionを選ぶ。idleではrespondまたはrefuseを必ず選び、no-external-actionを選ばない。concern-formationは関心地図を形成する内部Eventなのでno-external-actionを選ぶ。情報が不十分ならidleではrespondで不十分な旨を伝える"),
   content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
+  peerName: z.string().trim().min(1).max(120).optional().describe("respondでallowlist peerへ明示的に話しかける時だけ、その表示名を書く。IDやDiscord情報は書かない"),
+  peerContent: z.string().trim().min(1).max(6_000).optional().describe("peerNameを指定した時だけ、そのpeerへ配送する本文を書く"),
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須")
 }).strict().describe("Agent Coreの最終判断。今回のMeaning・Feeling・Desire・Actionだけを埋める。Memory、Relationship、Moodの持続的な保存判断はExperience Integrationへ渡す");
@@ -36,13 +38,13 @@ function dispositionTendency(disposition: string): string {
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
 
 export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
-export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontent、refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reasonを指定してください。Memory、Relationship、Moodは出力しません。";
+export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontent、peerへ話すならpeerNameとpeerContentも指定します。refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reasonを指定してください。Memory、Relationship、Moodは出力しません。";
 
 function domainOutputFromFlat(value: unknown): unknown {
   const parsed = AgentCoreFlatOutputSchema.safeParse(value);
   if (!parsed.success) return value;
   const flat = parsed.data;
-  const action = flat.actionType === "respond" ? { type: flat.actionType, content: flat.content }
+  const action = flat.actionType === "respond" ? { type: flat.actionType, content: flat.content, ...(flat.peerName === undefined || flat.peerContent === undefined ? {} : { peer: { name: flat.peerName, content: flat.peerContent } }) }
     : flat.actionType === "refuse" ? { type: flat.actionType, content: flat.content, reason: flat.reason, basis: flat.refusalBasis }
       : flat.actionType === "notify-no-execution" ? { type: flat.actionType, content: flat.content, reason: flat.reason }
         : { type: flat.actionType, reason: flat.reason };
@@ -150,7 +152,7 @@ function repairToolEvidence(executions: readonly ToolExecutionRecord[]): readonl
 export const agentCoreModelView = toModelRecordView;
 const USER_RESPONSE_FALLBACK = "申し訳ありません。応答の形式を処理できませんでした。もう一度お試しください。";
 function recoverUserStringAction(raw: unknown, input: AgentCoreInput): AgentRunResult["output"] | undefined {
-  if (input.observation.kind !== "user-message" || typeof raw !== "object" || raw === null || !("action" in raw) || typeof raw.action !== "string") return undefined;
+  if ((input.observation.kind !== "message-received" && input.observation.kind !== "user-message") || typeof raw !== "object" || raw === null || !("action" in raw) || typeof raw.action !== "string") return undefined;
   const actionText = raw.action.trim();
   let action: unknown;
   if (actionText.startsWith("{")) {

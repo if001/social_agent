@@ -18,17 +18,18 @@ const output: PredictionOutput = {
   g3: { needsG3: false, targetLayers: [], priority: "medium" }
 };
 
-const event = { id: "event-1", agentId: "a", kind: "user-message", occurredAt: "2026-10-31T00:00:00+00:00", payload: {}, correlationId: "c" } as unknown as DomainEvent;
+const event = { id: "event-1", agentId: "a", kind: "message-received", occurredAt: "2026-10-31T00:00:00+00:00", payload: { addressing: "direct", subjectId: "user-main" }, correlationId: "c" } as unknown as DomainEvent;
 const input = { run: { runId: "run-1" }, observation: { summary: "技術の話をした", facts: [] }, recentExperiences: [] } as unknown as AgentCoreInput;
 
 const repository = (latest?: PredictionRecord) => {
   const saved: PredictionRecord[] = [];
+  const subjects: (string | undefined)[] = [];
   const repo: PredictionRepository = {
     save: (record) => { saved.push(record); return Promise.resolve(); },
-    latest: () => Promise.resolve(latest),
+    latest: (_agentId, subjectId) => { subjects.push(subjectId); return Promise.resolve(latest); },
     context: () => Promise.resolve(undefined)
   };
-  return { repo, saved };
+  return { repo, saved, subjects };
 };
 
 const model = (value: PredictionOutput): PredictionModel => ({ predict: () => Promise.resolve(value) });
@@ -36,10 +37,11 @@ const model = (value: PredictionOutput): PredictionModel => ({ predict: () => Pr
 describe("FR-48, FR-49, FR-63, NFR-16, AC-11, AC-18: G1/G2 prediction loop", () => {
   it("FR-48, FR-49: saves one prediction after a user response and filters evaluations to the previous record", async () => {
     const previous: PredictionRecord = { id: "previous", agentId: "a", sourceEventId: "old", sourceRunId: "old-run", output: { ...output, predictionEvaluations: [] }, createdAt: "2026-10-30T00:00:00+00:00" };
-    const { repo, saved } = repository(previous);
+    const { repo, saved, subjects } = repository(previous);
     const loop = new PredictionLoop({ repository: repo, model: model(output), ids: { next: () => "new-prediction" }, now: () => new Date("2026-10-31T01:00:00+00:00"), limits: { deadlineMs: 1_000, maxAttempts: 1 } });
     await loop.afterResponse({ event, input, result: {} as never }, new AbortController().signal);
     expect(saved).toHaveLength(1);
+    expect(subjects).toEqual(["user-main"]);
     expect(saved[0]?.output.predictionEvaluations).toEqual(output.predictionEvaluations);
   });
 

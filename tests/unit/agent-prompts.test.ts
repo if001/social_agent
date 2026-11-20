@@ -9,12 +9,12 @@ import { SystemMessage } from "langchain";
 import { createSkillsMiddleware, FilesystemBackend, listSkills, type createDeepAgent } from "deepagents";
 
 const skill = (name: string): string => readFileSync(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
-const userMessageSkill = skill("user-message");
+const socialMessageSkill = skill("social-message");
 const idleSkill = skill("idle");
 const lifecycleSkill = skill("concern-lifecycle");
 const dueSkill = skill("concern-due");
 const scheduledTaskSkill = skill("scheduled-task");
-const socialPrompt = completeAgentCoreSystemPrompt + userMessageSkill + idleSkill + lifecycleSkill;
+const socialPrompt = completeAgentCoreSystemPrompt + socialMessageSkill + idleSkill + lifecycleSkill;
 
 describe("Agent prompts", () => {
   it("FR-26, FR-27: gives idle exploration modes concrete and distinct behavior", () => {
@@ -90,12 +90,11 @@ describe("Agent prompts", () => {
     expect(socialPrompt).toContain("挨拶または雑談でも");
     expect(socialPrompt).toContain("0件も選びます");
     expect(socialPrompt).toContain("現在の話題から1段だけ離れた軽い話題");
-    expect(socialPrompt).toContain("プロフィール事実ではなく");
     expect(idleSkill).toContain("接続を必須にしません");
   });
 
-  it("FR-46, AC-8: provides a shared social baseline and leaves depth to Disposition", () => {
-    for (const text of ["共通の社会基盤", "直前の発話内容へ触れて", "1段だけ深く", "共通点は、現在の話題", "0件も選びます", "Relationship / Memoryに関係の根拠がある場合だけ触れます", "返答を要求せず", "Memoryにない共有体験を作りません", "現在の話題、共有している文脈、自分の小さな開示", "相手を理解することに価値を感じやすいDisposition", "1 Eventで尋ねる質問も最大1件", "相手の反応次第で0件も選べる", "同じ問いを繰り返さない"]) expect(socialPrompt).toContain(text);
+  it("FR-46, FR-90: separates common social interaction from event-specific peer policy", () => {
+    for (const text of ["senderKind", "addressing", "返答義務はない", "確定事実やpeer自身の視点として保存せず", "respond.peer", "自分が知りたい具体的な不確かさ"]) expect(socialPrompt).toContain(text);
     expect(socialPrompt).not.toContain("住む地域、仕事、趣味");
     expect(socialPrompt).not.toContain("通常の返答に軽い質問を1件添えます");
   });
@@ -118,9 +117,9 @@ describe("Agent prompts", () => {
     expect(stripSkillsSystemPrompt("base## Skills System\nUse read_file on /user-message/SKILL.md\n")).toBe("base");
   });
 
-  it("FR-33, AC-5: limits user-message retrieval to self_get and keeps Concern Tools for autonomous Events", () => {
-    expect(userMessageSkill).toContain("user-messageでは、必要に応じてself_get");
-    expect(userMessageSkill).toContain("Concernの取得・作成は行いません");
+  it("FR-33, AC-5: limits direct social messages and keeps Concern Tools for autonomous Events", () => {
+    expect(socialMessageSkill).toContain("human` / `direct");
+    expect(socialMessageSkill).toContain("Concernの取得・作成はしない");
     expect(idleSkill).toContain("自律Eventでは最初にconcern_listを使います");
   });
 
@@ -158,20 +157,20 @@ describe("Agent prompts", () => {
   it("FR-47, AC-10: loads SKILL.md metadata and allowed tools", () => {
     const skills = listSkills({ projectSkillsDir: join(process.cwd(), "skills") });
     const names = skills.map(({ name }) => name);
-    expect(names).toEqual(expect.arrayContaining(["user-message", "idle", "concern-formation", "concern-due", "scheduled-task", "concern-lifecycle"]));
-    expect(userMessageSkill).toContain("使うToolの目安: self_get");
+    expect(names).toEqual(expect.arrayContaining(["social-message", "idle", "concern-formation", "concern-due", "scheduled-task", "concern-lifecycle"]));
+    expect(socialMessageSkill).toContain("user_context_get");
     expect(idleSkill).toContain("使うToolの目安: concern_list");
   });
 
   it("FR-47, AC-10: routes Event kinds to separate skills", () => {
-    expect(resolveEventSkills("user-message", undefined)).toEqual(["user-message"]);
+    expect(resolveEventSkills("message-received", undefined)).toEqual(["social-message"]);
     expect(resolveEventSkills("internal", "idle")).toEqual(["idle", "concern-lifecycle"]);
     expect(resolveEventSkills("internal", "concern-due")).toEqual(["concern-due", "concern-lifecycle"]);
     expect(resolveEventSkills("internal", "concern-formation")).toEqual(["concern-formation", "concern-lifecycle"]);
     expect(resolveEventSkills("system", "scheduled-task")).toEqual(["scheduled-task"]);
     expect(resolveEventSkills("internal", "external-change")).toEqual(["concern-due", "concern-lifecycle"]);
     expect(resolveEventSkills("time", undefined)).toEqual([]);
-    expect(completeAgentCoreSystemPrompt).toContain("skill_read name=user-message");
+    expect(completeAgentCoreSystemPrompt).toContain("skill_read name=social-message");
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=idle");
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=concern-due");
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=scheduled-task");
@@ -180,8 +179,8 @@ describe("Agent prompts", () => {
   it("FR-47, AC-10: reads a skill through the Registry tool", async () => {
     const [read] = createSkillTools({ skillsRoot: join(process.cwd(), "skills") });
     if (read === undefined) throw new Error("skill_read is missing");
-    await expect(read.execute({ name: "user-message" }, {} as never, new AbortController().signal)).resolves.toMatchObject({ ok: true, value: { name: "user-message" } });
-    await expect(read.execute({ name: "../user-message" }, {} as never, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(read.execute({ name: "social-message" }, {} as never, new AbortController().signal)).resolves.toMatchObject({ ok: true, value: { name: "social-message" } });
+    await expect(read.execute({ name: "../social-message" }, {} as never, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(read.resultPolicy).toMatchObject({ kind: "content-read", defaultRequestCharacters: 1_200, runCharacterBudget: 4_000 });
   });
 
@@ -196,8 +195,8 @@ describe("Agent prompts", () => {
     expect(captured?.skills).toEqual(["/"]);
     const backend = captured?.backend;
     expect(backend).toBeInstanceOf(FilesystemBackend);
-    const read = await (backend as FilesystemBackend).read("/user-message/SKILL.md");
-    expect(JSON.stringify(read)).toContain("user-message");
+    const read = await (backend as FilesystemBackend).read("/social-message/SKILL.md");
+    expect(JSON.stringify(read)).toContain("social-message");
   });
 
   it("FR-14, FR-42: keeps provider errors and stack traces out of structured-output repair prompts", () => {

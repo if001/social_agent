@@ -13,6 +13,18 @@ import { messageReceipts, outboxMessages, runtimeCorrelations, runtimeRateWindow
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput | RuntimeExecutionInput>;
 /** The canonical pre-execution Agent Core input used by audit and Integration. */
 function decisionInputSnapshot(input: AgentCoreInput): AgentCoreInput { return input; }
+/** Audit retains transport provenance; Agent Core only ever receives `input.observation`. */
+function auditObservation(input: AgentCoreInput, event: DomainEvent): unknown {
+  const actorId = typeof event.payload.actorId === "string" ? event.payload.actorId : typeof event.payload.senderAgentId === "string" ? event.payload.senderAgentId : undefined;
+  const actorType = event.payload.actorType === "human" || event.payload.actorType === "agent" || event.payload.actorType === "tool" || event.payload.actorType === "system" ? event.payload.actorType : "unknown";
+  const sourceId = typeof event.payload.sourceId === "string" ? event.payload.sourceId : undefined;
+  return {
+    ...input.observation,
+    ...(actorId === undefined ? {} : { actor: { id: actorId, type: actorType } }),
+    source: { ...(input.observation.source ?? { type: "unknown", direct: false }), ...(sourceId === undefined ? {} : { id: sourceId }) },
+    content: event.payload
+  };
+}
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
@@ -53,7 +65,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       return { correlations: correlations.length, rateWindows: rateWindows.length };
     });
   }
-  async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[]): Promise<"committed" | "duplicate"> {
+  async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], eventSubjectIds: readonly string[] = []): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     const focusedConcerns = validatedTools.flatMap((execution) => {
       if (!execution.ok || (execution.name !== "concern_get" && execution.name !== "concern_history") || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
@@ -68,7 +80,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     });
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
-      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
+      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: auditObservation(input, event), source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) }, eventSubjectIds,
       run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, inputSnapshot: decisionInputSnapshot(input), startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { mood: update.state.mood, concerns: update.state.concerns, relationships: update.state.relationships },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next(), reason: "AgentTurn patch", evidenceIds: [change.eventId] })),
@@ -83,7 +95,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const validatedTools = this.#validateTools(input, toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     await this.#transaction.recordFailure({
       destination: message.destination, messageId: message.id,
-      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: input.observation, source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
+      event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: auditObservation(input, event), source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) },
       run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, inputSnapshot: decisionInputSnapshot(input), startedAt: new Date(input.run.occurredAt), result: null },
       toolExecutions: validatedTools,
       failureReason: JSON.stringify(errorLogContext(error))

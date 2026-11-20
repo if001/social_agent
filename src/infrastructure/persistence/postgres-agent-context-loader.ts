@@ -96,19 +96,23 @@ export function observationFromEvent(event: DomainEvent): Observation {
   const actorType = event.payload.actorType === "human" || event.payload.actorType === "agent" || event.payload.actorType === "tool" || event.payload.actorType === "system" ? event.payload.actorType : undefined;
   const sourceType = event.payload.sourceType === "terminal" || event.payload.sourceType === "discord" || event.payload.sourceType === "agent" || event.payload.sourceType === "tool" || event.payload.sourceType === "scheduler" || event.payload.sourceType === "system" ? event.payload.sourceType : "unknown";
   const provenance = typeof event.payload.provenance === "object" && event.payload.provenance !== null ? event.payload.provenance as Record<string, unknown> : undefined;
-  return { eventId: event.id, summary, facts, observedAt: event.occurredAt, kind: event.kind, ...(actorId === undefined ? {} : { actor: { id: actorId, type: actorType ?? "unknown" } }), source: { type: sourceType, ...(typeof event.payload.sourceId === "string" ? { id: event.payload.sourceId } : {}), direct: event.kind !== "external" && event.kind !== "tool-result" }, content: event.payload, context: { transport: event.payload.transport ?? null }, ...(provenance === undefined ? {} : { provenance }), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) };
+  const direct = event.payload.addressing === "observed" ? false : event.kind !== "external" && event.kind !== "tool-result";
+  return { eventId: event.id, summary, facts, observedAt: event.occurredAt, kind: event.kind, ...(actorId === undefined ? {} : { actor: { id: actorId, type: actorType ?? "unknown" } }), source: { type: sourceType, ...(typeof event.payload.sourceId === "string" ? { id: event.payload.sourceId } : {}), direct }, content: event.payload, context: { transport: event.payload.transport ?? null }, ...(provenance === undefined ? {} : { provenance }), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) };
 }
 
 /** Event audit keeps transport identifiers; Agent Core only receives their semantic view. */
 /** Removes transport identities and audit-only payload from the Agent Core view. */
 export function modelObservationForAgentCore(value: Observation): Observation {
-  const scheduler = typeof value.content === "object" && value.content !== null
-    ? (() => { const raw = value.content as Record<string, unknown>; return value.source?.type === "scheduler" && typeof raw.targetKind === "string" ? { targetKind: raw.targetKind } : undefined; })()
+  const semanticContent = typeof value.content === "object" && value.content !== null
+    ? (() => { const raw = value.content as Record<string, unknown>;
+      if (value.kind === "message-received" && (raw.senderKind === "human" || raw.senderKind === "peer") && (raw.addressing === "direct" || raw.addressing === "observed")) return { senderKind: raw.senderKind, addressing: raw.addressing };
+      return value.source?.type === "scheduler" && typeof raw.targetKind === "string" ? { targetKind: raw.targetKind } : undefined;
+    })()
     : undefined;
   return ObservationSchema.parse({ eventId: value.eventId, summary: value.summary, facts: value.facts.filter((fact) => !fact.startsWith("送信元Agent:")), observedAt: value.observedAt,
     ...(value.kind === undefined ? {} : { kind: value.kind }),
     ...(value.source === undefined ? {} : { source: { type: value.source.type, direct: value.source.direct } }),
-    ...(scheduler === undefined ? {} : { content: scheduler }) });
+    ...(semanticContent === undefined ? {} : { content: semanticContent }) });
 }
 
 export class PostgresAgentContextLoader {

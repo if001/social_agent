@@ -196,7 +196,8 @@ export function initialSelfFromConfig(config: InitialSelfConfig): Self {
     commitments: config.agent.raisonDetre === undefined ? [] : [config.agent.raisonDetre]
   });
 }
-export const EventKindSchema = z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]);
+/** `user-message` is retained solely to read records written before #062. */
+export const EventKindSchema = z.enum(["message-received", "user-message", "tool-result", "time", "external", "internal", "system"]);
 export const EventSchema = z.object({
   id: Id,
   agentId: Id,
@@ -354,8 +355,12 @@ export const RecentExperienceSchema = z.object({
 export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 
 
+const PeerResponseSchema = z.object({
+  name: z.string().trim().min(1).max(120).describe("allowlistにある相手Agentの表示名。ID、Discord user ID、channel IDは書かない"),
+  content: AgentContent.describe("指定した相手Agentへそのまま配送する本文。内部判断や管理情報を含めない")
+}).strict().describe("自分の関心・問い・共有したいことから、allowlist peerへ明示的に話しかける任意の配送先");
 export const FinalActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("respond").describe("ユーザーまたは他Agentへ本文を返す場合に選ぶ"), content: AgentContent.describe("相手へそのまま配送する最終応答。内部判断や管理情報を含めず、personaの発話表現を適用する") }).describe("相手へ通常の応答を配送するAction"),
+  z.object({ type: z.literal("respond").describe("現在の会話相手または共有channelへ本文を返す場合に選ぶ"), content: AgentContent.describe("現在の配送先へそのまま配送する最終応答。内部判断や管理情報を含めず、personaの発話表現を適用する"), peer: PeerResponseSchema.optional() }).describe("現在の相手への通常応答または共有発話。peerは必要なときだけ併記する"),
   z.object({
     type: z.literal("refuse").describe("依頼を拒否し、その旨を相手へ返す場合に選ぶ"),
     content: AgentContent.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),
