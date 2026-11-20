@@ -63,7 +63,7 @@ export const DeepAgentToolRunContextSchema = z.object({
   agentId: z.string().min(1),
   runId: z.string().min(1),
   eventId: z.string().min(1),
-  eventKind: z.enum(["user-message", "tool-result", "time", "external", "internal", "system"]).optional(),
+  eventKind: z.enum(["message-received", "user-message", "tool-result", "time", "external", "internal", "system"]).optional(),
   eventTargetKind: z.string().min(1).optional(),
   maxModelCalls: z.number().int().positive(),
   maxExplorationModelCalls: z.number().int().nonnegative(),

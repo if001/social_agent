@@ -5,11 +5,12 @@ import { modelObservationForAgentCore, observationFromEvent } from "../../src/in
 
 describe("domain contracts", () => {
   it("FR-77: keeps transport actor identity only in the audit observation", () => {
-    const audit = observationFromEvent({ id: "event-peer", agentId: "shiro", kind: "user-message", occurredAt: "2026-01-01T00:00:00Z", payload: { text: "hello", actorId: "discord-peer-id", actorType: "agent", sourceType: "discord", sourceId: "discord-channel-id" } });
+    const audit = observationFromEvent({ id: "event-peer", agentId: "shiro", kind: "message-received", occurredAt: "2026-01-01T00:00:00Z", payload: { text: "hello", senderKind: "peer", addressing: "observed", actorId: "discord-peer-id", actorType: "agent", sourceType: "discord", sourceId: "discord-channel-id", subjectId: "agent:aka" } });
     const model = modelObservationForAgentCore(audit);
     expect(audit).toMatchObject({ actor: { id: "discord-peer-id" }, source: { id: "discord-channel-id" } });
-    expect(model).not.toHaveProperty("actor"); expect(model.source).toEqual({ type: "discord", direct: true });
-    expect(JSON.stringify(model)).not.toContain("discord-peer-id"); expect(JSON.stringify(model)).not.toContain("discord-channel-id");
+    expect(model).not.toHaveProperty("actor"); expect(model.source).toEqual({ type: "discord", direct: false });
+    expect(model.content).toEqual({ senderKind: "peer", addressing: "observed" });
+    expect(JSON.stringify(model)).not.toContain("discord-peer-id"); expect(JSON.stringify(model)).not.toContain("discord-channel-id"); expect(JSON.stringify(model)).not.toContain("agent:aka");
   });
 
   it("FR-17, FR-18, FR-19, FR-21: represents every action", () => {
@@ -92,7 +93,7 @@ describe("domain contracts", () => {
   });
 
   it("FR-1, FR-3: maps every Event kind to an objective, provenance-aware Observation", () => {
-    for (const kind of ["user-message", "tool-result", "time", "external", "internal", "system"] as const) {
+    for (const kind of ["message-received", "user-message", "tool-result", "time", "external", "internal", "system"] as const) {
       const observation = observationFromEvent({ id: `event-${kind}`, agentId: "a", kind, occurredAt: "2026-01-01T00:00:00Z", payload: { text: "reported fact", actorId: "actor", actorType: kind === "external" ? "agent" : "human", sourceType: kind === "external" ? "agent" : "terminal", provenance: { channel: "test" } }, causationId: "cause", correlationId: "correlation" });
       expect(observation).toMatchObject({ kind, actor: { id: "actor" }, causationId: "cause", correlationId: "correlation", content: { text: "reported fact" } });
       expect(observation.source?.direct).toBe(kind !== "external" && kind !== "tool-result");

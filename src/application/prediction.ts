@@ -19,7 +19,7 @@ export type PredictionModelInput = {
 
 export interface PredictionRepository {
   save(record: PredictionRecord): Promise<void>;
-  latest(agentId: string): Promise<PredictionRecord | undefined>;
+  latest(agentId: string, subjectId?: string): Promise<PredictionRecord | undefined>;
   context(agentId: string): Promise<PredictionContext | undefined>;
 }
 

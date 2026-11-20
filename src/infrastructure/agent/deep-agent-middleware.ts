@@ -42,7 +42,7 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
         if (name === "read_file") return false;
         if (name === undefined) return true;
         if (!registeredToolNames.has(name)) return allowUnregisteredTools;
-        if (context.eventKind === "user-message" && userMessageHiddenToolNames.has(name)) return false;
+        if ((context.eventKind === "message-received" || context.eventKind === "user-message") && userMessageHiddenToolNames.has(name)) return false;
         if (context.collector.focusConcernAcquired && ["concern_list", "concern_get"].includes(name)) return false;
         return true;
       });
@@ -75,11 +75,11 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
     },
     wrapToolCall: async (request, handler) => {
       const context = DeepAgentToolRunContextSchema.parse(request.runtime.context);
-      if (context.eventKind === "user-message" && userMessageHiddenToolNames.has(request.toolCall.name)) {
+      if ((context.eventKind === "message-received" || context.eventKind === "user-message") && userMessageHiddenToolNames.has(request.toolCall.name)) {
         context.collector.count += 1;
         const callId = `tool-${String(context.collector.count)}`;
         const occurredAt = now().toISOString();
-        const error = `Tool is not available for user-message: ${request.toolCall.name}`;
+        const error = `Tool is not available for message-received: ${request.toolCall.name}`;
         context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name: request.toolCall.name, input: request.toolCall.args, ok: false, error, startedAt: occurredAt, finishedAt: occurredAt });
         baseLogger.child({ agentId: context.agentId, eventId: context.eventId, runId: context.runId, toolCallId: callId, toolName: request.toolCall.name }).log("warn", "tool.completed", { ok: false, errorCode: "TOOL_NOT_AVAILABLE" });
         return new ToolMessage({ content: JSON.stringify({ ok: false, errorCode: "TOOL_NOT_AVAILABLE", error, requiredNextStep: "Use only a currently available Tool, or return the final Action." }), tool_call_id: request.toolCall.id ?? callId, name: request.toolCall.name, status: "error" });

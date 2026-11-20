@@ -1,10 +1,10 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { PredictionRecord, PredictionRepository } from "../../application/prediction.js";
 import { normalizeLegacyPredictionOutput } from "../../application/legacy-prediction-normalization.js";
 import { PredictionContextSchema, PredictionOutputSchema, type PredictionContext } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agentRuns, events, predictionEvaluations, predictionRecords } from "./schema.js";
+import { agentRuns, events, eventSubjects, predictionEvaluations, predictionRecords } from "./schema.js";
 
 type Row = {
   id: string;
@@ -74,7 +74,7 @@ export class PostgresPredictionRepository implements PredictionRepository {
     });
   }
 
-  private async rows(agentId: string, limit: number): Promise<readonly Row[]> {
+  private async rows(agentId: string, limit: number, subjectId?: string): Promise<readonly Row[]> {
     const resolvedAgentId = sql<string>`coalesce(${events.agentId}, ${predictionRecords.agentId})`;
     return this.database.db.select({
       id: predictionRecords.id,
@@ -86,13 +86,14 @@ export class PostgresPredictionRepository implements PredictionRepository {
     }).from(predictionRecords)
       .leftJoin(agentRuns, eq(agentRuns.id, predictionRecords.sourceRunId))
       .leftJoin(events, eq(events.id, agentRuns.eventId))
-      .where(eq(resolvedAgentId, agentId))
+      .leftJoin(eventSubjects, eq(eventSubjects.eventId, predictionRecords.sourceEventId))
+      .where(subjectId === undefined ? eq(resolvedAgentId, agentId) : and(eq(resolvedAgentId, agentId), eq(eventSubjects.subjectId, subjectId)))
       .orderBy(desc(predictionRecords.createdAt), desc(predictionRecords.id))
       .limit(limit);
   }
 
-  async latest(agentId: string): Promise<PredictionRecord | undefined> {
-    const row = (await this.rows(agentId, 1))[0];
+  async latest(agentId: string, subjectId?: string): Promise<PredictionRecord | undefined> {
+    const row = (await this.rows(agentId, 1, subjectId))[0];
     return row === undefined ? undefined : toRecord(row);
   }
 

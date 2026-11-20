@@ -252,9 +252,9 @@ describe("AgentHarness contract", () => {
     expect(created).toBe(1);
     expect(JSON.stringify(AgentCoreModelOutputJsonSchema)).not.toContain('"pattern"');
     const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
-    expect(Object.keys(modelProperties)).toHaveLength(7);
+    expect(Object.keys(modelProperties)).toHaveLength(9);
     expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
-    expect(modelProperties).toMatchObject({ meaning: { maxLength: 800 }, feeling: { maxLength: 160 }, desire: { maxLength: 800 }, content: { maxLength: 6_000 }, reason: { maxLength: 800 } });
+    expect(modelProperties).toMatchObject({ meaning: { maxLength: 800 }, feeling: { maxLength: 160 }, desire: { maxLength: 800 }, content: { maxLength: 6_000 }, peerName: { maxLength: 120 }, peerContent: { maxLength: 6_000 }, reason: { maxLength: 800 } });
     expect(modelProperties).not.toHaveProperty("mood"); expect(modelProperties).not.toHaveProperty("rememberContent");
     expect(modelProperties).not.toHaveProperty("concernOperation");
   });

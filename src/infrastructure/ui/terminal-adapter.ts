@@ -7,7 +7,7 @@ export class TerminalAdapter {
   constructor(private readonly queue: MessageQueue, private readonly clock: Clock, private readonly ids: IdGenerator, readonly destination = "terminal") {}
   async send(agentId: string, text: string): Promise<string> {
     const now = this.clock.now(); const id = this.ids.next();
-    await this.queue.publish({ id, destination: agentId, source: this.destination, replyTo: this.destination, sentAt: now.toISOString(), availableAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "user-message", text } });
+    await this.queue.publish({ id, destination: agentId, source: this.destination, replyTo: this.destination, sentAt: now.toISOString(), availableAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), attempt: 0, hop: 0, payload: { type: "message-received", text, senderKind: "human", addressing: "direct", sourceType: "terminal" } });
     return id;
   }
   receive(handler: (message: TerminalMessage) => Promise<void>, signal: AbortSignal): Promise<void> {

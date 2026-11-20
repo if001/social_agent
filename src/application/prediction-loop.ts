@@ -34,14 +34,15 @@ export class PredictionLoop implements PredictionService {
   constructor(private readonly options: PredictionLoopOptions) {}
 
   async afterResponse(input: PredictionServiceInput, signal: AbortSignal): Promise<void> {
-    if (input.event.kind !== "user-message") return;
+    if (input.event.kind !== "message-received" || input.event.payload.addressing !== "direct") return;
     const logger = (this.options.logger ?? noopLogger).child({ agentId: input.event.agentId, eventId: input.event.id, runId: input.input.run.runId });
     if (signal.aborted) return;
     let remaining = this.options.limits.maxAttempts;
     while (remaining > 0) {
       remaining -= 1;
       try {
-        const previous = await this.options.repository.latest(input.event.agentId);
+        const subjectId = typeof input.event.payload.subjectId === "string" ? input.event.payload.subjectId : undefined;
+        const previous = await this.options.repository.latest(input.event.agentId, subjectId);
         const memoryCandidates = this.options.retrieval === undefined ? [] : await this.options.retrieval.retrieve({ agentId: input.event.agentId, query: input.input.observation.summary, scope: "all", limit: 5 }).catch((error: unknown) => {
           logger.log("warn", "prediction.retrieval_failed", errorLogContext(error));
           return [];

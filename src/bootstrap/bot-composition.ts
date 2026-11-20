@@ -100,7 +100,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name)),
     maxRepairs: 2
   });
-  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler, experienceIntegration });
+  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler, experienceIntegration, peers: config.peers.peers, subjects });
   runtimeRef.current = runtime;
   const reflection = new TargetedReflection(new PostgresReflectionRepository(database, ids, () => clock.now(), memoryUpdateSink, memoryEmbedding, { staleAfterMs: config.schedulerTimings.concernStaleAfterMs, minReflectionSessions: config.schedulerTimings.concernStaleMinReflectionSessions }), new OllamaTargetedReflectionModel(config.chat, logger, toolRegistry));
   const router = new AgentEventRouter(runtime);
