@@ -11,6 +11,13 @@ describe("canonical user subject", () => {
     expect(resolver.actorIdsFor(userMainSubjectId)).toEqual(["discord-owner"]);
   });
 
+  it("FR-88: gives an allowlisted agent a stable, non-human subject", () => {
+    const resolver = createCanonicalSubjectResolver(["discord-owner"], [{ agentId: "aka", displayName: "アカ", discordUserId: "discord-aka", channelId: "channel" }]);
+    expect(resolver.resolve({ id: "discord-aka", type: "agent" })).toBe("agent:aka");
+    expect(resolver.resolve({ id: "discord-unknown", type: "agent" })).toBeUndefined();
+    expect(resolver.actorIdsFor("agent:aka")).toEqual(["discord-aka"]);
+  });
+
   it("FR-6, FR-82: permits only compact current Self and Relationship state", () => {
     expect(CurrentSelfStorySchema.safeParse("あ".repeat(600)).success).toBe(true);
     expect(CurrentSelfStorySchema.safeParse("あ".repeat(601)).success).toBe(false);

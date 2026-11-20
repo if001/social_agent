@@ -31,8 +31,8 @@ describe("ST-02 Discord round trip", () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() });
     const gatewayA = new Gateway(); const gatewayB = new Gateway();
     const common = { queue, clock, ids: new SequenceIdGenerator([]), ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) };
-    const adapterA = new DiscordAdapter({ ...common, gateway: gatewayA, agentId: "agent-a", botUserId: "bot-a", queueDestination: "discord:a" });
-    const adapterB = new DiscordAdapter({ ...common, gateway: gatewayB, agentId: "agent-b", botUserId: "bot-b", queueDestination: "discord:b" });
+    const adapterA = new DiscordAdapter({ ...common, gateway: gatewayA, agentId: "agent-a", botUserId: "bot-a", peerDiscordUserIds: new Set(["bot-b"]), queueDestination: "discord:a" });
+    const adapterB = new DiscordAdapter({ ...common, gateway: gatewayB, agentId: "agent-b", botUserId: "bot-b", peerDiscordUserIds: new Set(["bot-a"]), queueDestination: "discord:b" });
     const controller = new AbortController(); const inboundA = adapterA.startInbound(controller.signal); const inboundB = adapterB.startInbound(controller.signal);
     const humanMessage = { id: "human-a", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", content: "<@bot-a> hello A", createdAt: clock.now() };
     const botMessage = { id: "bot-a-to-b", authorId: "bot-a", isBot: true, guildId: "guild", channelId: "channel", content: "<@bot-b> hello B", createdAt: clock.now() };

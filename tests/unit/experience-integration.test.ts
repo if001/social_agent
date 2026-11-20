@@ -51,6 +51,14 @@ describe("ExperienceIntegration", () => {
     expect(memorySubjectsForIntegration(request, (applied[0] as { memories: [] }).memories, subjects)).toEqual([["user-main"]]);
   });
 
+  it("FR-82, FR-88: attaches an allowlisted peer only to the owning agent's self experience", () => {
+    const request = input(); request.input.observation = { ...request.input.observation };
+    const subjects = createCanonicalSubjectResolver(["user-1"], [{ agentId: "aka", displayName: "アカ", discordUserId: "discord-aka", channelId: "channel" }]);
+    const actor = { id: "discord-aka", type: "agent" as const };
+    expect(memorySubjectsForIntegration(request, [{ perspective: "self" }], subjects, actor)).toEqual([["agent:aka"]]);
+    expect(memorySubjectsForIntegration(request, [{ perspective: "user" }], subjects, actor)).toEqual([["agent:aka"]]);
+  });
+
   it("AC-017-3: records an Integration failure without changing the already committed runtime result", async () => {
     const request = input(); const failed: unknown[] = [];
     const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: () => Promise.resolve(), fail: (_input, error) => { failed.push(error); return Promise.resolve(); } }, { integrate: () => Promise.reject(new Error("provider unavailable")) });

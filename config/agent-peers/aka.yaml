@@ -1,0 +1,7 @@
+version: 1
+agentId: aka
+peers:
+  - agentId: shiro
+    displayName: シロ
+    discordUserId: "1558497699135881278"
+    channelId: "1461247669602222180"

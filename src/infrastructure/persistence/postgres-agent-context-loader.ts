@@ -38,13 +38,14 @@ export type PostgresAgentContextLoaderOptions = {
 function text(value: unknown): string | undefined { return typeof value === "string" && value.trim() !== "" ? value : undefined; }
 const boundedText = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
 function recentObservation(value: Observation): RecentObservation {
-  const facts = value.facts.filter((fact) => fact !== value.summary).slice(0, 4).map((fact) => boundedText(fact, 240));
-  const raw = typeof value.content === "object" && value.content !== null ? value.content as Record<string, unknown> : {};
-  const schedulerContent = value.source?.type === "scheduler" ? {
+  const visible = modelObservationForAgentCore(value);
+  const facts = visible.facts.filter((fact) => fact !== visible.summary).slice(0, 4).map((fact) => boundedText(fact, 240));
+  const raw = typeof visible.content === "object" && visible.content !== null ? visible.content as Record<string, unknown> : {};
+  const schedulerContent = visible.source?.type === "scheduler" ? {
     ...(typeof raw.targetKind === "string" ? { targetKind: raw.targetKind } : {}),
     ...(Array.isArray(raw.explorationCandidates) ? { explorationCandidates: raw.explorationCandidates.filter((item): item is string => typeof item === "string").slice(0, 8).map((item) => boundedText(item, 120)) } : {})
   } : undefined;
-  return { summary: boundedText(value.summary, 800), facts, ...(value.kind === undefined ? {} : { kind: value.kind }), ...(value.actor === undefined ? {} : { actor: value.actor }), ...(value.source === undefined ? {} : { source: value.source }), ...(schedulerContent === undefined ? {} : { scheduler: schedulerContent }) };
+  return { summary: boundedText(visible.summary, 800), facts, ...(visible.kind === undefined ? {} : { kind: visible.kind }), ...(visible.source === undefined ? {} : { source: visible.source }), ...(schedulerContent === undefined ? {} : { scheduler: schedulerContent }) };
 }
 function recentAction(value: ReturnType<typeof FinalActionSchema.parse>): ReturnType<typeof FinalActionSchema.parse> {
   if (value.type === "respond") return { ...value, content: boundedText(value.content, 1_000) };
@@ -98,12 +99,25 @@ export function observationFromEvent(event: DomainEvent): Observation {
   return { eventId: event.id, summary, facts, observedAt: event.occurredAt, kind: event.kind, ...(actorId === undefined ? {} : { actor: { id: actorId, type: actorType ?? "unknown" } }), source: { type: sourceType, ...(typeof event.payload.sourceId === "string" ? { id: event.payload.sourceId } : {}), direct: event.kind !== "external" && event.kind !== "tool-result" }, content: event.payload, context: { transport: event.payload.transport ?? null }, ...(provenance === undefined ? {} : { provenance }), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) };
 }
 
+/** Event audit keeps transport identifiers; Agent Core only receives their semantic view. */
+/** Removes transport identities and audit-only payload from the Agent Core view. */
+export function modelObservationForAgentCore(value: Observation): Observation {
+  const scheduler = typeof value.content === "object" && value.content !== null
+    ? (() => { const raw = value.content as Record<string, unknown>; return value.source?.type === "scheduler" && typeof raw.targetKind === "string" ? { targetKind: raw.targetKind } : undefined; })()
+    : undefined;
+  return ObservationSchema.parse({ eventId: value.eventId, summary: value.summary, facts: value.facts.filter((fact) => !fact.startsWith("送信元Agent:")), observedAt: value.observedAt,
+    ...(value.kind === undefined ? {} : { kind: value.kind }),
+    ...(value.source === undefined ? {} : { source: { type: value.source.type, direct: value.source.direct } }),
+    ...(scheduler === undefined ? {} : { content: scheduler }) });
+}
+
 export class PostgresAgentContextLoader {
   readonly #builder: ContextBuilder;
   constructor(private readonly options: PostgresAgentContextLoaderOptions) { this.#builder = new ContextBuilder(options.logger); }
 
   async load(event: DomainEvent): Promise<RuntimeExecutionInput> {
-    const observation = observationFromEvent(event);
+    const auditedObservation = observationFromEvent(event);
+    const observation = modelObservationForAgentCore(auditedObservation);
     const agent = (await this.options.database.db.select({
       id: agents.id, family_id: agents.familyId, identity: agents.identity,
       initial_disposition: agents.initialDisposition, active: agents.active,

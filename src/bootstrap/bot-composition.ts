@@ -36,7 +36,6 @@ import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-dat
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
 import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
 import { noopLogger, type Logger } from "../observability/logger.js";
-import { createAgentSendTool } from "../infrastructure/tools/agent-send-tool.js";
 import { createFileTools } from "../infrastructure/tools/file-tools.js";
 import { createSkillTools } from "../infrastructure/tools/skill-tools.js";
 import { createWebTools } from "../infrastructure/tools/web-tools.js";
@@ -66,7 +65,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const predictionRepository = new PostgresPredictionRepository(database);
   const memoryUpdateHandler = new MemoryUpdateHandler(new PostgresMemoryUpdateRepository(database, ids, () => clock.now(), retrievalService, memoryEmbedding));
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
-  const subjects = createCanonicalSubjectResolver(config.discord?.ownerIds ?? []);
+  const subjects = createCanonicalSubjectResolver(config.discord?.ownerIds ?? [], config.peers.peers);
   const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding, subjects), createOllamaExperienceIntegrationModel(config.chat, logger), subjects), ids);
   const runtimeRef: { current?: AgentRuntime } = {};
   const fallbackG3Result: G3ResultSink = new MemoryG3ResultSink();
@@ -80,12 +79,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     ...createWebTools(config.web.baseUrl, { archive: webArchive }),
     ...createFileTools({ readRoots: config.fileReadRoots, writeRoots: config.fileWriteRoots }),
     ...createSkillTools({ skillsRoot: resolve(process.cwd(), "skills") }),
-    ...createScheduledTaskTools(new PostgresScheduledTaskToolRepository(database), ids, () => clock.now()),
-    createAgentSendTool({ queue, clock, maxHops: limits.maxHops, provenance: (context) => ({
-      parentHop: context.transport?.hop ?? 0,
-      expiresAt: context.transport?.expiresAt ?? new Date(clock.now().getTime() + 86_400_000).toISOString(),
-      ...(context.transport?.replyTo === undefined ? {} : { replyTo: context.transport.replyTo })
-    }) })
+    ...createScheduledTaskTools(new PostgresScheduledTaskToolRepository(database), ids, () => clock.now())
   ];
   const toolRegistry = new ToolRegistry(configuredTools);
   const g3Service = new G3Service(new PostgresG3TaskRepository(database, config.botId), createOllamaG3Model({ ...config.chat, toolRegistry }), g3ResultSink, ids, () => clock.now(), config.runDeadlineMs, config.runDeadlineMs, 3);

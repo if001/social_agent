@@ -14,6 +14,12 @@ import { agentRuns, eventExperiences, eventProjections, eventSubjects, events, e
 type PendingIntegrationRow = { id: string; agent_id: string; source_event_id: string; source_run_id: string; kind: DomainEvent["kind"]; occurred_at: Date; observation: Record<string, unknown>; input_snapshot: unknown; result: Record<string, unknown> };
 const experienceContent = (experience: { readonly summary: string; readonly facts: readonly string[] }) => `${experience.summary}\n${experience.facts.join("\n")}`;
 const experienceHash = (experience: { readonly summary: string; readonly facts: readonly string[] }) => createHash("sha256").update(experienceContent(experience)).digest("hex");
+const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: "human" | "agent" | "tool" | "system" | "unknown" } | undefined => {
+  const actorId = typeof event.payload.actorId === "string" ? event.payload.actorId : typeof event.payload.senderAgentId === "string" ? event.payload.senderAgentId : undefined;
+  const type = event.payload.actorType;
+  const actorType: "human" | "agent" | "tool" | "system" | "unknown" = type === "human" || type === "agent" || type === "tool" || type === "system" ? type : "unknown";
+  return actorId === undefined ? undefined : { id: actorId, type: actorType };
+};
 
 /** Removes the short-lived RuntimeExecutionInput extension written before C-23's boundary was enforced. */
 function parseDecisionInput(value: unknown) {
@@ -44,7 +50,7 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       let nextRelationships = relationships; let nextMood = row.mood;
       const changes: { target: string; operation: string; before: unknown; after: unknown }[] = [];
       if (output.mood !== undefined && output.mood !== row.mood) { nextMood = output.mood; changes.push({ target: "mood", operation: "set", before: row.mood, after: nextMood }); }
-      const actor = input.input.observation.actor;
+      const actor = sourceActor(input.sourceEvent);
       const subjectId = this.subjects?.resolve(actor);
       if (output.relationship !== undefined && subjectId !== undefined) {
         const before = relationships;
@@ -62,7 +68,7 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       }
       if (changes.length > 0) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships });
       if (changes.length > 0) await client.insert(stateChanges).values(changes.map((change) => ({ id: this.ids.next(), runId: input.sourceRunId, target: change.target, operation: change.operation, before: change.before, after: change.after, reason: "Experience Integration", evidenceIds: [input.sourceEvent.id] })));
-      const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories, this.subjects);
+      const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories, this.subjects, actor);
       for (const [index, candidate] of output.memories.entries()) {
         const intent: MemoryIntent = { ...candidate, evidenceEventIds: [input.sourceEvent.id], confidence: "medium", purpose: candidate.perspective === "user" ? "user-context" : "self-guidance" };
         const options: MemoryWriteOptions = { sourceEventId: input.sourceEvent.id, sourceRunId: input.sourceRunId, sourceKind: "experience-integration", sourceId: input.integrationId, intentIndex: 10_000 + index, subjectIds: subjects[index] ?? [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) };
@@ -98,7 +104,7 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
   async repairEventExperience(input: ExperienceIntegrationInput, value: unknown): Promise<void> {
     const experience = EventExperienceSchema.parse(value);
     const embedded = this.embedding === undefined ? undefined : await this.embedding.prepareMemory(experienceContent(experience));
-    const subjectId = this.subjects?.resolve(input.input.observation.actor);
+    const subjectId = this.subjects?.resolve(sourceActor(input.sourceEvent));
     const subjects = subjectId === undefined ? [] : [subjectId];
     const status = embedded?.status ?? "pending";
     await this.database.transaction(async (client) => {
