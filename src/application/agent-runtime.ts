@@ -8,6 +8,7 @@ import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 import type { AgentPeer } from "../config/agent-peers.js";
 import type { CanonicalSubjectResolver } from "./canonical-subject.js";
+import type { ObservationGate, ObservationGateAudit } from "./observation-gate.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("message-received"), text: z.string().min(1), senderKind: z.enum(["human", "peer"]), addressing: z.enum(["direct", "observed"]), actorId: z.string().min(1).optional(), peerName: z.string().min(1).max(120).optional(), sourceType: z.enum(["terminal", "discord"]).optional(), sourceId: z.string().min(1).optional(), replyContext: z.record(z.string(), z.unknown()).optional() }),
@@ -24,14 +25,17 @@ export type RuntimeExecutionInput = AgentCoreInput & { readonly persistentState:
 export interface RuntimePersistence {
   hasReceipt(destination: string, messageId: string): Promise<boolean>;
   loadInput(event: DomainEvent): Promise<AgentCoreInput | RuntimeExecutionInput>;
-  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], subjectIds?: readonly string[]): Promise<"committed" | "duplicate">;
-  recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[]): Promise<void>;
+  claimObservationGate(destination: string, messageId: string): Promise<boolean>;
+  releaseObservationGate(destination: string, messageId: string): Promise<void>;
+  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], subjectIds?: readonly string[], observationGate?: ObservationGateAudit, receiptPreclaimed?: boolean): Promise<"committed" | "duplicate">;
+  recordIgnoredObservation(message: MessageEnvelope, event: DomainEvent, gate: ObservationGateAudit, subjectIds?: readonly string[], receiptPreclaimed?: boolean): Promise<"committed" | "duplicate">;
+  recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[], observationGate?: ObservationGateAudit): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
   markOutboxSent(id: string): Promise<void>;
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly peers?: readonly AgentPeer[]; readonly subjects?: CanonicalSubjectResolver };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly peers?: readonly AgentPeer[]; readonly subjects?: CanonicalSubjectResolver };
 
 const externalSpeech = (action: AgentAction): string | undefined => (action.type === "respond" ? action.content : action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined);
 
@@ -120,6 +124,17 @@ export class AgentRuntime {
     const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind, occurredAt: payload.type === "time-event" && payload.scheduledFor !== undefined ? payload.scheduledFor : this.options.now().toISOString(), payload: { ...eventPayload, ...(subjectId === undefined ? {} : { subjectId }) }, causationId: actionCause, correlationId: inheritedCorrelation };
     logger.log("info", "event.created", { eventId: event.id, eventKind: event.kind, correlationId: inheritedCorrelation });
     await this.options.persistence.authorizeInbound(event, message.id, this.options.maxEventsPerMinute ?? 60);
+    const isObservedPeer = event.payload.senderKind === "peer" && event.payload.addressing === "observed" && this.options.observationGate !== undefined;
+    if (isObservedPeer && !await this.options.persistence.claimObservationGate(message.destination, message.id)) { logger.log("info", "observation_gate.duplicate_skipped"); return; }
+    const gate = isObservedPeer ? await this.options.observationGate!.decide(event, signal) : undefined;
+    if (gate !== undefined) {
+      logger.log("info", "observation_gate.completed", { eventId: event.id, decision: gate.decision, modelCalls: gate.modelCalls, retrievalCount: gate.retrievalCount, ...(gate.failureReason === undefined ? {} : { failureReason: gate.failureReason }) });
+      if (gate.decision === "ignore") {
+        const subject = typeof event.payload.subjectId === "string" ? event.payload.subjectId : undefined;
+        await this.options.persistence.recordIgnoredObservation(message, event, gate, subject === undefined ? [] : [subject], true);
+        return;
+      }
+    }
     const direct = event.payload.addressing !== "observed";
     const outgoingDestination = direct ? message.replyTo ?? this.options.defaultOutputDestination : this.options.defaultOutputDestination;
     const peerReply = event.payload.senderKind === "peer" && event.payload.addressing === "direct";
@@ -135,9 +150,13 @@ export class AgentRuntime {
       }
       return values;
     };
-    await this.#execute(message, event, signal, outgoing);
+    try { await this.#execute(message, event, signal, outgoing, gate, isObservedPeer); }
+    catch (error) {
+      if (isObservedPeer) await this.options.persistence.releaseObservationGate(message.destination, message.id);
+      throw error;
+    }
   }
-  async #execute(message: MessageEnvelope, event: DomainEvent, signal: AbortSignal, outgoingFor: readonly MessageEnvelope[] | ((action: AgentAction, input: AgentCoreInput) => readonly MessageEnvelope[])): Promise<AgentAction> {
+  async #execute(message: MessageEnvelope, event: DomainEvent, signal: AbortSignal, outgoingFor: readonly MessageEnvelope[] | ((action: AgentAction, input: AgentCoreInput) => readonly MessageEnvelope[]), observationGate?: ObservationGateAudit, receiptPreclaimed = false): Promise<AgentAction> {
     const startedAt = Date.now(); const eventLogger = (this.options.logger ?? noopLogger).child({ agentId: event.agentId, messageId: message.id, eventId: event.id, eventKind: event.kind, correlationId: event.correlationId });
     if (event.payload.targetKind === "memory-update") {
       if (this.options.memoryUpdateHandler === undefined) throw new DomainError("VALIDATION", "MemoryUpdateHandler is not configured");
@@ -163,7 +182,7 @@ export class AgentRuntime {
     }
     catch (error) {
       const toolExecutions = error instanceof DomainError && typeof error.cause === "object" && error.cause !== null && "toolExecutions" in error.cause && Array.isArray(error.cause.toolExecutions) ? error.cause.toolExecutions as ToolExecutionRecord[] : [];
-      await this.options.persistence.recordFailure(message, event, input, error, toolExecutions);
+      await this.options.persistence.recordFailure(message, event, input, error, toolExecutions, observationGate);
       logger.log("error", "agent_core.failed", { ...errorLogContext(error), elapsedMs: Date.now() - startedAt, toolExecutionCount: toolExecutions.length });
       throw error;
     }
@@ -173,7 +192,7 @@ export class AgentRuntime {
     const update = this.#updates.applyConcernProposals(patched, result.concernProposals ?? [], event.id, () => this.options.ids.next());
     const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
     const subject = typeof event.payload.subjectId === "string" ? event.payload.subjectId : undefined;
-    const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing, subject === undefined ? [] : [subject]);
+    const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing, subject === undefined ? [] : [subject], observationGate, receiptPreclaimed);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
     if (committed === "committed" && this.options.experienceIntegration !== undefined) {
       try { await this.options.experienceIntegration.enqueue({ agentId: event.agentId, sourceEvent: event, sourceRunId: input.run.runId, input, result }); }

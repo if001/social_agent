@@ -987,6 +987,27 @@ describeDatabase("PostgreSQL persistence", () => {
     }
   });
 
+  it("FR-91, NFR-8: records an ignored peer observation without a Run or Projection", async () => {
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const message = messageFixture({ id: "gate-ignore-message", destination: "agent:a" });
+    const event = { id: "gate-ignore-event", agentId: "a", kind: "message-received" as const, occurredAt: fixtureInstant, payload: { text: "独り言", senderKind: "peer", addressing: "observed", peerName: "aka", subjectId: "agent:aka" } };
+    await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "関心と接続しない", input: { text: "独り言", peerName: "aka", concerns: [], memories: [] }, modelCalls: 1, retrievalCount: 1 }, ["agent:aka"])).resolves.toBe("committed");
+    await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "duplicate", modelCalls: 1, retrievalCount: 0 }, ["agent:aka"])).resolves.toBe("duplicate");
+    expect((await pool.query<{ status: string }>("SELECT status FROM events WHERE id='gate-ignore-event'")).rows).toEqual([{ status: "completed" }]);
+    expect((await pool.query("SELECT 1 FROM agent_runs WHERE event_id='gate-ignore-event'")).rowCount).toBe(0);
+    expect((await pool.query<{ decision: string; retrieval_count: number; text: string }>("SELECT decision,retrieval_count,input->>'text' AS text FROM observation_gate_decisions WHERE event_id='gate-ignore-event'")).rows).toEqual([{ decision: "ignore", retrieval_count: 1, text: "独り言" }]);
+    expect((await pool.query("SELECT 1 FROM event_projections WHERE event_id='gate-ignore-event'")).rowCount).toBe(0);
+  });
+
+  it("FR-91, NFR-8: claims an observed peer post once across Runtime instances and releases a failed claim", async () => {
+    const first = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const second = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    await expect(first.claimObservationGate("agent:a", "gate-claim-message")).resolves.toBe(true);
+    await expect(second.claimObservationGate("agent:a", "gate-claim-message")).resolves.toBe(false);
+    await first.releaseObservationGate("agent:a", "gate-claim-message");
+    await expect(second.claimObservationGate("agent:a", "gate-claim-message")).resolves.toBe(true);
+  });
+
   it("FR-15, NFR-8: records Tool side effects when final Agent output fails without marking the message complete", async () => {
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     const input = agentCoreInputFixture();

@@ -55,6 +55,7 @@ export type EventListItem = {
   readonly finishedAt: Date | null;
   readonly failureReason: string | null;
   readonly result: unknown;
+  readonly observationGate: Record<string, unknown> | null;
 };
 
 export type EventTrace = {
@@ -71,6 +72,7 @@ export type EventTrace = {
   readonly outbox: readonly Record<string, unknown>[];
   readonly derivedEvents: readonly Record<string, unknown>[];
   readonly concernActivities: readonly Record<string, unknown>[];
+  readonly observationGate: Record<string, unknown> | undefined;
 };
 
 export class DebugUiRepository {
@@ -123,12 +125,13 @@ export class DebugUiRepository {
     const bounded = Math.min(Math.max(limit, 1), 100);
     return this.query<EventListItem & QueryResultRow>(`SELECT e.id,e.agent_id AS "agentId",e.kind,
       CASE WHEN e.kind='internal' THEN e.observation#>>'{content,targetKind}' ELSE NULL END AS "internalKind",
-      e.observation,e.source,e.causation_id AS "causationId",e.correlation_id AS "correlationId",e.status,e.occurred_at AS "occurredAt",
-      r.id AS "runId",r.started_at AS "startedAt",r.finished_at AS "finishedAt",r.failure_reason AS "failureReason",r.result
+      e.observation,e.source,e.causation_id AS "causationId",e.correlation_id AS "correlationId",CASE WHEN g.decision='ignore' THEN 'ignored' ELSE e.status END AS status,e.occurred_at AS "occurredAt",
+      r.id AS "runId",r.started_at AS "startedAt",r.finished_at AS "finishedAt",r.failure_reason AS "failureReason",r.result,
+      CASE WHEN g.event_id IS NULL THEN NULL ELSE jsonb_build_object('decision',g.decision,'reason',g.reason,'input',g.input,'modelCalls',g.model_calls,'retrievalCount',g.retrieval_count,'failureReason',g.failure_reason,'createdAt',g.created_at) END AS "observationGate"
       FROM events e LEFT JOIN LATERAL (
         SELECT id,started_at,finished_at,failure_reason,result FROM agent_runs
         WHERE event_id=e.id AND agent_id=e.agent_id ORDER BY started_at DESC,id DESC LIMIT 1
-      ) r ON true
+      ) r ON true LEFT JOIN observation_gate_decisions g ON g.event_id=e.id
       WHERE e.agent_id=$1 AND e.kind<>'tool-result' ORDER BY e.occurred_at DESC,e.id DESC LIMIT $2`, [agentId, bounded]);
   }
 
@@ -140,7 +143,7 @@ export class DebugUiRepository {
     const runs = await this.query<QueryResultRow>(`SELECT id,agent_id AS "agentId",event_id AS "eventId",input_state_version AS "inputStateVersion",input_snapshot AS "inputSnapshot",result,failure_reason AS "failureReason",started_at AS "startedAt",finished_at AS "finishedAt"
       FROM agent_runs WHERE agent_id=$1 AND event_id=$2 ORDER BY started_at DESC,id DESC LIMIT 1`, [agentId, eventId]);
     const run = runs[0]; const runId = typeof run?.id === "string" ? run.id : undefined;
-    const [stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents, concernActivities] = await Promise.all([
+    const [stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents, concernActivities, gates] = await Promise.all([
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,target,operation,before,after,reason,evidence_ids AS "evidenceIds",created_at AS "createdAt" FROM state_changes WHERE run_id=$1 ORDER BY created_at,id`, [runId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,error IS NULL AS ok,started_at AS "startedAt",finished_at AS "finishedAt" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId]),
       this.query<QueryResultRow>(`SELECT id,memory_id AS "memoryId",operation,candidate_memory_id AS "candidateMemoryId",intent_index AS "intentIndex",intent,created_at AS "createdAt" FROM memory_mutations WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
@@ -155,9 +158,11 @@ export class DebugUiRepository {
       this.query<QueryResultRow>(`SELECT e.id,e.kind,e.status,e.source,e.observation,e.causation_id AS "causationId",e.correlation_id AS "correlationId",e.occurred_at AS "occurredAt",r.id AS "runId",r.failure_reason AS "failureReason"
         FROM events e LEFT JOIN LATERAL (SELECT id,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
         WHERE e.agent_id=$1 AND e.kind<>'tool-result' AND (e.causation_id=$2 OR ($3::text IS NOT NULL AND e.causation_id=$3)) ORDER BY e.occurred_at,e.id`, [agentId, eventId, runId ?? null]),
-      this.query<QueryResultRow>(`SELECT concern_id AS "concernId",kind,event_id AS "eventId",run_id AS "runId",reflection_id AS "reflectionId",evidence_memory_ids AS "evidenceMemoryIds",occurred_at AS "occurredAt" FROM concern_activities WHERE agent_id=$1 AND (event_id=$2 OR ($3::text IS NOT NULL AND run_id=$3)) ORDER BY occurred_at,id`, [agentId, eventId, runId ?? null])
+      this.query<QueryResultRow>(`SELECT concern_id AS "concernId",kind,event_id AS "eventId",run_id AS "runId",reflection_id AS "reflectionId",evidence_memory_ids AS "evidenceMemoryIds",occurred_at AS "occurredAt" FROM concern_activities WHERE agent_id=$1 AND (event_id=$2 OR ($3::text IS NOT NULL AND run_id=$3)) ORDER BY occurred_at,id`, [agentId, eventId, runId ?? null]),
+      this.query<QueryResultRow>(`SELECT decision,reason,input,model_calls AS "modelCalls",retrieval_count AS "retrievalCount",failure_reason AS "failureReason",created_at AS "createdAt" FROM observation_gate_decisions WHERE event_id=$1`, [eventId])
     ]);
-    return { event, run, stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents, concernActivities };
+    const observationGate = gates[0] as Record<string, unknown> | undefined;
+    return { event: observationGate === undefined ? event : { ...event, observationGate }, run, stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents, concernActivities, observationGate };
   }
 
   async getRun(agentId: string, runId: string): Promise<RunDetail | undefined> {

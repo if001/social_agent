@@ -58,12 +58,15 @@ describe("Agent Debug UI", () => {
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
     expect(calls.find(({ sql }) => sql.includes("FROM events e LEFT JOIN LATERAL"))?.values).toEqual(["ao", 100]);
     expect(calls.find(({ sql }) => sql.includes("FROM events e LEFT JOIN LATERAL"))?.sql).toContain("e.kind<>'tool-result'");
+    expect(calls.find(({ sql }) => sql.includes("FROM events e LEFT JOIN LATERAL"))?.sql).toContain("observation_gate_decisions");
+    expect(calls.find(({ sql }) => sql.includes("FROM events e LEFT JOIN LATERAL"))?.sql).toContain("THEN 'ignored'");
     expect(calls.find(({ sql }) => sql.includes("FROM events e LEFT JOIN LATERAL"))?.sql).toContain('e.agent_id AS "agentId"');
     expect(calls.find(({ sql }) => sql.includes("FROM memory_mutations m LEFT JOIN events"))?.values).toEqual(["ao", 1]);
     expect(calls.filter(({ sql }) => sql.includes("FROM agent_runs WHERE agent_id=$1 AND event_id=$2"))[0]?.values).toEqual(["ao", "event-1"]);
     expect(calls.find(({ sql }) => sql.includes("FROM tool_executions"))?.sql).toContain("error IS NULL AS ok");
     expect(calls.find(({ sql }) => sql.includes("FROM prediction_evaluations pe JOIN prediction_records"))?.values).toEqual(["ao", "event-1"]);
     expect(calls.find(({ sql }) => sql.includes("e.causation_id=$2"))?.sql).toContain("e.kind<>'tool-result'");
+    expect(calls.find(({ sql }) => sql.includes("FROM observation_gate_decisions WHERE event_id=$1"))?.values).toEqual(["event-1"]);
     expect(calls.filter(({ sql }) => sql.includes("source_event_id=$2")).every(({ values }) => values[0] === "ao" && values[1] === "event-1")).toBe(true);
   });
 
