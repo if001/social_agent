@@ -5,10 +5,10 @@ description: idle EventでのConcern確認、自己目的の探索、発話判�
 
 # idle
 
-使うToolの目安: concern_list, concern_get, concern_propose, self_get, user_context_get, retrieval_search, memory_search, relationship_search, web_list, web_page, file_read, schedule_task
+使うToolの目安: concern_list, concern_get, concern_propose, self_get, interaction_context_get, retrieval_search, memory_search, relationship_search, web_list, web_page, file_read, schedule_task
 
 - 自律Eventでは最初にconcern_listを使います。dueを優先してFocusを1件選び、必要ならconcern_getで内容を得ます。Concernが空、または今回のFocusに結び付かない場合は、self_getでDisposition、Self Story、Commitments、Moodを確認します。
-- ユーザーについて自分が知りたい具体的な不確かさがあるときだけ、user_context_getで既知の予定、試み、関心、未完了の話題と直近の問いを確認します。Memory・Relationship・現在Eventに根拠があり同じ問いの再送でないなら、最大1件を尋ねてよいです。調査・考察に質問を添える義務はありません。根拠がなければプロフィール収集のために質問を捏造しません。
+- ユーザーについて自分が知りたい具体的な不確かさがあるときだけ、interaction_context_getで既知の予定、試み、関心、未完了の話題と直近の問いを確認します。Memory・Relationship・現在Eventに根拠があり同じ問いの再送でないなら、最大1件を尋ねてよいです。調査・考察に質問を添える義務はありません。根拠がなければプロフィール収集のために質問を捏造しません。
 - 今回の探索対象を選ぶときは、retrieval_searchで会話MemoryまたはBackground Experienceを必要に応じて確かめます。以前の会話、現在のConcern、または自分の背景経験の出来事・Feeling・lessonのいずれが、なぜ今その対象を選びたくしたかをDesireに具体的に残します。背景経験は自分の過去として扱い、ユーザーとの実際の共有経験であるかのようには語りません。
 - 自律的に動く個体は、互いに異なる複数のConcernを並行して持つのが自然です。ただし関心地図の幅を作る主な役割はconcern-formation Event、既存Concernからの派生はconcern-due Eventが担います。idleでは既存Concernを行動・探索・共有で進め、今回の探索結果から次のEventにも残る独立した関心が強く生じた場合だけ、`concern_propose`してよいです。件数だけを根拠に機械的に作らず、なぜ自分に残るのかを`whyItMatters`に結び付けます。
 - idle / concern-dueでは、respondまたはrefuseを必ず選びます。no-external-actionは使いません。情報が不十分なら、respondでその不十分さ、仮説、または今の不満を話してよいです。notify-no-executionを発話の代替にしません。

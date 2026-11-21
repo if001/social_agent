@@ -508,7 +508,8 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const row = state[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
     const current = AgentStateSchema.parse({ concerns: [], relationships: row.relationships }).relationships;
     const changes: RelationshipChange[] = output.relationshipChanges.flatMap<RelationshipChange>((change) => {
-      const previous = current.find((relationship) => relationship.subjectId === userMainSubjectId && relationship.description === change.currentDescription);
+      const matches = current.filter((relationship) => relationship.description === change.currentDescription && (relationship.subjectId === userMainSubjectId || relationship.subjectId.startsWith("agent:")));
+      const previous = matches.length === 1 ? matches[0] : undefined;
       if (previous === undefined) return [];
       return change.operation === "remove"
         ? [{ operation: "remove" as const, subjectId: previous.subjectId }]

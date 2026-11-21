@@ -111,8 +111,8 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
       execute: (proposal) => success({ queued: true, proposal })
     },
     {
-      name: "user_context_get",
-      description: "対話相手について既に知っている事実、現在の関係、直近に尋ねた質問を小さく取得する。相手への質問前に重複と境界を確認する。",
+      name: "interaction_context_get",
+      description: "現在の対話相手について既に知っている事実、現在の関係、直近に尋ねた質問を小さく取得する。humanとallowlist peerのどちらにも現在Eventの相手だけを返す。相手への質問前に重複と境界を確認する。",
       schema: z.object({}).strict(),
       resultPolicy: { kind: "standard" },
       execute: async (_input: Record<string, never>, context) => {

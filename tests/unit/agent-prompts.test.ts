@@ -43,7 +43,7 @@ describe("Agent prompts", () => {
 
   it("FR-68: makes idle retain relational curiosity and ground exploration in experience", () => {
     expect(idleSkill).toContain("自分が知りたい具体的な不確かさ");
-    expect(idleSkill).not.toContain("idleごとにuser_context_getを使い");
+    expect(idleSkill).not.toContain("idleごとにinteraction_context_getを使い");
     expect(idleSkill).toContain("retrieval_searchで会話MemoryまたはBackground Experienceを必要に応じて確かめます");
     expect(idleSkill).toContain("背景経験は自分の過去として扱い");
     expect(completeAgentCoreSystemPrompt).toContain("Agent自身が知りたい具体的な不確かさ");
@@ -85,7 +85,7 @@ describe("Agent prompts", () => {
     expect(socialPrompt).toContain("継続して関係を築く具体的な相手");
     expect(socialPrompt).toContain("質問は一度に最大1件");
     expect(socialPrompt).toContain("プロフィール項目を順番に収集しません");
-    expect(socialPrompt).toContain("user_context_get");
+    expect(socialPrompt).toContain("interaction_context_get");
     expect(socialPrompt).toContain("好奇心、期待、戸惑い、軽い不安");
     expect(socialPrompt).toContain("挨拶または雑談でも");
     expect(socialPrompt).toContain("0件も選びます");
@@ -158,7 +158,7 @@ describe("Agent prompts", () => {
     const skills = listSkills({ projectSkillsDir: join(process.cwd(), "skills") });
     const names = skills.map(({ name }) => name);
     expect(names).toEqual(expect.arrayContaining(["social-message", "idle", "concern-formation", "concern-due", "scheduled-task", "concern-lifecycle"]));
-    expect(socialMessageSkill).toContain("user_context_get");
+    expect(socialMessageSkill).toContain("interaction_context_get");
     expect(idleSkill).toContain("使うToolの目安: concern_list");
   });
 

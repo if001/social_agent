@@ -5,11 +5,11 @@ import { modelObservationForAgentCore, observationFromEvent } from "../../src/in
 
 describe("domain contracts", () => {
   it("FR-77: keeps transport actor identity only in the audit observation", () => {
-    const audit = observationFromEvent({ id: "event-peer", agentId: "shiro", kind: "message-received", occurredAt: "2026-01-01T00:00:00Z", payload: { text: "hello", senderKind: "peer", addressing: "observed", actorId: "discord-peer-id", actorType: "agent", sourceType: "discord", sourceId: "discord-channel-id", subjectId: "agent:aka" } });
+    const audit = observationFromEvent({ id: "event-peer", agentId: "shiro", kind: "message-received", occurredAt: "2026-01-01T00:00:00Z", payload: { text: "hello", senderKind: "peer", addressing: "observed", actorId: "discord-peer-id", actorType: "agent", peerName: "アカ", sourceType: "discord", sourceId: "discord-channel-id", subjectId: "agent:aka" } });
     const model = modelObservationForAgentCore(audit);
     expect(audit).toMatchObject({ actor: { id: "discord-peer-id" }, source: { id: "discord-channel-id" } });
     expect(model).not.toHaveProperty("actor"); expect(model.source).toEqual({ type: "discord", direct: false });
-    expect(model.content).toEqual({ senderKind: "peer", addressing: "observed" });
+    expect(model.content).toEqual({ senderKind: "peer", addressing: "observed", peerName: "アカ" });
     expect(JSON.stringify(model)).not.toContain("discord-peer-id"); expect(JSON.stringify(model)).not.toContain("discord-channel-id"); expect(JSON.stringify(model)).not.toContain("agent:aka");
   });
 
