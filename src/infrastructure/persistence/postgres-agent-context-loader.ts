@@ -110,7 +110,7 @@ export function observationFromEvent(event: DomainEvent): Observation {
 export function modelObservationForAgentCore(value: Observation): Observation {
   const semanticContent = typeof value.content === "object" && value.content !== null
     ? (() => { const raw = value.content as Record<string, unknown>;
-      if (value.kind === "message-received" && (raw.senderKind === "human" || raw.senderKind === "peer") && (raw.addressing === "direct" || raw.addressing === "observed")) return { senderKind: raw.senderKind, addressing: raw.addressing };
+      if (value.kind === "message-received" && (raw.senderKind === "human" || raw.senderKind === "peer") && (raw.addressing === "direct" || raw.addressing === "observed")) return { senderKind: raw.senderKind, addressing: raw.addressing, ...(raw.senderKind === "peer" && typeof raw.peerName === "string" ? { peerName: raw.peerName } : {}) };
       return value.source?.type === "scheduler" && typeof raw.targetKind === "string" ? { targetKind: raw.targetKind } : undefined;
     })()
     : undefined;

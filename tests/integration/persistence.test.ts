@@ -328,14 +328,14 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(JSON.stringify(input.recentExperiences)).not.toContain("raw input must not enter recent experiences".repeat(5));
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
-    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_propose", "user_context_get", "memory_search", "event_search", "event_tool_results_get", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
+    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_propose", "interaction_context_get", "memory_search", "event_search", "event_tool_results_get", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
     await pool.query("UPDATE agent_states SET relationships=$1::jsonb WHERE agent_id='a'", [JSON.stringify([{ subjectId: "user-main", description: "Trusted" }])]);
     await pool.query("UPDATE memory_subjects SET subject_id='user-main' WHERE memory_id='memory-a1' AND subject_id='owner'");
     const toolContext = { agentId: "a", runId: "context-run", eventId: "context-event", idempotencyKey: "context-tool" };
     const memorySearch = await contextToolRegistry.execute("memory_search", { query: "agent", limit: 3 }, toolContext, new AbortController().signal);
     expect(memorySearch.ok).toBe(true); expect(typeof memorySearch.value === "object" && memorySearch.value !== null && "memories" in memorySearch.value && Array.isArray(memorySearch.value.memories)).toBe(true);
     await expect(contextToolRegistry.execute("relationship_search", {}, { ...toolContext, idempotencyKey: "relationship-tool" }, new AbortController().signal)).resolves.toMatchObject({ value: { relationships: [{ description: "Trusted" }] } });
-    const userContext = await contextToolRegistry.execute("user_context_get", {}, { ...toolContext, idempotencyKey: "user-context-tool" }, new AbortController().signal);
+    const userContext = await contextToolRegistry.execute("interaction_context_get", {}, { ...toolContext, idempotencyKey: "user-context-tool" }, new AbortController().signal);
     expect(userContext.ok).toBe(true);
     if (!userContext.ok || typeof userContext.value !== "object" || userContext.value === null) throw new Error("Expected user context");
     const userContextValue = userContext.value as Record<string, unknown>;

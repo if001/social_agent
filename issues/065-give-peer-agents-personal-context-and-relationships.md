@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-21
-status: created
+status: done
 type: change
 plan: []
 requirements: [FR-33, FR-41, FR-42, FR-77, FR-82, FR-88, FR-90, NFR-8, NFR-9, NFR-10]
@@ -38,12 +38,12 @@ allowlist peerは配送上だけ識別され、初期Relationshipは空である
 
 ## Acceptance criteria
 
-- [ ] AC-065-1：peer入力のモデルviewに自然言語のpeer表示名だけが含まれ、canonical ID・Discord ID・channel metadataは含まれない。
-- [ ] AC-065-2：human/directとpeer/direct/observedで同じ`interaction_context_get`が解決済みの現在相手だけの関係・Memory・質問履歴を返す。
-- [ ] AC-065-3：social-message skillはpeer/observedへの定型相槌を既定にせず、関係・経験・Selfに根拠がある反応だけを選ぶ。
-- [ ] AC-065-4：新規shiro/aka Stateは相手別のcanonical Relationshipを持ち、既存Stateへは明示scriptが不足分だけを追加する。
-- [ ] AC-065-5：Experience IntegrationとReflectionのどちらも、曖昧でない既存peer RelationshipをID-freeな本文照合で更新又は削除できる。
-- [ ] AC-065-6：既存のhuman入力、peer配送、ID-freeモデル契約を維持する。
+- [x] AC-065-1：peer入力のモデルviewに自然言語のpeer表示名だけが含まれ、canonical ID・Discord ID・channel metadataは含まれない。
+- [x] AC-065-2：human/directとpeer/direct/observedで同じ`interaction_context_get`が解決済みの現在相手だけの関係・Memory・質問履歴を返す。
+- [x] AC-065-3：social-message skillはpeer/observedへの定型相槌を既定にせず、関係・経験・Selfに根拠がある反応だけを選ぶ。
+- [x] AC-065-4：新規shiro/aka Stateは相手別のcanonical Relationshipを持ち、既存Stateへは明示scriptが不足分だけを追加する。
+- [x] AC-065-5：Experience IntegrationとReflectionのどちらも、曖昧でない既存peer RelationshipをID-freeな本文照合で更新又は削除できる。
+- [x] AC-065-6：既存のhuman入力、peer配送、ID-freeモデル契約を維持する。
 
 ## Tests
 
@@ -80,5 +80,12 @@ allowlist peerは配送上だけ識別され、初期Relationshipは空である
 | 文書 | 反映内容 | 状態 |
 |---|---|---|
 | `spec/` | C-09 / C-16 / C-17の具体化であり変更不要 | 不要 |
-| `docs/REQUIREMENTS.md` | FR-33 / FR-41 / FR-42 / FR-88 / FR-90を更新 | 未反映 |
-| `docs/ARCHITECTURE.md` | ADR-20 / ADR-21を更新 | 未反映 |
+| `docs/REQUIREMENTS.md` | FR-33 / FR-41 / FR-42 / FR-88 / FR-90を更新 | 反映済み |
+| `docs/ARCHITECTURE.md` | ADR-20 / ADR-21を更新 | 反映済み |
+
+## 実装メモ
+
+- 既存の`user_context_get`は現在Eventのactorからhuman / peer双方を解決済みだったため、機能を変えず`interaction_context_get`へ改名した。
+- ReflectionはRelationship本文がcanonical user又はpeerの一件にだけ一致する場合に更新する。本文が曖昧な場合はno-opにする。
+- `relationship:peer:normalize`はcanonicalでない旧Relationshipを除去し、初期設定のpeer Relationshipを追加する。実DBではshiroとakaへ適用済み。
+- 検証：`pnpm test`（261件）、`pnpm typecheck`、関連Unit test（48件）、`trace_check.py`（ERROR 0、既存WARN 7）。

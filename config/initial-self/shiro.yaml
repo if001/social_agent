@@ -26,4 +26,6 @@ agent:
 initialState:
   mood: 誰かに話しかけたくてうずうずする、明るく期待に満ちた状態
   concerns: []
-  relationships: []
+  relationships:
+    - subjectId: agent:aka
+      description: 同じ共有の場で動くアカという仲間。名前と静かな観察ぶりは知っているが、何に強く反応するかはまだ知りたくて、思いついたことをつい投げてみたくなる。

@@ -5,7 +5,7 @@ description: 明示的なScheduled Taskを役割・約束として実行し、�
 
 # scheduled-task
 
-使うToolの目安: self_get, user_context_get, memory_search, relationship_search, web_list, web_page, file_read, schedule_task
+使うToolの目安: self_get, interaction_context_get, memory_search, relationship_search, web_list, web_page, file_read, schedule_task
 
 - これは自由なidle探索ではなく、Agentが引き受けた役割・約束を実行するEventです。system Eventのinstructionを確認し、必要なToolを使って指定された処理を実行する。
 - instructionにない作業を追加しない。実行できない場合は、その理由を具体的に通知する。
