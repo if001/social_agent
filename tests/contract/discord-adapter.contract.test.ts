@@ -1,4 +1,5 @@
 import { DiscordAdapter, type DiscordGateway, type DiscordInboundMessage, type DiscordReplyContext } from "../../src/infrastructure/ui/discord-adapter.js";
+import type { MessageEnvelope } from "../../src/domain/contracts.js";
 import { AddressedFileQueue } from "../../src/infrastructure/queue/addressed-file-queue.js";
 import { FixedClock, SequenceIdGenerator } from "../../src/infrastructure/system.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
@@ -33,6 +34,33 @@ describe("Discord UI adapter contract", () => {
     await gateway.receive({ id: "43", authorId: "owner", isBot: false, guildId: "guild", channelId: "channel", referencedMessageId: "discord-output-1", content: "<@bot-a> understood", createdAt: new Date("2026-01-01T00:00:01Z") });
     const results: string[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { results.push(message.causationId ?? ""); consume.abort(); return Promise.resolve(); }, consume.signal); expect(results).toEqual(["run-42"]);
     controller.abort(); await Promise.all([inbound, outbound]); await scope.close();
+  });
+  it("FR-88, NFR-10: restores correlation and advances hop only for an allowlisted peer reply to this Bot's live Discord post", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const now = new Date("2026-01-01T00:00:00Z"); const queue = new AddressedFileQueue(root, { now: () => now }); const gateway = new FakeDiscordGateway(); const adapter = new DiscordAdapter({ gateway, queue, clock: { now: () => now }, ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), peerDiscordUserIds: new Set(["bot-b"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) }); const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal); const outbound = adapter.startOutbound(controller.signal);
+    await queue.publish({ id: "peer-chain-output", destination: "discord", source: "agent-a", correlationId: "peer-chain", causationId: "run-chain", sentAt: now.toISOString(), availableAt: now.toISOString(), expiresAt: "2026-01-01T00:01:00Z", attempt: 0, hop: 2, payload: { type: "agent-response", text: "look", action: { id: "run-chain", type: "respond" }, replyContext: { channelId: "channel" } } });
+    await eventually(() => { expect(gateway.sent).toHaveLength(1); });
+    await gateway.receive({ id: "peer-chain-reply", authorId: "bot-b", isBot: true, guildId: "guild", channelId: "channel", referencedMessageId: "discord-output-1", content: "<@bot-a> その違いは何？", createdAt: now });
+    const received: MessageEnvelope[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { received.push(message); consume.abort(); return Promise.resolve(); }, consume.signal);
+    expect(received).toMatchObject([{ correlationId: "peer-chain", causationId: "run-chain", hop: 3 }]);
+    controller.abort(); await Promise.all([inbound, outbound]); await scope.close();
+  });
+  it("FR-88, NFR-10: treats an expired or untracked Discord reply as a fresh ingress", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); let now = new Date("2026-01-01T00:00:00Z"); const queue = new AddressedFileQueue(root, { now: () => now }); const gateway = new FakeDiscordGateway(); const adapter = new DiscordAdapter({ gateway, queue, clock: { now: () => now }, ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), peerDiscordUserIds: new Set(["bot-b"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) }); const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal); const outbound = adapter.startOutbound(controller.signal);
+    await queue.publish({ id: "expired-output", destination: "discord", source: "agent-a", correlationId: "expired-chain", causationId: "run-expired", sentAt: now.toISOString(), availableAt: now.toISOString(), expiresAt: "2026-01-01T00:00:01Z", attempt: 0, hop: 2, payload: { type: "agent-response", text: "look", action: { id: "run-expired", type: "respond" }, replyContext: { channelId: "channel" } } });
+    await eventually(() => { expect(gateway.sent).toHaveLength(1); }); now = new Date("2026-01-01T00:00:02Z");
+    await gateway.receive({ id: "expired-reply", authorId: "bot-b", isBot: true, guildId: "guild", channelId: "channel", referencedMessageId: "discord-output-1", content: "<@bot-a> 続きは？", createdAt: now });
+    const received: MessageEnvelope[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { received.push(message); consume.abort(); return Promise.resolve(); }, consume.signal);
+    expect(received).toMatchObject([{ hop: 0 }]);
+    expect(received[0]?.correlationId).toBeUndefined(); expect(received[0]?.causationId).toBeUndefined();
+    controller.abort(); await Promise.all([inbound, outbound]); await scope.close();
+  });
+  it("FR-88, NFR-10: treats a peer reply to an untracked Discord message as a fresh ingress", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const now = new Date("2026-01-01T00:00:00Z"); const queue = new AddressedFileQueue(root, { now: () => now }); const gateway = new FakeDiscordGateway(); const adapter = new DiscordAdapter({ gateway, queue, clock: { now: () => now }, ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), peerDiscordUserIds: new Set(["bot-b"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) }); const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal);
+    await gateway.receive({ id: "untracked-reply", authorId: "bot-b", isBot: true, guildId: "guild", channelId: "channel", referencedMessageId: "not-this-bot-output", content: "<@bot-a> これは新しい話", createdAt: now });
+    const received: MessageEnvelope[] = []; const consume = new AbortController(); await queue.subscribe("agent-a", (message) => { received.push(message); consume.abort(); return Promise.resolve(); }, consume.signal);
+    expect(received).toMatchObject([{ hop: 0 }]);
+    expect(received[0]?.correlationId).toBeUndefined(); expect(received[0]?.causationId).toBeUndefined();
+    controller.abort(); await inbound; await scope.close();
   });
   it("FR-19: posts an autonomous response to a configured channel without requiring a source message", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway(); const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
