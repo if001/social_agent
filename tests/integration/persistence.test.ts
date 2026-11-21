@@ -13,6 +13,7 @@ import { PostgresScheduleRepository } from "../../src/infrastructure/persistence
 import { PostgresScheduledTaskToolRepository } from "../../src/infrastructure/persistence/postgres-scheduled-task-tool-repository.js";
 import { PostgresAgentContextToolRepository } from "../../src/infrastructure/persistence/postgres-agent-context-tool-repository.js";
 import { PostgresRuntimePersistence } from "../../src/infrastructure/persistence/postgres-runtime-persistence.js";
+import { PostgresObservationGateContext } from "../../src/infrastructure/persistence/postgres-observation-gate-context.js";
 import { PostgresExperienceIntegrationRepository } from "../../src/infrastructure/persistence/postgres-experience-integration.js";
 import { PostgresReflectionRepository } from "../../src/infrastructure/persistence/postgres-reflection.js";
 import { SequenceIdGenerator } from "../../src/infrastructure/system.js";
@@ -991,12 +992,22 @@ describeDatabase("PostgreSQL persistence", () => {
     const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "gate-ignore-message", destination: "agent:a" });
     const event = { id: "gate-ignore-event", agentId: "a", kind: "message-received" as const, occurredAt: fixtureInstant, payload: { text: "独り言", senderKind: "peer", addressing: "observed", peerName: "aka", subjectId: "agent:aka" } };
-    await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "関心と接続しない", input: { text: "独り言", peerName: "aka", concerns: [], memories: [] }, modelCalls: 1, retrievalCount: 1 }, ["agent:aka"])).resolves.toBe("committed");
+    await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "関心と接続しない", input: { text: "独り言", peerName: "aka", self: { disposition: "気まま", story: "寄り道を好む" }, mood: "退屈している", concerns: [], memories: [] }, modelCalls: 1, retrievalCount: 1 }, ["agent:aka"])).resolves.toBe("committed");
     await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "duplicate", modelCalls: 1, retrievalCount: 0 }, ["agent:aka"])).resolves.toBe("duplicate");
     expect((await pool.query<{ status: string }>("SELECT status FROM events WHERE id='gate-ignore-event'")).rows).toEqual([{ status: "completed" }]);
     expect((await pool.query("SELECT 1 FROM agent_runs WHERE event_id='gate-ignore-event'")).rowCount).toBe(0);
     expect((await pool.query<{ decision: string; retrieval_count: number; text: string }>("SELECT decision,retrieval_count,input->>'text' AS text FROM observation_gate_decisions WHERE event_id='gate-ignore-event'")).rows).toEqual([{ decision: "ignore", retrieval_count: 1, text: "独り言" }]);
     expect((await pool.query("SELECT 1 FROM event_projections WHERE event_id='gate-ignore-event'")).rowCount).toBe(0);
+  });
+
+  it("FR-91: builds a bounded Self- and Mood-aware Observation Gate view from persistent state", async () => {
+    await pool.query("UPDATE agent_states SET disposition=$2,self_story=$3,mood=$4,concerns=$5,relationships=$6 WHERE agent_id=$1", ["b", "気ままで好奇心が強い", "食い違いを見つけると首を突っ込みたくなる", "退屈していて刺激が欲しい", JSON.stringify([{ id: "hidden-concern-id", status: "active", description: "噂が変質する仕組み" }]), JSON.stringify([{ subjectId: "agent:aka", description: "議論すると張り合いたくなる相手" }])]);
+    const retrieval = { retrieve: () => Promise.resolve([{ source: "conversation" as const, id: "hidden-memory-id", kind: "episodic", content: "以前akaと出典について言い合った", occurredAt: fixtureInstant, importance: "medium", matchedBy: ["subject" as const], finalRank: 1 }]) };
+    const context = new PostgresObservationGateContext(createRuntimeDatabase(pool), retrieval);
+    const input = await context.load({ id: "hidden-event-id", agentId: "b", kind: "message-received", occurredAt: fixtureInstant, payload: { text: "噂の出典がまた変わった", senderKind: "peer", addressing: "observed", peerName: "aka", subjectId: "agent:aka" } }, new AbortController().signal);
+    expect(input).toEqual({ text: "噂の出典がまた変わった", peerName: "aka", self: { disposition: "気ままで好奇心が強い", story: "食い違いを見つけると首を突っ込みたくなる" }, mood: "退屈していて刺激が欲しい", relationship: "議論すると張り合いたくなる相手", concerns: ["噂が変質する仕組み"], memories: ["以前akaと出典について言い合った"] });
+    expect(JSON.stringify(input)).not.toContain("hidden-");
+    await pool.query("UPDATE agent_states SET disposition='Careful learner',self_story='Growing continuously',mood='Calm',concerns='[]',relationships='[]' WHERE agent_id='b'");
   });
 
   it("FR-91, NFR-8: claims an observed peer post once across Runtime instances and releases a failed claim", async () => {

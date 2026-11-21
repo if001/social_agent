@@ -4,13 +4,17 @@ import type { DomainEvent } from "../domain/contracts.js";
 
 export const ObservationGateDecisionSchema = z.object({
   decision: z.enum(["ignore", "engage"]).describe("ignore は通常Loopへ渡さず監査だけ残す。engage は通常の peer/observed Loopへ渡す。"),
-  reason: z.string().min(1).max(240).describe("投稿が今の自分に気になるかを、入力にある関係・Memory・Concernに限って短く説明する。")
+  reason: z.string().min(1).max(240).describe("投稿がSelf・Mood・関係・Memory・Concernの何を動かし、Agent自身が知りたい・言いたい等と感じたか、又は動かなかったかを短く説明する。返信義務や相手への有用性を理由にしない。")
 }).strict();
 export type ObservationGateDecision = z.infer<typeof ObservationGateDecisionSchema>;
 
 export type ObservationGateInput = {
   readonly text: string;
   readonly peerName: string;
+  /** Compact current self-view; it is not a biography or a persistent identifier. */
+  readonly self: { readonly disposition: string; readonly story: string };
+  /** Current durable affective stance, not a requested response or plan. */
+  readonly mood: string;
   readonly relationship?: string;
   readonly concerns: readonly string[];
   readonly memories: readonly string[];

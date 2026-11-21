@@ -12,19 +12,21 @@ const strings = (value: unknown, limit: number): readonly string[] => Array.isAr
 export class PostgresObservationGateContext implements ObservationGateContextLoader {
   constructor(private readonly database: RuntimeDatabase, private readonly retrieval: RetrievalService) {}
 
-  async load(event: DomainEvent, _signal: AbortSignal): Promise<ObservationGateInput> {
+  async load(event: DomainEvent, signal: AbortSignal): Promise<ObservationGateInput> {
+    signal.throwIfAborted();
     if (event.kind !== "message-received" || event.payload.senderKind !== "peer" || event.payload.addressing !== "observed") throw new DomainError("VALIDATION", "Observation Gate accepts peer/observed only");
     const text = typeof event.payload.text === "string" ? event.payload.text : undefined;
     const peerName = typeof event.payload.peerName === "string" ? event.payload.peerName : undefined;
     if (text === undefined || peerName === undefined) throw new DomainError("VALIDATION", "Observed peer Event requires text and peerName");
-    const state = (await this.database.db.select({ concerns: agentStates.concerns, relationships: agentStates.relationships }).from(agentStates).where(eq(agentStates.agentId, event.agentId)).limit(1))[0];
+    const state = (await this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, mood: agentStates.mood, concerns: agentStates.concerns, relationships: agentStates.relationships }).from(agentStates).where(eq(agentStates.agentId, event.agentId)).limit(1))[0];
     if (state === undefined) throw new DomainError("NOT_FOUND", `Agent state not found: ${event.agentId}`);
     const subjectId = typeof event.payload.subjectId === "string" ? event.payload.subjectId : undefined;
     const relationship = Array.isArray(state.relationships) && subjectId !== undefined
       ? state.relationships.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null).find((item) => item.subjectId === subjectId && typeof item.description === "string")?.description as string | undefined
       : undefined;
-    const concerns = Array.isArray(state.concerns) ? state.concerns.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && item.status === "active" && typeof item.description === "string").slice(0, 3).map((item) => bounded(item.description as string, 240)) : [];
+    const rawConcerns: unknown = state.concerns;
+    const concerns = Array.isArray(rawConcerns) ? rawConcerns.filter((item: unknown): item is { status: "active"; description: string } => typeof item === "object" && item !== null && "status" in item && item.status === "active" && "description" in item && typeof item.description === "string").slice(0, 3).map((item) => bounded(item.description, 240)) : [];
     const memories = (await this.retrieval.retrieve({ agentId: event.agentId, query: text, scope: "conversation", ...(subjectId === undefined ? {} : { subjectIds: [subjectId], subjectFilter: true }), limit: 3 })).map((item) => bounded(item.content, 320));
-    return { text: bounded(text, 1_200), peerName: bounded(peerName, 120), ...(relationship === undefined ? {} : { relationship: bounded(relationship, 400) }), concerns: strings(concerns, 3), memories };
+    return { text: bounded(text, 1_200), peerName: bounded(peerName, 120), self: { disposition: bounded(state.disposition, 240), story: bounded(state.selfStory, 320) }, mood: bounded(state.mood, 120), ...(relationship === undefined ? {} : { relationship: bounded(relationship, 400) }), concerns: strings(concerns, 3), memories };
   }
 }
