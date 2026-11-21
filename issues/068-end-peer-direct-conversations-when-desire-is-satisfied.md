@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-21
-status: created
+status: done
 type: change
 plan: []
 requirements: [FR-21, FR-76, FR-88, FR-90, C-17]
@@ -24,7 +24,7 @@ run-local `desire`で表し、会話専用の永続Goalや状態は追加しな�
 
 - `peer/direct`が新しい問い・事実・反論・依頼・未解決の約束又は自分自身の動機を持つ時だけ
   外部発話を選び、目的が満たされた定型終話では`no-external-action`を選べるようにする。
-- `no-external-action`を、内部Eventだけでなく会話目的が満たされた`peer/direct`にも許可する。
+- `no-external-action`の既存のEvent別発話契約を保ち、会話目的が満たされた`peer/direct`を明示的な無応答根拠にする。
 - `desire`を今回の会話目的と対象を表す正本とし、前回Desireが満たされたかを次の
   `peer/direct`で再評価する。
 - 一次設計、要件、Architecture、Event overview、skill、構造化出力description、test strategyを同期する。
@@ -38,10 +38,10 @@ run-local `desire`で表し、会話専用の永続Goalや状態は追加しな�
 
 ## Acceptance criteria
 
-- [ ] AC-068-1：peer/directは、mentionだけを理由に発話せず、会話目的が既に満たされていれば`no-external-action`で完了できる。
-- [ ] AC-068-2：新しい問い・情報・反論・依頼・約束又はSelf・Mood・Relationshipに基づく自発的動機があるpeer/directは、通常のAgent Core判断と配送を維持する。
-- [ ] AC-068-3：定型の感謝、受理、別れ、同意又は直前発話の言い換えだけでは、会話を閉じるための応答を生成しない。
-- [ ] AC-068-4：peer/directの無応答は通常Eventとして監査・Experience Integrationの対象に残り、peer/observedのGate `ignore`とは混同しない。
+- [x] AC-068-1：peer/directは、mentionだけを理由に発話せず、会話目的が既に満たされていれば`no-external-action`で完了できる。
+- [x] AC-068-2：新しい問い・情報・反論・依頼・約束又はSelf・Mood・Relationshipに基づく自発的動機があるpeer/directは、通常のAgent Core判断と配送を維持する。
+- [x] AC-068-3：定型の感謝、受理、別れ、同意又は直前発話の言い換えだけでは、会話を閉じるための応答を生成しない。
+- [x] AC-068-4：peer/directの無応答は通常Eventとして監査・Experience Integrationの対象に残り、peer/observedのGate `ignore`とは混同しない。
 
 ## Tests
 
@@ -77,7 +77,15 @@ run-local `desire`で表し、会話専用の永続Goalや状態は追加しな�
 |---|---|---|
 | `spec/personal-agent-concept-design-restructured-v2.md` | C-17のAction適用範囲 | 承認済み |
 | `spec/personal-agent-implementation-design-v2.md` | Desire / Actionの詳細 | 承認済み |
-| `docs/REQUIREMENTS.md` | peer/directの会話終了契約 | 未反映 |
-| `docs/ARCHITECTURE.md` | Action・social ingress境界 | 未反映 |
-| `docs/AGENT_EVENT_AND_EXPERIENCE_OVERVIEW.md` | social Eventの流れ | 未反映 |
-| `docs/TEST_STRATEGY.md` | regression検証 | 未反映 |
+| `docs/REQUIREMENTS.md` | peer/directの会話終了契約 | 反映済み |
+| `docs/ARCHITECTURE.md` | Action・social ingress境界 | 反映済み |
+| `docs/AGENT_EVENT_AND_EXPERIENCE_OVERVIEW.md` | social Eventの流れ | 反映済み |
+| `docs/TEST_STRATEGY.md` | regression検証 | 反映済み |
+
+## 実装メモ
+
+- 会話目的の正本は既存のrun-local `desire`であり、会話専用の永続Goalやturn counterを作らない。previousDesireは現在相手・今回内容との関連が確認できる補助情報に限る。
+- `no-external-action`はEventごとの発話契約が許す場合に使う。peer/directでは会話目的が満たされた定型終話を明示的な根拠にし、Event、Run、Experience Integrationは通常どおり残す。
+- 変更は一次設計、要件、Architecture、Event overview、Motivation model、skill、schema description、test strategyへ反映済み。
+- 検証：unit 265 tests、system 61 tests、typecheck、変更ファイルlint、trace check ERROR 0。
+- 分析：`docs/work/analyze/2026-11-21-change-068.md`。レビュー：`docs/work/reviews/2026-11-21-issue-068.md`。

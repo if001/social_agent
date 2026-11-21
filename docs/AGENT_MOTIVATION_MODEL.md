@@ -269,7 +269,7 @@ Schedulerの`targetKind`は`idle`、`concern-formation`、`concern-due`、`exter
 - `respond`: 相手へ応答する。
 - `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
-- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使用する。`idle`では選択できない。`concern-formation`は関心地図を形成する内部Eventであり、生成できない場合はこれで完了する。Tool利用の有無とは独立する。
+- `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了するために使用する。内部Eventと会話目的が満たされた`peer/direct` Eventで明示的に使える。`idle`では選択できない。`concern-formation`は関心地図を形成する内部Eventであり、生成できない場合はこれで完了する。Tool利用の有無とは独立する。
 
 G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`prediction-g3-result` Eventは、Agent自身に共有する動機がある場合だけ発話し、`no-external-action`を正常系として許容する。`prediction-g3`と`memory-update` EventはActionを生成しない。
 

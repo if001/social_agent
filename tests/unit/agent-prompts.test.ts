@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { agentCoreStructuredOutputRepairMessage, completeAgentCoreSystemPrompt, createDefaultDeepAgentFactory } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { AgentCoreModelOutputJsonSchema, agentCoreStructuredOutputRepairMessage, completeAgentCoreSystemPrompt, createDefaultDeepAgentFactory } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { agentCoreSystemPrompt, resolveEventSkills } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { reflectionStructuredOutputRepairMessage, reflectionSystemPrompt } from "../../src/infrastructure/agent/reflection-harness.js";
 import { createSkillTools } from "../../src/infrastructure/tools/skill-tools.js";
@@ -97,6 +97,15 @@ describe("Agent prompts", () => {
     for (const text of ["senderKind", "addressing", "返答義務はない", "確定事実やpeer自身の視点として保存せず", "respond.peer", "自分が知りたい具体的な不確かさ"]) expect(socialPrompt).toContain(text);
     expect(socialPrompt).not.toContain("住む地域、仕事、趣味");
     expect(socialPrompt).not.toContain("通常の返答に軽い質問を1件添えます");
+  });
+
+  it("FR-21, FR-76, FR-90: lets a direct peer conversation end when its Desire is satisfied", () => {
+    expect(socialMessageSkill).toContain("mentionだけを理由に発話せず");
+    expect(socialMessageSkill).toContain("会話目的が満たされた");
+    expect(socialMessageSkill).toContain("定型の感謝、受理、別れ、同意");
+    const outputSchema = JSON.stringify(AgentCoreModelOutputJsonSchema);
+    expect(outputSchema).toContain("peer/direct");
+    expect(outputSchema).toContain("会話目的が満たされた");
   });
 
   it("AC-9: keeps the base and effective skill prompt compact", async () => {

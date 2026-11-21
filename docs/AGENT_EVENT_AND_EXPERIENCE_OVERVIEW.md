@@ -78,12 +78,12 @@ flowchart TD
 
 ### 社会的入力と配送
 
-`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/observedだけは、本文、短いSelf view、現在Mood、現在の関係、少数の関連MemoryとConcernを使う軽量なObservation Gateで`ignore | engage`を決める。これは返信義務でなく、好奇心、感情、関心、関係への欲求が動いたかの判定である。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。
+`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/directはDesireを会話目的として再評価し、mentionだけを理由に応答せず、目的が満たされれば`no-external-action`で通常Eventとして監査完了する。peer/observedだけは、本文、短いSelf view、現在Mood、現在の関係、少数の関連MemoryとConcernを使う軽量なObservation Gateで`ignore | engage`を決める。これは返信義務でなく、好奇心、感情、関心、関係への欲求が動いたかの判定である。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。
 
 | interaction | 受理 | 通常の`respond.content` | source返信 | 応答義務 |
 |---|---|---|---|---|
 | human/direct | owner humanのmention | humanへの返信 | — | ある |
-| peer/direct | allowlist peerのmention | source peerへのmention返信 | — | ある |
+| peer/direct | allowlist peerのmention | 会話目的が残る時だけsource peerへのmention返信 | — | ない |
 | peer/observed | allowlist peerの非mention投稿 | 宛先を持たない共有channelへの非mention発話 | `respond.observedReply`で元投稿へのthread返信 | ない |
 
 `respond.peer`は、Event起点を問わない明示peerへのmentionである。peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱う。モデルは自然言語表示名だけを扱い、IDを出力しない。
