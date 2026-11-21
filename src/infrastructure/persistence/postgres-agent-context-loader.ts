@@ -48,7 +48,12 @@ function recentObservation(value: Observation): RecentObservation {
   return { summary: boundedText(visible.summary, 800), facts, ...(visible.kind === undefined ? {} : { kind: visible.kind }), ...(visible.source === undefined ? {} : { source: visible.source }), ...(schedulerContent === undefined ? {} : { scheduler: schedulerContent }) };
 }
 function recentAction(value: ReturnType<typeof FinalActionSchema.parse>): ReturnType<typeof FinalActionSchema.parse> {
-  if (value.type === "respond") return { ...value, content: boundedText(value.content, 1_000) };
+  if (value.type === "respond") return {
+    ...value,
+    ...(value.content === undefined ? {} : { content: boundedText(value.content, 1_000) }),
+    ...(value.peer === undefined ? {} : { peer: { ...value.peer, content: boundedText(value.peer.content, 1_000) } }),
+    ...(value.observedReply === undefined ? {} : { observedReply: { content: boundedText(value.observedReply.content, 1_000) } })
+  };
   if (value.type === "refuse") return { ...value, content: boundedText(value.content, 1_000), reason: boundedText(value.reason, 400) };
   if (value.type === "notify-no-execution") return { ...value, content: boundedText(value.content, 800), reason: boundedText(value.reason, 400) };
   return { ...value, reason: boundedText(value.reason, 400) };

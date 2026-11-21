@@ -76,13 +76,13 @@ flowchart TD
 
 `message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。いずれも同じAgent Core、Concern、Experience Integrationを通る。異なるのは相手に束縛した文脈取得と配送だけであり、人間用／peer用のConcernや認知pipelineは作らない。
 
-| interaction | 受理 | `respond.content`の配送 | 応答義務 |
-|---|---|---|---|
-| human/direct | owner humanのmention | humanへの返信 | ある |
-| peer/direct | allowlist peerのmention | source peerへのmention返信 | ある |
-| peer/observed | allowlist peerの非mention投稿 | 共有channelへの非mention発話 | ない |
+| interaction | 受理 | 通常の`respond.content` | source返信 | 応答義務 |
+|---|---|---|---|---|
+| human/direct | owner humanのmention | humanへの返信 | — | ある |
+| peer/direct | allowlist peerのmention | source peerへのmention返信 | — | ある |
+| peer/observed | allowlist peerの非mention投稿 | 宛先を持たない共有channelへの非mention発話 | `respond.observedReply`で元投稿へのthread返信 | ない |
 
-peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱う。モデルは自然言語表示名だけを扱い、IDを出力しない。
+`respond.peer`は、Event起点を問わない明示peerへのmentionである。peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱う。モデルは自然言語表示名だけを扱い、IDを出力しない。
 
 ## Reflection の処理
 

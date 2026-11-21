@@ -22,9 +22,10 @@ const AgentCoreFlatOutputSchema = z.object({
   feeling: z.string().trim().min(1).max(160).optional().describe("今回のEvent処理を終えた時点で残っている短期的な感情を、感情語中心の1文で書く。例: 喜び、期待、不安、落胆、苛立ち、怒り、驚き、警戒、安堵、退屈。例から選ぶ必要はない。Toolの失敗・探索結果・予測誤差への反応も書ける。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。特に残る感情がなければ省略する"),
   desire: z.string().trim().min(1).max(800).describe("今回のEventを受けて今具体的に望むこと。現在のコミットメントとして、入力中の具体的な対象と今回の行為に結び付けて短く書く。自律Eventでは、その対象が今のSelf、Concern、会話Memory、Background Experience、Mood、探索結果のどれと結び付くかも含める。既存Concernの言い換えにしない"),
   actionType: z.enum(["respond", "refuse", "notify-no-execution", "no-external-action"]).describe("今回確定するAction。発話はrespond、拒否はrefuse、非実行判断の通知はnotify-no-execution、発話しない内部Eventはno-external-actionを選ぶ。idleではrespondまたはrefuseを必ず選び、no-external-actionを選ばない。concern-formationは関心地図を形成する内部Eventなのでno-external-actionを選ぶ。情報が不十分ならidleではrespondで不十分な旨を伝える"),
-  content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionでユーザーへそのまま配送する本文。それらのActionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
+  content: z.string().trim().min(1).max(6_000).optional().describe("respond、refuse、notify-no-executionで配送する本文。respondのpeer/observedでは宛先を持たない独立した共有発話にだけ使う。refuseとnotify-no-executionでは必須。内部判断、管理情報、Schema、ID、Tool traceを含めず、通常会話は簡潔かつ具体的に書く"),
   peerName: z.string().trim().min(1).max(120).optional().describe("respondでallowlist peerへ明示的に話しかける時だけ、その表示名を書く。IDやDiscord情報は書かない"),
   peerContent: z.string().trim().min(1).max(6_000).optional().describe("peerNameを指定した時だけ、そのpeerへ配送する本文を書く"),
+  observedReplyContent: z.string().trim().min(1).max(6_000).optional().describe("peer/observedで、観測したsource投稿への返信を選ぶ時だけ本文を書く。独立した共有発話には使わない。相手名、メンション、ID、thread情報は書かない"),
   reason: z.string().trim().min(1).max(800).optional().describe("refuse、notify-no-execution、no-external-actionの内部理由。それらのActionでは必須。ユーザーへ配送するcontentには混ぜない"),
   refusalBasis: z.enum(["personality", "system"]).optional().describe("refuseの根拠。refuseの場合だけ必須")
 }).strict().describe("Agent Coreの最終判断。今回のMeaning・Feeling・Desire・Actionだけを埋める。Memory、Relationship、Moodの持続的な保存判断はExperience Integrationへ渡す");
@@ -38,13 +39,13 @@ function dispositionTendency(disposition: string): string {
 type AgentCoreResponseFormat = TypedToolStrategy<z.infer<typeof AgentCoreFlatOutputSchema>>;
 
 export const AgentCoreModelOutputJsonSchema = modelJsonSchema(AgentCoreFlatOutputSchema);
-export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontent、peerへ話すならpeerNameとpeerContentも指定します。refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reasonを指定してください。Memory、Relationship、Moodは出力しません。";
+export const agentCoreStructuredOutputRepairMessage = "最終出力がSchema不一致です。通常Tool、本文、Markdown、action objectは返さず、構造化出力専用Toolを1回だけ呼んでください。desireとactionTypeは必須です。meaningとfeelingはEvent終了時の評価がある場合だけ指定します。actionTypeがrespondならcontentを通常応答・独立共有発話に使います。peerへの明示mentionはpeerNameとpeerContent、観測したpeer投稿へのthread返信はobservedReplyContentだけを指定します。observedReplyContentはcontentやpeerName/peerContentと併記しません。refuseならcontent・reason・refusalBasis、notify-no-executionならcontent・reasonを指定してください。Memory、Relationship、Moodは出力しません。";
 
 function domainOutputFromFlat(value: unknown): unknown {
   const parsed = AgentCoreFlatOutputSchema.safeParse(value);
   if (!parsed.success) return value;
   const flat = parsed.data;
-  const action = flat.actionType === "respond" ? { type: flat.actionType, content: flat.content, ...(flat.peerName === undefined || flat.peerContent === undefined ? {} : { peer: { name: flat.peerName, content: flat.peerContent } }) }
+  const action = flat.actionType === "respond" ? { type: flat.actionType, ...(flat.content === undefined ? {} : { content: flat.content }), ...(flat.peerName === undefined || flat.peerContent === undefined ? {} : { peer: { name: flat.peerName, content: flat.peerContent } }), ...(flat.observedReplyContent === undefined ? {} : { observedReply: { content: flat.observedReplyContent } }) }
     : flat.actionType === "refuse" ? { type: flat.actionType, content: flat.content, reason: flat.reason, basis: flat.refusalBasis }
       : flat.actionType === "notify-no-execution" ? { type: flat.actionType, content: flat.content, reason: flat.reason }
         : { type: flat.actionType, reason: flat.reason };

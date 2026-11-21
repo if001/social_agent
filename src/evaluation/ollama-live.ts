@@ -49,7 +49,7 @@ export function classifyBehaviors(result: { readonly assessment?: AgentRunResult
   if (action.type === "refuse") labels.push("refuse");
   else if (action.type === "no-external-action" || action.type === "notify-no-execution") labels.push("no-external-action");
   else labels.push("share");
-  const content = "content" in action ? action.content : "";
+  const content = action.type === "respond" ? action.content ?? action.observedReply?.content ?? action.peer?.content ?? "" : "content" in action ? action.content : "";
   if (/[?？]|(?:教えて|聞かせて|どう思|いかが|でしょうか)/u.test(content)) labels.push("question");
   if (result.assessment?.feeling !== undefined && result.assessment.feeling.trim() !== "") labels.push("emotion-expression");
   if (/(?:代わりに|別の|違う|変化をつけ|工夫|別案|他の方法|方向を変)/u.test(content)) labels.push("digression");
@@ -74,7 +74,7 @@ export class AgentCoreScenarioExecutor implements ScenarioExecutor {
       // Persistent state is intentionally integrated after Agent Core; an
       // evaluation of the Core alone must not pretend it has applied a patch.
       nextStates.set(input.run.agentId, runtimeInput.state);
-      if (result.output.action.type === "respond" || result.output.action.type === "refuse") deliveries.push({ agentId: input.run.agentId, destination: "evaluation-sink", actionType: result.output.action.type, content: result.output.action.content, delivered: true });
+      if (result.output.action.type === "respond" || result.output.action.type === "refuse") deliveries.push({ agentId: input.run.agentId, destination: "evaluation-sink", actionType: result.output.action.type, content: result.output.action.type === "respond" ? result.output.action.content ?? result.output.action.observedReply?.content ?? result.output.action.peer?.content ?? "" : result.output.action.content, delivered: true });
     }
     const stateUpdates: string[] = [];
     const referencedEvidenceIds: string[] = [];
