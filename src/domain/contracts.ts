@@ -379,7 +379,7 @@ export const FinalActionSchema = z.discriminatedUnion("type", [
     content: AgentContent.describe("具体的な実行対象を選ばなかった判断と理由をownerへ通知する本文"),
     reason: AgentReason.describe("実行しないと判断した内部理由")
   }).describe("実行しない判断をownerへ通知するAction"),
-  z.object({ type: z.literal("no-external-action").describe("今回はユーザーへ発話しないと判断した場合に選ぶ。idleの既定Actionにしない"), reason: AgentReason.describe("今回は発話しない具体的理由。ユーザーからの返信待ちは理由にしてはならない") }).describe("外部発話を行わないAction")
+  z.object({ type: z.literal("no-external-action").describe("今回は外部へ発話しないと判断した場合に選ぶ。idleの既定Actionにしない。peer/directでは会話目的が満たされ、新しい問い・事実・反論・依頼又は自分の動機がない時にも選べる"), reason: AgentReason.describe("今回は発話しない具体的理由。ユーザーからの返信待ちは理由にしてはならない。peer/directでは会話目的が満たされたこと又は新しい対象がないことを示す") }).describe("外部発話を行わないAction")
 ]).describe("今回の動機に基づく最終行動");
 export type FinalAction = z.infer<typeof FinalActionSchema>;
 export const AgentActionSchema = FinalActionSchema;

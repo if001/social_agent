@@ -635,11 +635,11 @@ Agentはユーザー入力がなくても、Event sourceを契機にDesireを活
 - `respond`: 相手へ応答する。
 - `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
-- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使い、idleでは選択しない。Tool利用の有無とは独立する。
+- `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了するために使う。内部Eventと会話目的が満たされたpeer/direct Eventで明示的に使え、idleでは選択しない。Tool利用の有無とは独立する。
 
 自律EventではTool利用と発話判断を独立させる。自律探索の主目的は、Agent自身の知りたい欲、考えたい欲、不満、驚き、遊びを満たすことであり、ユーザーへの報告や有用性を目的にしない。外部発話は、その探索が近くにいる相手へ漏れる独り言、仮説、反論、途中経過、または自分の不確かさを埋める問いになり得る。ユーザーの予定・状態・好みを尋ねるのは、Agent自身が知りたい具体的な不確かさがあり、Memory・Relationship・現在Eventに根拠がある場合だけにする。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
 
-`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。外部へ観測可能な結果を残す必要がある自律Eventでは、`notify-no-execution` または具体的なTool / 送信Actionを選ぶ。
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではmention自体を返答義務にせず、Desireで表した問い、反論、共有、依頼、約束、遊び又は協力の目的が満たされ、新しい対象がなければこれで会話を終える。定型の感謝、受理、別れ、同意だけを理由に追伸しない。外部へ観測可能な結果を残す必要がある自律Eventでは、`notify-no-execution` または具体的なTool / 送信Actionを選ぶ。
 
 ### 23.1 自由な探索と役割の区別
 

@@ -32,7 +32,7 @@
 | ADR-2 | EventはAgent Core内でAssessmentとActionを確定し、Candidate DetectionとLong-term Reviewを外す。 | FR-2, FR-3, FR-5 |
 | ADR-3 | Context Builderは判断に必要な状態だけを選び、Agent所有権とtoken budgetを境界で保証する。 | NFR-1, NFR-3, NFR-4, FR-29, FR-30 |
 | ADR-4 | Deep AgentsのresponseFormatとtoolStrategyで構造化出力を取得し、Runtimeで厳密に再検証してrepairする。 | FR-11, FR-12, FR-13, FR-14, FR-15, FR-16 |
-| ADR-5 | 最終Actionをrespond、refuse、notify-no-execution、no-external-actionに限定し、Patch対象を限定する。 | FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23 |
+| ADR-5 | 最終Actionをrespond、refuse、notify-no-execution、no-external-actionに限定する。`no-external-action`はEventごとの発話契約が許す場合に使い、内部EventとDesireの会話目的が満たされたpeer/directを明示的な根拠にする。 | FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-90 |
 | ADR-6 | ToolはDeep Agent内のloopで実行し、登録、権限、回数、冪等性、結果投影をRuntimeが管理する。 | FR-4, FR-32, FR-33, FR-35, FR-36, FR-37, FR-38 |
 | ADR-7 | 自律EventはRuntimeが生成し、Reflectionを通常Action選択から分離した、Memory→Concern / Relationship→Self / Moodの対象別maintenance Sessionとする。 | FR-24, FR-39, FR-40, FR-41, FR-42, NFR-6 |
 | ADR-8 | PostgreSQLを正本とし、Event、State、Conversation Memory、Prediction、MemoryMutation、Outboxをtransactionとadvisory lockで確定する。通常CRUDはDrizzle repository、PostgreSQL固有操作だけはrepository内の限定SQLに閉じる。 | NFR-7, NFR-8, NFR-9, NFR-10, NFR-11 |
@@ -48,7 +48,7 @@
 | ADR-18 | 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、deadlineとcall予算を持つ。 | FR-63, FR-64, NFR-16 |
 | ADR-19 | 予測、G3 Task、Memory mutationは監査・集計のため専用tableに保存し、Conversation MemoryとBackground Experienceは別Storeにする。既存Run/Event/StateChangeは意味判断と行動の監査に限定する。 | FR-50, FR-57, FR-60, FR-61, NFR-17 |
 | ADR-20 | 構造化出力はdescription付きJSON Schemaをモデルへ渡す。通常Ollamaは`format`または`withStructuredOutput`、DeepAgentは`toolStrategy`のstructured output toolを使い、descriptionはRuntime検証を置き換えない。Context Builderは監査用の生actor IDをmodel-facing actor viewから除き、LLM向けschemaは永続canonical ID・Discord ID・local handle・局所参照を含めない。`message-received`には自然言語の相手表示名、`senderKind`、`addressing`だけを公開し、Runtimeが検索・範囲制約から根拠と対象を解決する。`interaction_context_get`は解決済みの現在相手だけに束縛する。human ownerは`user-main`へ、allowlistに一意一致するpeer actorは`agent:<agentId>`へ解決する。subjectを含むMemoryとRelationshipはAgent所有であり、別Agentのユーザー像・peer像を共有しない。 | FR-33, FR-65, FR-77, FR-82, FR-90, NFR-20 |
-| ADR-21 | Discord peer設定は`config/agent-peers/<botId>.yaml`をBotごとのruntime configuration正本とし、DB registryを持たない。受信Adapterはowner human mentionをhuman/direct、allowlist peer mentionをpeer/direct、allowlist peerのnonmention投稿をpeer/observedの`message-received`へ正規化し、directを二重観測しない。peer/observedだけは短いSelf view、現在Mood、Relationship、少数のConcern・Memoryを含む小さいID-free viewのObservation Gateで`ignore | engage`を決める。判定軸は返信義務や有用性でなく、Agent自身の好奇心、感情、関心、関係への欲求が動いたかとする。ignoreはEventとGate判断だけを監査し、engageだけが同じAgent Core、Concern、Experience Integrationへ入る。`respond.content`はinteraction由来の通常返信又は宛先を持たない共有発話、`respond.observedReply.content`はpeer/observedのsource投稿へのthread返信、`respond.peer: { name, content }`は一意なallowlist peerへのmentionであり、Runtimeが宛先・返信metadataを解決する。配送Adapterは同じallowlistを再検証する。 | FR-76, FR-88, FR-90, FR-91, NFR-8, NFR-9, NFR-10 |
+| ADR-21 | Discord peer設定は`config/agent-peers/<botId>.yaml`をBotごとのruntime configuration正本とし、DB registryを持たない。受信Adapterはowner human mentionをhuman/direct、allowlist peer mentionをpeer/direct、allowlist peerのnonmention投稿をpeer/observedの`message-received`へ正規化し、directを二重観測しない。peer/observedだけは短いSelf view、現在Mood、Relationship、少数のConcern・Memoryを含む小さいID-free viewのObservation Gateで`ignore | engage`を決める。peer/directは通常Agent Coreへ入り、Desireを会話目的として再評価する。mention自体は返答義務でなく、目的が満たされ新しい問い・対象・動機がなければ`no-external-action`で監査完了する。ignoreはEventとGate判断だけを監査し、engageとpeer/directだけが同じAgent Core、Concern、Experience Integrationへ入る。`respond.content`はinteraction由来の通常返信又は宛先を持たない共有発話、`respond.observedReply.content`はpeer/observedのsource投稿へのthread返信、`respond.peer: { name, content }`は一意なallowlist peerへのmentionであり、Runtimeが宛先・返信metadataを解決する。配送Adapterは同じallowlistを再検証する。 | FR-76, FR-88, FR-90, FR-91, NFR-8, NFR-9, NFR-10 |
 | ADR-22 | MemoryのAgent所有、対象subject、因果根拠を別々に保持する。`agent_id`は所有者、`memory_subjects`は対象、Event / Run / evidenceは根拠であり、任意情報源をAgent IDとして保存する列は持たない。 | FR-89, NFR-7, NFR-8 |
 
 ADR-12〜ADR-19は追加設計であり、現行コードには未実装である。実装Issueでコード、migration、testを追加する。
@@ -142,7 +142,7 @@ Domain上の最終Actionは次の4種類である。
 - `respond`: contentを相手へ配送する。
 - `refuse`: contentを配送し、内部にreasonと`personality | system`のbasisを残す。
 - `notify-no-execution`: 自律Eventで実行しない判断と理由をownerへ配送する。
-- `no-external-action`: Actionを生成しない内部Eventの完了にだけ使う内部終端である。idleでは選択できない。Tool利用の有無とは独立する。
+- `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了する内部終端である。内部EventとDesireの会話目的が満たされたpeer/directを明示的な根拠にし、idleでは選択できない。Tool利用の有無とは独立する。
 
 Tool利用とユーザーへの発話判断は独立する。自律探索はAgent自身のDesireを満たすために行い、発話は独り言、仮説、感情、反論、途中経過、またはAgentが知りたい具体的な事実への問いとして`respond`できる。Toolを使わなくても発話でき、退屈・面倒・期待外れ・別の関心を理由に探索を先送り、中断、脱線、方法変更してよい。ただし完了・予約・根拠を偽らない。Scheduled Taskは自由な探索ではなく、役割・約束として処理する。反対に、Actionを生成しない内部Eventは`no-external-action`で完了できる。ただしidleでは選択できず、情報が不十分なら`respond`でその旨を伝える。ユーザーからの返信待ちは発話を控える理由にしない。夜間は設定された時間帯にidle Eventを発生させず、次の許可時刻へ再スケジュールする。
 
@@ -209,7 +209,7 @@ Selfは`identity`、`disposition`、`selfStory`、`commitments`を持つ。State
 - 最終Actionは`respond`、`refuse`、`notify-no-execution`、`no-external-action`の4種である。
 - 自律Eventの成功runは、具体的なTool、送信、記録、予約、または`notify-no-execution`を持つ。
 - 何も実行しない判断は`notify-no-execution`としてユーザーへ配送する。
-- `no-external-action`はActionを生成しない内部Eventの完了として監査に残す。idleでは選択できない。外部へ観測可能な結果が必要な自律Eventでは`notify-no-execution`を使う。
+- `no-external-action`はEventごとの発話契約が許す場合に、Actionを配送せず完了した記録として監査に残す。内部EventとDesireの会話目的が満たされたpeer/directを明示的な根拠にし、idleでは選択できない。外部へ観測可能な結果が必要な自律Eventでは`notify-no-execution`を使う。
 - 通知先を解決できない自律Eventは成功扱いにせず、再試行・運用通知の対象にする。
 - 同じEvent sourceでも、Self、State、Conversation Memory、Relationshipが異なれば異なるActionを選べる。
 - Event優先順位は`message-received/human/direct`、`message-received/peer/direct`、`message-received/peer/observed`、memory-update、G3、reflectionの順とする。direct入力を待たせない。

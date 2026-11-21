@@ -32,6 +32,7 @@
 - G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
 - 通常OllamaとDeepAgentへ渡すJSON Schemaのfield description保持
 - Observation GateのSelf・Moodを含むID-freeな小入力、返信義務でなくAgent自身の動機に基づく`ignore | engage` schema、provider失敗時のfail-open
+- peer/directがDesireで会話目的を再評価し、定型終話を`no-external-action`で監査完了して配送しないこと
 
 ### System
 
@@ -42,6 +43,7 @@
 - Tool continuation、複数Tool実績、Tool利用と発話判断が独立していること
 - 未登録Tool callを失敗実績としてcontinuationへ返し、run全体をprovider障害にしないこと
 - `respond` / `refuse` / `notify-no-execution`のOutbox保存と配送再試行
+- peer/directの定型終話が通常Event・Experience Integrationを通りつつOutboxを作らないこと
 - 自律Eventが具体的Tool実行も配送可能Actionもなく成功しない
 - 初回不正・repair成功時は1回だけcommitする
 - 初回とrepairがともに不正なら成功commit、Receipt、Outboxを作らずfailureだけを残す
@@ -137,7 +139,8 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-18 | System, Unit | `tests/system/runtime-terminal.test.ts`, `tests/unit/domain-contracts.test.ts` | refuse の内容と basis |
 | FR-19 | System, Contract, Unit | `tests/system/runtime-terminal.test.ts`, `tests/contract/discord-adapter.contract.test.ts` | notify-no-execution の配送 |
 | FR-20 | Contract, System | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts` | Tool 利用と発話判断の独立 |
-| FR-21 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/unit/domain-contracts.test.ts` | no-external-action の理由 |
+| FR-21 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/system/observation-gate.test.ts`, `tests/unit/domain-contracts.test.ts` | no-external-action の理由とpeer/direct会話終了 |
+| FR-76, FR-90 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/observation-gate.test.ts` | peer/directがDesireを会話目的として再評価し、終話を無応答で監査すること |
 | FR-22 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/config-lifecycle.test.ts` | 夜間quiet hoursのidle抑制と再スケジュール |
 | FR-23 | Unit, System, Evaluation | `tests/unit/agent-state-patch.test.ts`, `tests/unit/domain-contracts.test.ts`, `tests/system/invalid-output.test.ts` | Patch 対象の限定 |
 | FR-24 | Unit, Integration, System | `tests/unit/agent-state-patch.test.ts`, `tests/integration/persistence.test.ts`, `tests/unit/scheduler.test.ts`, `tests/system/tool-loop.test.ts` | Concern 更新と schedule 同期 |
