@@ -78,7 +78,7 @@ flowchart TD
 
 ### 社会的入力と配送
 
-`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/observedだけは、本文、現在の関係、少数の関連MemoryとConcernを使う軽量なObservation Gateで`ignore | engage`を決める。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。
+`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/observedだけは、本文、短いSelf view、現在Mood、現在の関係、少数の関連MemoryとConcernを使う軽量なObservation Gateで`ignore | engage`を決める。これは返信義務でなく、好奇心、感情、関心、関係への欲求が動いたかの判定である。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。
 
 | interaction | 受理 | 通常の`respond.content` | source返信 | 応答義務 |
 |---|---|---|---|---|
