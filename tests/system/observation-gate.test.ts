@@ -11,6 +11,24 @@ import type { ExperienceIntegrationInput } from "../../src/application/experienc
 const observed: MessageEnvelope = { id: "message-observed", destination: "shiro", source: "discord:aka", sentAt: "2026-11-21T00:00:00.000Z", availableAt: "2026-11-21T00:00:00.000Z", expiresAt: "2026-11-22T00:00:00.000Z", attempt: 0, hop: 0, payload: { type: "message-received", text: "今日はこの話、もう飽きた", senderKind: "peer", addressing: "observed", actorId: "discord-aka", peerName: "aka", sourceType: "discord", sourceId: "channel" } };
 
 describe("peer observed Observation Gate", () => {
+  it("FR-21, FR-76, FR-90: lets an engaged observed post end without a reply when its concrete motive is exhausted", async () => {
+    const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.currentSelf.agentId = event.agentId; input.state.agentId = event.agentId; return input; });
+    const run = vi.fn(() => Promise.resolve({ output: { desire: "二重タグ案は採用済みで、今は新しい問いを作らない", action: { type: "no-external-action" as const, reason: "採用と同意だけで、具体的な問い・訂正・次行為の変更・自発表現がない" } }, toolExecutions: [] }));
+    const enqueued: Omit<ExperienceIntegrationInput, "integrationId">[] = [];
+    const enqueue = (input: Omit<ExperienceIntegrationInput, "integrationId">): Promise<void> => { enqueued.push(input); return Promise.resolve(); };
+    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "二重タグ案を採用したい。23日は比べるだけですね", peerName: "aka", self: { disposition: "気まま", story: "自分の寄り道を優先する" }, mood: "落ち着いている", concerns: [], memories: [], recentSelfSpeech: "二重タグを付ければ23日は比べるだけになる" }) }, { decide: () => Promise.resolve({ decision: "engage" as const, reason: "共有した案の採用には認知価値がある" }) });
+    let consume: ((message: MessageEnvelope) => Promise<void>) | undefined;
+    const oneShotQueue = { publish: () => Promise.resolve(), subscribe: (_destination: string, next: (message: MessageEnvelope) => Promise<void>) => { consume = next; return Promise.resolve(); } };
+    const runtime = new AgentRuntime({ destination: "shiro", defaultOutputDestination: "discord", queue: oneShotQueue, harness: { run }, persistence, experienceIntegration: { enqueue }, observationGate: gate, ids: new SequenceIdGenerator(["event-peer-observed"]), now: () => new Date("2026-11-21T00:00:00.000Z") });
+    await runtime.start(new AbortController().signal); await consume?.({ ...observed, id: "message-peer-observed-closure" });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(persistence.events).toHaveLength(1);
+    expect(persistence.ignoredObservations).toHaveLength(0);
+    expect(await persistence.pendingOutbox(10)).toEqual([]);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]?.sourceEvent.payload).toMatchObject({ senderKind: "peer", addressing: "observed" });
+  });
+
   it("FR-21, FR-76, FR-90: records a direct peer closure without replying when its Desire is already satisfied", async () => {
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.currentSelf.agentId = event.agentId; input.state.agentId = event.agentId; return input; });
     const run = vi.fn(() => Promise.resolve({ output: { desire: "予定確認は済んだので会話を伸ばさない", action: { type: "no-external-action" as const, reason: "新しい問いや対象がなく、会話目的は満たされた" } }, toolExecutions: [] }));
@@ -60,6 +78,20 @@ describe("peer observed Observation Gate", () => {
     expect(run).not.toHaveBeenCalled();
     expect(persistence.events).toHaveLength(1);
     expect(persistence.ignoredObservations).toHaveLength(1);
+    expect(await persistence.pendingOutbox(10)).toEqual([]);
+  });
+
+  it("FR-91, NFR-21: treats a failed observed-post Gate as an ignored audit record", async () => {
+    const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.currentSelf.agentId = event.agentId; input.state.agentId = event.agentId; return input; });
+    const run = vi.fn(() => Promise.resolve({ output: { desire: "should not run", action: { type: "respond" as const, content: "should not run" } }, toolExecutions: [] }));
+    const gate = new ObservationGate({ load: () => Promise.reject(new Error("provider context unavailable")) }, { decide: () => Promise.resolve({ decision: "engage" as const, reason: "unused" }) });
+    let consume: ((message: MessageEnvelope) => Promise<void>) | undefined;
+    const oneShotQueue = { publish: () => Promise.resolve(), subscribe: (_destination: string, next: (message: MessageEnvelope) => Promise<void>) => { consume = next; return Promise.resolve(); } };
+    const runtime = new AgentRuntime({ destination: "shiro", defaultOutputDestination: "discord", queue: oneShotQueue, harness: { run }, persistence, observationGate: gate, ids: new SequenceIdGenerator(["event-gate-failure"]), now: () => new Date("2026-11-21T00:00:00.000Z") });
+    await runtime.start(new AbortController().signal); await consume?.({ ...observed, id: "message-gate-failure" });
+    expect(run).not.toHaveBeenCalled();
+    expect(persistence.ignoredObservations).toHaveLength(1);
+    expect(persistence.ignoredObservations[0]?.gate).toMatchObject({ decision: "ignore", failureReason: "provider context unavailable" });
     expect(await persistence.pendingOutbox(10)).toEqual([]);
   });
 

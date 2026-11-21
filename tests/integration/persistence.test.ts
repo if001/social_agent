@@ -1002,11 +1002,25 @@ describeDatabase("PostgreSQL persistence", () => {
 
   it("FR-91: builds a bounded Self- and Mood-aware Observation Gate view from persistent state", async () => {
     await pool.query("UPDATE agent_states SET disposition=$2,self_story=$3,mood=$4,concerns=$5,relationships=$6 WHERE agent_id=$1", ["b", "気ままで好奇心が強い", "食い違いを見つけると首を突っ込みたくなる", "退屈していて刺激が欲しい", JSON.stringify([{ id: "hidden-concern-id", status: "active", description: "噂が変質する仕組み" }]), JSON.stringify([{ subjectId: "agent:aka", description: "議論すると張り合いたくなる相手" }])]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('gate-prior-event','b','message-received',$1,'test','completed','2026-11-20T00:00:00.000Z')", [JSON.stringify({ summary: "akaの観測投稿", facts: [] })]);
+    await pool.query("INSERT INTO event_subjects(event_id,subject_id) VALUES ('gate-prior-event','agent:aka')");
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('gate-prior-run','b','gate-prior-event',0,$1,'2026-11-20T00:00:00.000Z','2026-11-20T00:00:00.000Z')", [JSON.stringify({ output: { action: { type: "respond", observedReply: { content: "前に自分が言ったこと" } } } })]);
+    for (const index of [1, 2, 3, 4]) {
+      await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,'b','message-received',$2,'test','completed',$3)", [`gate-silent-event-${String(index)}`, JSON.stringify({ summary: "akaの続報", facts: [] }), `2026-11-20T00:00:0${String(index)}.000Z`]);
+      await pool.query("INSERT INTO event_subjects(event_id,subject_id) VALUES ($1,'agent:aka')", [`gate-silent-event-${String(index)}`]);
+      await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ($1,'b',$2,0,$3,$4,$4)", [`gate-silent-run-${String(index)}`, `gate-silent-event-${String(index)}`, JSON.stringify({ output: { action: { type: "no-external-action", reason: "新しい問いがない" } } }), `2026-11-20T00:00:0${String(index)}.000Z`]);
+    }
     const retrieval = { retrieve: () => Promise.resolve([{ source: "conversation" as const, id: "hidden-memory-id", kind: "episodic", content: "以前akaと出典について言い合った", occurredAt: fixtureInstant, importance: "medium", matchedBy: ["subject" as const], finalRank: 1 }]) };
     const context = new PostgresObservationGateContext(createRuntimeDatabase(pool), retrieval);
     const input = await context.load({ id: "hidden-event-id", agentId: "b", kind: "message-received", occurredAt: fixtureInstant, payload: { text: "噂の出典がまた変わった", senderKind: "peer", addressing: "observed", peerName: "aka", subjectId: "agent:aka" } }, new AbortController().signal);
-    expect(input).toEqual({ text: "噂の出典がまた変わった", peerName: "aka", self: { disposition: "気ままで好奇心が強い", story: "食い違いを見つけると首を突っ込みたくなる" }, mood: "退屈していて刺激が欲しい", relationship: "議論すると張り合いたくなる相手", concerns: ["噂が変質する仕組み"], memories: ["以前akaと出典について言い合った"] });
+    expect(input).toEqual({ text: "噂の出典がまた変わった", peerName: "aka", self: { disposition: "気ままで好奇心が強い", story: "食い違いを見つけると首を突っ込みたくなる" }, mood: "退屈していて刺激が欲しい", relationship: "議論すると張り合いたくなる相手", concerns: ["噂が変質する仕組み"], memories: ["以前akaと出典について言い合った"], recentSelfSpeech: "前に自分が言ったこと" });
     expect(JSON.stringify(input)).not.toContain("hidden-");
+    expect(JSON.stringify(input)).not.toContain("gate-prior-");
+    expect(JSON.stringify(input)).not.toContain("gate-silent-");
+    await pool.query("DELETE FROM agent_runs WHERE id LIKE 'gate-silent-run-%'");
+    await pool.query("DELETE FROM events WHERE id LIKE 'gate-silent-event-%'");
+    await pool.query("DELETE FROM agent_runs WHERE id='gate-prior-run'");
+    await pool.query("DELETE FROM events WHERE id='gate-prior-event'");
     await pool.query("UPDATE agent_states SET disposition='Careful learner',self_story='Growing continuously',mood='Calm',concerns='[]',relationships='[]' WHERE agent_id='b'");
   });
 

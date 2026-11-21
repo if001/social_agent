@@ -369,9 +369,9 @@ type Desire = string;
 - `respond`: 相手へ応答する。
 - `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
-- `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了するために使う。内部Eventと会話目的が満たされたpeer/direct Eventで明示的に使え、idleでは選択しない。Tool利用の有無とは独立する。
+- `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了するために使う。内部Event、会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observed Eventで明示的に使え、idleでは選択しない。Tool利用の有無とは独立する。
 
-`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではmention自体を返答義務にせず、Desireで表した会話目的が満たされ、新しい対象がなければこれで会話を終える。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではmention自体を返答義務にせず、Desireで表した会話目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedの`engage`は発話義務ではなく、具体的な問い、判断を変える差分、次行為への影響、自発表現がなければこれで終える。長期協力、礼儀、採用、感謝、同意、言い換えは単独の発話理由にしない。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。
 
 ## 14. Scheduled Task
 
@@ -590,7 +590,7 @@ type AgentRunResult = {
 
 モデル向けにはMeaning、Feeling、Desire、Actionを一つのフラットな構造化出力として要求する。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。field descriptionは出力意味をモデルへ伝えるために保持し、RuntimeのZod検証を置き換えない。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
-最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。ただしidleでは`no-external-action`を選択できない。peer/directではDesireで表した会話目的が満たされていれば、`no-external-action`を具体的Actionとして選べる。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。InteractionではDesireに基づく具体的Actionを必須とする。
+最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。ただしidleでは`no-external-action`を選択できない。peer/directではDesireで表した会話目的が満たされていれば、peer/observedではGateが`engage`した後にも具体的な問い、判断を変える差分、次行為又は自発表現がなければ、`no-external-action`を具体的Actionとして選べる。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。Interactionでは、発話又は根拠付きの`no-external-action`を必須とする。
 
 持続状態、Memory、Concernは最終出力へ混在させない。Memory、Mood、RelationshipはExperience Integrationが判断し、ConcernはToolによるrun-localな提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
 

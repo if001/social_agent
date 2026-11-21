@@ -108,6 +108,15 @@ describe("Agent prompts", () => {
     expect(outputSchema).toContain("会話目的が満たされた");
   });
 
+  it("FR-21, FR-76, FR-90, FR-91: keeps observed peer speech concrete and permits silence after engagement", () => {
+    expect(socialMessageSkill).toContain("発話義務ではなく");
+    expect(socialMessageSkill).toContain("長期的な協力関係");
+    expect(socialMessageSkill).toContain("具体的な未解決の問い");
+    const outputSchema = JSON.stringify(AgentCoreModelOutputJsonSchema);
+    expect(outputSchema).toContain("peer/observed");
+    expect(outputSchema).toContain("長期的な協力関係");
+  });
+
   it("AC-9: keeps the base and effective skill prompt compact", async () => {
     expect(agentCoreSystemPrompt.length).toBeLessThanOrEqual(4_500);
     const skillsMiddleware = createSkillsMiddleware({ backend: new FilesystemBackend({ rootDir: join(process.cwd(), "skills"), virtualMode: true }), sources: ["/"] });
