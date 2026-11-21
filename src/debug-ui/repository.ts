@@ -40,6 +40,8 @@ export type RunDetail = {
 
 export type EventListItem = {
   readonly id: string;
+  /** Agent that owns and processes this Event. */
+  readonly agentId: string;
   readonly kind: string;
   readonly internalKind: string | null;
   readonly observation: unknown;
@@ -119,7 +121,7 @@ export class DebugUiRepository {
 
   async listEvents(agentId: string, limit = 50): Promise<readonly EventListItem[]> {
     const bounded = Math.min(Math.max(limit, 1), 100);
-    return this.query<EventListItem & QueryResultRow>(`SELECT e.id,e.kind,
+    return this.query<EventListItem & QueryResultRow>(`SELECT e.id,e.agent_id AS "agentId",e.kind,
       CASE WHEN e.kind='internal' THEN e.observation#>>'{content,targetKind}' ELSE NULL END AS "internalKind",
       e.observation,e.source,e.causation_id AS "causationId",e.correlation_id AS "correlationId",e.status,e.occurred_at AS "occurredAt",
       r.id AS "runId",r.started_at AS "startedAt",r.finished_at AS "finishedAt",r.failure_reason AS "failureReason",r.result
