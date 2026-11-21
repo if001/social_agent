@@ -1,0 +1,32 @@
+import type { ObservationGateInput, ObservationGateModel } from "../../application/observation-gate.js";
+import { ObservationGateDecisionSchema, type ObservationGateDecision } from "../../application/observation-gate.js";
+import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
+import { modelJsonSchema } from "./model-json-schema.js";
+import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
+
+export const observationGateSystemPrompt = `あなたはAgentの軽量 Observation Gateです。allowlist peerの、あなた宛てではない投稿だけを読む。\n\n今の自分にとって少しでも気になる、反論・補足・便乗・質問・遊び・協力・過去の関係に接続したいなら engage を選ぶ。単に一般的、既知、関係も関心もない、今は関わりたくない投稿なら ignore を選ぶ。役立つか、返信すべきか、相手を喜ばせるかでは決めない。\n\nこれは応答生成でも会話でもない。Toolを呼ばず、Memoryや状態を更新せず、ignore / engage と短い理由だけを構造化出力する。入力にない事実、ID、配送情報を作らない。`;
+
+const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.map((part) => typeof part === "object" && part !== null && typeof (part as Record<string, unknown>).text === "string" ? (part as Record<string, unknown>).text : "").join("") : "";
+const parseJson = (content: string): unknown => JSON.parse(content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""));
+
+export function createOllamaObservationGateModel(config: OllamaChatConfig, logger: Logger = noopLogger): ObservationGateModel {
+  const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(ObservationGateDecisionSchema) });
+  return {
+    async decide(input: ObservationGateInput, signal: AbortSignal): Promise<ObservationGateDecision> {
+      const payload = JSON.stringify({ post: input.text.slice(0, 1_200), peerName: input.peerName, ...(input.relationship === undefined ? {} : { relationship: input.relationship.slice(0, 400) }), concerns: input.concerns.slice(0, 3).map((value) => value.slice(0, 240)), memories: input.memories.slice(0, 3).map((value) => value.slice(0, 320)) });
+      const startedAt = Date.now();
+      try {
+        const result = await model.invoke([{ role: "system", content: observationGateSystemPrompt }, { role: "user", content: payload }], { signal });
+        const content = contentOf(result.content);
+        if (content.trim() === "") throw new Error("Observation Gate returned empty content");
+        const decision = ObservationGateDecisionSchema.parse(parseJson(content));
+        logger.log("info", "observation_gate.model_completed", { elapsedMs: Date.now() - startedAt, inputChars: payload.length, outputChars: content.length, decision: decision.decision });
+        return decision;
+      } catch (error) {
+        const failure = providerFailure("Observation Gate", error, signal);
+        logger.log("warn", "observation_gate.failed", { ...errorLogContext(failure) });
+        throw failure;
+      }
+    }
+  };
+}

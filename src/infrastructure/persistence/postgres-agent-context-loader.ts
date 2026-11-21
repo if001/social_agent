@@ -8,7 +8,7 @@ import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSch
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agentFamilies, agentRuns, agents, agentStates, events, stateChanges, toolExecutions } from "./schema.js";
+import { agentFamilies, agentRuns, agents, agentStates, events, observationGateDecisions, stateChanges, toolExecutions } from "./schema.js";
 
 type AgentRow = {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
@@ -140,11 +140,12 @@ export class PostgresAgentContextLoader {
       .where(eq(agents.id, event.agentId)).limit(1))[0] as AgentRow | undefined;
     if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${event.agentId}`);
 
-    const recentEvents = await this.options.database.db.select().from(events).where(and(
-      eq(events.agentId, event.agentId), ne(events.kind, "tool-result")
-    )).orderBy(desc(events.occurredAt), desc(events.id)).limit(8);
+    const recentEvents = await this.options.database.db.select({ event: events }).from(events)
+      .leftJoin(observationGateDecisions, eq(observationGateDecisions.eventId, events.id)).where(and(
+        eq(events.agentId, event.agentId), ne(events.kind, "tool-result"), sql`coalesce(${observationGateDecisions.decision}, 'engage') <> 'ignore'`
+      )).orderBy(desc(events.occurredAt), desc(events.id)).limit(8);
     const recentRows: RecentExperienceRow[] = [];
-    for (const recentEvent of recentEvents.reverse()) {
+    for (const { event: recentEvent } of recentEvents.reverse()) {
       const run = (await this.options.database.db.select().from(agentRuns).where(and(
         eq(agentRuns.eventId, recentEvent.id), eq(agentRuns.agentId, recentEvent.agentId),
         isNotNull(agentRuns.finishedAt)

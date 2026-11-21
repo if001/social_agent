@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-21
-status: created
+status: done
 type: change
 plan: []
 requirements: [FR-1, FR-2, FR-76, FR-77, FR-82, FR-88, FR-90, NFR-3, NFR-8, NFR-9, NFR-10, NFR-21]
@@ -49,14 +49,14 @@ Agent Coreへ入る。投稿を観測すること自体は必要だが、毎回D
 
 ## Acceptance criteria
 
-- [ ] AC-066-1：allowlist peerのnonmention投稿は、ID-freeかつ小さい入力のGateで
+- [x] AC-066-1：allowlist peerのnonmention投稿は、ID-freeかつ小さい入力のGateで
   `ignore`又は`engage`へ一度だけ分類される。
-- [ ] AC-066-2：`ignore`は監査EventとGate判断だけを残し、Agent Core、Tool、Outbox、
+- [x] AC-066-2：`ignore`は監査EventとGate判断だけを残し、Agent Core、Tool、Outbox、
   Experience Integration、projection、Reflection/RAGの候補を作らない。
-- [ ] AC-066-3：`engage`は既存の`peer/observed` Agent Coreと配送routeを変えずに通る。
-- [ ] AC-066-4：direct投稿はGateを通らず、既存どおり優先して通常Loopへ入る。
-- [ ] AC-066-5：Gate provider失敗は監査したうえで`engage`へfallbackし、投稿を黙って失わない。
-- [ ] AC-066-6：Debug UIとRepository queryはGate decisionを表示でき、`ignore`を
+- [x] AC-066-3：`engage`は既存の`peer/observed` Agent Coreと配送routeを変えずに通る。
+- [x] AC-066-4：direct投稿はGateを通らず、既存どおり優先して通常Loopへ入る。
+- [x] AC-066-5：Gate provider失敗は監査したうえで`engage`へfallbackし、投稿を黙って失わない。
+- [x] AC-066-6：Debug UIとRepository queryはGate decisionを表示でき、`ignore`を
   Reflection・Event Retrievalから除外する。
 
 ## Tests
@@ -100,7 +100,15 @@ Agent Coreへ入る。投稿を観測すること自体は必要だが、毎回D
 | 文書 | 反映内容 | 状態 |
 |---|---|---|
 | `spec/` | C-16 / C-17の実行予算とEvent詳細化であり変更不要 | 不要 |
-| `docs/REQUIREMENTS.md` | FR-1 / FR-2 / FR-76 / FR-88 / FR-90とFR-91 | 未着手 |
-| `docs/ARCHITECTURE.md` | ADR-16 / ADR-21 | 未着手 |
-| `docs/AGENT_EVENT_AND_EXPERIENCE_OVERVIEW.md` | observed Gateの図と表 | 未着手 |
-| `docs/TEST_STRATEGY.md` | Gateの検証方針 | 未着手 |
+| `docs/REQUIREMENTS.md` | FR-1 / FR-2 / FR-76 / FR-88 / FR-90とFR-91 | 反映済み |
+| `docs/ARCHITECTURE.md` | ADR-16 / ADR-21 | 反映済み |
+| `docs/AGENT_EVENT_AND_EXPERIENCE_OVERVIEW.md` | observed Gateの図と表 | 反映済み |
+| `docs/TEST_STRATEGY.md` | Gateの検証方針 | 反映済み |
+
+## 実装メモ
+
+- `observation_gate_decisions`はGateのID-free入力、判断、失敗理由、LLM/RAG call数をEventに一対一で監査する。`ignore`はRunを作らず、Context・Reflectionの双方から除外する。
+- observed peer投稿はDB receiptを`gate-processing`として先に予約する。予約失敗はGateを実行せず、通常Loop失敗時だけ予約を解放して既存の再試行を維持する。
+- テストDBの既存0040 ledger不整合は、0040後schemaを検証してledgerのみ補正する専用scriptで修復し、その後のmigrationはDrizzle Kitで適用する。
+- 検証：`pnpm typecheck`、`pnpm lint`、`pnpm test:system`（59 tests）、`pnpm test:integration`（64 tests）、`trace_check.py`（ERROR 0）。
+- レビュー：`docs/work/reviews/2026-11-21-issue-066.md`。指摘されたReflection除外、失敗監査、重複Gate、UI表示、call数監査を修正済み。

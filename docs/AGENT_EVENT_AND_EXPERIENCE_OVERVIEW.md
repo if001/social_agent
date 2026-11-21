@@ -27,7 +27,11 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    U[message-received<br/>人間・peerからの入力] --> LOOP[通常 Agent Loop]
+    U[message-received<br/>人間・peerからの入力] --> G{peer/observed?}
+    G -->|direct / human| LOOP[通常 Agent Loop]
+    G -->|observed| OG[Observation Gate]
+    OG -->|engage| LOOP
+    OG -->|ignore| AUDIT[Event + Gate監査のみ]
     AU[自律 Event<br/>idle / concern-formation / concern-due<br/>external-change] --> LOOP
     ST[scheduled-task<br/>予約時刻] --> LOOP
     G3R[prediction-g3-result<br/>G3 の調査結果] --> LOOP
@@ -46,7 +50,7 @@ flowchart TD
 
 | Event | 主な入力 | 主な出力・更新 | ねらい |
 |---|---|---|---|
-| `message-received` | 人間又はallowlist peerの発話、送信者種別、宛先性、前回の評価・欲求、必要に応じて取得した相手文脈 | 応答または共有発話、今回の Meaning / Feeling / Desire、Experience Integration による Memory・Mood・Relationship候補 | 人間・peerとの社会的入力を解釈する |
+| `message-received` | 人間又はallowlist peerの発話、送信者種別、宛先性、前回の評価・欲求、必要に応じて取得した相手文脈 | directは通常Loop、peer/observedはGateの`engage`時だけ応答または共有発話・Experience Integration | 人間・peerとの社会的入力を解釈する |
 | `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 自分が気に掛かる事柄を、自身の興味・感情で進める |
 | `concern-formation` | Self、Memory、Relationship、背景経験、探索候補 | 新しい Concern、または外部 Action なし | 継続して気に掛ける問いを形成する |
 | `concern-due` | 再検討時刻、新しいMemory、既存 Concern | Concern の再評価・派生、発話または拒否 | 継続して気に掛ける対象を外へ表し直す |
@@ -74,7 +78,7 @@ flowchart TD
 
 ### 社会的入力と配送
 
-`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。いずれも同じAgent Core、Concern、Experience Integrationを通る。異なるのは相手に束縛した文脈取得と配送だけであり、人間用／peer用のConcernや認知pipelineは作らない。
+`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/observedだけは、本文、現在の関係、少数の関連MemoryとConcernを使う軽量なObservation Gateで`ignore | engage`を決める。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。
 
 | interaction | 受理 | 通常の`respond.content` | source返信 | 応答義務 |
 |---|---|---|---|---|

@@ -31,6 +31,7 @@
 - Reflection Sessionの固定Event範囲、最大16 EventのMemory Formation batch、再活性化選定、種別ごとのReconciliation、対象別 / batch別retry
 - G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
 - 通常OllamaとDeepAgentへ渡すJSON Schemaのfield description保持
+- Observation GateのID-freeな小入力、`ignore | engage` schema、provider失敗時のfail-open
 
 ### System
 
@@ -54,6 +55,7 @@
 - memory-update Eventの冪等性、部分commit禁止、失敗時の応答非巻き戻し
 - G3の遅延実行、MainAgent再判断、通知必須の例外
 - Reflectionの部分成功、blocked、失敗対象だけの再試行、Sessionの対象別順序
+- peer/observedの`ignore`がRun、Tool、Outbox、Experience、Projectionを作らず、`engage`だけが通常Loopへ一度入ること
 
 ここでいうシナリオtestは複数componentを通すSystem testであり、実Ollama、実PostgreSQL、外部Discordをすべて使うEnd-to-End testとは区別する。
 
@@ -160,6 +162,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理と固定Session内根拠の検証 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
 | FR-77 | Unit, Contract, Integration | `tests/unit/reflection-harness.test.ts`, `tests/contract/prediction-contracts.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts` | 全LLM経路でID・局所参照を非露出とし、Runtimeが検索・範囲制約から根拠と更新対象を解決すること |
+| FR-91 | Unit, System, Integration | `tests/unit/observation-gate.test.ts`, `tests/system/observation-gate.test.ts`, `tests/integration/persistence.test.ts` | Gateの小さいID-free入力、ignoreの監査のみ保存、engage、direct bypass、fail-open |
 | FR-78 | Unit, Integration, System | `tests/unit/reflection-evidence-resolver.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/reflection-partial.test.ts` | Formationの固定batch制約、Hybrid Retrieval根拠、未支持no-op、技術失敗だけのbatch再試行 |
 | FR-79 | Unit, Integration, System | `tests/unit/memory-reconciliation.test.ts`, `tests/unit/reflection-evidence-resolver.test.ts`, `tests/system/reflection-partial.test.ts` | cluster化されたanchor単位の更新、後続Event制約、種別別の変更制限、split |
 | FR-80 | Unit, Contract | `tests/unit/reflection-tools.test.ts`, `tests/contract/agent-harness.contract.test.ts` | Reflection ToolのID非露出、非公開handle、非ID入力だけによる検索 |

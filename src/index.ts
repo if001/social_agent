@@ -50,6 +50,8 @@ export { PostgresAgentContextLoader, observationFromEvent } from "./infrastructu
 export type { ContextBudget, ContextSource } from "./application/context-builder.js";
 export { AgentRuntime, OutboxDispatcher } from "./application/agent-runtime.js";
 export type { AgentRuntimeOptions, PendingOutput, RuntimePersistence } from "./application/agent-runtime.js";
+export { ObservationGate, ObservationGateDecisionSchema } from "./application/observation-gate.js";
+export type { ObservationGateAudit, ObservationGateContextLoader, ObservationGateDecision, ObservationGateInput, ObservationGateModel } from "./application/observation-gate.js";
 export { AgentEventRouter } from "./application/agent-event-router.js";
 export { Reflection, ReflectionInputSchema, ReflectionOutputSchema } from "./application/reflection.js";
 export type { ReflectionInput, ReflectionModel, ReflectionOutput, ReflectionRepository } from "./application/reflection.js";
