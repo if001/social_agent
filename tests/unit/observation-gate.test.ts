@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ObservationGate } from "../../src/application/observation-gate.js";
+import { ObservationGate, type ObservationGateDecision, type ObservationGateModel } from "../../src/application/observation-gate.js";
 import { observationGateSystemPrompt } from "../../src/infrastructure/agent/observation-gate-model.js";
 import type { DomainEvent } from "../../src/domain/contracts.js";
 
@@ -12,6 +12,8 @@ describe("ObservationGate", () => {
     expect(observationGateSystemPrompt).toContain("現在のMood");
     expect(observationGateSystemPrompt).toContain("返信すべきか");
     expect(observationGateSystemPrompt).toContain("では決めない");
+    expect(observationGateSystemPrompt).toContain("具体的な未解決の問い");
+    expect(observationGateSystemPrompt).toContain("長期的な協力関係");
   });
 
   it("FR-91, NFR-21: passes only bounded ID-free social context to the one-shot model", async () => {
@@ -23,8 +25,22 @@ describe("ObservationGate", () => {
     expect(JSON.stringify(received)).not.toContain("agent:aka");
   });
 
-  it("FR-91: fails open when context or provider cannot decide", async () => {
+  it("FR-91, NFR-21: fails closed when an optional observed-post Gate cannot decide", async () => {
     const gate = new ObservationGate({ load: () => Promise.reject(new Error("database unavailable")) }, { decide: () => Promise.resolve({ decision: "ignore", reason: "unused" }) });
-    await expect(gate.decide(event, new AbortController().signal)).resolves.toMatchObject({ decision: "engage", modelCalls: 0, retrievalCount: 0, failureReason: "database unavailable" });
+    await expect(gate.decide(event, new AbortController().signal)).resolves.toMatchObject({ decision: "ignore", modelCalls: 0, retrievalCount: 0, failureReason: "database unavailable" });
+  });
+
+  it("FR-91, NFR-21: fails closed when the Gate provider rejects or returns schema-invalid output", async () => {
+    const input = { text: "案を採用する", peerName: "aka", self: { disposition: "気まま", story: "気になる差分を追う" }, mood: "落ち着いている", concerns: [], memories: [] };
+    const models: readonly ObservationGateModel[] = [
+      { decide: () => Promise.reject(new Error("provider unavailable")) },
+      { decide: () => Promise.resolve({ decision: "engage" } as unknown as ObservationGateDecision) }
+    ];
+    for (const model of models) {
+      const gate = new ObservationGate({ load: () => Promise.resolve(input) }, model);
+      const result = await gate.decide(event, new AbortController().signal);
+      expect(result).toMatchObject({ decision: "ignore", modelCalls: 1, retrievalCount: 1 });
+      expect(typeof result.failureReason).toBe("string");
+    }
   });
 });

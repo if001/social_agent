@@ -31,8 +31,8 @@
 - Reflection Sessionの固定Event範囲、最大16 EventのMemory Formation batch、再活性化選定、種別ごとのReconciliation、対象別 / batch別retry
 - G3の別DeepAgent出力とMainAgentへのmemoryIntents受け渡し
 - 通常OllamaとDeepAgentへ渡すJSON Schemaのfield description保持
-- Observation GateのSelf・Moodを含むID-freeな小入力、返信義務でなくAgent自身の動機に基づく`ignore | engage` schema、provider失敗時のfail-open
-- peer/directがDesireで会話目的を再評価し、定型終話を`no-external-action`で監査完了して配送しないこと
+- Observation GateのSelf・Mood・直近自己発話を含むID-freeな小入力、返信義務でなくAgent自身の具体的動機に基づく`ignore | engage` schema、provider失敗時のfail-closed
+- peer/directとengage後のpeer/observedがDesireで会話目的又は具体的発話動機を再評価し、終話を`no-external-action`で監査完了して配送しないこと
 
 ### System
 
@@ -139,8 +139,8 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-18 | System, Unit | `tests/system/runtime-terminal.test.ts`, `tests/unit/domain-contracts.test.ts` | refuse の内容と basis |
 | FR-19 | System, Contract, Unit | `tests/system/runtime-terminal.test.ts`, `tests/contract/discord-adapter.contract.test.ts` | notify-no-execution の配送 |
 | FR-20 | Contract, System | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts` | Tool 利用と発話判断の独立 |
-| FR-21 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/system/observation-gate.test.ts`, `tests/unit/domain-contracts.test.ts` | no-external-action の理由とpeer/direct会話終了 |
-| FR-76, FR-90 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/observation-gate.test.ts` | peer/directがDesireを会話目的として再評価し、終話を無応答で監査すること |
+| FR-21 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/system/observation-gate.test.ts`, `tests/unit/domain-contracts.test.ts` | no-external-action の理由とpeer会話終了 |
+| FR-76, FR-90 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/observation-gate.test.ts` | peer/directとpeer/observedが具体的動機を再評価し、終話を無応答で監査すること |
 | FR-22 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/config-lifecycle.test.ts` | 夜間quiet hoursのidle抑制と再スケジュール |
 | FR-23 | Unit, System, Evaluation | `tests/unit/agent-state-patch.test.ts`, `tests/unit/domain-contracts.test.ts`, `tests/system/invalid-output.test.ts` | Patch 対象の限定 |
 | FR-24 | Unit, Integration, System | `tests/unit/agent-state-patch.test.ts`, `tests/integration/persistence.test.ts`, `tests/unit/scheduler.test.ts`, `tests/system/tool-loop.test.ts` | Concern 更新と schedule 同期 |
@@ -165,7 +165,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-41 | Unit, Integration | `tests/unit/reflection.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Reflection の maintenance 処理と固定Session内根拠の検証 |
 | FR-42 | Unit, Integration, Live | `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-reflection.test.ts` | Reflection の構造化出力、backoff、24時間上限 |
 | FR-77 | Unit, Contract, Integration | `tests/unit/reflection-harness.test.ts`, `tests/contract/prediction-contracts.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts` | 全LLM経路でID・局所参照を非露出とし、Runtimeが検索・範囲制約から根拠と更新対象を解決すること |
-| FR-91 | Unit, System, Integration | `tests/unit/observation-gate.test.ts`, `tests/system/observation-gate.test.ts`, `tests/integration/persistence.test.ts` | GateのSelf・Moodを含む小さいID-free入力、Agent自身の動機、ignoreの監査のみ保存、engage、direct bypass、fail-open |
+| FR-91 | Unit, System, Integration, Live | `tests/unit/observation-gate.test.ts`, `tests/system/observation-gate.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-observation-gate.test.ts` | GateのSelf・Mood・直近自己発話を含む小さいID-free入力、具体的動機、同意だけのignoreと新しい具体質問のengage、ignoreの監査のみ保存、direct bypass、fail-closed |
 | FR-78 | Unit, Integration, System | `tests/unit/reflection-evidence-resolver.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/reflection-partial.test.ts` | Formationの固定batch制約、Hybrid Retrieval根拠、未支持no-op、技術失敗だけのbatch再試行 |
 | FR-79 | Unit, Integration, System | `tests/unit/memory-reconciliation.test.ts`, `tests/unit/reflection-evidence-resolver.test.ts`, `tests/system/reflection-partial.test.ts` | cluster化されたanchor単位の更新、後続Event制約、種別別の変更制限、split |
 | FR-80 | Unit, Contract | `tests/unit/reflection-tools.test.ts`, `tests/contract/agent-harness.contract.test.ts` | Reflection ToolのID非露出、非公開handle、非ID入力だけによる検索 |

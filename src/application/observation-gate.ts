@@ -4,7 +4,7 @@ import type { DomainEvent } from "../domain/contracts.js";
 
 export const ObservationGateDecisionSchema = z.object({
   decision: z.enum(["ignore", "engage"]).describe("ignore は通常Loopへ渡さず監査だけ残す。engage は通常の peer/observed Loopへ渡す。"),
-  reason: z.string().min(1).max(240).describe("投稿がSelf・Mood・関係・Memory・Concernの何を動かし、Agent自身が知りたい・言いたい等と感じたか、又は動かなかったかを短く説明する。返信義務や相手への有用性を理由にしない。")
+  reason: z.string().min(1).max(240).describe("engageなら、投稿の具体的対象と、自分の未解決の問い・判断を変える差分・Concern又は約束の次行為・今言いたい自発表現のどれが動いたかを書く。ignoreなら、それがないことを書く。長期協力、礼儀、採用、感謝、同意、言い換え、相手への有用性、返信義務を理由にしない。")
 }).strict();
 export type ObservationGateDecision = z.infer<typeof ObservationGateDecisionSchema>;
 
@@ -18,6 +18,8 @@ export type ObservationGateInput = {
   readonly relationship?: string;
   readonly concerns: readonly string[];
   readonly memories: readonly string[];
+  /** Most recent bounded self utterance to this peer, when one is available. */
+  readonly recentSelfSpeech?: string;
 };
 
 export interface ObservationGateModel {
@@ -50,17 +52,16 @@ export class ObservationGate {
       input = await this.context.load(event, signal);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // Losing an observed peer post due to infrastructure/model trouble is a
-      // worse failure than spending one normal run. The normal loop remains
-      // authoritative and will record its own result.
-      return { decision: "engage", reason: "Gateを判定できなかったため通常の観測として扱う", modelCalls: 0, retrievalCount: 0, failureReason: message.slice(0, 1_000) };
+      // A non-mentioned peer post has no response obligation.  On a Gate
+      // failure, do not turn an optional observation into an Agent Core run.
+      return { decision: "ignore", reason: "Gateを判定できなかったため観測だけを記録する", modelCalls: 0, retrievalCount: 0, failureReason: message.slice(0, 1_000) };
     }
     try {
       const decision = ObservationGateDecisionSchema.parse(await this.model.decide(input, signal));
       return { ...decision, input, modelCalls: 1, retrievalCount: 1 };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { decision: "engage", reason: "Gateを判定できなかったため通常の観測として扱う", input, modelCalls: 1, retrievalCount: 1, failureReason: message.slice(0, 1_000) };
+      return { decision: "ignore", reason: "Gateを判定できなかったため観測だけを記録する", input, modelCalls: 1, retrievalCount: 1, failureReason: message.slice(0, 1_000) };
     }
   }
 }

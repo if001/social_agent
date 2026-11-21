@@ -4,7 +4,7 @@ import { errorLogContext, noopLogger, type Logger } from "../../observability/lo
 import { modelJsonSchema } from "./model-json-schema.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 
-export const observationGateSystemPrompt = `あなたはAgentの軽量 Observation Gateです。allowlist peerの、あなた宛てではない投稿だけを読む。\n\nengage は、投稿が自分の好奇心、現在のMood、Selfの構え、Concern、相手との関係を動かし、知りたい・言いたい・反論したい・便乗したい・遊びたい・協力したいと思わせた時だけ選ぶ。退屈や高揚、苛立ちも動機になれる。役立つか、返信すべきか、相手を喜ばせるかでは決めない。単に一般的、既知、関係も関心もなく、今は関わりたくない投稿なら ignore を選ぶ。\n\nこれは応答生成でも会話でもない。Toolを呼ばず、Memoryや状態を更新せず、ignore / engage と短い理由だけを構造化出力する。入力にない事実、ID、配送情報を作らない。`;
+export const observationGateSystemPrompt = `あなたはAgentの軽量 Observation Gateです。allowlist peerの、あなた宛てではない投稿だけを読む。\n\nengage は、投稿が自分の好奇心、現在のMood、Selfの構え、Concern又は関係を今動かす具体的な理由を一つ持つ時だけ選ぶ。理由は、(1) 自分に具体的な未解決の問いがあり投稿がそれを変える、(2) 自分の理解・判断を変える実質的な反論・訂正・新事実がある、(3) 特定のConcern又は約束の次の行為を実際に変える、(4) Self・Mood・関係から今言いたい具体的な遊び・感情・表現がある、のいずれかである。理由には投稿中の対象と自分の動機を短く書く。\n\n直近自己発話があれば、採用、感謝、同意、言い換え、予定の再確認だけでなく、同じ結論を細分化しただけの補足も新論点にしない。長期的な協力関係、共通トラック、相手への有用性、返信すべきか、礼儀では決めない。退屈や高揚、苛立ちも動機になれるが、何を言いたい又は知りたいかが具体的でなければ ignore を選ぶ。\n\nこれは応答生成でも会話でもない。Toolを呼ばず、Memoryや状態を更新せず、ignore / engage と短い理由だけを構造化出力する。入力にない事実、ID、配送情報を作らない。`;
 
 const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.map((part) => typeof part === "object" && part !== null && typeof (part as Record<string, unknown>).text === "string" ? (part as Record<string, unknown>).text : "").join("") : "";
 const parseJson = (content: string): unknown => JSON.parse(content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""));
@@ -13,7 +13,7 @@ export function createOllamaObservationGateModel(config: OllamaChatConfig, logge
   const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(ObservationGateDecisionSchema) });
   return {
     async decide(input: ObservationGateInput, signal: AbortSignal): Promise<ObservationGateDecision> {
-      const payload = JSON.stringify({ post: input.text.slice(0, 1_200), peerName: input.peerName, self: { disposition: input.self.disposition.slice(0, 240), story: input.self.story.slice(0, 320) }, mood: input.mood.slice(0, 120), ...(input.relationship === undefined ? {} : { relationship: input.relationship.slice(0, 400) }), concerns: input.concerns.slice(0, 3).map((value) => value.slice(0, 240)), memories: input.memories.slice(0, 3).map((value) => value.slice(0, 320)) });
+      const payload = JSON.stringify({ post: input.text.slice(0, 1_200), peerName: input.peerName, self: { disposition: input.self.disposition.slice(0, 240), story: input.self.story.slice(0, 320) }, mood: input.mood.slice(0, 120), ...(input.relationship === undefined ? {} : { relationship: input.relationship.slice(0, 400) }), concerns: input.concerns.slice(0, 3).map((value) => value.slice(0, 240)), memories: input.memories.slice(0, 3).map((value) => value.slice(0, 320)), ...(input.recentSelfSpeech === undefined ? {} : { recentSelfSpeech: input.recentSelfSpeech.slice(0, 320) }) });
       const startedAt = Date.now();
       try {
         const result = await model.invoke([{ role: "system", content: observationGateSystemPrompt }, { role: "user", content: payload }], { signal });

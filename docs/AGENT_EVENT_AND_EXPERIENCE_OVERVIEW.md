@@ -50,7 +50,7 @@ flowchart TD
 
 | Event | 主な入力 | 主な出力・更新 | ねらい |
 |---|---|---|---|
-| `message-received` | 人間又はallowlist peerの発話、送信者種別、宛先性、前回の評価・欲求、必要に応じて取得した相手文脈 | directは通常Loop、peer/observedはGateの`engage`時だけ応答または共有発話・Experience Integration | 人間・peerとの社会的入力を解釈する |
+| `message-received` | 人間又はallowlist peerの発話、送信者種別、宛先性、前回の評価・欲求、必要に応じて取得した相手文脈 | directは通常Loop、peer/observedはGateの`engage`時だけ通常Loopへ入り、発話又は`no-external-action`・Experience Integration | 人間・peerとの社会的入力を解釈する |
 | `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 自分が気に掛かる事柄を、自身の興味・感情で進める |
 | `concern-formation` | Self、Memory、Relationship、背景経験、探索候補 | 新しい Concern、または外部 Action なし | 継続して気に掛ける問いを形成する |
 | `concern-due` | 再検討時刻、新しいMemory、既存 Concern | Concern の再評価・派生、発話または拒否 | 継続して気に掛ける対象を外へ表し直す |
@@ -78,7 +78,7 @@ flowchart TD
 
 ### 社会的入力と配送
 
-`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/directはDesireを会話目的として再評価し、mentionだけを理由に応答せず、目的が満たされれば`no-external-action`で通常Eventとして監査完了する。peer/observedだけは、本文、短いSelf view、現在Mood、現在の関係、少数の関連MemoryとConcernを使う軽量なObservation Gateで`ignore | engage`を決める。これは返信義務でなく、好奇心、感情、関心、関係への欲求が動いたかの判定である。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。
+`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/directはDesireを会話目的として再評価し、mentionだけを理由に応答せず、目的が満たされれば`no-external-action`で通常Eventとして監査完了する。peer/observedだけは、本文、短いSelf view、現在Mood、現在の関係、少数の関連MemoryとConcern、直近自己発話を使う軽量なObservation Gateで`ignore | engage`を決める。これは返信義務でなく、具体的な問い、判断を変える差分、次行為、自発表現が現在のAgentを動かしたかの判定である。合意・礼儀・言い換えだけ、又はGate失敗は`ignore`として監査する。`engage`も発話義務ではなく、具体的な発話動機が尽きれば`no-external-action`で通常Eventを監査完了する。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。
 
 | interaction | 受理 | 通常の`respond.content` | source返信 | 応答義務 |
 |---|---|---|---|---|
