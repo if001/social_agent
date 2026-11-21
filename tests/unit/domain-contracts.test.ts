@@ -16,10 +16,12 @@ describe("domain contracts", () => {
   it("FR-17, FR-18, FR-19, FR-21: represents every action", () => {
     for (const action of [
       { type: "respond", content: "Hello" },
+      { type: "respond", observedReply: { content: "それ、気になる" } },
       { type: "refuse", content: "I can't help with that.", reason: "Unsafe", basis: "system" },
       { type: "notify-no-execution", content: "今回は実行しない", reason: "新しい手掛かりがない" },
       { type: "no-external-action", reason: "Nothing due" }
     ]) expect(AgentActionSchema.safeParse(action).success).toBe(true);
+    expect(AgentActionSchema.safeParse({ type: "respond", content: "共有", observedReply: { content: "返信" } }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "refuse", reason: "private reason", basis: "personality" }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "tool", call: { id: "c", name: "web", input: {} } }).success).toBe(false);
     expect(AgentActionSchema.safeParse({ type: "wait", reason: "Later" }).success).toBe(false);

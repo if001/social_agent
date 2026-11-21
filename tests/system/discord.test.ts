@@ -9,10 +9,10 @@ import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import { ResourceScope, temporaryDirectory } from "../../src/testing/resource-scope.js";
 
 class Gateway implements DiscordGateway {
-  handler?: (message: DiscordInboundMessage) => Promise<void>; readonly sent: string[] = [];
+  handler?: (message: DiscordInboundMessage) => Promise<void>; readonly sent: string[] = []; readonly contexts: DiscordReplyContext[] = [];
   start(handler: (message: DiscordInboundMessage) => Promise<void>, signal: AbortSignal): Promise<void> { this.handler = handler; return new Promise((resolve) => { signal.addEventListener("abort", () => { resolve(); }, { once: true }); }); }
   startTyping(): Promise<() => void> { return Promise.resolve(() => undefined); }
-  send(_context: DiscordReplyContext, content: string): Promise<string> { this.sent.push(content); return Promise.resolve(`discord-output-${String(this.sent.length)}`); }
+  send(context: DiscordReplyContext, content: string): Promise<string> { this.contexts.push(context); this.sent.push(content); return Promise.resolve(`discord-output-${String(this.sent.length)}`); }
 }
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
@@ -45,5 +45,24 @@ describe("ST-02 Discord round trip", () => {
     ]);
     expect(receivedA).toEqual(["hello A"]); expect(receivedB).toEqual(["hello B"]);
     controller.abort(); await Promise.all([inboundA, inboundB]); await scope.close();
+  });
+
+  it("FR-88: distinguishes a peer observation's shared speech from its source reply", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() }); const gateway = new Gateway();
+    const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; return input; });
+    const harness = new ScriptedAgentHarness([
+      { desire: "独り言を言いたい", action: { type: "respond", content: "その話題、ぼくも気になった" } },
+      { desire: "投稿へ返したい", action: { type: "respond", observedReply: { content: "そこは僕も同意する" } } }
+    ]);
+    const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "discord", queue, harness, persistence, ids: new SequenceIdGenerator(["event-1", "output-1", "event-2", "output-2"]), now: () => clock.now() });
+    const discord = new DiscordAdapter({ gateway, queue, clock, ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), peerDiscordUserIds: new Set(["bot-b"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
+    const controller = new AbortController(); const running = runtime.start(controller.signal); const inbound = discord.startInbound(controller.signal); const outbound = discord.startOutbound(controller.signal);
+    await gateway.handler?.({ id: "peer-observed-1", authorId: "bot-b", isBot: true, guildId: "guild", channelId: "channel", content: "thinking aloud", createdAt: clock.now() });
+    await eventually(() => { expect(persistence.events).toHaveLength(1); }); await new OutboxDispatcher(persistence, queue).dispatch(); await eventually(() => { expect(gateway.sent).toEqual(["その話題、ぼくも気になった"]); });
+    expect(gateway.contexts[0]).toEqual({ channelId: "channel" });
+    await gateway.handler?.({ id: "peer-observed-2", authorId: "bot-b", isBot: true, guildId: "guild", channelId: "channel", threadId: "thread", content: "another thought", createdAt: clock.now() });
+    await eventually(() => { expect(persistence.events).toHaveLength(2); }); await new OutboxDispatcher(persistence, queue).dispatch(); await eventually(() => { expect(gateway.sent).toEqual(["その話題、ぼくも気になった", "そこは僕も同意する"]); });
+    expect(gateway.contexts[1]).toEqual({ channelId: "channel", threadId: "thread", messageId: "peer-observed-2" });
+    controller.abort(); await Promise.all([running, inbound, outbound]); await scope.close();
   });
 });

@@ -33,7 +33,7 @@ export interface RuntimePersistence {
 
 export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly peers?: readonly AgentPeer[]; readonly subjects?: CanonicalSubjectResolver };
 
-const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" || action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined;
+const externalSpeech = (action: AgentAction): string | undefined => (action.type === "respond" ? action.content : action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined);
 
 export class AgentRuntime {
   readonly #updates = new AgentStatePatchService();
@@ -83,6 +83,15 @@ export class AgentRuntime {
       action: { id: input.run.runId, type: "respond" }
     });
   }
+  #observedReplyEnvelope(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, text: string, correlationId: string): MessageEnvelope | undefined {
+    if (event.payload.senderKind !== "peer" || event.payload.addressing !== "observed") return undefined;
+    const context = event.payload.replyContext;
+    if (typeof context !== "object" || context === null || typeof (context as Record<string, unknown>).channelId !== "string" || typeof (context as Record<string, unknown>).messageId !== "string") return undefined;
+    return this.#responseEnvelope(message, event, input, this.options.defaultOutputDestination, message.hop, correlationId, {
+      type: "agent-response", text, agentId: event.agentId, correlationId,
+      action: { id: input.run.runId, type: "respond" }, replyContext: context
+    });
+  }
   #serialize<T>(work: () => Promise<T>): Promise<T> {
     const result = this.#tail.then(work, work);
     this.#tail = result.then(() => undefined, () => undefined);
@@ -120,6 +129,10 @@ export class AgentRuntime {
         { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? { replyContext: event.payload.addressing === "observed" ? (() => { const context = event.payload.replyContext as Record<string, unknown>; return typeof context.channelId === "string" ? { channelId: context.channelId } : {}; })() : event.payload.replyContext } : {}), ...(peerReply && typeof event.payload.actorId === "string" ? { peer: { discordUserId: event.payload.actorId } } : {}) }
       )] : [];
       if (action.type === "respond" && action.peer !== undefined) values.push(this.#peerEnvelope(message, event, input, action.peer.name, action.peer.content, inheritedCorrelation));
+      if (action.type === "respond" && action.observedReply !== undefined) {
+        const reply = this.#observedReplyEnvelope(message, event, input, action.observedReply.content, inheritedCorrelation);
+        if (reply !== undefined) values.push(reply);
+      }
       return values;
     };
     await this.#execute(message, event, signal, outgoing);
