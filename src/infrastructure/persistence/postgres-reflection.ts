@@ -253,11 +253,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const updated = await client.update(agentStates).set({ disposition: self.disposition, selfStory: self.selfStory, commitments: self.commitments, concerns: state.concerns, relationships: state.relationships, mood: state.mood, version: sql`${agentStates.version}+1`, updatedAt: occurredAt }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, input.expectedVersion))).returning({ version: agentStates.version });
       if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection state version conflict");
       if (self.identity !== input.self.identity) await client.update(agents).set({ identity: self.identity, updatedAt: occurredAt }).where(eq(agents.id, input.agentId));
-      await client.delete(autonomousSchedules).where(and(eq(autonomousSchedules.agentId, input.agentId), eq(autonomousSchedules.kind, "concern-due")));
-      for (const concern of state.concerns) {
-        if (concern.status !== "active" || concern.reconsiderAt === undefined) continue;
-        await client.insert(autonomousSchedules).values({ id: `concern:${concern.id}`, agentId: input.agentId, kind: "concern-due", reason: concern.whyItMatters, nextDueAt: new Date(concern.reconsiderAt) });
-      }
+      await this.#syncConcernSchedules(client, input.agentId, state.concerns);
       const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
       if (this.memoryUpdateSink === undefined) {
         for (const [memoryIndex, memory] of output.memories.entries()) {
@@ -362,20 +358,34 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       errors: rows.filter((row) => row.status === "failed" && row.failureReason !== null).map((row) => ({ target: row.target === "self-mood" ? "self" : row.target, message: row.failureReason ?? "Reflection target failed" }))
     });
     const retryable = rows.some((row) => row.status === "failed" || row.status === "blocked");
-    if (attempts.get("concern")?.status === "completed") {
-      const state = await this.database.db.select({ concerns: agentStates.concerns, relationships: agentStates.relationships, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
-      const current = state[0];
-      if (current !== undefined) {
-        const activity = await this.database.db.selectDistinct({ concernId: concernActivities.concernId }).from(concernActivities).where(and(eq(concernActivities.agentId, input.agentId), eq(concernActivities.reflectionId, input.reflectionId), ne(concernActivities.kind, "presented")));
-        const parsed = AgentStateSchema.parse({ concerns: current.concerns, relationships: current.relationships });
-        await this.database.transaction(async (client) => {
-          const closed = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, parsed.concerns, new Set(activity.map(({ concernId }) => concernId)), this.now());
-          if (JSON.stringify(closed) !== JSON.stringify(parsed.concerns)) await client.update(agentStates).set({ concerns: closed, version: sql`${agentStates.version}+1`, updatedAt: this.now() }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, current.version)));
-        });
+    try {
+      if (attempts.get("concern")?.status === "completed") {
+        const state = await this.database.db.select({ concerns: agentStates.concerns, relationships: agentStates.relationships, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
+        const current = state[0];
+        if (current !== undefined) {
+          const activity = await this.database.db.selectDistinct({ concernId: concernActivities.concernId }).from(concernActivities).where(and(eq(concernActivities.agentId, input.agentId), eq(concernActivities.reflectionId, input.reflectionId), ne(concernActivities.kind, "presented")));
+          const parsed = AgentStateSchema.parse({ concerns: current.concerns, relationships: current.relationships });
+          await this.database.transaction(async (client) => {
+            const closed = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, parsed.concerns, new Set(activity.map(({ concernId }) => concernId)), this.now());
+            if (JSON.stringify(closed) !== JSON.stringify(parsed.concerns)) {
+              const at = this.now();
+              const changed = await client.update(agentStates).set({ concerns: closed, version: sql`${agentStates.version}+1`, updatedAt: at }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, current.version))).returning({ version: agentStates.version });
+              if (changed.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern stale-close state version conflict");
+              await this.#syncConcernSchedules(client, input.agentId, closed);
+            }
+          });
+        }
       }
+    } catch (error) {
+      if (!(error instanceof DomainError) || error.code !== "CONFLICT") throw error;
+      const failureReason = "Reflection has retryable target failures";
+      const retryPlan = ReflectionPlanSchema.parse({ ...plan, errors: [...plan.errors, { target: "concern", message: error.message }] });
+      await this.database.db.update(reflectionRuns).set({ status: "pending", plan: retryPlan, failureReason, completedAt: null, updatedAt: this.now() }).where(eq(reflectionRuns.id, input.reflectionId));
+      throw new DomainError("EXTERNAL", failureReason, { cause: error });
     }
-    const status = retryable ? "pending" : "completed"; const at = this.now(); await this.database.db.update(reflectionRuns).set({ status, plan, failureReason: plan.errors[0]?.message ?? null, completedAt: status === "completed" ? at : null, updatedAt: at }).where(eq(reflectionRuns.id, input.reflectionId));
-    if (retryable) throw new DomainError("EXTERNAL", "Reflection has retryable target failures");
+    const retryFailureReason = "Reflection has retryable target failures";
+    const status = retryable ? "pending" : "completed"; const at = this.now(); await this.database.db.update(reflectionRuns).set({ status, plan, failureReason: retryable ? retryFailureReason : null, completedAt: status === "completed" ? at : null, updatedAt: at }).where(eq(reflectionRuns.id, input.reflectionId));
+    if (retryable) throw new DomainError("EXTERNAL", retryFailureReason);
   }
 
   #targetInput(input: ReflectionInput, target: ReflectionTarget): unknown {
@@ -408,6 +418,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const updated = await this.database.db.update(agentStates).set({ concerns: applied.concerns, version: sql`${agentStates.version}+1`, updatedAt: this.now() }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
     if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");
     const at = this.now();
+    await this.database.transaction(async (client) => this.#syncConcernSchedules(client, input.agentId, applied.concerns));
     // The targeted path replaced the legacy combined commit, which recorded
     // every active Concern as presented to a successful Reflection Session.
     // Retain that lifecycle signal independently of the bounded model view.
@@ -527,6 +538,14 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const updated = await this.database.db.update(agentStates).set({ disposition: self?.disposition ?? row.disposition, selfStory: self?.selfStory ?? row.selfStory, commitments: self?.commitments ?? row.commitments, mood: output.mood ?? row.mood, version: sql`${agentStates.version}+1`, updatedAt: this.now() }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
     if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection Self/Mood state version conflict");
     if (self !== undefined) await this.database.db.update(agents).set({ identity: self.identity, updatedAt: this.now() }).where(eq(agents.id, input.agentId));
+  }
+
+  async #syncConcernSchedules(client: ReflectionTransaction, agentId: string, concerns: readonly Concern[]): Promise<void> {
+    await client.delete(autonomousSchedules).where(and(eq(autonomousSchedules.agentId, agentId), eq(autonomousSchedules.kind, "concern-due")));
+    for (const concern of concerns) {
+      if (concern.status !== "active" || concern.reconsiderAt === undefined) continue;
+      await client.insert(autonomousSchedules).values({ id: `concern:${concern.id}`, agentId, kind: "concern-due", reason: concern.whyItMatters, nextDueAt: new Date(concern.reconsiderAt) });
+    }
   }
 
   async #closeStaleConcerns(client: ReflectionTransaction, agentId: string, reflectionId: string, concerns: readonly Concern[], changedConcernIds: ReadonlySet<string>, now: Date): Promise<readonly Concern[]> {

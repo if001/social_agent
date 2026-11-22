@@ -173,7 +173,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - NFR-4：Agent Contextを4,500推定token以内に収める。system promptとTool schemaを含むmodel入力が8,000推定tokenを超えた場合は警告するが、provider呼び出しを中断しない。（C-20, C-23、追加：具体的なtoken上限は実装判断）
 - NFR-5：model call数、Deep Agent step数、Tool call数、deadlineをRun単位で制限する。探索用のgraph safety上限が先に到達した場合は、残した1 model callで、それまでに取得・記録済みのTool結果を根拠に通常Toolなしの最終Actionを試みる。この回復も失敗した場合だけRunを失敗にする。（C-27, C-28）
 - NFR-21：RuntimeはRunまたはmaintenance Session単位でRAG query数、LLM call数、入力・出力token、並列数を計測・監査し、予算として強制する。RAG queryは数百件まで許可するが、1,000件以上を計画・実行しない。通常のLLM callを数百回行う設計にしない。入力・出力が小さく、単一候補の自然言語判断だけを行う軽量LLM callは、明示的な共有予算の範囲で100回未満まで許可できる。任意の`peer/observed`のGate失敗は通常Runを始めず`ignore`として監査する。上限到達時は、取得済み結果による決定論的な完了・no-op・部分成功へ移行し、無制限な再試行や全件走査をしない。（追加：検索と軽量判断を活用しつつ、数千回規模の検索・数百回規模のLLM実行を防ぐため）
-- NFR-22：意味、意図、感情、自然言語の要約・解釈、曖昧な経験の統合など、自然言語の理解を要する判断はLLMが担う。一方、ID・所有権・権限・時刻・範囲・状態遷移・冪等性・予算・pagination・重複除去・閾値判定・候補の順位付けはRuntimeが決定論的に担う。Hybrid RAG、embedding近傍検索、cluster化はLLM呼出しを代替できる機械的な候補取得・集約として使ってよいが、Agentの意味づけそのものを確定しない。（C-18, C-20, C-27、追加：認知判断とRuntime責務を分離するため）
+- NFR-22：意味、意図、感情、自然言語の要約・解釈、曖昧な経験の統合など、自然言語の理解を要する判断はLLMが担う。特定語、禁止語、正規表現又は単純な文字列一致を意味判定の条件として、分類、除外、状態変更又はAction選択を確定しない。一方、ID・所有権・権限・時刻・範囲・状態遷移・冪等性・予算・pagination・重複除去・閾値判定・候補の順位付けはRuntimeが決定論的に担う。Hybrid RAG、embedding近傍検索、cluster化はLLM呼出しを代替できる機械的な候補取得・集約として使ってよいが、Agentの意味づけそのものを確定しない。（C-18, C-20, C-27、追加：認知判断とRuntime責務を分離するため）
 - FR-32：予算超過、schema不正、権限違反、同一Run内での同一Tool・同一入力の反復を拒否する。重複拒否は既取得結果の利用、入力・Toolの変更、または最終Actionへの移行を示す機械可読な失敗結果を同じAgent loopへ返す。過去Runでの同一入力だけを理由に実行を拒否しない。モデルが生成した未登録Tool callも同じAgent loopへ失敗実績として返す。（C-24, C-27, C-28）
 
 ## R6. Tool
