@@ -38,6 +38,12 @@ export interface RuntimePersistence {
 export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly peers?: readonly AgentPeer[]; readonly subjects?: CanonicalSubjectResolver };
 
 const externalSpeech = (action: AgentAction): string | undefined => (action.type === "respond" ? action.content : action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined);
+const explicitPeerRecipient = (action: AgentAction): string | undefined => action.type === "respond" && action.recipient !== undefined && action.recipient !== "user" && action.recipient !== "channel" ? action.recipient : undefined;
+const channelContext = (value: unknown): { readonly channelId: string } | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const channelId: unknown = (value as Record<string, unknown>).channelId;
+  return typeof channelId === "string" ? { channelId } : undefined;
+};
 
 export class AgentRuntime {
   readonly #updates = new AgentStatePatchService();
@@ -62,14 +68,15 @@ export class AgentRuntime {
       const destination = configuredDestination.trim() !== "" ? configuredDestination : undefined;
       if (destination === undefined) throw new DomainError("VALIDATION", "Autonomous Event requires an owner or default destination");
       const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
+        const peerName = explicitPeerRecipient(action);
+        if (action.type === "respond" && peerName !== undefined) return [this.#peerEnvelope(message, event, input, peerName, action.content, event.correlationId ?? event.id)];
         const text = externalSpeech(action);
-        const values = text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
+        const replyContext = action.type === "respond" && action.recipient === "channel" ? channelContext(event.payload.replyContext) : event.payload.replyContext;
+        return text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
         type: "agent-response", text, agentId: event.agentId, autonomous: true,
-        ...(typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? { replyContext: event.payload.replyContext } : {}),
+        ...(replyContext === undefined ? {} : { replyContext }),
         action: { id: input.run.runId, type: action.type }
       })] : [];
-        if (action.type === "respond" && action.peer !== undefined) values.push(this.#peerEnvelope(message, event, input, action.peer.name, action.peer.content, event.correlationId ?? event.id));
-        return values;
       };
       return this.#execute(message, event, signal, outgoing);
     });
@@ -80,20 +87,11 @@ export class AgentRuntime {
   }
   #peerEnvelope(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, name: string, text: string, correlationId: string): MessageEnvelope {
     const peer = this.#peer(name);
-    if (peer === undefined) throw new DomainError("VALIDATION", "respond.peer must name exactly one configured peer");
+    if (peer === undefined) throw new DomainError("VALIDATION", "respond.recipient must name exactly one configured peer");
     return this.#responseEnvelope(message, event, input, this.options.defaultOutputDestination, message.hop + 1, correlationId, {
       type: "agent-response", text, agentId: event.agentId, autonomous: true,
       replyContext: { channelId: peer.channelId }, peer: { agentId: peer.agentId, discordUserId: peer.discordUserId },
       action: { id: input.run.runId, type: "respond" }
-    });
-  }
-  #observedReplyEnvelope(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, text: string, correlationId: string): MessageEnvelope | undefined {
-    if (event.payload.senderKind !== "peer" || event.payload.addressing !== "observed") return undefined;
-    const context = event.payload.replyContext;
-    if (typeof context !== "object" || context === null || typeof (context as Record<string, unknown>).channelId !== "string" || typeof (context as Record<string, unknown>).messageId !== "string") return undefined;
-    return this.#responseEnvelope(message, event, input, this.options.defaultOutputDestination, message.hop, correlationId, {
-      type: "agent-response", text, agentId: event.agentId, correlationId,
-      action: { id: input.run.runId, type: "respond" }, replyContext: context
     });
   }
   #serialize<T>(work: () => Promise<T>): Promise<T> {
@@ -124,9 +122,10 @@ export class AgentRuntime {
     const event: DomainEvent = { id: this.options.ids.next(), agentId: message.destination, kind, occurredAt: payload.type === "time-event" && payload.scheduledFor !== undefined ? payload.scheduledFor : this.options.now().toISOString(), payload: { ...eventPayload, ...(subjectId === undefined ? {} : { subjectId }) }, causationId: actionCause, correlationId: inheritedCorrelation };
     logger.log("info", "event.created", { eventId: event.id, eventKind: event.kind, correlationId: inheritedCorrelation });
     await this.options.persistence.authorizeInbound(event, message.id, this.options.maxEventsPerMinute ?? 60);
-    const isObservedPeer = event.payload.senderKind === "peer" && event.payload.addressing === "observed" && this.options.observationGate !== undefined;
+    const observationGate = this.options.observationGate;
+    const isObservedPeer = event.payload.senderKind === "peer" && event.payload.addressing === "observed" && observationGate !== undefined;
     if (isObservedPeer && !await this.options.persistence.claimObservationGate(message.destination, message.id)) { logger.log("info", "observation_gate.duplicate_skipped"); return; }
-    const gate = isObservedPeer ? await this.options.observationGate!.decide(event, signal) : undefined;
+    const gate = isObservedPeer ? await observationGate.decide(event, signal) : undefined;
     if (gate !== undefined) {
       logger.log("info", "observation_gate.completed", { eventId: event.id, decision: gate.decision, modelCalls: gate.modelCalls, retrievalCount: gate.retrievalCount, ...(gate.failureReason === undefined ? {} : { failureReason: gate.failureReason }) });
       if (gate.decision === "ignore") {
@@ -139,16 +138,16 @@ export class AgentRuntime {
     const outgoingDestination = direct ? message.replyTo ?? this.options.defaultOutputDestination : this.options.defaultOutputDestination;
     const peerReply = event.payload.senderKind === "peer" && event.payload.addressing === "direct";
     const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
+      const peerName = explicitPeerRecipient(action);
+      if (action.type === "respond" && peerName !== undefined) return [this.#peerEnvelope(message, event, input, peerName, action.content, inheritedCorrelation)];
       const content = externalSpeech(action);
-      const values = content !== undefined ? [this.#responseEnvelope(message, event, input, outgoingDestination, message.hop + (peerReply ? 1 : 0), inheritedCorrelation,
-        { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? { replyContext: event.payload.addressing === "observed" ? (() => { const context = event.payload.replyContext as Record<string, unknown>; return typeof context.channelId === "string" ? { channelId: context.channelId } : {}; })() : event.payload.replyContext } : {}), ...(peerReply && typeof event.payload.actorId === "string" ? { peer: { discordUserId: event.payload.actorId } } : {}) }
-      )] : [];
-      if (action.type === "respond" && action.peer !== undefined) values.push(this.#peerEnvelope(message, event, input, action.peer.name, action.peer.content, inheritedCorrelation));
-      if (action.type === "respond" && action.observedReply !== undefined) {
-        const reply = this.#observedReplyEnvelope(message, event, input, action.observedReply.content, inheritedCorrelation);
-        if (reply !== undefined) values.push(reply);
-      }
-      return values;
+      if (content === undefined) return [];
+      const eventDerivedRecipient = action.type !== "respond" || action.recipient === undefined;
+      const channelOnly = action.type === "respond" && (action.recipient === "channel" || (action.recipient === "user" && event.payload.senderKind !== "human"));
+      const replyContext = channelOnly ? channelContext(event.payload.replyContext) : event.payload.replyContext;
+      return [this.#responseEnvelope(message, event, input, outgoingDestination, message.hop + (peerReply && eventDerivedRecipient ? 1 : 0), inheritedCorrelation,
+        { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(replyContext === undefined ? {} : { replyContext }), ...(peerReply && eventDerivedRecipient && typeof event.payload.actorId === "string" ? { peer: { discordUserId: event.payload.actorId } } : {}) }
+      )];
     };
     try { await this.#execute(message, event, signal, outgoing, gate, isObservedPeer); }
     catch (error) {

@@ -226,16 +226,16 @@ describe("AgentHarness contract", () => {
     const input = agentCoreInputFixture();
     input.observation = { ...input.observation, kind: "message-received", content: { senderKind: "peer", addressing: "observed" } };
     const harness = new DeepAgentHarness({
-      invoker: { invoke: () => Promise.resolve({ structuredResponse: { desire: "投稿へ返したい", action: { type: "respond", observedReply: { content: "そこは僕も同意する" } } } }) },
+      invoker: { invoke: () => Promise.resolve({ structuredResponse: { desire: "投稿へ返したい", action: { type: "respond", content: "そこは僕も同意する" } } }) },
       registeredToolNames: new Set()
     });
-    await expect(harness.run(input, new AbortController().signal)).resolves.toMatchObject({ output: { action: { type: "respond", observedReply: { content: "そこは僕も同意する" } } } });
+    await expect(harness.run(input, new AbortController().signal)).resolves.toMatchObject({ output: { action: { type: "respond", content: "そこは僕も同意する" } } });
   });
 
   it("FR-88: converts the compact model reply route to the ID-free Action contract", async () => {
     const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [] }) }) };
-    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", modelFactory: () => assessmentModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>>, agentFactory: () => ({ invoke: () => Promise.resolve({ structuredResponse: { desire: "投稿へ返したい", actionType: "respond", observedReplyContent: "そこは僕も同意する" } }) }) });
-    await expect(invoker.invoke({ messages: [{ role: "user", content: "test" }] }, { signal: new AbortController().signal, recursionLimit: 8, maxModelCalls: 1, maxToolCalls: 0, agentId: "agent-a", runId: "run-a", eventId: "event-a", eventKind: "message-received" })).resolves.toMatchObject({ structuredResponse: { desire: "投稿へ返したい", action: { type: "respond", observedReply: { content: "そこは僕も同意する" } } } });
+    const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", modelFactory: () => assessmentModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>>, agentFactory: () => ({ invoke: () => Promise.resolve({ structuredResponse: { desire: "投稿へ返したい", actionType: "respond", content: "そこは僕も同意する" } }) }) });
+    await expect(invoker.invoke({ messages: [{ role: "user", content: "test" }] }, { signal: new AbortController().signal, recursionLimit: 8, maxModelCalls: 1, maxToolCalls: 0, agentId: "agent-a", runId: "run-a", eventId: "event-a", eventKind: "message-received" })).resolves.toMatchObject({ structuredResponse: { desire: "投稿へ返したい", action: { type: "respond", content: "そこは僕も同意する" } } });
   });
 
   it("FR-14, FR-15: repairs invalid output once and then stops", async () => {
@@ -268,9 +268,9 @@ describe("AgentHarness contract", () => {
     expect(created).toBe(1);
     expect(JSON.stringify(AgentCoreModelOutputJsonSchema)).not.toContain('"pattern"');
     const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
-    expect(Object.keys(modelProperties)).toHaveLength(10);
+    expect(Object.keys(modelProperties)).toHaveLength(8);
     expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
-    expect(modelProperties).toMatchObject({ meaning: { maxLength: 800 }, feeling: { maxLength: 160 }, desire: { maxLength: 800 }, content: { maxLength: 6_000 }, peerName: { maxLength: 120 }, peerContent: { maxLength: 6_000 }, observedReplyContent: { maxLength: 6_000 }, reason: { maxLength: 800 } });
+    expect(modelProperties).toMatchObject({ meaning: { maxLength: 800 }, feeling: { maxLength: 160 }, desire: { maxLength: 800 }, content: { maxLength: 6_000 }, recipient: { maxLength: 120 }, reason: { maxLength: 800 } });
     expect(modelProperties).not.toHaveProperty("mood"); expect(modelProperties).not.toHaveProperty("rememberContent");
     expect(modelProperties).not.toHaveProperty("concernOperation");
   });

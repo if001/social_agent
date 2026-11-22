@@ -360,19 +360,9 @@ export const RecentExperienceSchema = z.object({
 export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 
 
-const PeerResponseSchema = z.object({
-  name: z.string().trim().min(1).max(120).describe("allowlistにある相手Agentの表示名。ID、Discord user ID、channel IDは書かない"),
-  content: AgentContent.describe("指定した相手Agentへそのまま配送する本文。内部判断や管理情報を含めない")
-}).strict().describe("自分の関心・問い・共有したいことから、allowlist peerへ明示的に話しかける任意の配送先");
-const ObservedPeerReplySchema = z.object({
-  content: AgentContent.describe("共有channelで観測したpeer投稿への返信本文。相手の名前、メンション、ID、返信先情報は書かない")
-}).strict().describe("peer/observedのsource投稿へDiscord reply/threadとして返す本文。source投稿への返答である時だけ使う");
+const ResponseRecipient = z.string().trim().min(1).max(120).describe("省略時はEventの発話元又は既定配送先へ返す。userはowner user、channelは非mention通常投稿、それ以外はallowlist peerの自然言語表示名。ID、Discord user ID、channel IDは書かない");
 export const FinalActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("respond").describe("現在の会話相手または共有channelへ本文を返す場合に選ぶ"), content: AgentContent.optional().describe("現在の配送先へそのまま配送する最終応答。peer/observedでは宛先を持たない独立した共有発話にだけ使う。内部判断や管理情報を含めず、personaの発話表現を適用する"), peer: PeerResponseSchema.optional(), observedReply: ObservedPeerReplySchema.optional() }).strict().superRefine((value, context) => {
-    const routes = Number(value.content !== undefined) + Number(value.peer !== undefined) + Number(value.observedReply !== undefined);
-    if (routes === 0) context.addIssue({ code: "custom", message: "respond requires content, peer, or observedReply" });
-    if (value.observedReply !== undefined && routes !== 1) context.addIssue({ code: "custom", message: "observedReply cannot be combined with another response route" });
-  }).describe("通常応答、独立共有発話、又は観測したpeer投稿への返信。peerは明示mention、observedReplyはsource投稿へのthread返信であり、IDは出力しない"),
+  z.object({ type: z.literal("respond").describe("現在の会話相手、owner user、共有channel又はallowlist peerへ本文を一度だけ返す場合に選ぶ"), content: AgentContent.describe("唯一の外部発話本文。内部判断や管理情報を含めず、personaの発話表現を適用する"), recipient: ResponseRecipient.optional() }).strict().describe("本文一つと配送先一つだけを持つ応答。recipient省略時はEventから配送先を決め、同時に複数配送しない"),
   z.object({
     type: z.literal("refuse").describe("依頼を拒否し、その旨を相手へ返す場合に選ぶ"),
     content: AgentContent.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),

@@ -81,6 +81,8 @@ describe("configuration and lifecycle", () => {
     await writeFile(`${cwd}/.env.sample`, required); await mkdir(`${cwd}/config/agent-peers`, { recursive: true });
     await writeFile(`${cwd}/config/agent-peers/sample.yaml`, "version: 1\nagentId: sample\npeers:\n  - agentId: aka\n    displayName: アカ\n    discordUserId: discord-aka\n    channelId: channel\n");
     await expect(loadConfig({ cwd, environment: {} })).resolves.toMatchObject({ peers: { agentId: "sample", peers: [{ agentId: "aka", discordUserId: "discord-aka" }] } });
+    await writeFile(`${cwd}/config/agent-peers/sample.yaml`, "version: 1\nagentId: sample\npeers:\n  - agentId: aka\n    displayName: channel\n    discordUserId: discord-aka\n    channelId: channel\n");
+    await expect(loadConfig({ cwd, environment: {} })).rejects.toThrow("reserved response recipient name");
     await writeFile(`${cwd}/config/agent-peers/sample.yaml`, "version: 1\nagentId: another\npeers: []\n");
     await expect(loadConfig({ cwd, environment: {} })).rejects.toThrow("BOT_ID");
     await scope.close();

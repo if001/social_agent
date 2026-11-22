@@ -9,6 +9,7 @@ const PeerSchema = z.object({
   discordUserId: z.string().trim().min(1),
   channelId: z.string().trim().min(1)
 }).strict();
+const reservedRecipientNames = new Set(["user", "channel"]);
 export const AgentPeersSchema = z.object({
   version: z.literal(1),
   agentId: z.string().trim().min(1),
@@ -25,7 +26,10 @@ export const AgentPeersSchema = z.object({
       seen.add(key);
     }
   }
-  for (const [index, peer] of value.peers.entries()) if (peer.agentId === value.agentId) context.addIssue({ code: "custom", path: ["peers", index, "agentId"], message: "self peer is not allowed" });
+  for (const [index, peer] of value.peers.entries()) {
+    if (peer.agentId === value.agentId) context.addIssue({ code: "custom", path: ["peers", index, "agentId"], message: "self peer is not allowed" });
+    if (reservedRecipientNames.has(peer.displayName.normalize("NFKC").toLocaleLowerCase("ja"))) context.addIssue({ code: "custom", path: ["peers", index, "displayName"], message: "reserved response recipient name" });
+  }
 });
 export type AgentPeer = z.infer<typeof PeerSchema>;
 export type AgentPeers = z.infer<typeof AgentPeersSchema>;

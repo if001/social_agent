@@ -84,9 +84,9 @@ flowchart TD
 |---|---|---|---|---|
 | human/direct | owner humanのmention | humanへの返信 | — | ある |
 | peer/direct | allowlist peerのmention | 会話目的が残る時だけsource peerへのmention返信 | — | ない |
-| peer/observed | allowlist peerの非mention投稿 | 宛先を持たない共有channelへの非mention発話 | `respond.observedReply`で元投稿へのthread返信 | ない |
+| peer/observed | allowlist peerの非mention投稿 | recipient省略で元投稿へのthread返信、`channel`で非mention発話 | 自然言語recipientで一配送だけ選ぶ | ない |
 
-`respond.peer`は、Event起点を問わない明示peerへのmentionである。peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱う。モデルは自然言語表示名だけを扱い、IDを出力しない。
+`respond`は一つの`content`と任意の自然言語`recipient`だけを持つ。省略時はEvent発話元、`user`はowner、`channel`は非mention投稿、それ以外は一意なallowlist peerへのmentionであり、一Actionから一配送だけを作る。peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱い、モデルはIDを出力しない。
 
 ## Reflection の処理
 
