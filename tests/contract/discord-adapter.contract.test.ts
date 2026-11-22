@@ -23,6 +23,20 @@ describe("Discord UI adapter contract", () => {
     const messages: Array<{ payload: Record<string, unknown> }> = []; const consumeController = new AbortController(); const consuming = queue.subscribe("agent-a", (message) => { messages.push(message); if (messages.length === 3) consumeController.abort(); return Promise.resolve(); }, consumeController.signal); await consuming;
     expect(messages).toMatchObject([{ id: "discord:42", replyTo: "discord", payload: { type: "message-received", senderKind: "human", addressing: "direct", text: "hello", replyContext: { channelId: "channel", threadId: "thread", messageId: "42" } } }, { id: "discord:43", payload: { type: "message-received", senderKind: "peer", addressing: "direct", text: "from peer" } }, { id: "discord:44", payload: { type: "message-received", senderKind: "peer", addressing: "observed", text: "thinking aloud" } }]); controller.abort(); await inbound; await scope.close();
   });
+  it("FR-94: routes a persisted human or peer reply directly to its Conversation without requiring a mention", async () => {
+    const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway();
+    const repository = { resolve: (_agentId: string, messageId: string) => Promise.resolve(messageId === "own-output" ? { correlationId: "conversation-1", conversationId: "conversation-1" } : messageId === "persisted-monologue" ? { correlationId: "monologue-correlation" } : undefined), registerOutbound: () => Promise.resolve() };
+    const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), peerDiscordUserIds: new Set(["bot-b"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]), conversationRepository: repository }); const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal);
+    const base = { guildId: "guild", channelId: "channel", referencedMessageId: "own-output", content: "続きです", createdAt: new Date("2026-01-01T00:00:00Z") };
+    await gateway.receive({ ...base, id: "human-reply", authorId: "owner", isBot: false }); await gateway.receive({ ...base, id: "peer-reply", authorId: "bot-b", isBot: true }); await gateway.receive({ ...base, id: "monologue-reply", referencedMessageId: "persisted-monologue", authorId: "owner", isBot: false });
+    const received: MessageEnvelope[] = []; const consume = new AbortController(); const consuming = queue.subscribe("agent-a", (message) => { received.push(message); if (received.length === 3) consume.abort(); return Promise.resolve(); }, consume.signal); await consuming;
+    expect(received.map(({ correlationId, payload }) => ({ correlationId, senderKind: "senderKind" in payload ? payload.senderKind : undefined, addressing: "addressing" in payload ? payload.addressing : undefined }))).toEqual(expect.arrayContaining([
+      { correlationId: "conversation-1", senderKind: "human", addressing: "direct" },
+      { correlationId: "conversation-1", senderKind: "peer", addressing: "direct" },
+      { correlationId: "monologue-correlation", senderKind: "human", addressing: "direct" }
+    ]));
+    controller.abort(); await inbound; await scope.close();
+  });
   it("NFR-9: retries outbound failures without ack and preserves thread reply", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const queue = new AddressedFileQueue(root, { retryDelayMs: () => 0, now: () => new Date("2026-01-01T00:00:00Z") }); const gateway = new FakeDiscordGateway(); gateway.failures = 1; const adapter = new DiscordAdapter({ gateway, queue, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
     const controller = new AbortController(); const inbound = adapter.startInbound(controller.signal);

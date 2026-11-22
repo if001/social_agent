@@ -28,14 +28,17 @@ describe("Agent Debug UI", () => {
     await repository.listRuns("ao", 999);
     await repository.listMemories("ao", 0);
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
-    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(13);
+    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(14);
     expect(calls.find(({ sql }) => sql.includes("FROM concerns"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_attempts a"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_memory_batches b"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_tool_executions t"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_resolutions x"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("FROM conversations c"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("FROM conversations c"))?.sql).toContain('ended_reason AS "endedReason"');
     expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.sql).toContain('source_event_id AS "sourceEventId"');
     expect(calls.find(({ sql }) => sql.includes("FROM autonomous_schedules"))?.sql).not.toContain("exploration_mode");
     expect(calls.find(({ sql }) => sql.includes("FROM autonomous_schedules"))?.sql).not.toContain("exploration_cursor");
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.values).toEqual(["ao", 100]);
@@ -87,6 +90,7 @@ describe("Agent Debug UI", () => {
   it("NFR-12: ships browser-side HTML escaping before rendering database values", async () => {
     const repository = { listAgents: () => Promise.resolve([]), getOverview: () => Promise.resolve(undefined), listRuns: () => Promise.resolve([]), getRun: () => Promise.resolve(undefined), listMemories: () => Promise.resolve([]) } as unknown as DebugUiRepository;
     const server = createDebugUiServer(repository); const page = (await request(server, "/")).body;
+    expect(page).toContain("overview.conversations"); expect(page).toContain("Conversations");
     expect(page).toContain("function escapeHtml"); expect(page).toContain("function eventOf(item)"); expect(page).toContain("関心形成（concern-formation）"); expect(page).toContain("Eventの役割・Concern経路"); expect(page).toContain("explorationCandidates"); expect(page).toContain("sourceConcernId"); expect(page).toContain("item.kind==='internal'&&item.internalKind"); expect(page).toContain("判断入力（Run開始時の保存断面）"); expect(page).toContain("function inputSummary(snapshot)"); expect(page).toContain("function toolActivity(item)"); expect(page).toContain("explorationMode"); expect(page).toContain("function followingSummary(detail)"); expect(page).toContain("predictionEvaluations"); expect(page).toContain("experienceIntegrations"); expect(page).toContain("Core後の処理（Integration・配送・予測・派生Event）"); expect(page).toContain("詳細を表示"); expect(page).toContain("State・Concern・Memory の変更"); expect(page).toContain("モデルの内部思考過程"); expect(page).toContain("overview.state"); expect(page).toContain("overview.reflections"); expect(page).toContain("現在の Self / State"); expect(page).toContain("function selfStateSummary(state,agent)"); expect(page).toContain("Active Concerns"); expect(page).toContain("function concernActivitySummary(activity,concerns)"); expect(page).toContain("return {...activity,description:"); expect(page).toContain("予約されたタスク"); expect(page).toContain("全取得件数"); expect(page).toContain("実行日時順の直近8件"); expect(page).toContain("function scheduledTaskSummary(task)"); expect(page).toContain("function scheduledTaskCounts(tasks)"); expect(page).toContain("overview.scheduledTasks"); expect(page).toContain("function reflectionView(item)"); expect(page).toContain("function reflectionAttemptView(item)"); expect(page).toContain("function reflectionMemoryBatchView(item)"); expect(page).toContain("Memory batch"); expect(page).toContain("memoryEvidence"); expect(page).toContain("executedAt:item.createdAt"); expect(page).toContain("detail.derivedEvents"); expect(page).toContain("timeZone:'Asia/Tokyo'"); expect(page).toContain("const jst=value=>"); expect(page).toContain("String(value??'—').replace"); expect(page).toContain("JSON.stringify(display(value),null,2)??'—'"); expect(page).toContain("function eventParticipants(item)"); expect(page).toContain("発話者 / 処理担当"); expect(page).toContain("function participantHtml(item)"); expect(page).toContain("'&lt;'"); expect(page).not.toContain("MutationObserver"); expect(page).not.toContain("setInterval"); server.close();
   });
 

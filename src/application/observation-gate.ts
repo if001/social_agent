@@ -2,10 +2,14 @@ import { z } from "zod";
 
 import type { DomainEvent } from "../domain/contracts.js";
 
-export const ObservationGateDecisionSchema = z.object({
-  decision: z.enum(["ignore", "engage"]).describe("ignore は通常Loopへ渡さず監査だけ残す。engage は通常の peer/observed Loopへ渡す。"),
-  reason: z.string().min(1).max(240).describe("engageなら、投稿の具体的対象と、自分の未解決の問い・判断を変える差分・Concern又は約束の次行為・今言いたい自発表現のどれが動いたかを書く。ignoreなら、それがないことを書く。長期協力、礼儀、採用、感謝、同意、言い換え、相手への有用性、返信義務を理由にしない。")
-}).strict();
+export const ObservationGateDecisionSchema = z.discriminatedUnion("decision", [
+  z.object({ decision: z.literal("ignore"), reason: z.string().min(1).max(240) }).strict(),
+  z.object({
+    decision: z.literal("engage"),
+    reason: z.string().min(1).max(240).describe("投稿の何が、今の自分を話しかける方向へ動かしたか"),
+    conversationGoal: z.string().trim().min(1).max(400).describe("話しかけることで何を知りたい、確かめたい、伝えたい、変えたいか。返信すること自体や礼儀をGoalにしない")
+  }).strict()
+]);
 export type ObservationGateDecision = z.infer<typeof ObservationGateDecisionSchema>;
 
 export type ObservationGateInput = {

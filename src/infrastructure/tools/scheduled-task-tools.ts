@@ -6,7 +6,7 @@ import { DomainError } from "../../domain/contracts.js";
 
 export type ScheduledTaskRecord = { readonly id: string; readonly executeAt: Date; readonly instruction: string; readonly reason: string | null; readonly destination: string | null; readonly status: string; readonly attempt: number };
 export interface ScheduledTaskToolRepository {
-  create(input: { readonly id: string; readonly agentId: string; readonly executeAt: Date; readonly instruction: string; readonly reason?: string; readonly destination?: string; readonly idempotencyKey: string; readonly eventId: string; readonly runId: string }): Promise<ScheduledTaskRecord | undefined>;
+  create(input: { readonly id: string; readonly agentId: string; readonly executeAt: Date; readonly instruction: string; readonly reason: string; readonly destination?: string; readonly idempotencyKey: string; readonly eventId: string; readonly runId: string }): Promise<ScheduledTaskRecord | undefined>;
   list(agentId: string, status: string | undefined, limit: number): Promise<readonly ScheduledTaskRecord[]>;
   cancel(agentId: string, taskId: string): Promise<ScheduledTaskRecord | undefined>;
   update(agentId: string, taskId: string, input: { readonly executeAt?: Date; readonly instruction?: string; readonly reason?: string; readonly destination?: string }): Promise<ScheduledTaskRecord | undefined>;
@@ -14,25 +14,26 @@ export interface ScheduledTaskToolRepository {
 
 const result = (row: ScheduledTaskRecord) => ({ id: row.id, executeAt: row.executeAt.toISOString(), instruction: row.instruction, ...(row.reason === null ? {} : { reason: row.reason }), ...(row.destination === null ? {} : { destination: row.destination }), status: row.status, attempt: row.attempt });
 const instructionDescription = "期限到来時に実行する仕事だけを1〜2文で書く。必要なら対象、参照する情報、期待する結果を含める。実行日時、予約理由、送信先、Toolの使い方、共通動作規則は書かない";
-const CreateSchema = z.object({ executeAt: z.iso.datetime({ offset: true }).describe("実行する将来のISO 8601日時"), instruction: z.string().trim().min(1).max(1_000).describe(instructionDescription), reason: z.string().trim().min(1).max(1_000).optional().describe("この実行を予約する理由。期限到来時の作業手順は書かない"), destination: z.string().trim().min(1).max(1_000).optional().describe("結果の明示的な配送先。通常は省略する") }).strict();
+const reasonDescription = "人から受けた将来・定期依頼、又はAgent自身にとって時刻が本質的な例外である理由。期限到来時の作業手順は書かない";
+const CreateSchema = z.object({ executeAt: z.iso.datetime({ offset: true }).describe("実行する将来のISO 8601日時"), instruction: z.string().trim().min(1).max(1_000).describe(instructionDescription), reason: z.string().trim().min(1).max(1_000).describe(reasonDescription), destination: z.string().trim().min(1).max(1_000).optional().describe("結果の明示的な配送先。通常は省略する") }).strict();
 const ListSchema = z.object({ status: z.enum(["scheduled", "running", "completed", "cancelled", "failed"]).optional().describe("指定した状態だけに絞る。全件なら省略する"), limit: z.number().int().min(1).max(50).default(20).describe("返す最大件数") }).strict();
 const CancelSchema = z.object({ taskId: z.string().trim().min(1).describe("取り消すScheduled TaskのID") }).strict();
 const UpdateSchema = z.object({
   taskId: z.string().trim().min(1).describe("変更するScheduled TaskのID"),
   executeAt: z.iso.datetime({ offset: true }).optional().describe("変更後の将来のISO 8601実行日時"),
   instruction: z.string().trim().min(1).max(1_000).optional().describe(instructionDescription),
-  reason: z.string().trim().min(1).max(1_000).optional().describe("この実行を予約する理由。期限到来時の作業手順は書かない"),
+  reason: z.string().trim().min(1).max(1_000).optional().describe(reasonDescription),
   destination: z.string().trim().min(1).max(1_000).optional().describe("結果の明示的な配送先。通常は省略する")
 }).strict().refine(({ executeAt, instruction, reason, destination }) => executeAt !== undefined || instruction !== undefined || reason !== undefined || destination !== undefined, { message: "At least one field to update is required" });
 
 export function createScheduledTaskTools(repository: ScheduledTaskToolRepository, ids: IdGenerator, now: () => Date): readonly RegisteredTool[] {
   const create: RegisteredTool<z.infer<typeof CreateSchema>> = {
-      name: "schedule_task", description: "指定した将来時刻に一度だけ実行する仕事を予約する。予約時には実行しない。", resultPolicy: { kind: "standard" },
+      name: "schedule_task", description: "主として人から明示された将来依頼を、指定時刻に一度だけ実行する仕事として予約する。Agent自身では時刻が本質的な観測・時間差比較・明示的な将来履行だけに使う。会話の次の一手や単なる再検討には使わず、予約時には実行しない。", resultPolicy: { kind: "standard" },
       schema: CreateSchema,
       execute: async (input, context) => {
         if (context.eventId === undefined) throw new DomainError("VALIDATION", "schedule_task requires an Event context");
         const executeAt = new Date(input.executeAt); if (executeAt.getTime() <= now().getTime()) throw new DomainError("VALIDATION", "executeAt must be in the future");
-        const row = await repository.create({ id: ids.next(), agentId: context.agentId, executeAt, instruction: input.instruction, ...(input.reason === undefined ? {} : { reason: input.reason }), ...(input.destination === undefined ? {} : { destination: input.destination }), idempotencyKey: context.idempotencyKey, eventId: context.eventId, runId: context.runId }); if (row === undefined) throw new DomainError("EXTERNAL", "Scheduled Task was not stored");
+        const row = await repository.create({ id: ids.next(), agentId: context.agentId, executeAt, instruction: input.instruction, reason: input.reason, ...(input.destination === undefined ? {} : { destination: input.destination }), idempotencyKey: context.idempotencyKey, eventId: context.eventId, runId: context.runId }); if (row === undefined) throw new DomainError("EXTERNAL", "Scheduled Task was not stored");
         return { ok: true, value: result(row) };
       }
     };
@@ -52,7 +53,7 @@ export function createScheduledTaskTools(repository: ScheduledTaskToolRepository
       }
     };
   const update: RegisteredTool<z.infer<typeof UpdateSchema>> = {
-    name: "scheduled_task_update", description: "自分が所有する未実行のScheduled Taskの実行日時、指示、理由、送信先を変更する。", resultPolicy: { kind: "standard" },
+    name: "scheduled_task_update", description: "自分が所有する未実行のScheduled Taskだけを変更する。会話の次の一手や単なる再検討をScheduled Taskへ変換するためには使わない。", resultPolicy: { kind: "standard" },
     schema: UpdateSchema,
     execute: async (input, context) => {
       if (input.executeAt !== undefined && new Date(input.executeAt).getTime() <= now().getTime()) throw new DomainError("VALIDATION", "executeAt must be in the future");

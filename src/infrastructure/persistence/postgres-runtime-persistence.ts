@@ -11,6 +11,7 @@ import type { RuntimeDatabase } from "./runtime-database.js";
 import { messageReceipts, outboxMessages, runtimeCorrelations, runtimeRateWindows } from "./schema.js";
 import type { ObservationGateAudit } from "../../application/observation-gate.js";
 import { observationFromEvent } from "./postgres-agent-context-loader.js";
+import { conversationKey } from "./conversation-key.js";
 
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput | RuntimeExecutionInput>;
 /** The canonical pre-execution Agent Core input used by audit and Integration. */
@@ -51,7 +52,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
         agentId: event.agentId, correlationId: correlation, messageId
       }).onConflictDoUpdate({
         target: [runtimeCorrelations.agentId, runtimeCorrelations.correlationId],
-        set: { messageId: sql`${runtimeCorrelations.messageId}` }
+        set: { messageId: event.kind === "message-received" ? messageId : sql`${runtimeCorrelations.messageId}` }
       }).returning({ messageId: runtimeCorrelations.messageId });
       if (claimed[0]?.messageId !== messageId) throw new DomainError("VALIDATION", "Correlation loop detected");
       // PostgreSQL-native: incrementing a rate window must be one atomic upsert.
@@ -82,6 +83,16 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       if (!execution.ok || execution.name !== "concern_history" || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
       return [{ concernId: execution.input.concernId, kind: "progressed" as const, eventId: event.id }];
     });
+    const correlationId = event.correlationId ?? event.id;
+    const conversationId = conversationKey(event.agentId, correlationId);
+    const isSocial = event.kind === "message-received";
+    const response = outgoing.length > 0;
+    const close = result.output.action.type === "no-external-action";
+    const conversationGoal = input.conversation?.goal ?? (observationGate?.decision === "engage" ? observationGate.conversationGoal : result.output.desire);
+    const replyContext = typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? event.payload.replyContext as Record<string, unknown> : undefined;
+    const externalMessageId = typeof replyContext?.messageId === "string" ? replyContext.messageId : undefined;
+    const endedReason = result.output.action.type === "no-external-action" ? result.output.action.reason : undefined;
+    const conversation = isSocial && (response || (close && input.conversation?.status === "active")) ? { id: conversationId, correlationId, goal: conversationGoal, status: response ? "active" as const : "completed" as const, ...(endedReason === undefined ? {} : { endedReason }), ...(externalMessageId === undefined ? {} : { externalMessageId }) } : undefined;
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: auditObservation(input, event), source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) }, eventSubjectIds,
@@ -93,6 +104,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       concernActivities: [...update.concernActivities, ...focusedConcerns, ...progressedConcerns].map((activity, index) => ({ ...activity, id: `runtime:${input.run.runId}:${String(index)}:${activity.kind}:${activity.concernId}` })),
       toolExecutions: validatedTools,
       outbox: outgoing
+      , ...(conversation === undefined ? {} : { conversation })
     });
     return committed;
   }

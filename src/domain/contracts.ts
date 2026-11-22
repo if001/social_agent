@@ -526,6 +526,10 @@ export const AgentCoreInputSchema = z.object({
   memories: z.array(MemorySchema),
   memoryRetrievalTrace: z.array(MemoryRetrievalTraceSchema).default([]),
   predictionContext: PredictionContextSchema.optional(),
+  conversation: z.object({
+    goal: z.string().trim().min(1).max(400).describe("このreply chainで自分が得たい、確かめたい、伝えたい、又は変えたい安定した目的"),
+    status: z.enum(["candidate", "active"]).describe("candidateは今回replyした時だけ開始し、activeは既存Conversationの継続")
+  }).strict().optional().describe("現在のreply chainに限るConversation Goal。別Conversationの履歴はMemory化されない限り含めない"),
   availableTools: z.array(z.object({ name: Id, description: NaturalLanguage, inputSchema: z.record(z.string(), z.unknown()) })),
   runtimeConstraints: z.array(NaturalLanguage),
   limits: RunLimitsSchema

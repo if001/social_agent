@@ -67,6 +67,9 @@ flowchart LR
 | Concern proposal | Eventをまたぐ気に掛けていることが生じた場合のみ | `concern_propose`でrun-localに提案し、成功commit時だけ作成・派生する |
 | Reflection | Event駆動の保守処理 | 複数の経験を圧縮し、Conversation Memory、Self、Concern、Relationshipへ長期反映する。Conversation Memory、Self、Relationship、Concernごとに部分成功を持つ |
 | Scheduled Task | Runtime上の責務 | 指定時刻に新しいEventを発生させる。心理状態ではない |
+| Conversation Goal | reply chain内の持続目的 | 話しかけて何を得たいかをAgentごとに保持し、今回のDesireと会話外のConcernを分ける |
+
+Conversation Goalは実際のreply commitで開始し、同じreply chainでは再生成しない。別Conversationの内容はMemory化され検索できた場合だけ使う。Scheduled Taskは主として人から明示された将来・定期依頼に使い、Agent自身の予約は時刻が本質的な例外に限る。
 
 Commitmentは長期的に大切にする原則・役割・約束、Concernは現在気に掛けていて次のEventにも残る一つの関心・動機の核である。疑問文や未解決課題だけに限らない。根拠と経緯はMemory / Event Experience、今回の行為はDesire、日時と手順はScheduled Task、関係の安定した前提はRelationshipへ置き、Concernを研究ログにしない。直前のDesireは`previousDesire`として時刻付きで1件だけ渡す。Initial Dispositionに書かれた具体的な好みは探索の初期の種であり、経験後の現在の重心はConversation Memory、Concern、Self Story、現在のDispositionの組合せで決まる。
 

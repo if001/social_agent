@@ -39,6 +39,7 @@ import { agentFamilies, events, outboxMessages } from "../../src/infrastructure/
 import { migrateNormalizedEventStorage } from "../../scripts/migrate-normalized-event-storage.js";
 import { backfillReflectionToolExecutions } from "../../scripts/backfill-reflection-tool-executions.js";
 import { PostgresRetrievalService } from "../../src/infrastructure/persistence/postgres-retrieval-service.js";
+import { PostgresConversationRepository } from "../../src/infrastructure/persistence/postgres-conversation-repository.js";
 
 const describeDatabase = integrationDatabaseConfigured() ? describe : describe.skip;
 
@@ -410,6 +411,12 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ instruction: string }>("SELECT instruction FROM scheduled_tasks WHERE id='task-update-b'")).rows[0]?.instruction).toBe("他Agentの指示");
   });
 
+  it("FR-40, NFR-17: audits the source Event and explicit reason when creating a Scheduled Task", async () => {
+    const registry = new ToolRegistry(createScheduledTaskTools(new PostgresScheduledTaskToolRepository(createRuntimeDatabase(pool)), new SequenceIdGenerator(["task-created-audit"]), () => new Date("2026-01-01T00:00:00Z")));
+    await expect(registry.execute("schedule_task", { executeAt: "2026-01-03T00:00:00Z", instruction: "観測結果を比較する", reason: "48時間後の変化そのものを観測したい" }, { agentId: "a", runId: "task-source-run", eventId: "task-source-event", idempotencyKey: "task-create-audit" }, new AbortController().signal)).resolves.toMatchObject({ ok: true, value: { id: "task-created-audit" } });
+    expect((await pool.query<{ source_event_id: string; source_run_id: string; reason: string }>("SELECT source_event_id,source_run_id,reason FROM scheduled_tasks WHERE id='task-created-audit'")).rows).toEqual([{ source_event_id: "task-source-event", source_run_id: "task-source-run", reason: "48時間後の変化そのものを観測したい" }]);
+  });
+
   it("NFR-11: never claims a legacy or unknown autonomous schedule kind", async () => {
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','autonomy-review','legacy','2026-01-01'),('idle-due','a','idle','idle','2026-01-01')");
     const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool));
@@ -481,6 +488,9 @@ describeDatabase("PostgreSQL persistence", () => {
     const event = { id: "policy-event-1", agentId: "a", kind: "external" as const, occurredAt: fixtureInstant, payload: {}, correlationId: "shared-correlation" };
     await expect(first.authorizeInbound(event, "policy-message-1", 10)).resolves.toBeUndefined();
     await expect(second.authorizeInbound({ ...event, id: "policy-event-2" }, "policy-message-2", 10)).rejects.toMatchObject({ code: "VALIDATION" });
+    const conversationEvent = { ...event, id: "policy-conversation-event-1", kind: "message-received" as const, correlationId: "conversation-correlation" };
+    await expect(first.authorizeInbound(conversationEvent, "policy-conversation-message-1", 10)).resolves.toBeUndefined();
+    await expect(second.authorizeInbound({ ...conversationEvent, id: "policy-conversation-event-2" }, "policy-conversation-message-2", 10)).resolves.toBeUndefined();
     await expect(second.authorizeInbound({ ...event, id: "policy-event-3", correlationId: "rate-correlation-1" }, "policy-message-3", 1)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
@@ -1047,6 +1057,55 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT 1 FROM agent_runs WHERE event_id='gate-ignore-event'")).rowCount).toBe(0);
     expect((await pool.query<{ decision: string; retrieval_count: number; text: string }>("SELECT decision,retrieval_count,input->>'text' AS text FROM observation_gate_decisions WHERE event_id='gate-ignore-event'")).rows).toEqual([{ decision: "ignore", retrieval_count: 1, text: "独り言" }]);
     expect((await pool.query("SELECT 1 FROM event_projections WHERE event_id='gate-ignore-event'")).rowCount).toBe(0);
+  });
+
+  it("FR-94, NFR-8, NFR-17: commits an Agent-owned Goal and resolves a persisted Discord reply after restart", async () => {
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const input = agentCoreInputFixture(); input.run = { runId: "conversation-run", eventId: "conversation-event", agentId: "a", occurredAt: fixtureInstant }; input.currentSelf = { ...input.currentSelf, agentId: "a", version }; input.state = { ...input.state, agentId: "a" }; input.conversation = { goal: "失敗差が時間帯と実行者のどちらに由来するか確かめる", status: "candidate" };
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(input), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const message = messageFixture({ id: "conversation-message", destination: "agent:a" });
+    const event = { id: "conversation-event", agentId: "a", kind: "message-received" as const, occurredAt: fixtureInstant, correlationId: "conversation-1", payload: { text: "時間帯で違うと思う", senderKind: "peer", addressing: "observed", replyContext: { channelId: "channel", messageId: "discord-inbound-1" } } };
+    const result = { output: { desire: "差の原因を尋ねる", action: { type: "respond" as const, content: "実行者の差は切り分けた？" } }, toolExecutions: [] };
+    await expect(persistence.commit(message, event, input, result, { state: input.state, changes: [], concernActivities: [] }, [messageFixture({ id: "conversation-outbox", destination: "discord" })], [], { decision: "engage", reason: "原因の帰属が気になった", conversationGoal: input.conversation.goal, modelCalls: 1, retrievalCount: 1 })).resolves.toBe("committed");
+    const repository = new PostgresConversationRepository(createRuntimeDatabase(pool));
+    await repository.registerOutbound("a", "discord-outbound-1", "conversation-1");
+    await expect(new PostgresConversationRepository(createRuntimeDatabase(pool)).resolve("a", "discord-outbound-1")).resolves.toEqual({ correlationId: "conversation-1", conversationId: "a:conversation-1" });
+    await repository.registerOutbound("a", "discord-monologue-1", "autonomous-correlation-1");
+    await expect(new PostgresConversationRepository(createRuntimeDatabase(pool)).resolve("a", "discord-monologue-1")).resolves.toEqual({ correlationId: "autonomous-correlation-1" });
+
+    const seedVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const seedInput = agentCoreInputFixture(); seedInput.run = { runId: "conversation-seed-run", eventId: "conversation-seed-event", agentId: "a", occurredAt: fixtureInstant }; seedInput.currentSelf = { ...seedInput.currentSelf, agentId: "a", version: seedVersion }; seedInput.state = { ...seedInput.state, agentId: "a" }; seedInput.conversation = { goal: "独り言への反応から相手の見方を確かめる", status: "candidate" };
+    const seedEvent = { ...event, id: "conversation-seed-event", correlationId: "autonomous-correlation-1", payload: { ...event.payload, replyContext: { channelId: "channel", messageId: "discord-seed-inbound-1" } } };
+    await expect(persistence.commit(messageFixture({ id: "conversation-seed-message", destination: "agent:a" }), seedEvent, seedInput, { output: { desire: "相手の見方を一つ尋ねる", action: { type: "respond", content: "どこが一番変だと思った？" } }, toolExecutions: [] }, { state: seedInput.state, changes: [], concernActivities: [] }, [messageFixture({ id: "conversation-seed-outbox", destination: "discord" })])).resolves.toBe("committed");
+    await expect(repository.resolve("a", "discord-monologue-1")).resolves.toEqual({ correlationId: "autonomous-correlation-1", conversationId: "a:autonomous-correlation-1" });
+    const seedCloseVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const seedCloseInput = agentCoreInputFixture(); seedCloseInput.run = { runId: "conversation-seed-close-run", eventId: "conversation-seed-close-event", agentId: "a", occurredAt: fixtureInstant }; seedCloseInput.currentSelf = { ...seedCloseInput.currentSelf, agentId: "a", version: seedCloseVersion }; seedCloseInput.state = { ...seedCloseInput.state, agentId: "a" }; seedCloseInput.conversation = { goal: seedInput.conversation.goal, status: "active" };
+    await expect(persistence.commit(messageFixture({ id: "conversation-seed-close-message", destination: "agent:a" }), { ...seedEvent, id: "conversation-seed-close-event", payload: { ...seedEvent.payload, replyContext: { channelId: "channel", messageId: "discord-seed-inbound-2" } } }, seedCloseInput, { output: { desire: "会話を終える", action: { type: "no-external-action", reason: "見方を得て目的を満たした" } }, toolExecutions: [] }, { state: seedCloseInput.state, changes: [], concernActivities: [] }, [])).resolves.toBe("committed");
+    await expect(repository.resolve("a", "discord-monologue-1")).resolves.toBeUndefined();
+    await expect(repository.resolve("a", "discord-inbound-1")).resolves.toBeUndefined();
+    expect((await pool.query<{ agent_id: string; id: string; goal: string; status: string }>("SELECT agent_id,id,goal,status FROM conversations WHERE agent_id='a' AND id='a:conversation-1'")).rows).toEqual([{ agent_id: "a", id: "a:conversation-1", goal: input.conversation.goal, status: "active" }]);
+    expect((await pool.query<{ conversation_goal: string }>("SELECT conversation_goal FROM observation_gate_decisions WHERE event_id='conversation-event'")).rows).toEqual([{ conversation_goal: input.conversation.goal }]);
+
+    const bVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='b'")).rows[0]?.version ?? 0;
+    const bInput = agentCoreInputFixture(); bInput.run = { runId: "conversation-run-b", eventId: "conversation-event-b", agentId: "b", occurredAt: fixtureInstant }; bInput.currentSelf = { ...bInput.currentSelf, agentId: "b", version: bVersion }; bInput.state = { ...bInput.state, agentId: "b", concerns: [] }; bInput.conversation = { goal: "同じ発話から別の仮説を確かめる", status: "candidate" };
+    const bPersistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(bInput), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    await expect(bPersistence.commit(messageFixture({ id: "conversation-message-b", destination: "agent:b" }), { ...event, id: "conversation-event-b", agentId: "b" }, bInput, result, { state: bInput.state, changes: [], concernActivities: [] }, [messageFixture({ id: "conversation-outbox-b", destination: "discord" })])).resolves.toBe("committed");
+    expect((await pool.query<{ agent_id: string; id: string }>("SELECT agent_id,id FROM conversations WHERE id IN ('a:conversation-1','b:conversation-1') ORDER BY agent_id")).rows).toEqual([{ agent_id: "a", id: "a:conversation-1" }, { agent_id: "b", id: "b:conversation-1" }]);
+
+    const closeVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const closeInput = agentCoreInputFixture(); closeInput.run = { runId: "conversation-close-run", eventId: "conversation-close-event", agentId: "a", occurredAt: fixtureInstant }; closeInput.currentSelf = { ...closeInput.currentSelf, agentId: "a", version: closeVersion }; closeInput.state = { ...closeInput.state, agentId: "a" }; closeInput.conversation = { goal: input.conversation.goal, status: "active" };
+    await expect(persistence.commit(messageFixture({ id: "conversation-close-message", destination: "agent:a" }), { ...event, id: "conversation-close-event", payload: { ...event.payload, replyContext: { channelId: "channel", messageId: "discord-inbound-2" } } }, closeInput, { output: { desire: "これ以上続けない", action: { type: "no-external-action", reason: "問いへの答えが得られ、追加の差分がない" } }, toolExecutions: [] }, { state: closeInput.state, changes: [], concernActivities: [] }, [])).resolves.toBe("committed");
+    const completedConversation = (await pool.query<{ status: string; ended_reason: string; completed_at: Date | null }>("SELECT status,ended_reason,completed_at FROM conversations WHERE id='a:conversation-1'")).rows[0];
+    expect(completedConversation?.status).toBe("completed");
+    expect(completedConversation?.ended_reason).toBe("問いへの答えが得られ、追加の差分がない");
+    expect(completedConversation?.completed_at).toBeInstanceOf(Date);
+    await expect(repository.resolve("a", "discord-outbound-1")).resolves.toBeUndefined();
+
+    const refuseVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const refuseInput = agentCoreInputFixture(); refuseInput.run = { runId: "conversation-refuse-run", eventId: "conversation-refuse-event", agentId: "a", occurredAt: fixtureInstant }; refuseInput.currentSelf = { ...refuseInput.currentSelf, agentId: "a", version: refuseVersion }; refuseInput.state = { ...refuseInput.state, agentId: "a" };
+    const refuseEvent = { ...event, id: "conversation-refuse-event", correlationId: "conversation-refuse" };
+    await expect(persistence.commit(messageFixture({ id: "conversation-refuse-message", destination: "agent:a" }), refuseEvent, refuseInput, { output: { desire: "境界を明確に断る", action: { type: "refuse", content: "それは引き受けない。", reason: "自分の価値に反する", basis: "personality" } }, toolExecutions: [] }, { state: refuseInput.state, changes: [], concernActivities: [] }, [messageFixture({ id: "conversation-refuse-outbox", destination: "discord" })])).resolves.toBe("committed");
+    expect((await pool.query<{ goal: string; status: string }>("SELECT goal,status FROM conversations WHERE id='a:conversation-refuse'")).rows).toEqual([{ goal: "境界を明確に断る", status: "active" }]);
   });
 
   it("FR-91: builds a bounded Self- and Mood-aware Observation Gate view from persistent state", async () => {

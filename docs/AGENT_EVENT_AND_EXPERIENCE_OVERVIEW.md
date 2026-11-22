@@ -109,6 +109,8 @@ flowchart LR
 
 ## 通常会話のフロー
 
+通常peer投稿へ話しかけるかは軽量Gateが判断し、`engage`時にConversation Goal候補を作る。実際にreplyした時だけAgent所有Conversationを開始する。owner human又はallowlist peerが自Bot発話へreplyした後は、永続化したDiscord message対応から同じConversationを復元してGateを通さず、安定したGoalをMainAgentへ渡す。別Conversationの内容はMemory化され検索できた場合だけ利用する。
+
 ```mermaid
 sequenceDiagram
     participant U as User

@@ -7,6 +7,10 @@ description: 人間とallowlist peerから受けた社会的な発話を、同�
 
 Observation.content の `senderKind` と `addressing` を先に確認する。IDやtransport情報は推測しない。
 
+入力にConversation Goalがある場合、それはこのreply chainで自分が得たい・確かめたい・伝えたい・変えたい安定した目的である。今回のDesireはGoalを今どう進めるかにする。直前発話の細部、礼儀、言い換えでGoalを別の目的へ置換しない。Goalを進める新しい問い、判断差分、反論、事実又は次行為がなければ`no-external-action`で終える。別会話の内容は、Memoryとして取得できた場合だけ使う。`peer` / `direct`ではmention又はreplyだけを発話理由にしない。
+
+Scheduled Taskは、主として人から明示された将来・定期実行依頼にだけ使う。Conversationの次の一手、時刻を必要としない調査・再検討、細かな実験手順、文言調整は現在のAction、Concern、reconsiderAt又はidleで扱い、予約しない。Agent自身で予約するのは、特定時刻にしか成立しない観測、時間経過そのものの比較、又は外部へ明示的に引き受けた将来履行など、時刻が本質的な例外だけとし、その理由を`reason`へ具体的に書く。
+
 `peer` / `observed` がこのskillへ届くのは、軽量Observation Gateが`engage`した後だけである。Gateの`ignore`を再判断したり、見かけた全投稿への反応を義務にしたりしない。
 
 - `human` / `direct`: 現在の発話を優先して応答する。必要なら self_get、interaction_context_get、memory_search、relationship_search を使う。Concernの取得・作成はしない。
