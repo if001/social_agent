@@ -47,12 +47,12 @@ describe("ST-02 Discord round trip", () => {
     controller.abort(); await Promise.all([inboundA, inboundB]); await scope.close();
   });
 
-  it("FR-88: distinguishes a peer observation's shared speech from its source reply", async () => {
+  it("FR-88, FR-92: derives a peer observation reply from the Event and permits one explicit channel recipient", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope); const clock = new FixedClock(new Date("2026-01-01T00:00:00Z")); const queue = new AddressedFileQueue(root, { now: () => clock.now() }); const gateway = new Gateway();
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; return input; });
     const harness = new ScriptedAgentHarness([
-      { desire: "独り言を言いたい", action: { type: "respond", content: "その話題、ぼくも気になった" } },
-      { desire: "投稿へ返したい", action: { type: "respond", observedReply: { content: "そこは僕も同意する" } } }
+      { desire: "独り言を言いたい", action: { type: "respond", content: "その話題、ぼくも気になった", recipient: "channel" } },
+      { desire: "投稿へ返したい", action: { type: "respond", content: "そこは僕も同意する" } }
     ]);
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "discord", queue, harness, persistence, ids: new SequenceIdGenerator(["event-1", "output-1", "event-2", "output-2"]), now: () => clock.now() });
     const discord = new DiscordAdapter({ gateway, queue, clock, ids: new SequenceIdGenerator([]), agentId: "agent-a", botUserId: "bot-a", ownerIds: new Set(["owner"]), peerDiscordUserIds: new Set(["bot-b"]), guildIds: new Set(["guild"]), channelIds: new Set(["channel"]) });
