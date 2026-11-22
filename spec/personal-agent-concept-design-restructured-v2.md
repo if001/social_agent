@@ -233,11 +233,13 @@ Selfは通常Interactionから直接変更しない。長期的な変化は、Me
 
 ## 8. Desire と Concern
 
-- C-06：今回の望みをDesire、次のEventにも残る「気に掛けていること」をConcernとして扱い、両者を混同しない。
+- C-06：今回の望みをDesire、reply chain内で複数Eventにまたがる目的をConversation Goal、会話外の次のEventにも残る「気に掛けていること」をConcernとして扱い、混同しない。
 
 Desireは、今回のEventを受けて「今、何をしたいか」を表す今回の現在のコミットメントである。Desireは保存状態として重複させず、Agent Coreの出力に含める。直前stepのDesireを`occurredAt`付きで次の判断へ1件渡してよい。これは独立したDesire状態ではなく、前回の意図がまだ現在かを判断する入力である。
 
 Concernは、現在気に掛けていて、次のEventにも影響する事柄である。感情、価値、関係、未完了課題、約束、継続中の関心を統合して表す。未解決課題だけに限らない。
+
+Conversation Goalは、そのAgentが一つのreply chainで何を知りたい、確かめたい、伝えたい、又は変えたいかを表す。通常peer投稿へ話しかける場合は軽量Observation Gateが候補を作り、mention又は自Bot発話への初回replyではAgent CoreのDesireから形成する。実際のreplyがcommitされた時だけ開始し、継続replyでは再生成しない。会話の局所履歴は当該Conversationだけを使い、別Conversationの内容はMemory化され検索できた場合だけ利用する。
 
 ```ts
 type Concern = {
@@ -286,7 +288,7 @@ Moodは現在のEventだけへの反応、返答待ち、理由、願望、計�
 
 - C-08：明示的な将来実行は心理状態ではなくScheduled TaskとしてRuntimeが管理する。
 
-明示的な将来時刻に行う処理は、心理状態ではなくScheduled Taskとして扱う。
+明示的な将来時刻に行う処理は、心理状態ではなくScheduled Taskとして扱う。主経路は人から明示された将来・定期実行依頼である。Agent自身の関心、会話の次の一手、実験手順、文言調整、単なる再検討には使わず、Agent自身の予約は特定時刻の観測、時間差比較、又は明示的に引き受けた将来履行など時刻が本質的な例外に限る。
 
 ```text
 明日の朝、この調査結果を知らせる。

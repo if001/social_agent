@@ -1,0 +1,1 @@
+ALTER TABLE "app"."observation_gate_decisions" ADD COLUMN "conversation_goal" text;

@@ -35,6 +35,7 @@ import { PostgresMemoryUpdateRepository } from "../infrastructure/persistence/po
 import { ObservationGate } from "../application/observation-gate.js";
 import { createOllamaObservationGateModel } from "../infrastructure/agent/observation-gate-model.js";
 import { PostgresObservationGateContext } from "../infrastructure/persistence/postgres-observation-gate-context.js";
+import { PostgresConversationRepository } from "../infrastructure/persistence/postgres-conversation-repository.js";
 import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
 import { SystemClock, UuidGenerator } from "../infrastructure/system.js";
@@ -99,6 +100,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   });
   const persistence = new PostgresRuntimePersistence(database, (event) => contextLoader.load(event), ids, () => clock.now(), config.botId, config.runtimeCorrelationTtlMs, config.runtimeRateWindowRetentionMs);
   const observationGate = new ObservationGate(new PostgresObservationGateContext(database, retrievalService), createOllamaObservationGateModel(config.chat, logger));
+  const conversationRepository = new PostgresConversationRepository(database);
   const harness = new DeepAgentHarness({
     invoker: createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry, logger, now: () => clock.now() }), logger,
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name)),
@@ -109,5 +111,5 @@ export function createBotComposition(options: BotCompositionOptions) {
   const reflection = new TargetedReflection(new PostgresReflectionRepository(database, ids, () => clock.now(), memoryUpdateSink, memoryEmbedding, { staleAfterMs: config.schedulerTimings.concernStaleAfterMs, minReflectionSessions: config.schedulerTimings.concernStaleMinReflectionSessions }), new OllamaTargetedReflectionModel(config.chat, logger, toolRegistry));
   const router = new AgentEventRouter(runtime);
   const outbox = new OutboxDispatcher(persistence, queue, logger);
-  return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, reflection, router, outbox, experienceIntegration, g3: g3Service };
+  return { queue, clock, ids, limits, toolRegistry, contextLoader, persistence, harness, runtime, reflection, router, outbox, experienceIntegration, conversationRepository, g3: g3Service };
 }

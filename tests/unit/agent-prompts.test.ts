@@ -118,6 +118,14 @@ describe("Agent prompts", () => {
     expect(outputSchema).toContain("会話目的が満たされた");
   });
 
+  it("FR-40, FR-90: supplies the Scheduled Task creation boundary while deciding a social message", () => {
+    expect(resolveEventSkills("message-received", undefined)).toContain("social-message");
+    expect(socialMessageSkill).toContain("人から明示された将来・定期実行依頼");
+    expect(socialMessageSkill).toContain("Conversationの次の一手");
+    expect(socialMessageSkill).toContain("時刻が本質的な例外");
+    expect(socialMessageSkill).toContain("reason");
+  });
+
   it("FR-21, FR-76, FR-90, FR-91: keeps observed peer speech concrete and permits silence after engagement", () => {
     expect(socialMessageSkill).toContain("発話義務ではなく");
     expect(socialMessageSkill).toContain("長期的な協力関係");

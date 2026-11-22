@@ -3,8 +3,8 @@ import type { IdGenerator, MemoryEmbedding } from "../../application/ports.js";
 import { MemoryWriteService, recordMemoryMutationFailure, type MemoryCandidate, type MemoryWriteOptions } from "./memory-write-repository.js";
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
-import { and, eq } from "drizzle-orm";
-import { agentRuns, autonomousSchedules, concernActivities, events, eventSubjects, memoryWebEvidence, messageReceipts, observationGateDecisions, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
+import { and, eq, isNull } from "drizzle-orm";
+import { agentRuns, autonomousSchedules, concernActivities, conversationMessages, conversations, events, eventSubjects, memoryWebEvidence, messageReceipts, observationGateDecisions, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
 
 export type CommitEventInput = {
   readonly destination: string;
@@ -12,7 +12,7 @@ export type CommitEventInput = {
   readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date; readonly causationId?: string; readonly correlationId?: string };
   readonly eventSubjectIds?: readonly string[];
   readonly receiptPreclaimed?: boolean;
-  readonly observationGate?: { readonly decision: "ignore" | "engage"; readonly reason: string; readonly input?: unknown; readonly modelCalls: number; readonly retrievalCount: number; readonly failureReason?: string };
+  readonly observationGate?: { readonly decision: "ignore" | "engage"; readonly reason: string; readonly conversationGoal?: string; readonly input?: unknown; readonly modelCalls: number; readonly retrievalCount: number; readonly failureReason?: string };
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly inputSnapshot?: unknown; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly { readonly id: string; readonly target: string; readonly operation: string; readonly before: unknown; readonly after: unknown; readonly reason: string; readonly evidenceIds: readonly string[] }[];
@@ -24,6 +24,7 @@ export type CommitEventInput = {
   readonly memoryWebEvidence?: readonly { readonly memoryId: string; readonly snapshotIds: readonly string[] }[];
   readonly toolExecutions?: readonly (ToolExecutionRecord & { readonly id: string })[];
   readonly outbox: readonly MessageEnvelope[];
+  readonly conversation?: { readonly id: string; readonly correlationId: string; readonly goal: string; readonly status: "active" | "completed"; readonly endedReason?: string; readonly externalMessageId?: string };
 };
 
 export type FailedEventInput = Omit<CommitEventInput, "stateValues" | "changes" | "memoryIntents" | "memoryWebEvidence" | "outbox"> & { readonly failureReason: string };
@@ -42,6 +43,13 @@ export class PostgresEventTransaction {
       if (eventSubjectIds.length > 0) await client.insert(eventSubjects).values(eventSubjectIds.map((subjectId) => ({ eventId: input.event.id, subjectId }))).onConflictDoNothing();
       if (input.observationGate !== undefined) await client.insert(observationGateDecisions).values({ eventId: input.event.id, ...input.observationGate }).onConflictDoNothing();
       await client.insert(agentRuns).values({ id: input.run.id, agentId: input.event.agentId, eventId: input.event.id, inputStateVersion: input.run.inputStateVersion, inputSnapshot: input.run.inputSnapshot ?? null, startedAt: input.run.startedAt });
+      if (input.conversation !== undefined) {
+        const completedAt = input.conversation.status === "completed" ? new Date() : null;
+        await client.insert(conversations).values({ id: input.conversation.id, agentId: input.event.agentId, goal: input.conversation.goal, status: input.conversation.status, startedEventId: input.event.id, lastEventId: input.event.id, endedReason: input.conversation.endedReason ?? null, completedAt })
+          .onConflictDoUpdate({ target: conversations.id, set: { status: input.conversation.status, lastEventId: input.event.id, endedReason: input.conversation.endedReason ?? null, completedAt, updatedAt: new Date() } });
+        await client.update(conversationMessages).set({ conversationId: input.conversation.id }).where(and(eq(conversationMessages.agentId, input.event.agentId), eq(conversationMessages.correlationId, input.conversation.correlationId), isNull(conversationMessages.conversationId)));
+        if (input.conversation.externalMessageId !== undefined) await client.insert(conversationMessages).values({ agentId: input.event.agentId, externalMessageId: input.conversation.externalMessageId, conversationId: input.conversation.id, correlationId: input.conversation.correlationId, direction: "inbound", eventId: input.event.id }).onConflictDoNothing();
+      }
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
       await this.#syncConcernSchedules(client, input.event.agentId, input.stateValues.concerns);

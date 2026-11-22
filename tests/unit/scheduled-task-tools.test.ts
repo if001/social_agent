@@ -11,13 +11,16 @@ describe("Scheduled Task tools", () => {
     const properties = create?.inputSchema.properties as Record<string, { description?: string; maxLength?: number }> | undefined;
     const updateProperties = update?.inputSchema.properties as Record<string, { description?: string; maxLength?: number }> | undefined;
 
-    expect(create?.description).toBe("指定した将来時刻に一度だけ実行する仕事を予約する。予約時には実行しない。");
+    expect(create?.description).toContain("人から明示された将来依頼");
+    expect(create?.description).toContain("会話の次の一手や単なる再検討には使わず");
+    expect(update?.description).toContain("会話の次の一手や単なる再検討");
     expect(properties?.["executeAt"]?.description).toBe("実行する将来のISO 8601日時");
     expect(properties?.["instruction"]).toMatchObject({
       description: "期限到来時に実行する仕事だけを1〜2文で書く。必要なら対象、参照する情報、期待する結果を含める。実行日時、予約理由、送信先、Toolの使い方、共通動作規則は書かない",
       maxLength: 1_000
     });
-    expect(properties?.["reason"]?.description).toBe("この実行を予約する理由。期限到来時の作業手順は書かない");
+    expect(properties?.["reason"]?.description).toContain("時刻が本質的な例外である理由");
+    expect(create?.inputSchema.required).toContain("reason");
     expect(properties?.["destination"]?.description).toBe("結果の明示的な配送先。通常は省略する");
     expect(updateProperties?.["instruction"]).toMatchObject(properties?.["instruction"] ?? {});
     expect(updateProperties?.["reason"]?.description).toBe(properties?.["reason"]?.description);
@@ -28,7 +31,7 @@ describe("Scheduled Task tools", () => {
     let calls = 0; const repository: ScheduledTaskToolRepository = { create: () => { calls += 1; return Promise.resolve({ id: "task-1", executeAt: new Date("2026-01-02T00:00:00Z"), instruction: "結果を知らせる", reason: null, destination: "terminal", status: "scheduled", attempt: 0 }); }, list: () => Promise.resolve([]), cancel: () => Promise.resolve(undefined), update: () => Promise.resolve(undefined) };
     const registry = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator(["task-1", "unused"]), () => new Date("2026-01-01T00:00:00Z")));
     const context = { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "run-1:call-1" };
-    const input = { executeAt: "2026-01-02T00:00:00Z", instruction: "結果を知らせる", destination: "terminal" };
+    const input = { executeAt: "2026-01-02T00:00:00Z", instruction: "結果を知らせる", reason: "ユーザーが明日知らせてと依頼した", destination: "terminal" };
     await expect(registry.execute("schedule_task", input, context, new AbortController().signal)).resolves.toMatchObject({ ok: true, value: { id: "task-1", status: "scheduled" } });
     await registry.execute("schedule_task", input, context, new AbortController().signal);
     expect(calls).toBe(1);
@@ -37,7 +40,7 @@ describe("Scheduled Task tools", () => {
   it("FR-40: rejects a past execution time", async () => {
     const repository = {} as ScheduledTaskToolRepository;
     const registry = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-02T00:00:00Z")));
-    await expect(registry.execute("schedule_task", { executeAt: "2026-01-01T00:00:00Z", instruction: "old" }, { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "key" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(registry.execute("schedule_task", { executeAt: "2026-01-01T00:00:00Z", instruction: "old", reason: "過去時刻の検証" }, { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "key" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("FR-40: accepts a 1,000 character instruction and rejects a 1,001 character instruction", async () => {
@@ -45,8 +48,8 @@ describe("Scheduled Task tools", () => {
     const registry = new ToolRegistry(createScheduledTaskTools(repository, new SequenceIdGenerator(["task-1"]), () => new Date("2026-01-01T00:00:00Z")));
     const context = { agentId: "agent-a", runId: "run-1", eventId: "event-1", idempotencyKey: "limit-create" };
 
-    await expect(registry.execute("schedule_task", { executeAt: "2026-01-02T00:00:00Z", instruction: "a".repeat(1_000) }, context, new AbortController().signal)).resolves.toMatchObject({ ok: true });
-    await expect(registry.execute("schedule_task", { executeAt: "2026-01-02T00:00:00Z", instruction: "a".repeat(1_001) }, { ...context, idempotencyKey: "over-limit-create" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(registry.execute("schedule_task", { executeAt: "2026-01-02T00:00:00Z", instruction: "a".repeat(1_000), reason: "時刻が必要な観測" }, context, new AbortController().signal)).resolves.toMatchObject({ ok: true });
+    await expect(registry.execute("schedule_task", { executeAt: "2026-01-02T00:00:00Z", instruction: "a".repeat(1_001), reason: "時刻が必要な観測" }, { ...context, idempotencyKey: "over-limit-create" }, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("FR-40: updates only an owned scheduled Task and validates the requested change", async () => {

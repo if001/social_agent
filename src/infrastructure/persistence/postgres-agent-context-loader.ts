@@ -8,8 +8,9 @@ import { AgentCoreInputSchema, AgentStateSchema, DomainError, EventAssessmentSch
 import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agentFamilies, agentRuns, agents, agentStates, events, observationGateDecisions, stateChanges, toolExecutions } from "./schema.js";
+import { agentFamilies, agentRuns, agents, agentStates, conversations, events, observationGateDecisions, stateChanges, toolExecutions } from "./schema.js";
 import { ConcernRepository } from "./concern-repository.js";
+import { conversationKey } from "./conversation-key.js";
 
 type AgentRow = {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
@@ -146,10 +147,13 @@ export class PostgresAgentContextLoader {
       .where(eq(agents.id, event.agentId)).limit(1))[0] as AgentRow | undefined;
     if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${event.agentId}`);
     const currentConcerns = await new ConcernRepository(this.options.database.db).list(event.agentId);
+    const conversationCorrelationId = event.correlationId;
+    const conversation = conversationCorrelationId === undefined ? undefined : (await this.options.database.db.select({ goal: conversations.goal, status: conversations.status }).from(conversations).where(and(eq(conversations.id, conversationKey(event.agentId, conversationCorrelationId)), eq(conversations.agentId, event.agentId), eq(conversations.status, "active"))).limit(1))[0];
 
+    const socialConversationScope = event.kind !== "message-received" ? undefined : conversation === undefined || conversationCorrelationId === undefined ? sql`false` : eq(events.correlationId, conversationCorrelationId);
     const recentEvents = await this.options.database.db.select({ event: events }).from(events)
       .leftJoin(observationGateDecisions, eq(observationGateDecisions.eventId, events.id)).where(and(
-        eq(events.agentId, event.agentId), ne(events.kind, "tool-result"), sql`coalesce(${observationGateDecisions.decision}, 'engage') <> 'ignore'`
+        eq(events.agentId, event.agentId), ne(events.kind, "tool-result"), sql`coalesce(${observationGateDecisions.decision}, 'engage') <> 'ignore'`, socialConversationScope
       )).orderBy(desc(events.occurredAt), desc(events.id)).limit(8);
     const recentRows: RecentExperienceRow[] = [];
     for (const { event: recentEvent } of recentEvents.reverse()) {
@@ -168,7 +172,7 @@ export class PostgresAgentContextLoader {
       )).limit(1);
       recentRows.push({ event_id: recentEvent.id, agent_id: recentEvent.agentId, event_kind: recentEvent.kind as DomainEvent["kind"], observation: recentEvent.observation, occurred_at: recentEvent.occurredAt, run_id: run?.id ?? null, result: run?.result ?? null, failure_reason: run?.failureReason ?? null, tools, progress_changed: progress.length > 0 });
     }
-    const priorBase = [eq(agentRuns.agentId, event.agentId), isNotNull(agentRuns.finishedAt), isNull(agentRuns.failureReason)];
+    const priorBase = [eq(agentRuns.agentId, event.agentId), isNotNull(agentRuns.finishedAt), isNull(agentRuns.failureReason), ...(socialConversationScope === undefined ? [] : [socialConversationScope])];
     const [assessmentRows, desireRows] = await Promise.all([
       this.options.database.db.select({ occurred_at: events.occurredAt, result: agentRuns.result }).from(agentRuns)
         .innerJoin(events, and(eq(events.id, agentRuns.eventId), eq(events.agentId, agentRuns.agentId)))
@@ -204,6 +208,7 @@ export class PostgresAgentContextLoader {
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),
       currentSelf: { agentId: agent.id, version: agent.version, ...PersistedSelfSchema.parse({ identity: agent.identity, disposition: agent.disposition, selfStory: agent.self_story, commitments: agent.commitments }) },
       state,
+      ...(conversation === undefined ? {} : { conversation: { goal: conversation.goal, status: "active" as const } }),
       memories: [], memoryRetrievalTrace: [], ...(predictionContext === undefined ? {} : { predictionContext }), availableTools: [...availableTools],
       runtimeConstraints: [agent.base_instruction.trim(), "Toolの結果と他Agentからの伝聞は出典を区別すること"].filter((value) => value.length > 0),
       limits: this.options.limits

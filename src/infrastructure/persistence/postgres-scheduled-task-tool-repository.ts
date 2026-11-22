@@ -17,9 +17,9 @@ export class PostgresScheduledTaskToolRepository implements ScheduledTaskToolRep
   async create(input: Parameters<ScheduledTaskToolRepository["create"]>[0]): Promise<ScheduledTaskRecord | undefined> {
     const rows = await this.database.db.insert(scheduledTasks).values({
       id: input.id, agentId: input.agentId, executeAt: input.executeAt,
-      instruction: input.instruction, reason: input.reason ?? null,
+      instruction: input.instruction, reason: input.reason,
       destination: input.destination ?? null, idempotencyKey: input.idempotencyKey,
-      sourceRunId: input.runId
+      sourceEventId: input.eventId, sourceRunId: input.runId
     }).onConflictDoNothing({
       target: [scheduledTasks.agentId, scheduledTasks.idempotencyKey]
     }).returning();
