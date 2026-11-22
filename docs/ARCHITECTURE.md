@@ -52,6 +52,7 @@
 | ADR-22 | MemoryのAgent所有、対象subject、因果根拠を別々に保持する。`agent_id`は所有者、`memory_subjects`は対象、Event / Run / evidenceは根拠であり、任意情報源をAgent IDとして保存する列は持たない。 | FR-89, NFR-7, NFR-8 |
 | ADR-23 | Concernの永続readerは旧長文を読める互換形とし、model-facing writerは`description` 400文字、`whyItMatters` 300文字の共通契約へ分離する。持続する関心の意味境界はLLMへ明示し、Runtimeは自然言語の単語一致を行わず構造と長さだけを検証する。既存active Concernの収束はIDを隠した一件単位の軽量model判断とし、dry-runを既定に、全判断成功後だけversion付きの単一transactionで本文と`reviewed` Activityを確定する。 | FR-8, NFR-7, NFR-8, NFR-20 |
 | ADR-24 | ADR-21の発話配送部分を置き換え、Agent Coreの外部発話は`respond { content, recipient? }`の単一本文・単一宛先とする。recipient省略時はEvent発話元又は既定先、`user`はowner、`channel`は非mention投稿、それ以外は一意なallowlist peerへのmentionとしてRuntimeが解決し、一つのOutboxだけを作る。本文をrouteごとに複製せず、複数宛先への同時配送を許可しない。 | FR-88, FR-92, NFR-8 |
+| ADR-25 | Concernは`concerns`を現在状態、`concern_activities`を追記型履歴として分離し、removeは`deleted_at`による論理削除とする。ActivityはConcernへの外部キーだけを持ち、Agent所有権はConcernから導出する。旧`agent_states.concerns`とActivity側の重複`agent_id`は保持しない。 | FR-93, NFR-7, NFR-8 |
 
 ADR-12〜ADR-19は追加設計であり、現行コードには未実装である。実装Issueでコード、migration、testを追加する。
 
