@@ -68,7 +68,7 @@ flowchart LR
 | Reflection | Event駆動の保守処理 | 複数の経験を圧縮し、Conversation Memory、Self、Concern、Relationshipへ長期反映する。Conversation Memory、Self、Relationship、Concernごとに部分成功を持つ |
 | Scheduled Task | Runtime上の責務 | 指定時刻に新しいEventを発生させる。心理状態ではない |
 
-Commitmentは長期的に大切にする原則、Concernは現在気に掛けていて次のEventにも残る事柄である。感情、価値、関係、未完了課題を含み、未解決課題だけに限らない。Desireは今回の現在のコミットメントであり、保存状態として重複させない。直前のDesireは`previousDesire`として時刻付きで1件だけ渡す。Initial Dispositionに書かれた具体的な好みは探索の初期の種であり、経験後の現在の重心はConversation Memory、Concern、Self Story、現在のDispositionの組合せで決まる。
+Commitmentは長期的に大切にする原則・役割・約束、Concernは現在気に掛けていて次のEventにも残る一つの関心・動機の核である。疑問文や未解決課題だけに限らない。根拠と経緯はMemory / Event Experience、今回の行為はDesire、日時と手順はScheduled Task、関係の安定した前提はRelationshipへ置き、Concernを研究ログにしない。直前のDesireは`previousDesire`として時刻付きで1件だけ渡す。Initial Dispositionに書かれた具体的な好みは探索の初期の種であり、経験後の現在の重心はConversation Memory、Concern、Self Story、現在のDispositionの組合せで決まる。
 
 ## 予測誤差と感情・動機
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, EpisodicMemorySchema, EventAssessmentSchema, initialSelfFromConfig, InitialSelfConfigSchema, MessageEnvelopeSchema, PersistedSelfSchema, SelfSchema } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, ConcernChangeSchema, ConcernProposalSchema, ConcernSchema, EpisodicMemorySchema, EventAssessmentSchema, initialSelfFromConfig, InitialSelfConfigSchema, MessageEnvelopeSchema, PersistedSelfSchema, SelfSchema } from "../../src/domain/contracts.js";
+import { ConcernReflectorOutputSchema } from "../../src/application/reflection.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { modelObservationForAgentCore, observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
 
@@ -66,6 +67,16 @@ describe("domain contracts", () => {
     expect(initialSelfFromConfig(config)).toMatchObject({ commitments: ["守るもの"], selfStory: "自己理解\n継続性" });
     expect(() => initialSelfFromConfig(InitialSelfConfigSchema.parse({ ...config, agent: { ...config.agent, raisonDetre: "あ".repeat(401) } }))).toThrow();
     expect(() => initialSelfFromConfig(InitialSelfConfigSchema.parse({ ...config, agent: { ...config.agent, selfNarrative: "あ".repeat(400), selfContinuity: "い".repeat(400) } }))).toThrow();
+  });
+
+  it("FR-8: keeps legacy Concern readable while bounding every model-facing Concern writer", () => {
+    const legacy = { id: "c1", description: "d".repeat(1_000), whyItMatters: "w".repeat(1_000), status: "active" as const };
+    expect(ConcernSchema.safeParse(legacy).success).toBe(true);
+    expect(ConcernProposalSchema.safeParse({ operation: "create", description: "d".repeat(401), whyItMatters: "理由" }).success).toBe(false);
+    expect(ConcernProposalSchema.safeParse({ operation: "create", description: "関心", whyItMatters: "w".repeat(301) }).success).toBe(false);
+    expect(ConcernChangeSchema.safeParse({ operation: "create", concern: { description: "d".repeat(401), whyItMatters: "理由", status: "active" } }).success).toBe(false);
+    expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "upsert", currentDescription: legacy.description, description: "d".repeat(401), whyItMatters: "理由", status: "active" }] }).success).toBe(false);
+    expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "upsert", currentDescription: legacy.description, description: "関心", whyItMatters: "理由", status: "active" }] }).success).toBe(true);
   });
 
   it("FR-23: bounds generated Agent Core text by each field's purpose", () => {

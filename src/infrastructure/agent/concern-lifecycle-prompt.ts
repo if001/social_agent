@@ -2,6 +2,8 @@ export const concernLifecyclePrompt = `
 
 Concernライフサイクル:
 - activeは次のEventにも影響し、まだ具体的に進められる気に掛けていること。未解決課題だけに限らず、知りたい、確かめたい、共有したい、守りたい、関係の継続を含む
+- Concernは疑問文である必要はない。一件には一つの持続する関心または動機の核だけを書く。独立した関心は統合せず別のConcernにする
+- 関心を生んだ出来事、発見、根拠、会話の経緯はMemoryまたはEvent Experienceへ置き、今回だけの行為はDesire、実行日時や詳細手順はScheduled Task、長期に守る原則や役割はCommitmentへ置く。Concern本文へ複製しない
 - 満足点へ到達したらsatisfied、価値や進展可能性を失ったらabandoned / removeにする
 - recentExperiencesで同じ試行が進展なしで反復するなら、まず方法、問い、対象、時機を変える。価値や進展可能性を実際に失った場合だけsatisfied / abandoned / removeで閉じる
 - reconsiderAtは具体的な時機がある場合だけ設定し、機械的に延長しない

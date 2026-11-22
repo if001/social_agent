@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AgentStateSchema, ConcernChangeSchema, CurrentRelationshipDescriptionSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistedSelfSchema, PersistentMoodSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, CurrentConcernDescriptionSchema, CurrentConcernImportanceSchema, CurrentRelationshipDescriptionSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistedSelfSchema, PersistentMoodSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
 const Text = z.string().trim().min(1).max(16_000);
@@ -145,8 +145,8 @@ export const MemoryReconciliationOutputSchema = z.object({
 }).strict();
 export const ConcernReflectorOutputSchema = z.object({
   concernChanges: z.array(z.discriminatedUnion("operation", [
-    z.object({ operation: z.literal("create"), description: Text, whyItMatters: Text, reconsiderAt: z.iso.datetime({ offset: true }).optional() }).strict(),
-    z.object({ operation: z.literal("upsert"), currentDescription: Text.describe("更新対象を示す現在のConcern本文。IDや局所参照ではない"), description: Text, whyItMatters: Text, status: z.enum(["active", "satisfied", "abandoned"]), reconsiderAt: z.iso.datetime({ offset: true }).optional() }).strict(),
+    z.object({ operation: z.literal("create"), description: CurrentConcernDescriptionSchema, whyItMatters: CurrentConcernImportanceSchema, reconsiderAt: z.iso.datetime({ offset: true }).optional() }).strict(),
+    z.object({ operation: z.literal("upsert"), currentDescription: Text.describe("更新対象を示す現在のConcern本文。既存の長大な本文も照合できるが、IDや局所参照ではない"), description: CurrentConcernDescriptionSchema, whyItMatters: CurrentConcernImportanceSchema, status: z.enum(["active", "satisfied", "abandoned"]), reconsiderAt: z.iso.datetime({ offset: true }).optional() }).strict(),
     z.object({ operation: z.literal("remove"), currentDescription: Text.describe("削除対象を示す現在のConcern本文。IDや局所参照ではない") }).strict()
   ])).max(4).describe("Memory根拠に基づくConcern差分。ID・根拠Memory IDは出力しない。変更不要なら空配列")
 }).strict().superRefine((value, context) => {
