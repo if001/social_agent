@@ -182,6 +182,15 @@ describe("Agent prompts", () => {
     expect(prompt).toContain("一律の経過時間だけでは終了させず");
   });
 
+  it("FR-25, NFR-22: leaves semantic closure to the Reflector without keyword rules or mechanical reconsiderAt extension", () => {
+    const reflectionConcernSkill = skill("reflection-concern");
+    for (const prompt of [lifecycleSkill, reflectionConcernSkill]) {
+      expect(prompt).toContain("特定の語句");
+      expect(prompt).toContain("意味全体");
+      expect(prompt).toContain("単なる延命として再設定しない");
+    }
+  });
+
   it("FR-47, AC-10: loads SKILL.md metadata and allowed tools", () => {
     const skills = listSkills({ projectSkillsDir: join(process.cwd(), "skills") });
     const names = skills.map(({ name }) => name);
