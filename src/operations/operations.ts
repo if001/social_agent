@@ -10,6 +10,7 @@ import { redactSecrets } from "../observability/redaction.js";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
 import { agentFamilies, agents, agentStates, autonomousSchedules } from "../infrastructure/persistence/schema.js";
+import { ConcernRepository } from "../infrastructure/persistence/concern-repository.js";
 
 type InitializationTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> & Partial<Pick<SchedulerTimings, "concernFormationIntervalMs">>;
 
@@ -20,7 +21,8 @@ export async function initializeAgent(pool: Pool, config: InitialSelfConfig, tim
   await database.transaction(async (tx) => {
     await tx.insert(agentFamilies).values({ id: family.id, name: family.name, sharedDisposition: family.sharedDisposition, baseInstruction: family.baseInstruction }).onConflictDoNothing({ target: agentFamilies.id });
     await tx.insert(agents).values({ id: agent.id, familyId: family.id, identity: agent.identity, initialDisposition: agent.initialDisposition }).onConflictDoNothing({ target: agents.id });
-    await tx.insert(agentStates).values({ agentId: agent.id, disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood }).onConflictDoNothing({ target: agentStates.agentId });
+    const insertedState = await tx.insert(agentStates).values({ agentId: agent.id, disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, relationships: initialState.relationships, mood: initialState.mood }).onConflictDoNothing({ target: agentStates.agentId }).returning({ agentId: agentStates.agentId });
+    if (insertedState.length === 1) await new ConcernRepository(tx).replace(agent.id, initialState.concerns);
     if (options.overwriteConfiguredSelf === true) {
       const now = new Date();
       await tx.update(agentFamilies).set({ name: family.name, sharedDisposition: family.sharedDisposition, baseInstruction: family.baseInstruction, updatedAt: now }).where(eq(agentFamilies.id, family.id));

@@ -24,7 +24,7 @@ describeDatabase("MemoryWriteService", () => {
     await database.prepare();
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
-    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ('a','Careful','Growing','[]','[]','[]','Calm'),('b','Bold','Growing','[]','[]','[]','Calm')");
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,relationships,mood) VALUES ('a','Careful','Growing','[]','[]','Calm'),('b','Bold','Growing','[]','[]','Calm')");
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,retrieval_priority,occurred_at,created_at,evidence_event_ids,version,embedding_status) VALUES ('existing','a','semantic','ユーザーAは技術の話を好む','重要','normal',now(),now(),'[]',0,'pending'),('other','b','semantic','ユーザーBは静かな話を好む','重要','normal',now(),now(),'[]',0,'pending')");
   });
   afterAll(async () => {

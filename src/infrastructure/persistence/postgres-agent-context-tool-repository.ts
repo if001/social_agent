@@ -5,7 +5,8 @@ import type { Observation, RetrievedItem } from "../../domain/contracts.js";
 import type { AgentContextState, AgentContextToolRepository, AgentSelfState, ConcernActivity, EvidenceMemory, ToolExecutionObservation } from "../tools/agent-context-tools.js";
 import { PostgresRetrievalService } from "./postgres-retrieval-service.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agents, agentRuns, agentStates, concernActivities, events, memories, toolExecutions } from "./schema.js";
+import { agents, agentRuns, agentStates, concernActivities, concerns, events, memories, toolExecutions } from "./schema.js";
+import { ConcernRepository } from "./concern-repository.js";
 
 function actor(observation: unknown): Observation["actor"] | undefined {
   if (typeof observation !== "object" || observation === null) return undefined;
@@ -27,11 +28,11 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
   retrieveEvents(input: EventRetrievalInput): Promise<readonly RetrievedEvent[]> { return this.eventRetrieval.retrieveEvents(input); }
 
   async loadState(agentId: string): Promise<AgentContextState | undefined> {
-    return (await this.database.db.select({
-      concerns: agentStates.concerns,
+    const state = (await this.database.db.select({
       relationships: agentStates.relationships,
       mood: agentStates.mood
     }).from(agentStates).where(eq(agentStates.agentId, agentId)).limit(1))[0];
+    return state === undefined ? undefined : { ...state, concerns: await new ConcernRepository(this.database.db).list(agentId) };
   }
 
   async listConcernActivityTimes(agentId: string, concernIds: readonly string[]): Promise<ReadonlyMap<string, Date>> {
@@ -40,8 +41,8 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
     const rows = await this.database.db.select({
       concernId: concernActivities.concernId,
       lastMeaningfulAt: sql<Date | null>`max(${concernActivities.occurredAt}) filter (where ${inArray(concernActivities.kind, meaningfulKinds)})`
-    }).from(concernActivities).where(and(
-      eq(concernActivities.agentId, agentId),
+    }).from(concernActivities).innerJoin(concerns, eq(concerns.id, concernActivities.concernId)).where(and(
+      eq(concerns.agentId, agentId),
       inArray(concernActivities.concernId, [...concernIds])
     )).groupBy(concernActivities.concernId);
     return new Map(rows.flatMap((row) => row.lastMeaningfulAt === null ? [] : [[row.concernId, new Date(row.lastMeaningfulAt)] as const]));
@@ -52,11 +53,11 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
       lt(concernActivities.occurredAt, new Date(cursor.occurredAt)),
       and(eq(concernActivities.occurredAt, new Date(cursor.occurredAt)), lt(concernActivities.id, cursor.id))
     );
-    return (await this.database.db.select().from(concernActivities).where(and(
-      eq(concernActivities.agentId, agentId),
+    return (await this.database.db.select({ activity: concernActivities }).from(concernActivities).innerJoin(concerns, eq(concerns.id, concernActivities.concernId)).where(and(
+      eq(concerns.agentId, agentId),
       eq(concernActivities.concernId, concernId),
       cursorCondition
-    )).orderBy(desc(concernActivities.occurredAt), desc(concernActivities.id)).limit(limit)).map((row) => ({
+    )).orderBy(desc(concernActivities.occurredAt), desc(concernActivities.id)).limit(limit)).map(({ activity: row }) => ({
       id: row.id, kind: row.kind, occurredAt: row.occurredAt,
       eventId: row.eventId, runId: row.runId, reflectionId: row.reflectionId,
       evidenceMemoryIds: row.evidenceMemoryIds

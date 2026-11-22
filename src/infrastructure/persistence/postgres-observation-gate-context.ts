@@ -5,6 +5,7 @@ import type { RetrievalService } from "../../application/ports.js";
 import { DomainError, type DomainEvent } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { agentRuns, agentStates, events, eventSubjects } from "./schema.js";
+import { ConcernRepository } from "./concern-repository.js";
 
 const bounded = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
 const strings = (value: unknown, limit: number): readonly string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "").slice(0, limit).map((item) => bounded(item, 240)) : [];
@@ -16,8 +17,8 @@ const responseText = (value: unknown): string | undefined => {
   if (typeof action !== "object" || action === null || (action as Record<string, unknown>).type !== "respond") return undefined;
   const record = action as Record<string, unknown>;
   if (typeof record.content === "string") return record.content;
-  for (const route of [record.observedReply, record.peer]) {
-    if (typeof route === "object" && route !== null && typeof (route as Record<string, unknown>).content === "string") return (route as Record<string, unknown>).content as string;
+  for (const legacyRoute of [record.observedReply, record.peer]) {
+    if (typeof legacyRoute === "object" && legacyRoute !== null && typeof (legacyRoute as Record<string, unknown>).content === "string") return (legacyRoute as Record<string, unknown>).content as string;
   }
   return undefined;
 };
@@ -31,8 +32,9 @@ export class PostgresObservationGateContext implements ObservationGateContextLoa
     const text = typeof event.payload.text === "string" ? event.payload.text : undefined;
     const peerName = typeof event.payload.peerName === "string" ? event.payload.peerName : undefined;
     if (text === undefined || peerName === undefined) throw new DomainError("VALIDATION", "Observed peer Event requires text and peerName");
-    const [state, retrievedMemories, priorRuns] = await Promise.all([
-      this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, mood: agentStates.mood, concerns: agentStates.concerns, relationships: agentStates.relationships }).from(agentStates).where(eq(agentStates.agentId, event.agentId)).limit(1),
+    const [state, currentConcerns, retrievedMemories, priorRuns] = await Promise.all([
+      this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, mood: agentStates.mood, relationships: agentStates.relationships }).from(agentStates).where(eq(agentStates.agentId, event.agentId)).limit(1),
+      new ConcernRepository(this.database.db).list(event.agentId),
       this.retrieval.retrieve({ agentId: event.agentId, query: text, scope: "conversation", ...(typeof event.payload.subjectId === "string" ? { subjectIds: [event.payload.subjectId], subjectFilter: true } : {}), limit: 3 }),
       typeof event.payload.subjectId !== "string" ? Promise.resolve([]) : this.database.db.select({ result: agentRuns.result }).from(agentRuns)
         .innerJoin(events, and(eq(events.id, agentRuns.eventId), eq(events.agentId, agentRuns.agentId)))
@@ -53,7 +55,7 @@ export class PostgresObservationGateContext implements ObservationGateContextLoa
     const relationship = Array.isArray(currentState.relationships) && subjectId !== undefined
       ? currentState.relationships.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null).find((item) => item.subjectId === subjectId && typeof item.description === "string")?.description as string | undefined
       : undefined;
-    const rawConcerns: unknown = currentState.concerns;
+    const rawConcerns: unknown = currentConcerns;
     const concerns = Array.isArray(rawConcerns) ? rawConcerns.filter((item: unknown): item is { status: "active"; description: string } => typeof item === "object" && item !== null && "status" in item && item.status === "active" && "description" in item && typeof item.description === "string").slice(0, 3).map((item) => bounded(item.description, 240)) : [];
     const memories = retrievedMemories.map((item) => bounded(item.content, 320));
     const recentSelfSpeech = priorRuns.map(({ result }) => responseText(result)).find((value): value is string => value !== undefined && value.trim() !== "");

@@ -302,6 +302,20 @@
       "when": 1795247672007,
       "tag": "0042_mysterious_trauma",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1795361225764,
+      "tag": "0043_eminent_blazing_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795364501571,
+      "tag": "0044_safe_warhawk",
+      "breakpoints": true
     }
   ]
 }
