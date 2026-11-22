@@ -33,6 +33,7 @@
     "event:storage:migrate": "node --env-file=.env --import tsx scripts/migrate-normalized-event-storage.ts",
     "subject:canonicalize": "node --env-file=.env --import tsx scripts/normalize-canonical-user-subject.ts",
     "relationship:peer:normalize": "node --env-file=.env --import tsx scripts/normalize-peer-relationships.ts",
+    "concern:normalize": "node --env-file=.env --import tsx scripts/normalize-active-concerns.ts",
     "state:compact": "node --env-file=.env --import tsx scripts/compact-current-state.ts",
     "experience:requeue:missing-event-experience": "node --env-file=.env --import tsx scripts/requeue-integrations-missing-event-experience.ts",
     "prediction:normalize": "node --env-file=.env --import tsx scripts/normalize-legacy-predictions.ts",
