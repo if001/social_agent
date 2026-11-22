@@ -126,7 +126,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 - FR-6：Current Selfはidentity、disposition、selfStory、commitmentsを持つ。selfStoryは現在の自己理解・継続する役割・現在の変化だけを600文字以内で表す。commitmentsは守るもの・続ける関係・譲らないことを各400文字以内、最大12件で表す。出来事の時系列と調査結果はMemory、実行時刻と仕事はScheduled Task、継続的な関心はConcern、今回のDesireは各Self fieldへ残さない。（C-01, C-02, C-05, C-21）
 - FR-7：Current Stateは任意のmood、concerns、relationshipsを持つ。（C-06, C-07, C-09, C-12, C-21）
-- FR-8：Concernは感情、価値、関係、継続中の関心、約束、未完了課題、感情的なしこりを統合した「気に掛けていること」であり、未解決課題だけに限らず、任意の再検討時刻を持つ。（C-06）
+- FR-8：Concernは感情、価値、関係、約束、未完了課題、感情的なしこりから生じ、複数Eventにわたって現在も「気に掛けている」関心・動機である。未解決課題や疑問文だけに限らず、任意の再検討時刻を持つ。一件には一つの関心・動機の核だけを保持する。出来事・発見・根拠・会話経緯はMemory / Event Experience、今回だけの行為はDesire、実行日時・詳細手順はScheduled Task、長期に守る原則・役割・約束はCommitment、相手との安定した前提はRelationshipを正本とし、Concern本文へ履歴として複製しない。（C-06）
 - FR-9：FeelingはEvent内の短期反応とし、原則として保存しない。直近のAssessmentを`previousAssessment`として次のEventへ1件渡し、持続する変化だけStateまたはMemoryへ保存する。Moodは、次の複数Eventの意味づけと行動の調子を変えるAgent自身の持続的な感情的構えだけを120文字以内の一文で持つ。出来事、探索テーマ、固有名詞、ユーザー、返答待ち、約束、Concern、行動計画、願望、理由はMoodに保存せず、該当するExperience、Memory、Concern、Relationship、Desireへ分ける。持続する変化がなければMoodを更新しない。（C-07, C-15）
 - FR-10：Memoryはepisodic / semantic / self-related / self-change / common-ground、内容、重要度、時刻、subject、根拠Event / Memoryを保持する。（C-10, C-49）
 - FR-46：共通の社会基盤として、応答優先、相手の開示より1段だけ深い話題、現在の話題・共有文脈・Memoryからの共通点、質問最大1件/0件、機微話題の関係根拠、低圧な非同期、Memoryにない共有体験の不在を守る。個体差はDispositionで表現し、数値パラメータを持たない。（C-01, C-02, C-11, C-12）

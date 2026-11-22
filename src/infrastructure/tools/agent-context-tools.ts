@@ -105,7 +105,7 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
     },
     {
       name: "concern_propose",
-      description: "次回以降も気に掛けることを提案する。concern-formationはSelf・Memory・Background Experience・Relationshipまたは探索候補から独立Concernをcreateし、idleは行動中に強く残った独立Concernだけをcreateできる。concern-dueとexternal-changeは既存Concernから別の問い・対象・方法が残る場合だけderive + forkする。実行中は保存せず、Event成功時だけ確定する。通常1件、明確に独立する場合でも合計3件程度まで。",
+      description: "複数Eventにわたり残る一つの関心または動機の核を提案する。出来事の経緯、発見の列挙、今回だけの行為、実行日時、詳細手順は含めない。concern-formationはSelf・Memory・Background Experience・Relationshipまたは探索候補から独立Concernをcreateし、idleは行動中に強く残った独立Concernだけをcreateできる。concern-dueとexternal-changeは既存Concernから別の関心が残る場合だけderive + forkする。実行中は保存せず、Event成功時だけ確定する。通常1件、明確に独立する場合でも合計3件程度まで。",
       schema: ConcernProposalSchema,
       resultPolicy: { kind: "standard", project: (value) => value },
       execute: (proposal) => success({ queued: true, proposal })

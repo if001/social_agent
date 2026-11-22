@@ -5,7 +5,7 @@ import { z } from "zod";
 import { estimateTokens } from "../../application/context-builder.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
-import { CurrentCommitmentsSchema, CurrentDispositionSchema, CurrentRelationshipDescriptionSchema, CurrentSelfIdentitySchema, CurrentSelfStorySchema, DomainError, PersistentMoodDescription, PersistentMoodSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CurrentCommitmentsSchema, CurrentConcernDescriptionSchema, CurrentConcernImportanceSchema, CurrentDispositionSchema, CurrentRelationshipDescriptionSchema, CurrentSelfIdentitySchema, CurrentSelfStorySchema, DomainError, PersistentMoodDescription, PersistentMoodSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { ToolRegistry } from "../../application/tool-registry.js";
@@ -24,8 +24,8 @@ const ReflectionMemorySchema = z.object({
 const ReflectionConcernChangeSchema = z.object({
   operation: z.enum(["create", "upsert", "remove"]).describe("新しいConcernを作るならcreate、既存Concernを更新するならupsert、重複や不要な既存Concernを消すならremove"),
   id: z.string().min(1).optional().describe("入力state.concernsに存在するConcern ID。upsertとremoveでは必須。createでは指定しない"),
-  description: z.string().trim().min(1).max(800).optional().describe("気に掛けること。未解決課題だけでなく、知りたい、確かめたい、共有したい、守りたいことを800文字以内の一文で書く。createとupsertで必須"),
-  whyItMatters: z.string().trim().min(1).max(800).optional().describe("このConcernを次回以降の判断へ残す理由。現在のSelfや関係との結び付きを800文字以内で具体的に書く。createとupsertで必須"),
+  description: CurrentConcernDescriptionSchema.optional(),
+  whyItMatters: CurrentConcernImportanceSchema.optional(),
   status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。createではactiveだけ、upsertでは必須"),
   reconsiderAt: z.iso.datetime({ offset: true }).optional().describe("Schedulerが再検討Eventを起こすISO 8601日時。入力から明確な将来時刻を決められる場合だけ指定する")
 }).strict().superRefine((value, context) => {
@@ -85,7 +85,7 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 
 出力基準:
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
-- Concern: 入力にあるConcernの重複整理、統合、具体化、終了判定に加え、Memory根拠とwhyItMattersがある新しいConcernを1回1〜3件まで作成できる。Agentが複数の異なる対象・動機を並行して気に掛けることは自然な通常状態であり、Concernが空、少ない、または一つの対象に偏っているなら、記録された経験から今後も残る関心を積極的にcreateする。件数だけで機械的に作らず、未返信や件数を理由に終了しない。createではidを指定しない
+- Concern: 入力にあるConcernの重複整理、分離、具体化、終了判定に加え、Memory根拠とwhyItMattersがある新しいConcernを1回1〜3件まで作成できる。一件には一つの持続する関心または動機の核だけを残す。Agentが複数の異なる対象・動機を並行して気に掛けることは自然な通常状態であり、Concernが空、少ない、または一つの対象に偏っているなら、記録された経験から今後も残る関心を積極的にcreateする。件数だけで機械的に作らず、未返信や件数を理由に終了しない。既存Concernが長大でも関心が続くなら、その核を短くupsertする。createではidを指定しない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
 - Mood: ${PersistentMoodDescription}
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
@@ -286,7 +286,8 @@ function toolExecutionsFrom(error: unknown): readonly ToolExecutionRecord[] {
 /** Target-specific instructions stay small; the durable Mood boundary is
  * repeated here because the self-mood Reflector is invoked independently. */
 export function targetedReflectionSystemPrompt(target: ReflectionTarget): string {
-  return `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。${target === "self-mood" ? `Moodは${PersistentMoodDescription}` : ""}通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
+  const concernBoundary = target === "concern" ? "Concernは疑問文である必要はない。一件には一つの持続する関心または動機の核だけを書く。関心を生んだ出来事、発見、根拠、会話の経緯はMemoryまたはEvent Experienceへ置き、今回だけの行為はDesire、実行日時や詳細手順はScheduled Taskへ置く。既存Concernが長大でも関心が続くなら、その核を短くupsertする。" : "";
+  return `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。${target === "self-mood" ? `Moodは${PersistentMoodDescription}` : ""}${concernBoundary}通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
 }
 
 /**

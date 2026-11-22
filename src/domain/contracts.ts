@@ -58,6 +58,11 @@ export const ConcernSchema = z.object({
 }).describe("Agentが複数Eventにわたり持続して気に掛ける事項");
 export type Concern = z.infer<typeof ConcernSchema>;
 
+/** Model-facing and write-side Concern contract. Persisted legacy Concerns
+ * remain readable through ConcernSchema and are compacted when rewritten. */
+export const CurrentConcernDescriptionSchema = z.string().trim().min(1).max(400).describe("複数Eventにわたって残る、一つの持続する関心または動機の核。疑問文や解決可能な課題である必要はない。根拠の経緯、発見の列挙、会話ログ、実行日時、実行手順は含めない");
+export const CurrentConcernImportanceSchema = z.string().trim().min(1).max(300).describe("その一つの持続する関心が、現在のSelf、感情、価値または関係にとって残る理由。根拠の経緯、実行手順、今回だけの行為は含めない");
+
 export const ConcernActivityKindSchema = z.enum(["baseline", "created", "derived", "reviewed", "focused", "progressed", "status-changed", "presented", "removed", "closed"]);
 export type ConcernActivityKind = z.infer<typeof ConcernActivityKindSchema>;
 
@@ -74,8 +79,8 @@ export type ConcernActivityIntent = z.infer<typeof ConcernActivityIntentSchema>;
 
 export const ConcernProposalSchema = z.object({
   operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern。createはconcern-formationまたはidle、deriveはconcern-dueまたはexternal-changeでのみ使う"),
-  description: z.string().trim().min(1).max(400).describe("次に何を明らかにする、試す、または確認するかを、対象と行為が分かる一文で書く"),
-  whyItMatters: z.string().trim().min(1).max(400).describe("得られた結果をどの判断、行動、会話、またはConcern解決に使うかを一文で書く"),
+  description: CurrentConcernDescriptionSchema,
+  whyItMatters: CurrentConcernImportanceSchema,
   sourceConcernId: Id.optional().describe("derive時の派生元Concern ID。createでは指定しない"),
   explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("提案したConcernの探索の向き。deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは既存Focusから離れた具体対象への移動。exploration-domains候補はconcern-formationだけが受け取る"),
   transition: z.enum(["replace", "fork"]).optional().describe("deriveで省略時はfork。replaceは派生元が役目を終えた場合だけ閉じて置換し、forkは派生元を残して並行追跡"),
@@ -385,10 +390,10 @@ export type FinalAction = z.infer<typeof FinalActionSchema>;
 export const AgentActionSchema = FinalActionSchema;
 export type AgentAction = FinalAction;
 
-const ProposedConcernSchema = ConcernSchema.extend({ description: AgentStateDescription, whyItMatters: AgentStateDescription });
+const ProposedConcernSchema = ConcernSchema.extend({ description: CurrentConcernDescriptionSchema, whyItMatters: CurrentConcernImportanceSchema });
 const NewConcernSchema = z.object({
-  description: AgentStateDescription.describe("新しく気に掛けること。未解決課題だけでなく、知りたい、確かめたい、共有したい、守りたいことを含む"),
-  whyItMatters: AgentStateDescription.describe("現在のSelfや関係にとって、このConcernを残す理由"),
+  description: CurrentConcernDescriptionSchema,
+  whyItMatters: CurrentConcernImportanceSchema,
   status: z.literal("active").describe("新規Concernはactiveで作成する"),
   reconsiderAt: Instant.describe("再検討するISO 8601日時。明確な時刻がある場合だけ指定する").optional()
 }).strict();

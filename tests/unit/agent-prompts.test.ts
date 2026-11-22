@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentCoreModelOutputJsonSchema, agentCoreStructuredOutputRepairMessage, completeAgentCoreSystemPrompt, createDefaultDeepAgentFactory } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { agentCoreSystemPrompt, resolveEventSkills } from "../../src/infrastructure/agent/deep-agent-prompt.js";
-import { reflectionStructuredOutputRepairMessage, reflectionSystemPrompt } from "../../src/infrastructure/agent/reflection-harness.js";
+import { reflectionStructuredOutputRepairMessage, reflectionSystemPrompt, targetedReflectionSystemPrompt } from "../../src/infrastructure/agent/reflection-harness.js";
 import { createSkillTools } from "../../src/infrastructure/tools/skill-tools.js";
 import { stripSkillsSystemPrompt } from "../../src/infrastructure/agent/deep-agent-middleware.js";
 import { SystemMessage } from "langchain";
@@ -39,6 +39,16 @@ describe("Agent prompts", () => {
     expect(idleSkill + lifecycleSkill).not.toContain("答えがなければ拒絶と推測せず減衰・終了");
     expect(lifecycleSkill).toContain("独立したConcernは並行して保持する");
     expect(reflectionSystemPrompt).toContain("未返信や件数を理由に終了しない");
+  });
+
+  it("FR-8: separates a persistent Concern core from Memory, Desire, and scheduling records", () => {
+    const prompts = lifecycleSkill + reflectionSystemPrompt + targetedReflectionSystemPrompt("concern");
+    expect(prompts).toContain("疑問文である必要はない");
+    expect(prompts).toContain("一つの持続する関心");
+    expect(prompts).toContain("MemoryまたはEvent Experience");
+    expect(prompts).toContain("今回だけの行為はDesire");
+    expect(prompts).toContain("実行日時や詳細手順はScheduled Task");
+    expect(prompts).toContain("既存Concernが長大");
   });
 
   it("FR-68: makes idle retain relational curiosity and ground exploration in experience", () => {
