@@ -13,7 +13,12 @@ export function createCanonicalSubjectResolver(ownerIds: readonly string[], peer
   const owners = new Set(ownerIds);
   const peerByDiscordId = new Map(peers.map((peer) => [peer.discordUserId, peer]));
   return {
-    resolve: (actor) => actor?.type === "human" && owners.has(actor.id) ? userMainSubjectId : actor?.type === "agent" ? peerByDiscordId.get(actor.id) === undefined ? undefined : `agent:${peerByDiscordId.get(actor.id)?.agentId}` : undefined,
+    resolve: (actor) => {
+      if (actor?.type === "human" && owners.has(actor.id)) return userMainSubjectId;
+      if (actor?.type !== "agent") return undefined;
+      const peer = peerByDiscordId.get(actor.id);
+      return peer === undefined ? undefined : `agent:${peer.agentId}`;
+    },
     actorIdsFor: (subjectId) => subjectId === userMainSubjectId ? [...owners] : peers.filter((peer) => subjectId === `agent:${peer.agentId}`).map((peer) => peer.discordUserId)
   };
 }

@@ -48,7 +48,7 @@ async function main(): Promise<void> {
       pool.query<{ count: string }>("select count(*) from app.memory_subjects ms join app.memories m on m.id=ms.memory_id where m.agent_id=$1 and ms.subject_id=any($2::text[])", [options.agentId, options.aliases]),
       pool.query<{ count: string }>("select count(*) from app.event_subjects es join app.events e on e.id=es.event_id where e.agent_id=$1 and es.subject_id=any($2::text[])", [options.agentId, options.aliases])
     ]);
-    const report = { agentId: options.agentId, canonical, aliases: options.aliases, apply: options.apply, memorySubjects: Number(counts[0]?.rows[0]?.count ?? 0), eventSubjects: Number(counts[1]?.rows[0]?.count ?? 0), relationshipDescriptions: relationshipDescriptions.length, nextRelationship };
+    const report = { agentId: options.agentId, canonical, aliases: options.aliases, apply: options.apply, memorySubjects: Number(counts[0].rows[0]?.count ?? 0), eventSubjects: Number(counts[1].rows[0]?.count ?? 0), relationshipDescriptions: relationshipDescriptions.length, nextRelationship };
     if (!options.apply) { process.stdout.write(`${JSON.stringify(report)}\n`); return; }
     await pool.query("begin");
     try {
