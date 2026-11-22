@@ -104,7 +104,7 @@ describe("Agent prompts", () => {
   });
 
   it("FR-46, FR-90: separates common social interaction from event-specific peer policy", () => {
-    for (const text of ["senderKind", "addressing", "返答義務はない", "確定事実やpeer自身の視点として保存せず", "respond.peer", "自分が知りたい具体的な不確かさ"]) expect(socialPrompt).toContain(text);
+    for (const text of ["senderKind", "addressing", "返答義務はない", "確定事実やpeer自身の視点として保存せず", "recipient", "自分が知りたい具体的な不確かさ"]) expect(socialPrompt).toContain(text);
     expect(socialPrompt).not.toContain("住む地域、仕事、趣味");
     expect(socialPrompt).not.toContain("通常の返答に軽い質問を1件添えます");
   });
@@ -243,7 +243,8 @@ describe("Agent prompts", () => {
       expect(prompt).not.toContain("Error:");
       expect(prompt).toContain("構造化出力専用Toolを1回だけ");
     }
-    expect(agentCoreStructuredOutputRepairMessage).toContain("actionTypeがrespondならcontent");
+    expect(agentCoreStructuredOutputRepairMessage).toContain("唯一の本文をcontent");
+    expect(agentCoreStructuredOutputRepairMessage).toContain("recipient");
     expect(reflectionStructuredOutputRepairMessage).toContain("変更がなければ空配列");
   });
 });
