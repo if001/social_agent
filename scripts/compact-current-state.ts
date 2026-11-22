@@ -7,7 +7,12 @@ import { modelJsonSchema } from "../src/infrastructure/agent/model-json-schema.j
 
 const OutputSchema = z.object({ selfStory: CurrentSelfStorySchema, relationshipDescription: CurrentRelationshipDescriptionSchema.optional() }).strict();
 type Options = { readonly agentId: string; readonly apply: boolean };
-const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.flatMap((item) => typeof item === "object" && item !== null && "text" in item && typeof item.text === "string" ? [item.text] : []).join("") : "";
+function textPart(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("text" in value)) return undefined;
+  const text: unknown = value.text;
+  return typeof text === "string" ? text : undefined;
+}
+const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.map(textPart).filter((item): item is string => item !== undefined).join("") : "";
 
 function options(args: readonly string[]): Options {
   let agentId: string | undefined; let apply = false;

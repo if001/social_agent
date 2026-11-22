@@ -102,5 +102,5 @@ export class DirectExperienceIntegrationSink implements ExperienceIntegrationSin
 
 export function memorySubjectsForIntegration(input: ExperienceIntegrationInput, intents: readonly Pick<MemoryIntent, "perspective">[], subjects: CanonicalSubjectResolver = noSubjects, actor = input.input.observation.actor): readonly (readonly string[])[] {
   const subjectId = subjects.resolve(actor);
-  return intents.map((intent) => subjectId !== undefined && (intent.perspective === "user" || (actor?.type === "agent" && intent.perspective === "self")) ? [subjectId] : []);
+  return intents.map((intent) => subjectId !== undefined && (intent.perspective === "user" || actor?.type === "agent") ? [subjectId] : []);
 }

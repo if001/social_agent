@@ -39,7 +39,7 @@ export interface G3Sink { enqueue(input: G3Input): Promise<void>; }
  * top-level provider wrapper. This is a task record, never model context. */
 export function g3FailureReason(error: unknown): string {
   const context = errorLogContext(error);
-  const causes = typeof context.errorCauses === "string" ? JSON.parse(context.errorCauses) : [];
+  const causes: unknown = typeof context.errorCauses === "string" ? JSON.parse(context.errorCauses) as unknown : [];
   return JSON.stringify({ errorType: context.errorType, errorCode: context.errorCode, errorMessage: context.errorMessage, causes });
 }
 
