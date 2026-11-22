@@ -9,10 +9,11 @@ import type { ToolRegistry } from "../../application/tool-registry.js";
 import { noopLogger, type Logger } from "../../observability/logger.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { agentFamilies, agentRuns, agents, agentStates, events, observationGateDecisions, stateChanges, toolExecutions } from "./schema.js";
+import { ConcernRepository } from "./concern-repository.js";
 
 type AgentRow = {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
-  disposition: string; self_story: string; commitments: unknown; concerns: unknown; relationships: unknown;
+  disposition: string; self_story: string; commitments: unknown; relationships: unknown;
   mood: string; version: number; state_updated_at: Date;
   shared_disposition: string; base_instruction: string;
 };
@@ -48,21 +49,26 @@ function recentObservation(value: Observation): RecentObservation {
   return { summary: boundedText(visible.summary, 800), facts, ...(visible.kind === undefined ? {} : { kind: visible.kind }), ...(visible.source === undefined ? {} : { source: visible.source }), ...(schedulerContent === undefined ? {} : { scheduler: schedulerContent }) };
 }
 function recentAction(value: ReturnType<typeof FinalActionSchema.parse>): ReturnType<typeof FinalActionSchema.parse> {
-  if (value.type === "respond") return {
-    ...value,
-    ...(value.content === undefined ? {} : { content: boundedText(value.content, 1_000) }),
-    ...(value.peer === undefined ? {} : { peer: { ...value.peer, content: boundedText(value.peer.content, 1_000) } }),
-    ...(value.observedReply === undefined ? {} : { observedReply: { content: boundedText(value.observedReply.content, 1_000) } })
-  };
+  if (value.type === "respond") return { ...value, content: boundedText(value.content, 1_000) };
   if (value.type === "refuse") return { ...value, content: boundedText(value.content, 1_000), reason: boundedText(value.reason, 400) };
   if (value.type === "notify-no-execution") return { ...value, content: boundedText(value.content, 800), reason: boundedText(value.reason, 400) };
   return { ...value, reason: boundedText(value.reason, 400) };
+}
+function readableAction(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const record = value as Record<string, unknown>;
+  if (record.type !== "respond" || typeof record.content === "string") return value;
+  const peer = typeof record.peer === "object" && record.peer !== null ? record.peer as Record<string, unknown> : undefined;
+  const observed = typeof record.observedReply === "object" && record.observedReply !== null ? record.observedReply as Record<string, unknown> : undefined;
+  const content = typeof observed?.content === "string" ? observed.content : typeof peer?.content === "string" ? peer.content : undefined;
+  if (content === undefined) return value;
+  return { type: "respond", content, ...(typeof peer?.name === "string" ? { recipient: peer.name } : {}) };
 }
 function recentExperience(row: RecentExperienceRow, toolsRegistry: ToolRegistry, logger: Logger): RecentExperience | undefined {
   const observation = ObservationSchema.safeParse(row.observation); if (!observation.success) { logger.log("warn", "context.invalid_recent_experience", { eventId: row.event_id, runId: row.run_id, reason: "invalid-observation" }); return undefined; }
   const tools = Array.isArray(row.tools) ? row.tools : []; const steps: RecentExperience["steps"] = [];
   for (const raw of tools) if (typeof raw === "object" && raw !== null) { const value = raw as Record<string, unknown>; if (typeof value.tool === "string") steps.push({ type: "tool", name: value.tool, input: toolsRegistry.projectInput(value.input), result: value.error === null || value.error === undefined ? toolsRegistry.projectResult(value.tool, value.result, "recent-experience") : { error: boundedText(typeof value.error === "string" ? value.error : JSON.stringify(value.error), 400) }, ok: value.error === null || value.error === undefined }); }
-  const result = typeof row.result === "object" && row.result !== null ? row.result as Record<string, unknown> : {}; const output = typeof result.output === "object" && result.output !== null ? result.output as Record<string, unknown> : {}; const action = FinalActionSchema.safeParse(output.action);
+  const result = typeof row.result === "object" && row.result !== null ? row.result as Record<string, unknown> : {}; const output = typeof result.output === "object" && result.output !== null ? result.output as Record<string, unknown> : {}; const action = FinalActionSchema.safeParse(readableAction(output.action));
   if (action.success) steps.push({ type: "action", action: recentAction(action.data) }); else if (row.failure_reason !== null) steps.push({ type: "failure", reason: boundedText(row.failure_reason, 400) });
   const parsed = RecentExperienceSchema.safeParse({ eventId: row.event_id, ...(row.run_id === null ? {} : { runId: row.run_id }), agentId: row.agent_id, occurredAt: row.occurred_at.toISOString(), eventKind: row.event_kind, observation: recentObservation(observation.data), steps, progressChanged: row.progress_changed });
   if (!parsed.success) { logger.log("warn", "context.invalid_recent_experience", { eventId: row.event_id, runId: row.run_id, reason: "invalid-experience" }); return undefined; }
@@ -131,7 +137,7 @@ export class PostgresAgentContextLoader {
       id: agents.id, family_id: agents.familyId, identity: agents.identity,
       initial_disposition: agents.initialDisposition, active: agents.active,
       disposition: agentStates.disposition, self_story: agentStates.selfStory,
-      commitments: agentStates.commitments, concerns: agentStates.concerns,
+      commitments: agentStates.commitments,
       relationships: agentStates.relationships, mood: agentStates.mood,
       version: agentStates.version, state_updated_at: agentStates.updatedAt,
       shared_disposition: agentFamilies.sharedDisposition, base_instruction: agentFamilies.baseInstruction
@@ -139,6 +145,7 @@ export class PostgresAgentContextLoader {
       .innerJoin(agentFamilies, eq(agentFamilies.id, agents.familyId))
       .where(eq(agents.id, event.agentId)).limit(1))[0] as AgentRow | undefined;
     if (agent === undefined || !agent.active) throw new DomainError("NOT_FOUND", `Active Agent not found: ${event.agentId}`);
+    const currentConcerns = await new ConcernRepository(this.options.database.db).list(event.agentId);
 
     const recentEvents = await this.options.database.db.select({ event: events }).from(events)
       .leftJoin(observationGateDecisions, eq(observationGateDecisions.eventId, events.id)).where(and(
@@ -175,7 +182,7 @@ export class PostgresAgentContextLoader {
     const recentExperiences = recentRows.flatMap((row) => { const value = recentExperience(row, this.options.tools, this.options.logger ?? noopLogger); return value === undefined ? [] : [value]; });
     const priorAssessment = previousAssessment(assessmentRows[0]);
     const priorDesire = previousDesire(desireRows[0]);
-    const state = { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: agent.concerns, relationships: agent.relationships }) };
+    const state = { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: currentConcerns, relationships: agent.relationships }) };
     const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);
     const loadedPredictionContext = this.options.predictionRepository === undefined ? undefined : await this.options.predictionRepository.context(event.agentId);

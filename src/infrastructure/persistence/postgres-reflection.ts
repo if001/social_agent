@@ -11,7 +11,8 @@ import { userMainSubjectId } from "../../application/canonical-subject.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, PersistedSelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type ConcernChangeSchema, type Relationship, type RelationshipChangeSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agents, agentStates, autonomousSchedules, concernActivities, eventExperiences, events, memories, memorySubjects, observationGateDecisions, reflectionAttempts, reflectionMemoryBatches, reflectionResolutions, reflectionRuns, reflectionToolExecutions } from "./schema.js";
+import { agents, agentStates, autonomousSchedules, concernActivities, concerns as concernRecords, eventExperiences, events, memories, memorySubjects, observationGateDecisions, reflectionAttempts, reflectionMemoryBatches, reflectionResolutions, reflectionRuns, reflectionToolExecutions } from "./schema.js";
+import { ConcernRepository } from "./concern-repository.js";
 
 type ConcernChange = z.infer<typeof ConcernChangeSchema>;
 type RelationshipChange = z.infer<typeof RelationshipChangeSchema>;
@@ -88,8 +89,9 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   private get pool(): Pool { return this.database.native; }
 
   async #state(agentId: string) {
-    return this.database.db.select({ identity: agents.identity, disposition: agentStates.disposition, selfStory: agentStates.selfStory, commitments: agentStates.commitments, mood: agentStates.mood, concerns: agentStates.concerns, relationships: agentStates.relationships, version: agentStates.version })
+    const row = await this.database.db.select({ identity: agents.identity, disposition: agentStates.disposition, selfStory: agentStates.selfStory, commitments: agentStates.commitments, mood: agentStates.mood, relationships: agentStates.relationships, version: agentStates.version })
       .from(agents).innerJoin(agentStates, eq(agentStates.agentId, agents.id)).where(and(eq(agents.id, agentId), eq(agents.active, true))).limit(1).then((rows) => rows[0]);
+    return row === undefined ? undefined : { ...row, concerns: await new ConcernRepository(this.database.db).list(agentId) };
   }
 
   async #memories(agentId: string) {
@@ -197,7 +199,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
         WHERE m.agent_id=$1 AND mm.agent_id=$1 AND mm.operation='create' AND mm.created_at >= now()-interval '30 days'
       UNION ALL
       SELECT m.*, 'concern'::text AS reason FROM memory_pool m JOIN concern_activities ca ON m.id=ANY(ARRAY(SELECT jsonb_array_elements_text(ca.evidence_memory_ids)))
-        WHERE m.agent_id=$1 AND ca.agent_id=$1
+        JOIN concerns c ON c.id=ca.concern_id WHERE m.agent_id=$1 AND c.agent_id=$1
       UNION ALL
       SELECT m.*, 'unreviewed'::text AS reason FROM memory_pool m WHERE NOT EXISTS (SELECT 1 FROM memory_mutations mm WHERE mm.memory_id=m.id AND mm.source_event_id LIKE 'reflection:%:reconciliation%')
       UNION ALL
@@ -245,15 +247,16 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       if (run === undefined) throw new DomainError("NOT_FOUND", "Reflection run was not found");
       const appliedConcerns = applyConcerns(input.state.concerns, output.concernChanges, () => this.ids.next());
       const occurredAt = this.now();
-      for (const [index, activity] of appliedConcerns.activities.entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:change:${String(index)}:${activity.kind}:${activity.concernId}`, agentId: input.agentId, concernId: activity.concernId, kind: activity.kind, reflectionId: input.reflectionId, evidenceMemoryIds: output.evidenceMemoryIds, occurredAt }).onConflictDoNothing({ target: concernActivities.id });
-      for (const [index, concern] of input.state.concerns.filter(({ status }) => status === "active").entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:presented:${String(index)}:${concern.id}`, agentId: input.agentId, concernId: concern.id, kind: "presented", reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt }).onConflictDoNothing({ target: concernActivities.id });
+      for (const [index, concern] of input.state.concerns.filter(({ status }) => status === "active").entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:presented:${String(index)}:${concern.id}`, concernId: concern.id, kind: "presented", reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt }).onConflictDoNothing({ target: concernActivities.id });
       const closedConcerns = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, appliedConcerns.concerns, new Set(appliedConcerns.activities.map(({ concernId }) => concernId)), occurredAt);
       const state = AgentStateSchema.parse({ ...input.state, ...(output.mood === undefined ? {} : { mood: output.mood }), concerns: closedConcerns, relationships: applyRelationships(input.state.relationships, output.relationshipChanges) });
       const self = output.self ?? input.self;
-      const updated = await client.update(agentStates).set({ disposition: self.disposition, selfStory: self.selfStory, commitments: self.commitments, concerns: state.concerns, relationships: state.relationships, mood: state.mood, version: sql`${agentStates.version}+1`, updatedAt: occurredAt }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, input.expectedVersion))).returning({ version: agentStates.version });
+      const updated = await client.update(agentStates).set({ disposition: self.disposition, selfStory: self.selfStory, commitments: self.commitments, relationships: state.relationships, mood: state.mood, version: sql`${agentStates.version}+1`, updatedAt: occurredAt }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, input.expectedVersion))).returning({ version: agentStates.version });
       if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection state version conflict");
-      if (self.identity !== input.self.identity) await client.update(agents).set({ identity: self.identity, updatedAt: occurredAt }).where(eq(agents.id, input.agentId));
+      await new ConcernRepository(client).replace(input.agentId, state.concerns, occurredAt);
       await this.#syncConcernSchedules(client, input.agentId, state.concerns);
+      for (const [index, activity] of appliedConcerns.activities.entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:change:${String(index)}:${activity.kind}:${activity.concernId}`, concernId: activity.concernId, kind: activity.kind, reflectionId: input.reflectionId, evidenceMemoryIds: output.evidenceMemoryIds, occurredAt }).onConflictDoNothing({ target: concernActivities.id });
+      if (self.identity !== input.self.identity) await client.update(agents).set({ identity: self.identity, updatedAt: occurredAt }).where(eq(agents.id, input.agentId));
       const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
       if (this.memoryUpdateSink === undefined) {
         for (const [memoryIndex, memory] of output.memories.entries()) {
@@ -360,17 +363,18 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const retryable = rows.some((row) => row.status === "failed" || row.status === "blocked");
     try {
       if (attempts.get("concern")?.status === "completed") {
-        const state = await this.database.db.select({ concerns: agentStates.concerns, relationships: agentStates.relationships, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
+        const state = await this.database.db.select({ relationships: agentStates.relationships, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
         const current = state[0];
         if (current !== undefined) {
-          const activity = await this.database.db.selectDistinct({ concernId: concernActivities.concernId }).from(concernActivities).where(and(eq(concernActivities.agentId, input.agentId), eq(concernActivities.reflectionId, input.reflectionId), ne(concernActivities.kind, "presented")));
-          const parsed = AgentStateSchema.parse({ concerns: current.concerns, relationships: current.relationships });
+          const activity = await this.database.db.selectDistinct({ concernId: concernActivities.concernId }).from(concernActivities).innerJoin(concernRecords, eq(concernRecords.id, concernActivities.concernId)).where(and(eq(concernRecords.agentId, input.agentId), eq(concernActivities.reflectionId, input.reflectionId), ne(concernActivities.kind, "presented")));
+          const parsed = AgentStateSchema.parse({ concerns: await new ConcernRepository(this.database.db).list(input.agentId), relationships: current.relationships });
           await this.database.transaction(async (client) => {
             const closed = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, parsed.concerns, new Set(activity.map(({ concernId }) => concernId)), this.now());
             if (JSON.stringify(closed) !== JSON.stringify(parsed.concerns)) {
               const at = this.now();
-              const changed = await client.update(agentStates).set({ concerns: closed, version: sql`${agentStates.version}+1`, updatedAt: at }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, current.version))).returning({ version: agentStates.version });
+              const changed = await client.update(agentStates).set({ version: sql`${agentStates.version}+1`, updatedAt: at }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, current.version))).returning({ version: agentStates.version });
               if (changed.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern stale-close state version conflict");
+              await new ConcernRepository(client).replace(input.agentId, closed, at);
               await this.#syncConcernSchedules(client, input.agentId, closed);
             }
           });
@@ -403,27 +407,29 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   }
 
   async #commitConcernTarget(input: ReflectionInput, output: z.infer<typeof ConcernReflectorOutputSchema>): Promise<void> {
-    const state = await this.database.db.select({ concerns: agentStates.concerns, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
-    const row = state[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
-    const current = AgentStateSchema.parse({ concerns: row.concerns, relationships: [] }).concerns;
-    const byDescription = new Map(current.map((concern) => [concern.description, concern]));
-    const changes: ConcernChange[] = output.concernChanges.flatMap<ConcernChange>((change) => {
-      if (change.operation === "create") return [{ operation: "create" as const, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
-      const previous = byDescription.get(change.currentDescription);
-      if (previous === undefined) return [];
-      if (change.operation === "remove") return [{ operation: "remove" as const, id: previous.id }];
-      return [{ operation: "upsert" as const, concern: { id: previous.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
+    await this.database.transaction(async (client) => {
+      const state = await client.select({ version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
+      const row = state[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
+      const repository = new ConcernRepository(client);
+      const current = await repository.list(input.agentId);
+      const byDescription = new Map(current.map((concern) => [concern.description, concern]));
+      const changes: ConcernChange[] = output.concernChanges.flatMap<ConcernChange>((change) => {
+        if (change.operation === "create") return [{ operation: "create" as const, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
+        const previous = byDescription.get(change.currentDescription);
+        if (previous === undefined) return [];
+        if (change.operation === "remove") return [{ operation: "remove" as const, id: previous.id }];
+        return [{ operation: "upsert" as const, concern: { id: previous.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
+      });
+      const applied = applyConcerns(current, changes, () => this.ids.next());
+      const at = this.now();
+      const updated = await client.update(agentStates).set({ version: sql`${agentStates.version}+1`, updatedAt: at }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
+      if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");
+      await repository.replace(input.agentId, applied.concerns, at);
+      await this.#syncConcernSchedules(client, input.agentId, applied.concerns);
+      // Every active Concern was presented to this successful Reflection Session.
+      for (const [index, concern] of applied.concerns.filter(({ status }) => status === "active").entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:target-concern:presented:${String(index)}:${concern.id}`, concernId: concern.id, kind: "presented", reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt: at }).onConflictDoNothing({ target: concernActivities.id });
+      for (const [index, activity] of applied.activities.entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, concernId: activity.concernId, kind: activity.kind, reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt: at }).onConflictDoNothing({ target: concernActivities.id });
     });
-    const applied = applyConcerns(current, changes, () => this.ids.next());
-    const updated = await this.database.db.update(agentStates).set({ concerns: applied.concerns, version: sql`${agentStates.version}+1`, updatedAt: this.now() }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
-    if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");
-    const at = this.now();
-    await this.database.transaction(async (client) => this.#syncConcernSchedules(client, input.agentId, applied.concerns));
-    // The targeted path replaced the legacy combined commit, which recorded
-    // every active Concern as presented to a successful Reflection Session.
-    // Retain that lifecycle signal independently of the bounded model view.
-    for (const [index, concern] of applied.concerns.filter(({ status }) => status === "active").entries()) await this.database.db.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:target-concern:presented:${String(index)}:${concern.id}`, agentId: input.agentId, concernId: concern.id, kind: "presented", reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt: at }).onConflictDoNothing({ target: concernActivities.id });
-    for (const [index, activity] of applied.activities.entries()) await this.database.db.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, agentId: input.agentId, concernId: activity.concernId, kind: activity.kind, reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt: at }).onConflictDoNothing({ target: concernActivities.id });
   }
 
   /**
@@ -553,15 +559,15 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     for (const [index, concern] of concerns.entries()) {
       if (concern.status !== "active" || changedConcernIds.has(concern.id)) continue;
       if (concern.reconsiderAt !== undefined && Date.parse(concern.reconsiderAt) > now.getTime()) continue;
-      const lastMeaningful = (await client.select({ occurredAt: concernActivities.occurredAt }).from(concernActivities).where(and(eq(concernActivities.agentId, agentId), eq(concernActivities.concernId, concern.id), inArray(concernActivities.kind, ["baseline", "created", "derived", "reviewed", "focused", "progressed", "status-changed"]))).orderBy(desc(concernActivities.occurredAt)).limit(1))[0]?.occurredAt;
+      const lastMeaningful = (await client.select({ occurredAt: concernActivities.occurredAt }).from(concernActivities).innerJoin(concernRecords, eq(concernRecords.id, concernActivities.concernId)).where(and(eq(concernRecords.agentId, agentId), eq(concernActivities.concernId, concern.id), inArray(concernActivities.kind, ["baseline", "created", "derived", "reviewed", "focused", "progressed", "status-changed"]))).orderBy(desc(concernActivities.occurredAt)).limit(1))[0]?.occurredAt;
       if (lastMeaningful === undefined) continue;
       if (now.getTime() - lastMeaningful.getTime() < this.concernLifecycle.staleAfterMs) continue;
-      const presentations = await client.select({ reflectionId: concernActivities.reflectionId }).from(concernActivities).where(and(eq(concernActivities.agentId, agentId), eq(concernActivities.concernId, concern.id), eq(concernActivities.kind, "presented"), isNotNull(concernActivities.reflectionId), gte(concernActivities.occurredAt, lastMeaningful)));
+      const presentations = await client.select({ reflectionId: concernActivities.reflectionId }).from(concernActivities).innerJoin(concernRecords, eq(concernRecords.id, concernActivities.concernId)).where(and(eq(concernRecords.agentId, agentId), eq(concernActivities.concernId, concern.id), eq(concernActivities.kind, "presented"), isNotNull(concernActivities.reflectionId), gte(concernActivities.occurredAt, lastMeaningful)));
       const reflectionIds = [...new Set(presentations.flatMap(({ reflectionId: activityReflectionId }) => activityReflectionId === null ? [] : [activityReflectionId]))];
       const sessions = reflectionIds.length === 0 ? [] : await client.select({ id: reflectionRuns.id }).from(reflectionRuns).where(and(eq(reflectionRuns.agentId, agentId), inArray(reflectionRuns.id, reflectionIds), sql`(${reflectionRuns.status} = 'completed' OR ${reflectionRuns.id} = ${reflectionId})`));
       if (sessions.length < this.concernLifecycle.minReflectionSessions) continue;
       next[index] = { ...concern, status: "abandoned", reconsiderAt: undefined };
-      for (const kind of ["status-changed", "closed"] as const) await client.insert(concernActivities).values({ id: `reflection:${reflectionId}:close:${String(index)}:${kind}:${concern.id}`, agentId, concernId: concern.id, kind, reflectionId, evidenceMemoryIds: [], occurredAt: now }).onConflictDoNothing({ target: concernActivities.id });
+      for (const kind of ["status-changed", "closed"] as const) await client.insert(concernActivities).values({ id: `reflection:${reflectionId}:close:${String(index)}:${kind}:${concern.id}`, concernId: concern.id, kind, reflectionId, evidenceMemoryIds: [], occurredAt: now }).onConflictDoNothing({ target: concernActivities.id });
     }
     return next;
   }

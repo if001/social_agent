@@ -97,8 +97,9 @@ export class DebugUiRepository {
       FROM agents a JOIN agent_families f ON f.id=a.family_id LEFT JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1`, [agentId]);
     const agent = agents[0];
     if (agent === undefined) return undefined;
-    const [states, scheduledTasks, schedules, reflections, rawReflectionAttempts, rawReflectionMemoryBatches, reflectionToolExecutions, reflectionResolutions, concernActivities] = await Promise.all([
-      this.query<QueryResultRow>(`SELECT mood,concerns,relationships,version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
+    const [states, currentConcerns, scheduledTasks, schedules, reflections, rawReflectionAttempts, rawReflectionMemoryBatches, reflectionToolExecutions, reflectionResolutions, concernActivities] = await Promise.all([
+      this.query<QueryResultRow>(`SELECT mood,relationships,version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
+      this.query<QueryResultRow>(`SELECT id,description,why_it_matters AS "whyItMatters",status,reconsider_at AS "reconsiderAt",version,created_at AS "createdAt",updated_at AS "updatedAt" FROM concerns WHERE agent_id=$1 AND deleted_at IS NULL ORDER BY created_at,id`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,source_run_id AS "sourceRunId",execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 ORDER BY execute_at DESC,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,kind,reason,next_due_at AS "nextDueAt",lease_until AS "leaseUntil",updated_at AS "updatedAt" FROM autonomous_schedules WHERE agent_id=$1 ORDER BY next_due_at,id LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,input_state_version AS "inputStateVersion",status,input,output,failure_reason AS "failureReason",completed_at AS "completedAt",created_at AS "createdAt",updated_at AS "updatedAt" FROM reflection_runs WHERE agent_id=$1 ORDER BY created_at DESC,id LIMIT 50`, [agentId]),
@@ -106,11 +107,11 @@ export class DebugUiRepository {
       this.query<QueryResultRow>(`SELECT b.id,b.reflection_id AS "reflectionId",b.batch_index AS "batchIndex",b.status,b.input,b.output,b.failure_reason AS "failureReason",b.started_at AS "startedAt",b.completed_at AS "completedAt",b.updated_at AS "updatedAt" FROM reflection_memory_batches b JOIN reflection_runs r ON r.id=b.reflection_id WHERE r.agent_id=$1 ORDER BY b.updated_at DESC,b.id LIMIT 200`, [agentId]),
       this.query<QueryResultRow>(`SELECT t.reflection_id AS "reflectionId",t.target,t.batch_index AS "batchIndex",t.anchor_memory_id AS "anchorMemoryId",t.execution_index AS "executionIndex",t.tool_call_id AS "toolCallId",t.tool,t.input,t.result,t.error,t.started_at AS "startedAt",t.finished_at AS "finishedAt" FROM reflection_tool_executions t JOIN reflection_runs r ON r.id=t.reflection_id WHERE r.agent_id=$1 ORDER BY t.created_at DESC,t.id DESC LIMIT 500`, [agentId]),
       this.query<QueryResultRow>(`SELECT x.id,x.reflection_id AS "reflectionId",x.target,x.batch_index AS "batchIndex",x.anchor_memory_id AS "anchorMemoryId",x.resolver_version AS "resolverVersion",x.query_summary AS "querySummary",x.candidate_count AS "candidateCount",x.selected_event_ids AS "selectedEventIds",x.rejected,x.score,x.temporal_decision AS "temporalDecision",x.outcome,x.created_at AS "createdAt" FROM reflection_resolutions x JOIN reflection_runs r ON r.id=x.reflection_id WHERE r.agent_id=$1 ORDER BY x.created_at DESC,x.id DESC LIMIT 200`, [agentId]),
-      this.query<QueryResultRow>(`SELECT concern_id AS "concernId",kind,event_id AS "eventId",run_id AS "runId",reflection_id AS "reflectionId",evidence_memory_ids AS "evidenceMemoryIds",occurred_at AS "occurredAt" FROM concern_activities WHERE agent_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 100`, [agentId])
+      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt" FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1 ORDER BY ca.occurred_at DESC,ca.id DESC LIMIT 100`, [agentId])
     ]);
     const reflectionAttempts = rawReflectionAttempts.map((attempt) => ({ ...attempt, toolExecutions: reflectionToolExecutions.filter((execution) => execution.reflectionId === attempt.reflectionId && execution.target === attempt.target) }));
     const reflectionMemoryBatches = rawReflectionMemoryBatches.map((batch) => ({ ...batch, toolExecutions: reflectionToolExecutions.filter((execution) => execution.reflectionId === batch.reflectionId && execution.target === "memory" && execution.batchIndex === batch.batchIndex) }));
-    return { agent, state: states[0] ?? {}, scheduledTasks, schedules, reflections, reflectionAttempts, reflectionMemoryBatches, reflectionResolutions, concernActivities };
+    return { agent, state: { ...(states[0] ?? {}), concerns: currentConcerns }, scheduledTasks, schedules, reflections, reflectionAttempts, reflectionMemoryBatches, reflectionResolutions, concernActivities };
   }
 
   async listRuns(agentId: string, limit = 30): Promise<readonly RunListItem[]> {
@@ -158,7 +159,7 @@ export class DebugUiRepository {
       this.query<QueryResultRow>(`SELECT e.id,e.kind,e.status,e.source,e.observation,e.causation_id AS "causationId",e.correlation_id AS "correlationId",e.occurred_at AS "occurredAt",r.id AS "runId",r.failure_reason AS "failureReason"
         FROM events e LEFT JOIN LATERAL (SELECT id,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
         WHERE e.agent_id=$1 AND e.kind<>'tool-result' AND (e.causation_id=$2 OR ($3::text IS NOT NULL AND e.causation_id=$3)) ORDER BY e.occurred_at,e.id`, [agentId, eventId, runId ?? null]),
-      this.query<QueryResultRow>(`SELECT concern_id AS "concernId",kind,event_id AS "eventId",run_id AS "runId",reflection_id AS "reflectionId",evidence_memory_ids AS "evidenceMemoryIds",occurred_at AS "occurredAt" FROM concern_activities WHERE agent_id=$1 AND (event_id=$2 OR ($3::text IS NOT NULL AND run_id=$3)) ORDER BY occurred_at,id`, [agentId, eventId, runId ?? null]),
+      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt" FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1 AND (ca.event_id=$2 OR ($3::text IS NOT NULL AND ca.run_id=$3)) ORDER BY ca.occurred_at,ca.id`, [agentId, eventId, runId ?? null]),
       this.query<QueryResultRow>(`SELECT decision,reason,input,model_calls AS "modelCalls",retrieval_count AS "retrievalCount",failure_reason AS "failureReason",created_at AS "createdAt" FROM observation_gate_decisions WHERE event_id=$1`, [eventId])
     ]);
     const observationGate = gates[0] as Record<string, unknown> | undefined;
@@ -175,7 +176,7 @@ export class DebugUiRepository {
     const [stateChanges, toolExecutions, concernActivities] = await Promise.all([
       this.query<QueryResultRow>(`SELECT id,target,operation,before,after,reason,evidence_ids AS "evidenceIds",created_at AS "createdAt" FROM state_changes WHERE run_id=$1 ORDER BY created_at,id`, [runId]),
       this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,error IS NULL AS ok,started_at AS "startedAt",finished_at AS "finishedAt" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId]),
-      this.query<QueryResultRow>(`SELECT concern_id AS "concernId",kind,event_id AS "eventId",run_id AS "runId",reflection_id AS "reflectionId",evidence_memory_ids AS "evidenceMemoryIds",occurred_at AS "occurredAt" FROM concern_activities WHERE agent_id=$1 AND run_id=$2 ORDER BY occurred_at,id`, [agentId, runId])
+      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt" FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1 AND ca.run_id=$2 ORDER BY ca.occurred_at,ca.id`, [agentId, runId])
     ]);
     return { run, stateChanges, toolExecutions, concernActivities };
   }

@@ -31,7 +31,7 @@ describeDatabase("Prediction persistence", () => {
     await database.prepare();
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
-    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ('a','Careful','Growing','[]','[]','[]','Calm'),('b','Bold','Growing','[]','[]','[]','Calm')");
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,relationships,mood) VALUES ('a','Careful','Growing','[]','[]','Calm'),('b','Bold','Growing','[]','[]','Calm')");
     for (const [eventId, runId, occurredAt] of [["event-1", "run-1", "2026-10-31T00:00:00.000Z"], ["event-2", "run-2", "2026-10-31T01:00:00.000Z"], ["event-legacy", "run-legacy", "2026-11-01T00:00:00.000Z"]] as const) {
       await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,'a','user-message','{}','test','completed',$2)", [eventId, occurredAt]);
       await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$3)", [runId, eventId, occurredAt]);

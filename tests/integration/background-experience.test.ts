@@ -34,7 +34,7 @@ describeDatabase("Background Experience persistence and retrieval", () => {
     await database.prepare();
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold'),('aka','family','Aka','Calm'),('shiro','family','Shiro','Calm')");
-    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,concerns,relationships,mood) VALUES ($1,'Careful learner','Growing continuously','[]','[]','[]','Calm')", [agentId]);
+    for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,relationships,mood) VALUES ($1,'Careful learner','Growing continuously','[]','[]','Calm')", [agentId]);
   });
   afterAll(async () => {
     await database.close();

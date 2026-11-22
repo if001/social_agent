@@ -24,6 +24,8 @@
     "db:rebaseline:test-migrations": "node --env-file=.env.db.test --import tsx scripts/rebaseline-test-migration-ledger.ts",
     "db:grant:observation-gate": "node --env-file=.env --import tsx scripts/grant-observation-gate-privileges.ts",
     "db:grant:observation-gate:test": "node --env-file=.env.db.test --import tsx scripts/grant-observation-gate-privileges.ts",
+    "db:grant:concerns": "node --env-file=.env --import tsx scripts/grant-concerns-privileges.ts",
+    "db:grant:concerns:test": "node --env-file=.env.db.test --import tsx scripts/grant-concerns-privileges.ts",
     "db:migrate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "db:migrate:test": "node --env-file=.env.db.test ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "ops": "tsx src/cli.ts",

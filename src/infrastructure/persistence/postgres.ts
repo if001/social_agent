@@ -8,6 +8,7 @@ import { migrate as runDrizzleMigrations } from "drizzle-orm/node-postgres/migra
 import { DomainError } from "../../domain/contracts.js";
 import * as schema from "./schema.js";
 import { createRuntimeDatabase, type RuntimeDatabase } from "./runtime-database.js";
+import { ConcernRepository } from "./concern-repository.js";
 
 export async function migrate(pool: Pool, migrationsFolder = fileURLToPath(new URL("../../../drizzle", import.meta.url))): Promise<void> {
   const result = await pool.query<{ schema: string }>("SELECT current_schema() AS schema");
@@ -34,12 +35,13 @@ export class AgentStateRepository {
     const allowed = ["disposition", "self_story", "commitments", "concerns", "relationships", "mood"];
     const entries = Object.entries(values).filter(([key]) => allowed.includes(key));
     if (entries.length !== Object.keys(values).length || entries.length === 0) throw new DomainError("VALIDATION", "Invalid state fields");
-    const columnMap = { disposition: "disposition", self_story: "selfStory", commitments: "commitments", concerns: "concerns", relationships: "relationships", mood: "mood" } as const;
+    const columnMap = { disposition: "disposition", self_story: "selfStory", commitments: "commitments", relationships: "relationships", mood: "mood" } as const;
     const update: Record<string, unknown> = { version: sql`${schema.agentStates.version}+1`, updatedAt: new Date() };
-    for (const [key, value] of entries) update[columnMap[key as keyof typeof columnMap]] = value;
+    for (const [key, value] of entries) if (key !== "concerns") update[columnMap[key as keyof typeof columnMap]] = value;
     const result = await this.client.update(schema.agentStates).set(update).where(and(eq(schema.agentStates.agentId, agentId), eq(schema.agentStates.version, expectedVersion))).returning({ version: schema.agentStates.version });
     const version = result[0]?.version;
     if (version === undefined) throw new DomainError("CONFLICT", "Agent state version conflict");
+    if ("concerns" in values) await new ConcernRepository(this.client).replace(agentId, values.concerns);
     return version;
   }
 }

@@ -48,14 +48,14 @@ describe("peer observed Observation Gate", () => {
     expect(enqueued[0]?.result.output.action).toEqual({ type: "no-external-action", reason: "新しい問いや対象がなく、会話目的は満たされた" });
   });
 
-  it("FR-76, FR-88, FR-90: keeps mention delivery when a direct peer brings a new question", async () => {
+  it("FR-76, FR-88, FR-90, FR-92: creates one mention delivery for an explicit natural-language peer recipient", async () => {
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.currentSelf.agentId = event.agentId; input.state.agentId = event.agentId; return input; });
-    const run = vi.fn(() => Promise.resolve({ output: { desire: "akaの新しい問いへ、自分の仮説を返す", action: { type: "respond" as const, content: "その差は測定方法の違いかもしれない。" } }, toolExecutions: [] }));
+    const run = vi.fn(() => Promise.resolve({ output: { desire: "akaの新しい問いへ、自分の仮説を返す", action: { type: "respond" as const, content: "その差は測定方法の違いかもしれない。", recipient: "アカ" } }, toolExecutions: [] }));
     const enqueued: Omit<ExperienceIntegrationInput, "integrationId">[] = [];
     const enqueue = (input: Omit<ExperienceIntegrationInput, "integrationId">): Promise<void> => { enqueued.push(input); return Promise.resolve(); };
     let consume: ((message: MessageEnvelope) => Promise<void>) | undefined;
     const oneShotQueue = { publish: () => Promise.resolve(), subscribe: (_destination: string, next: (message: MessageEnvelope) => Promise<void>) => { consume = next; return Promise.resolve(); } };
-    const runtime = new AgentRuntime({ destination: "shiro", defaultOutputDestination: "discord", queue: oneShotQueue, harness: { run }, persistence, experienceIntegration: { enqueue }, ids: new SequenceIdGenerator(["event-peer-direct-question", "outbox-peer-direct-question"]), now: () => new Date("2026-11-21T00:00:00.000Z") });
+    const runtime = new AgentRuntime({ destination: "shiro", defaultOutputDestination: "discord", queue: oneShotQueue, harness: { run }, persistence, experienceIntegration: { enqueue }, peers: [{ agentId: "aka", displayName: "アカ", discordUserId: "discord-aka", channelId: "channel" }], ids: new SequenceIdGenerator(["event-peer-direct-question", "outbox-peer-direct-question"]), now: () => new Date("2026-11-21T00:00:00.000Z") });
     await runtime.start(new AbortController().signal);
     await consume?.({ ...observed, id: "message-peer-direct-question", hop: 2, payload: { ...observed.payload, text: "その差は何が原因だと思う？", addressing: "direct" } });
     const pending = await persistence.pendingOutbox(10);

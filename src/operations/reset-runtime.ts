@@ -6,7 +6,8 @@ import { initialSelfFromConfig, type InitialSelfConfig } from "../domain/contrac
 import type { SchedulerTimings } from "../config/config.js";
 import { asc, eq, sql } from "drizzle-orm";
 import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
-import { advisoryLocks, agentRuns, agents, agentStates, autonomousSchedules, concernActivities, events, memories, memoryMutations, memorySubjects, memoryWebEvidence, messageReceipts, outboxMessages, reflectionAttempts, reflectionMemoryBatches, reflectionRuns, runtimeCorrelations, runtimeRateWindows, scheduledTasks, stateChanges, toolExecutions, webResources, webSnapshots } from "../infrastructure/persistence/schema.js";
+import { advisoryLocks, agentRuns, agents, agentStates, autonomousSchedules, concernActivities, concerns, events, memories, memoryMutations, memorySubjects, memoryWebEvidence, messageReceipts, outboxMessages, reflectionAttempts, reflectionMemoryBatches, reflectionRuns, runtimeCorrelations, runtimeRateWindows, scheduledTasks, stateChanges, toolExecutions, webResources, webSnapshots } from "../infrastructure/persistence/schema.js";
+import { ConcernRepository } from "../infrastructure/persistence/concern-repository.js";
 
 // Move runtime-owned data out of the active roots; never recursively delete a configured path.
 type ResetTimings = Pick<SchedulerTimings, "autonomyReviewIntervalMs" | "stateReviewIntervalMs"> & Partial<Pick<SchedulerTimings, "concernFormationIntervalMs">>;
@@ -42,11 +43,11 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
         const lock = await tx.execute(sql<{ acquired: boolean }>`SELECT pg_try_advisory_xact_lock(${key}) AS acquired`);
         if (lock.rows[0]?.acquired !== true) throw new Error(`Stop the bot before resetting: ${id}`);
       }
-      for (const table of [stateChanges, toolExecutions, concernActivities, reflectionAttempts, reflectionMemoryBatches, agentRuns, events, reflectionRuns, memoryWebEvidence, memorySubjects, memoryMutations, memories, webSnapshots, webResources, scheduledTasks, autonomousSchedules, outboxMessages, messageReceipts, runtimeCorrelations, runtimeRateWindows]) await tx.delete(table);
+      for (const table of [stateChanges, toolExecutions, concernActivities, concerns, reflectionAttempts, reflectionMemoryBatches, agentRuns, events, reflectionRuns, memoryWebEvidence, memorySubjects, memoryMutations, memories, webSnapshots, webResources, scheduledTasks, autonomousSchedules, outboxMessages, messageReceipts, runtimeCorrelations, runtimeRateWindows]) await tx.delete(table);
       for (const { id } of storedAgents) {
       const config = configs.find(config => config.agent.id === id);
       if (!config) throw new Error(`Missing initial Self: ${id}`);
-      const { agent, initialState } = config;
+      const { initialState } = config;
       const now = Date.now();
       await tx.insert(autonomousSchedules).values([
         { id: `idle:${id}`, agentId: id, kind: "idle", reason: "一定期間の無活動を契機に、現在のSelf、State、Memoryから行動を検討する", nextDueAt: new Date(now + timings.autonomyReviewIntervalMs) },
@@ -54,7 +55,9 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
         { id: `reflection:${id}`, agentId: id, kind: "reflection", reason: "蓄積したEvent logをMemoryと長期状態へ統合する", nextDueAt: new Date(now + timings.stateReviewIntervalMs) }
       ]);
       const initialSelf = initialSelfFromConfig(config);
-      await tx.update(agentStates).set({ disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, concerns: initialState.concerns, relationships: initialState.relationships, mood: initialState.mood, version: 0, updatedAt: new Date() }).where(eq(agentStates.agentId, id));
+      const updatedAt = new Date();
+      await tx.update(agentStates).set({ disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, relationships: initialState.relationships, mood: initialState.mood, version: 0, updatedAt }).where(eq(agentStates.agentId, id));
+      await new ConcernRepository(tx).replace(id, initialState.concerns, updatedAt);
       }
     const suffix = `.before-reset-${randomUUID()}`;
     for (const from of paths) {

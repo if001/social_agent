@@ -28,7 +28,8 @@ describe("Agent Debug UI", () => {
     await repository.listRuns("ao", 999);
     await repository.listMemories("ao", 0);
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
-    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(12);
+    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(13);
+    expect(calls.find(({ sql }) => sql.includes("FROM concerns"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_attempts a"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_memory_batches b"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_tool_executions t"))?.values).toEqual(["ao"]);
@@ -39,7 +40,7 @@ describe("Agent Debug UI", () => {
     expect(calls.find(({ sql }) => sql.includes("FROM autonomous_schedules"))?.sql).not.toContain("exploration_cursor");
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.values).toEqual(["ao", 100]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.sql).toContain("e.observation#>>'{content,targetKind}'");
-    expect(overview?.state).toEqual({ mood: "calm" });
+    expect(overview?.state).toEqual({ mood: "calm", concerns: [] });
     expect(calls.find(({ sql }) => sql.includes("FROM memories"))?.values).toEqual(["ao", 1]);
   });
 
