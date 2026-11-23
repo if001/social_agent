@@ -4,6 +4,7 @@ import { z } from "zod";
 import { PersistentMoodSchema } from "../../src/domain/contracts.js";
 import { experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
+import { parseDecisionInput } from "../../src/infrastructure/persistence/postgres-experience-integration.js";
 
 const input = () => {
   const core = agentCoreInputFixture();
@@ -12,6 +13,36 @@ const input = () => {
 };
 
 describe("ExperienceIntegration", () => {
+  it("FR-30, FR-82, NFR-7: converts only the legacy peer response in a persisted decision snapshot", () => {
+    const core = agentCoreInputFixture();
+    const legacy = structuredClone(core) as unknown as Record<string, unknown>;
+    legacy.recentExperiences = [{ eventId: "old-event", runId: "old-run", agentId: core.run.agentId, occurredAt: core.run.occurredAt, eventKind: "message-received", observation: { summary: "旧peer応答", facts: [] }, steps: [{ type: "action", action: { type: "respond", content: "旧形式の返答", peer: { name: "aka", content: "旧形式の返答" } } }], progressChanged: false }];
+    expect(parseDecisionInput(legacy).recentExperiences[0]?.steps[0]).toEqual({ type: "action", action: { type: "respond", content: "旧形式の返答" } });
+  });
+
+  it("NFR-8: keeps rejecting an unrelated unknown Action field in a persisted snapshot", () => {
+    const core = agentCoreInputFixture();
+    const invalid = structuredClone(core) as unknown as Record<string, unknown>;
+    invalid.recentExperiences = [{ eventId: "invalid-event", runId: "invalid-run", agentId: core.run.agentId, occurredAt: core.run.occurredAt, eventKind: "message-received", observation: { summary: "不正な応答", facts: [] }, steps: [{ type: "action", action: { type: "respond", content: "返答", arbitraryRoute: "somewhere" } }], progressChanged: false }];
+    expect(() => parseDecisionInput(invalid)).toThrow("arbitraryRoute");
+  });
+
+  it("NFR-8: rejects a peer value that does not match the known legacy peer schema", () => {
+    const core = agentCoreInputFixture();
+    for (const peer of [{ name: "aka", content: "返答", arbitraryRoute: "somewhere" }, { name: "   ", content: "返答" }, { name: "aka", content: "   " }, { name: "a".repeat(121), content: "返答" }, { name: "aka", content: "a".repeat(6_001) }]) {
+      const invalid = structuredClone(core) as unknown as Record<string, unknown>;
+      invalid.recentExperiences = [{ eventId: "invalid-peer-event", runId: "invalid-peer-run", agentId: core.run.agentId, occurredAt: core.run.occurredAt, eventKind: "message-received", observation: { summary: "壊れた旧peer応答", facts: [] }, steps: [{ type: "action", action: { type: "respond", content: "返答", peer } }], progressChanged: false }];
+      expect(() => parseDecisionInput(invalid)).toThrow("peer");
+    }
+  });
+
+  it("NFR-8: rejects an otherwise valid field added to the known legacy Action shape", () => {
+    const core = agentCoreInputFixture();
+    const invalid = structuredClone(core) as unknown as Record<string, unknown>;
+    invalid.recentExperiences = [{ eventId: "mixed-action-event", runId: "mixed-action-run", agentId: core.run.agentId, occurredAt: core.run.occurredAt, eventKind: "message-received", observation: { summary: "新旧混在応答", facts: [] }, steps: [{ type: "action", action: { type: "respond", content: "返答", recipient: "channel", peer: { name: "aka", content: "返答" } } }], progressChanged: false }];
+    expect(() => parseDecisionInput(invalid)).toThrow("peer");
+  });
+
   it("FR-82: requires an Event-specific Experience even when no long-term Memory is retained", () => {
     expect(ExperienceIntegrationOutputSchema.safeParse({ experience: null, memories: [] }).success).toBe(false);
     expect(ExperienceIntegrationOutputSchema.parse({ experience: { summary: "展示の予定を確認した", facts: ["ユーザーは週末に展示へ行く予定だと話した"] }, memories: [] })).toMatchObject({ experience: { summary: "展示の予定を確認した" }, memories: [] });
