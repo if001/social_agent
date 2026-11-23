@@ -373,7 +373,7 @@ type Desire = string;
 - `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
 - `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了するために使う。内部Event、会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observed Eventで明示的に使え、idleでは選択しない。Tool利用の有無とは独立する。
 
-`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではmention自体を返答義務にせず、Desireで表した会話目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedの`engage`は発話義務ではなく、具体的な問い、判断を変える差分、次行為への影響、自発表現がなければこれで終える。長期協力、礼儀、採用、感謝、同意、言い換えは単独の発話理由にしない。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではreply自体を返答義務にせず、Desireで表した会話目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedの`engage`は発話義務ではなく、具体的な問い、判断を変える差分、次行為への影響、自発表現がなければこれで終える。Bot間応答はsource投稿へのDiscord replyとし、Bot宛mentionを生成しない。長期協力、礼儀、採用、感謝、同意、言い換えは単独の発話理由にしない。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。
 
 ## 14. Scheduled Task
 

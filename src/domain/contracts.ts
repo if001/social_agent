@@ -360,9 +360,9 @@ export const RecentExperienceSchema = z.object({
 export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 
 
-const ResponseRecipient = z.string().trim().min(1).max(120).describe("省略時はEventの発話元又は既定配送先へ返す。userはowner user、channelは非mention通常投稿、それ以外はallowlist peerの自然言語表示名。ID、Discord user ID、channel IDは書かない");
+const ResponseRecipient = z.enum(["user", "channel"]).describe("省略時はEventの発話元へreplyする。userはowner user、channelは非mention通常投稿。Bot表示名やIDを指定してBotへmentionしない");
 export const FinalActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("respond").describe("現在の会話相手、owner user、共有channel又はallowlist peerへ本文を一度だけ返す場合に選ぶ"), content: AgentContent.describe("唯一の外部発話本文。内部判断や管理情報を含めず、personaの発話表現を適用する"), recipient: ResponseRecipient.optional() }).strict().describe("本文一つと配送先一つだけを持つ応答。recipient省略時はEventから配送先を決め、同時に複数配送しない"),
+  z.object({ type: z.literal("respond").describe("現在の会話相手へのreply、owner user向け発話、又は共有channelへの通常投稿として本文を一度だけ返す場合に選ぶ"), content: AgentContent.describe("唯一の外部発話本文。内部判断や管理情報を含めず、personaの発話表現を適用する"), recipient: ResponseRecipient.optional() }).strict().describe("本文一つと配送先一つだけを持つ応答。recipient省略時はEvent発話元へreplyし、同時に複数配送しない"),
   z.object({
     type: z.literal("refuse").describe("依頼を拒否し、その旨を相手へ返す場合に選ぶ"),
     content: AgentContent.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),
