@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
 
 import { EventExperienceSchema, memorySubjectsForIntegration, type ExperienceIntegrationInput, type ExperienceIntegrationOutput, type ExperienceIntegrationRepository } from "../../application/experience-integration.js";
 import type { CanonicalSubjectResolver } from "../../application/canonical-subject.js";
@@ -12,6 +13,11 @@ import type { RuntimeDatabase } from "./runtime-database.js";
 import { agentRuns, eventExperiences, eventProjections, eventSubjects, events, experienceIntegrations, stateChanges } from "./schema.js";
 
 type PendingIntegrationRow = { id: string; agent_id: string; source_event_id: string; source_run_id: string; kind: DomainEvent["kind"]; occurred_at: Date; observation: Record<string, unknown>; input_snapshot: unknown; result: Record<string, unknown> };
+const LegacyPeerActionSchema = z.object({
+  type: z.literal("respond"),
+  content: z.string().trim().min(1).max(6_000).optional(),
+  peer: z.object({ name: z.string().trim().min(1).max(120), content: z.string().trim().min(1).max(6_000) }).strict()
+}).strict();
 const experienceContent = (experience: { readonly summary: string; readonly facts: readonly string[] }) => `${experience.summary}\n${experience.facts.join("\n")}`;
 const experienceHash = (experience: { readonly summary: string; readonly facts: readonly string[] }) => createHash("sha256").update(experienceContent(experience)).digest("hex");
 const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: "human" | "agent" | "tool" | "system" | "unknown" } | undefined => {
@@ -21,14 +27,33 @@ const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: 
   return actorId === undefined ? undefined : { id: actorId, type: actorType };
 };
 
-/** Removes the short-lived RuntimeExecutionInput extension written before C-23's boundary was enforced. */
-function parseDecisionInput(value: unknown) {
-  if (typeof value === "object" && value !== null && "persistentState" in value) {
-    const coreInput = { ...(value as Record<string, unknown>) };
-    delete coreInput.persistentState;
-    return AgentCoreInputSchema.parse(coreInput);
-  }
-  return AgentCoreInputSchema.parse(value);
+function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(value.recentExperiences)) return value;
+  return { ...value, recentExperiences: (value.recentExperiences as unknown[]).map((experience: unknown): unknown => {
+    if (typeof experience !== "object" || experience === null) return experience;
+    const record = experience as Record<string, unknown>;
+    if (!Array.isArray(record.steps)) return experience;
+    return { ...record, steps: (record.steps as unknown[]).map((step: unknown): unknown => {
+      if (typeof step !== "object" || step === null) return step;
+      const stepRecord = step as Record<string, unknown>;
+      const action = stepRecord.action;
+      if (stepRecord.type !== "action" || typeof action !== "object" || action === null) return step;
+      const actionRecord = action as Record<string, unknown>;
+      if (actionRecord.type !== "respond" || !("peer" in actionRecord)) return step;
+      const legacy = LegacyPeerActionSchema.safeParse(actionRecord);
+      if (!legacy.success) return step;
+      const content = legacy.data.content ?? legacy.data.peer.content;
+      return { ...stepRecord, action: { type: "respond", content } };
+    }) };
+  }) };
+}
+
+/** Removes known legacy fields before strictly restoring the canonical Core input. */
+export function parseDecisionInput(value: unknown) {
+  if (typeof value !== "object" || value === null) return AgentCoreInputSchema.parse(value);
+  const coreInput = { ...(value as Record<string, unknown>) };
+  delete coreInput.persistentState;
+  return AgentCoreInputSchema.parse(normalizeLegacyRecentActions(coreInput));
 }
 
 export class PostgresExperienceIntegrationRepository implements ExperienceIntegrationRepository {

@@ -561,6 +561,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const makeInput = (eventId: string, runId: string) => ({ ...core, run: { ...core.run, eventId, runId, agentId: "a" }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId: "a" }, state: { ...core.state, agentId: "a" } });
     const current = makeInput("integration-current-event", "integration-current-run");
     const legacy = makeInput("integration-legacy-event", "integration-legacy-run");
+    legacy.recentExperiences = [{ eventId: "legacy-prior-event", runId: "legacy-prior-run", agentId: "a", occurredAt: fixtureInstant, eventKind: "message-received", observation: { summary: "旧peer形式で応答した", facts: [] }, steps: [{ type: "action", action: { type: "respond", content: "旧形式の返答", peer: { name: "aka", content: "旧形式の返答" } } as never }], progressChanged: false }];
     for (const value of [current, legacy]) {
       await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,'a','user-message',$2,'test','completed',$3)", [value.run.eventId, JSON.stringify(value.observation), fixtureInstant]);
       await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$4,$5,$5)", [value.run.runId, value.run.eventId, JSON.stringify(value), JSON.stringify({ output: { desire: "返す", action: { type: "respond", content: "了解" } }, toolExecutions: [] }), fixtureInstant]);
@@ -573,6 +574,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const pending = await new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
     expect(pending.find(({ integrationId }) => integrationId === "integration-current")?.result.toolExecutions).toEqual(toolExecutions);
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTools);
+    expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.input.recentExperiences[0]?.steps[0]).toEqual({ type: "action", action: { type: "respond", content: "旧形式の返答" } });
   });
 
   it("FR-82, FR-78: persists an Event Experience without a long-term Memory and exposes it to Reflection", async () => {
