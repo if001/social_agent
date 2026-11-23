@@ -110,7 +110,7 @@ describe("Agent prompts", () => {
   });
 
   it("FR-21, FR-76, FR-90: lets a direct peer conversation end when its Desire is satisfied", () => {
-    expect(socialMessageSkill).toContain("mentionだけを理由に発話せず");
+    expect(socialMessageSkill).toContain("replyだけを理由に発話せず");
     expect(socialMessageSkill).toContain("会話目的が満たされた");
     expect(socialMessageSkill).toContain("定型の感謝、受理、別れ、同意");
     const outputSchema = JSON.stringify(AgentCoreModelOutputJsonSchema);

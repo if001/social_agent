@@ -239,7 +239,7 @@ Desireは、今回のEventを受けて「今、何をしたいか」を表す今
 
 Concernは、現在気に掛けていて、次のEventにも影響する事柄である。感情、価値、関係、未完了課題、約束、継続中の関心を統合して表す。未解決課題だけに限らない。
 
-Conversation Goalは、そのAgentが一つのreply chainで何を知りたい、確かめたい、伝えたい、又は変えたいかを表す。通常peer投稿へ話しかける場合は軽量Observation Gateが候補を作り、mention又は自Bot発話への初回replyではAgent CoreのDesireから形成する。実際のreplyがcommitされた時だけ開始し、継続replyでは再生成しない。会話の局所履歴は当該Conversationだけを使い、別Conversationの内容はMemory化され検索できた場合だけ利用する。
+Conversation Goalは、そのAgentが一つのreply chainで何を知りたい、確かめたい、伝えたい、又は変えたいかを表す。通常peer投稿へ話しかける場合は軽量Observation Gateが候補を作り、自Bot発話への初回replyではAgent CoreのDesireから形成する。Bot間の発話は通常投稿へのreplyで開始・継続し、Bot宛mentionを生成しない。実際のreplyがcommitされた時だけ開始し、継続replyでは再生成しない。会話の局所履歴は当該Conversationだけを使い、別Conversationの内容はMemory化され検索できた場合だけ利用する。
 
 ```ts
 type Concern = {
@@ -641,7 +641,7 @@ Agentはユーザー入力がなくても、Event sourceを契機にDesireを活
 
 自律EventではTool利用と発話判断を独立させる。自律探索の主目的は、Agent自身の知りたい欲、考えたい欲、不満、驚き、遊びを満たすことであり、ユーザーへの報告や有用性を目的にしない。外部発話は、その探索が近くにいる相手へ漏れる独り言、仮説、反論、途中経過、または自分の不確かさを埋める問いになり得る。ユーザーの予定・状態・好みを尋ねるのは、Agent自身が知りたい具体的な不確かさがあり、Memory・Relationship・現在Eventに根拠がある場合だけにする。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
 
-`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではmention自体を返答義務にせず、Desireで表した問い、反論、共有、依頼、約束、遊び又は協力の目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedのGate `engage`は認知価値であり発話義務ではない。具体的な未解決の問い、判断を変える反論・訂正・新事実、Concern又は約束の次行為への影響、又は今言いたい自発表現がなければこれで終える。長期的な協力関係、礼儀、採用、感謝、同意、言い換えだけを発話理由にしない。外部へ観測可能な結果を残す必要がある自律Eventでは、`notify-no-execution` または具体的なTool / 送信Actionを選ぶ。
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではreply自体を返答義務にせず、Desireで表した問い、反論、共有、依頼、約束、遊び又は協力の目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedのGate `engage`は認知価値であり発話義務ではない。具体的な未解決の問い、判断を変える反論・訂正・新事実、Concern又は約束の次行為への影響、又は今言いたい自発表現がなければこれで終える。長期的な協力関係、礼儀、採用、感謝、同意、言い換えだけを発話理由にしない。外部へ観測可能な結果を残す必要がある自律Eventでは、`notify-no-execution` または具体的なTool / 送信Actionを選ぶ。
 
 ### 23.1 自由な探索と役割の区別
 

@@ -6,7 +6,6 @@ import type { ExperienceIntegrationSink } from "./experience-integration.js";
 import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type CurrentAgentState, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
-import type { AgentPeer } from "../config/agent-peers.js";
 import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 import type { ObservationGate, ObservationGateAudit } from "./observation-gate.js";
 
@@ -35,10 +34,9 @@ export interface RuntimePersistence {
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly peers?: readonly AgentPeer[]; readonly subjects?: CanonicalSubjectResolver };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly ownerDiscordUserId?: string; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly subjects?: CanonicalSubjectResolver };
 
 const externalSpeech = (action: AgentAction): string | undefined => (action.type === "respond" ? action.content : action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined);
-const explicitPeerRecipient = (action: AgentAction): string | undefined => action.type === "respond" && action.recipient !== undefined && action.recipient !== "user" && action.recipient !== "channel" ? action.recipient : undefined;
 const channelContext = (value: unknown): { readonly channelId: string } | undefined => {
   if (typeof value !== "object" || value === null) return undefined;
   const channelId: unknown = (value as Record<string, unknown>).channelId;
@@ -49,12 +47,6 @@ export class AgentRuntime {
   readonly #updates = new AgentStatePatchService();
   #tail: Promise<void> = Promise.resolve();
   constructor(private readonly options: AgentRuntimeOptions) {}
-  #peer(name: string): AgentPeer | undefined {
-    const key = name.normalize("NFKC").toLocaleLowerCase("ja");
-    const peers = (this.options.peers ?? []).filter((peer) => peer.displayName.normalize("NFKC").toLocaleLowerCase("ja") === key);
-    return peers.length === 1 ? peers[0] : undefined;
-  }
-
   start(signal: AbortSignal): Promise<void> {
     return this.options.queue.subscribe(this.options.destination, (message) => this.#serialize(() => this.#handle(message, signal)), signal);
   }
@@ -68,12 +60,11 @@ export class AgentRuntime {
       const destination = configuredDestination.trim() !== "" ? configuredDestination : undefined;
       if (destination === undefined) throw new DomainError("VALIDATION", "Autonomous Event requires an owner or default destination");
       const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
-        const peerName = explicitPeerRecipient(action);
-        if (action.type === "respond" && peerName !== undefined) return [this.#peerEnvelope(message, event, input, peerName, action.content, event.correlationId ?? event.id)];
         const text = externalSpeech(action);
         const replyContext = action.type === "respond" && action.recipient === "channel" ? channelContext(event.payload.replyContext) : event.payload.replyContext;
         return text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
         type: "agent-response", text, agentId: event.agentId, autonomous: true,
+        ...(action.type === "respond" && action.recipient === "user" && this.options.ownerDiscordUserId !== undefined ? { user: { discordUserId: this.options.ownerDiscordUserId } } : {}),
         ...(replyContext === undefined ? {} : { replyContext }),
         action: { id: input.run.runId, type: action.type }
       })] : [];
@@ -84,15 +75,6 @@ export class AgentRuntime {
   #responseEnvelope(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, destination: string, hop: number, correlationId: string, payload: Record<string, unknown>): MessageEnvelope {
     const now = this.options.now().toISOString();
     return { id: this.options.ids.next(), destination, source: event.agentId, correlationId, causationId: input.run.runId, sentAt: now, availableAt: now, expiresAt: message.expiresAt, attempt: 0, hop, payload };
-  }
-  #peerEnvelope(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, name: string, text: string, correlationId: string): MessageEnvelope {
-    const peer = this.#peer(name);
-    if (peer === undefined) throw new DomainError("VALIDATION", "respond.recipient must name exactly one configured peer");
-    return this.#responseEnvelope(message, event, input, this.options.defaultOutputDestination, message.hop + 1, correlationId, {
-      type: "agent-response", text, agentId: event.agentId, autonomous: true,
-      replyContext: { channelId: peer.channelId }, peer: { agentId: peer.agentId, discordUserId: peer.discordUserId },
-      action: { id: input.run.runId, type: "respond" }
-    });
   }
   #serialize<T>(work: () => Promise<T>): Promise<T> {
     const result = this.#tail.then(work, work);
@@ -138,15 +120,14 @@ export class AgentRuntime {
     const outgoingDestination = direct ? message.replyTo ?? this.options.defaultOutputDestination : this.options.defaultOutputDestination;
     const peerReply = event.payload.senderKind === "peer" && event.payload.addressing === "direct";
     const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
-      const peerName = explicitPeerRecipient(action);
-      if (action.type === "respond" && peerName !== undefined) return [this.#peerEnvelope(message, event, input, peerName, action.content, inheritedCorrelation)];
       const content = externalSpeech(action);
       if (content === undefined) return [];
       const eventDerivedRecipient = action.type !== "respond" || action.recipient === undefined;
-      const channelOnly = action.type === "respond" && (action.recipient === "channel" || (action.recipient === "user" && event.payload.senderKind !== "human"));
+      const ownerUser = action.type === "respond" && action.recipient === "user";
+      const channelOnly = action.type === "respond" && (action.recipient === "channel" || (ownerUser && event.payload.senderKind !== "human"));
       const replyContext = channelOnly ? channelContext(event.payload.replyContext) : event.payload.replyContext;
       return [this.#responseEnvelope(message, event, input, outgoingDestination, message.hop + (peerReply && eventDerivedRecipient ? 1 : 0), inheritedCorrelation,
-        { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(replyContext === undefined ? {} : { replyContext }), ...(peerReply && eventDerivedRecipient && typeof event.payload.actorId === "string" ? { peer: { discordUserId: event.payload.actorId } } : {}) }
+        { type: "agent-response", text: content, agentId: event.agentId, correlationId: inheritedCorrelation, action: { id: input.run.runId, type: action.type }, ...(ownerUser && event.payload.senderKind !== "human" && this.options.ownerDiscordUserId !== undefined ? { user: { discordUserId: this.options.ownerDiscordUserId } } : {}), ...(replyContext === undefined ? {} : { replyContext }) }
       )];
     };
     try { await this.#execute(message, event, signal, outgoing, gate, isObservedPeer); }

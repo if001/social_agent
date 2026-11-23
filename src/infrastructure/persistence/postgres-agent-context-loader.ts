@@ -58,12 +58,13 @@ function recentAction(value: ReturnType<typeof FinalActionSchema.parse>): Return
 function readableAction(value: unknown): unknown {
   if (typeof value !== "object" || value === null) return value;
   const record = value as Record<string, unknown>;
-  if (record.type !== "respond" || typeof record.content === "string") return value;
+  if (record.type !== "respond") return value;
+  if (typeof record.content === "string") return { type: "respond", content: record.content, ...(record.recipient === "user" || record.recipient === "channel" ? { recipient: record.recipient } : {}) };
   const peer = typeof record.peer === "object" && record.peer !== null ? record.peer as Record<string, unknown> : undefined;
   const observed = typeof record.observedReply === "object" && record.observedReply !== null ? record.observedReply as Record<string, unknown> : undefined;
   const content = typeof observed?.content === "string" ? observed.content : typeof peer?.content === "string" ? peer.content : undefined;
   if (content === undefined) return value;
-  return { type: "respond", content, ...(typeof peer?.name === "string" ? { recipient: peer.name } : {}) };
+  return { type: "respond", content };
 }
 function recentExperience(row: RecentExperienceRow, toolsRegistry: ToolRegistry, logger: Logger): RecentExperience | undefined {
   const observation = ObservationSchema.safeParse(row.observation); if (!observation.success) { logger.log("warn", "context.invalid_recent_experience", { eventId: row.event_id, runId: row.run_id, reason: "invalid-observation" }); return undefined; }

@@ -78,15 +78,15 @@ flowchart TD
 
 ### 社会的入力と配送
 
-`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/directはDesireを会話目的として再評価し、mentionだけを理由に応答せず、目的が満たされれば`no-external-action`で通常Eventとして監査完了する。peer/observedだけは、本文、短いSelf view、現在Mood、現在の関係、少数の関連MemoryとConcern、直近自己発話を使う軽量なObservation Gateで`ignore | engage`を決める。これは返信義務でなく、具体的な問い、判断を変える差分、次行為、自発表現が現在のAgentを動かしたかの判定である。合意・礼儀・言い換えだけ、又はGate失敗は`ignore`として監査する。`engage`も発話義務ではなく、具体的な発話動機が尽きれば`no-external-action`で通常Eventを監査完了する。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。なお、各Botは自分が送ったDiscord messageへのallowlist peer replyだけを短期Mapで因果的に接続し、correlationとhopを復元する。Map miss、通常投稿、新規mention、再起動後は新規 ingressとして扱う。
+`message-received`は、送信者がhumanかpeerか、直接話しかけられたか観測した投稿かを表す一つのEventである。directは同じAgent Core、Concern、Experience Integrationを通る。peer/directはDesireを会話目的として再評価し、replyだけを理由に応答せず、目的が満たされれば`no-external-action`で通常Eventとして監査完了する。peer/observedだけは、本文、短いSelf view、現在Mood、現在の関係、少数の関連MemoryとConcern、直近自己発話を使う軽量なObservation Gateで`ignore | engage`を決める。これは返信義務でなく、具体的な問い、判断を変える差分、次行為、自発表現が現在のAgentを動かしたかの判定である。合意・礼儀・言い換えだけ、又はGate失敗は`ignore`として監査する。`engage`も発話義務ではなく、具体的な発話動機が尽きれば`no-external-action`で通常Eventを監査完了する。`ignore`はEventと判断だけを監査し、Memory、Projection、Reflectionの候補にはしない。`engage`後の処理はdirectと同じであり、人間用／peer用のConcernや認知pipelineは作らない。なお、各Botは自分が送ったDiscord messageへのallowlist peer replyだけを短期Mapで因果的に接続し、correlationとhopを復元する。Map miss、通常投稿、再起動後は新規 ingressとして扱う。
 
 | interaction | 受理 | 通常の`respond.content` | source返信 | 応答義務 |
 |---|---|---|---|---|
 | human/direct | owner humanのmention | humanへの返信 | — | ある |
-| peer/direct | allowlist peerのmention | 会話目的が残る時だけsource peerへのmention返信 | — | ない |
-| peer/observed | allowlist peerの非mention投稿 | recipient省略で元投稿へのthread返信、`channel`で非mention発話 | 自然言語recipientで一配送だけ選ぶ | ない |
+| peer/direct | allowlist peerから自Bot発話へのreply（受信mentionは移行互換） | 会話目的が残る時だけsource投稿へreply。Bot mentionは生成しない | — | ない |
+| peer/observed | allowlist peerの非mention投稿 | recipient省略で元投稿へのthread返信、`channel`で非mention発話 | recipientで一配送だけ選ぶ | ない |
 
-`respond`は一つの`content`と任意の自然言語`recipient`だけを持つ。省略時はEvent発話元、`user`はowner、`channel`は非mention投稿、それ以外は一意なallowlist peerへのmentionであり、一Actionから一配送だけを作る。peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱い、モデルはIDを出力しない。
+`respond`は一つの`content`と任意の`recipient`だけを持つ。省略時はEvent発話元のDiscord投稿へのreply、`user`はowner、`channel`は非mention通常投稿であり、一Actionから一配送だけを作る。Bot表示名はrecipientにせず、Bot宛mentionを生成しない。自律Eventからpeerに見せたい発話はchannelへ通常投稿し、peerが自分の動機でreplyするかを決める。peerについて残すMemoryは「peerがこう考えている」という代理記録ではなく、「Agentがpeerの発言をこう受け取った」というAgent所有の経験である。Runtimeだけが相手のcanonical subject、Discord ID、channel、返信metadataを扱い、モデルはIDを出力しない。
 
 ## Reflection の処理
 

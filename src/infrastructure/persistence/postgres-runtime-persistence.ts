@@ -86,7 +86,13 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const correlationId = event.correlationId ?? event.id;
     const conversationId = conversationKey(event.agentId, correlationId);
     const isSocial = event.kind === "message-received";
-    const response = outgoing.length > 0;
+    // A Conversation starts only when the Agent actually replies to a source
+    // Discord message.  A channel monologue is external speech, but it does
+    // not by itself establish a conversational turn.
+    const response = outgoing.some(({ payload }) => {
+      const context = payload.replyContext;
+      return typeof context === "object" && context !== null && typeof (context as Record<string, unknown>).messageId === "string";
+    });
     const close = result.output.action.type === "no-external-action";
     const conversationGoal = input.conversation?.goal ?? (observationGate?.decision === "engage" ? observationGate.conversationGoal : result.output.desire);
     const replyContext = typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? event.payload.replyContext as Record<string, unknown> : undefined;
