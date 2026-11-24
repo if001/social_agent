@@ -20,11 +20,11 @@ describe("AgentStatePatchService", () => {
     const service = new AgentStatePatchService();
     const populated: CurrentAgentState = { ...state, concerns: [{ id: "focus", description: "調査する", whyItMatters: "判断するため", status: "active" }] };
     const patched = service.initial("a", populated);
-    const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", explorationMode: "deepen", transition: "fork", description: "検証方法を確認する", whyItMatters: "結果の信頼性を判断するため" }], "event-5", () => "successor");
+    const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", evidenceMemoryIds: ["memory-5"], derivationReason: "新しい経験が比較条件への別の関心を生んだ", explorationMode: "deepen", transition: "fork", description: "検証方法を確認する", whyItMatters: "結果の信頼性を判断するため" }], "event-5", () => "successor");
     expect(committed.state.concerns).toMatchObject([{ id: "focus", status: "active" }, { id: "successor", status: "active", description: "検証方法を確認する" }]);
     expect(committed.changes.at(-1)).toMatchObject({ target: "concerns", before: [{ id: "focus", status: "active" }] });
     expect(committed.concernActivities).toEqual([
-      { concernId: "successor", kind: "derived", eventId: "event-5" }
+      { concernId: "successor", kind: "derived", eventId: "event-5", sourceConcernId: "focus", reason: "新しい経験が比較条件への別の関心を生んだ", evidenceMemoryIds: ["memory-5"] }
     ]);
     expect(patched.state.concerns).toMatchObject([{ id: "focus", status: "active" }]);
   });
@@ -33,9 +33,9 @@ describe("AgentStatePatchService", () => {
     const service = new AgentStatePatchService();
     const populated: CurrentAgentState = { ...state, concerns: [{ id: "focus", description: "調査する", whyItMatters: "判断するため", status: "active" }] };
     const patched = service.initial("a", populated);
-    const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", explorationMode: "bridge", description: "別領域の比較対象を調べる", whyItMatters: "自分の関心がどこまで通じるか確かめるため" }], "event-6", () => "parallel");
+    const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", evidenceMemoryIds: ["memory-6"], derivationReason: "関連する別領域が気になった", explorationMode: "bridge", description: "別領域の比較対象を調べる", whyItMatters: "自分の関心がどこまで通じるか確かめるため" }], "event-6", () => "parallel");
     expect(committed.state.concerns).toMatchObject([{ id: "focus", status: "active" }, { id: "parallel", status: "active" }]);
-    expect(committed.concernActivities).toEqual([{ concernId: "parallel", kind: "derived", eventId: "event-6" }]);
+    expect(committed.concernActivities).toEqual([{ concernId: "parallel", kind: "derived", eventId: "event-6", sourceConcernId: "focus", reason: "関連する別領域が気になった", evidenceMemoryIds: ["memory-6"] }]);
   });
 
   it("FR-25: records a creation as Concern Activity without asking the model for timestamps", () => {

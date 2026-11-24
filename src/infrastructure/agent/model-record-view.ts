@@ -5,7 +5,7 @@
  */
 const runtimeOnlyKeys = new Set([
   "id", "agentId", "runId", "eventId", "memoryId", "subjectId", "subjectIds",
-  "concernId", "predictionId", "sourceEventId", "sourceRunId", "sourcePredictionId",
+  "concernId", "sourceConcernId", "predictionId", "sourceEventId", "sourceRunId", "sourcePredictionId",
   "evidenceEventIds", "evidenceMemoryIds", "cursor", "nextCursor", "offset",
   "version", "toolCallId", "idempotencyKey", "integrationId"
 ]);

@@ -52,6 +52,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO event_experiences(event_id,summary,facts) VALUES ($1,$2,'[]') ON CONFLICT (event_id) DO NOTHING", [eventId, summary]);
   };
   const setConcerns = async (agentId: string, values: readonly Concern[]) => {
+    await pool.query("DELETE FROM concern_activities WHERE concern_id IN (SELECT id FROM concerns WHERE agent_id=$1) OR source_concern_id IN (SELECT id FROM concerns WHERE agent_id=$1)", [agentId]);
     await pool.query("DELETE FROM concerns WHERE agent_id=$1", [agentId]);
     for (const concern of values) await pool.query("INSERT INTO concerns(id,agent_id,description,why_it_matters,status) VALUES ($1,$2,$3,$4,$5)", [concern.id, agentId, concern.description, concern.whyItMatters, concern.status]);
   };
@@ -63,6 +64,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO agent_families(id,name,shared_disposition,base_instruction) VALUES ('family','Family','Curious','Help')");
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('a','family','Agent A','Calm'),('b','family','Agent B','Bold')");
     for (const agentId of ["a", "b"]) await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,relationships,mood) VALUES ($1,'Careful learner','Growing continuously','[\"Care\"]','[]','Calm')", [agentId]);
+    await pool.query("DELETE FROM concern_activities WHERE concern_id IN (SELECT id FROM concerns WHERE agent_id=ANY($1::text[])) OR source_concern_id IN (SELECT id FROM concerns WHERE agent_id=ANY($1::text[]))", [["a", "b"]]);
     await pool.query("DELETE FROM concerns WHERE agent_id=ANY($1::text[])", [["a", "b"]]);
   });
   afterAll(async () => {
@@ -595,6 +597,37 @@ describeDatabase("PostgreSQL persistence", () => {
     const inputSnapshot = (await pool.query<{ input_snapshot: { run: { runId: string }; observation: { summary: string }; currentSelf: { version: number }; availableTools: { name: string; inputSchema?: unknown }[]; memories: { id: string }[] } }>("SELECT input_snapshot FROM agent_runs WHERE id='runtime-run'")).rows[0]?.input_snapshot;
     expect(inputSnapshot).toMatchObject({ run: { runId: "runtime-run" }, observation: { summary: input.observation.summary }, currentSelf: { version }, memories: [{ id: "proposal-evidence" }], availableTools: [{ name: "concern_get", inputSchema: {} }, { name: "concern_history", inputSchema: {} }, { name: "lookup", inputSchema: {} }] });
     expect((await pool.query<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id='integration-job'")).rows).toEqual([]);
+  });
+
+  it("FR-69, NFR-7, NFR-8: commits a derived Concern and its immutable lineage audit together", async () => {
+    await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,evidence_event_ids) VALUES ('lineage-signal','a','episodic','比較条件が異なるという新しい経験','派生の根拠',now(),'[]') ON CONFLICT (id) DO NOTHING");
+    const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
+    const input = agentCoreInputFixture();
+    input.run = { runId: "lineage-run", eventId: "lineage-event", agentId: "a", occurredAt: fixtureInstant };
+    input.currentSelf = { ...input.currentSelf, agentId: "a", version };
+    input.state = { ...input.state, agentId: "a", concerns: [
+      { id: "lineage-parent", description: "記憶の変質を確かめたい", whyItMatters: "比較の基準が気になる", status: "active" },
+      { id: "lineage-child", description: "比較条件ごとの差を確かめたい", whyItMatters: "別の持続的な関心として残った", status: "active" }
+    ] };
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(input), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
+    const event = { id: "lineage-event", agentId: "a", kind: "internal" as const, occurredAt: fixtureInstant, payload: { reason: "concern-due" } };
+    await expect(persistence.commit(messageFixture({ id: "lineage-message", destination: "agent:a" }), event, input, { output: { desire: "派生を残す", action: { type: "no-external-action", reason: "監査だけを確定する" } }, toolExecutions: [] }, {
+      state: input.state,
+      changes: [],
+      concernActivities: [{ concernId: "lineage-child", kind: "derived", eventId: "lineage-event", sourceConcernId: "lineage-parent", reason: "新しい経験が比較条件への独立した関心を生んだ", evidenceMemoryIds: ["lineage-signal"] }]
+    }, [])).resolves.toBe("committed");
+    expect((await pool.query<{ concern_id: string; source_concern_id: string; reason: string; evidence_memory_ids: string[]; event_id: string }>("SELECT concern_id,source_concern_id,reason,evidence_memory_ids,event_id FROM concern_activities WHERE concern_id='lineage-child' AND kind='derived'")).rows).toEqual([{
+      concern_id: "lineage-child", source_concern_id: "lineage-parent", reason: "新しい経験が比較条件への独立した関心を生んだ", evidence_memory_ids: ["lineage-signal"], event_id: "lineage-event"
+    }]);
+    expect((await getConcerns("a")).filter(({ id }) => id.startsWith("lineage-")).map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: "lineage-child", status: "active" },
+      { id: "lineage-parent", status: "active" }
+    ]);
+    // Keep fixture cleanup compatible with later tests that deliberately use
+    // physical deletion to seed their isolated Concern sets.
+    await pool.query("DELETE FROM concern_activities WHERE concern_id IN ('lineage-parent','lineage-child') OR source_concern_id IN ('lineage-parent','lineage-child')");
+    await pool.query("DELETE FROM concerns WHERE id IN ('lineage-parent','lineage-child')");
+    await pool.query("DELETE FROM memories WHERE id='lineage-signal'");
   });
 
   it("NFR-7: restores pending Integration traces from the canonical Run snapshot", async () => {

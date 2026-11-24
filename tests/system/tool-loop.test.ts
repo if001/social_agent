@@ -190,15 +190,15 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
 
   it("FR-69: binds a concern-due derive to the Runtime focus without exposing a parent ID to the Tool input", async () => {
     const registry = new ToolRegistry([
-      { name: "concern_due_focus", description: "focus", schema: z.object({ mode: z.enum(["initial", "another"]).default("initial") }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { concernId: "parent", concern: { description: "記憶の変質", whyItMatters: "気になる" } } }) },
-      { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
+      { name: "concern_due_focus", description: "focus", schema: z.object({ mode: z.enum(["initial", "another"]).default("initial") }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { concernId: "parent", evidenceMemoryIds: ["memory-parent"], concern: { description: "記憶の変質", whyItMatters: "気になる" } } }) },
+      { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string(), derivationReason: z.string().optional() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
     ]);
     const [focus, propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     const context = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-focus", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", concernDueSignalClaimedAt: fixtureInstant, maxToolCalls: 4, signal: new AbortController().signal });
     await focus?.invoke({ mode: "initial" }, { context });
-    await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい" }, { context });
+    await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい", derivationReason: "新しい経験が別の比較軸を示した" }, { context });
     expect(context.collector.executions.at(-1)?.input).not.toHaveProperty("sourceConcernId");
-    expect(context.collector.executions.at(-1)?.result).toMatchObject({ proposal: { operation: "derive", sourceConcernId: "parent" } });
+    expect(context.collector.executions.at(-1)?.result).toMatchObject({ proposal: { operation: "derive", sourceConcernId: "parent", evidenceMemoryIds: ["memory-parent"], derivationReason: "新しい経験が別の比較軸を示した" } });
   });
 
   it("FR-69: rejects a concern-due derive until the Runtime has focused a Concern", async () => {
@@ -213,14 +213,14 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
 
   it("FR-69: carries the Runtime-resolved parent into the committed proposal", async () => {
     const registry = new ToolRegistry([
-      { name: "concern_due_focus", description: "focus", schema: z.object({}).strict(), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { concernId: "parent", concern: { description: "記憶の変質", whyItMatters: "気になる" } } }) },
-      { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
+      { name: "concern_due_focus", description: "focus", schema: z.object({}).strict(), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { concernId: "parent", evidenceMemoryIds: ["memory-parent"], concern: { description: "記憶の変質", whyItMatters: "気になる" } } }) },
+      { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string(), derivationReason: z.string().optional() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
     ]);
     const invoker: DeepAgentInvoker = { invoke: async (_input, options) => {
       const context = createDeepAgentToolRunContext(options);
       const [focus, propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
       await focus?.invoke({}, { context });
-      await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい" }, { context });
+      await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい", derivationReason: "新しい経験が別の比較軸を示した" }, { context });
       return { structuredResponse: finalOutput, toolExecutions: context.collector.executions };
     } };
     const input = agentCoreInputFixture();
@@ -230,7 +230,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
       { name: "concern_propose", description: "propose", inputSchema: {} }
     ];
     const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["concern_due_focus", "concern_propose"]) }).run(input, new AbortController().signal);
-    expect(result.concernProposals).toEqual([expect.objectContaining({ operation: "derive", sourceConcernId: "parent", description: "別の検証方法" })]);
+    expect(result.concernProposals).toEqual([expect.objectContaining({ operation: "derive", sourceConcernId: "parent", evidenceMemoryIds: ["memory-parent"], derivationReason: "新しい経験が別の比較軸を示した", description: "別の検証方法" })]);
   });
 
   it("FR-4, FR-39: can choose a Tool on autonomy review from Self, Concern, and Memory", async () => {

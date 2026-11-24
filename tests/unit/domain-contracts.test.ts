@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, ConcernChangeSchema, ConcernProposalSchema, ConcernSchema, EpisodicMemorySchema, EventAssessmentSchema, initialSelfFromConfig, InitialSelfConfigSchema, MessageEnvelopeSchema, PersistedSelfSchema, SelfSchema } from "../../src/domain/contracts.js";
+import { AgentActionSchema, AgentCoreInputSchema, AgentStateSchema, AgentTurnSchema, ConcernActivityIntentSchema, ConcernChangeSchema, ConcernProposalSchema, ConcernSchema, EpisodicMemorySchema, EventAssessmentSchema, initialSelfFromConfig, InitialSelfConfigSchema, MessageEnvelopeSchema, PersistedSelfSchema, SelfSchema } from "../../src/domain/contracts.js";
 import { ConcernReflectorOutputSchema } from "../../src/application/reflection.js";
 import { agentCoreInputFixture, messageFixture } from "../../src/testing/contract-fixtures.js";
 import { modelObservationForAgentCore, observationFromEvent } from "../../src/infrastructure/persistence/postgres-agent-context-loader.js";
@@ -76,9 +76,18 @@ describe("domain contracts", () => {
     expect(ConcernSchema.safeParse(legacy).success).toBe(true);
     expect(ConcernProposalSchema.safeParse({ operation: "create", description: "d".repeat(401), whyItMatters: "理由" }).success).toBe(false);
     expect(ConcernProposalSchema.safeParse({ operation: "create", description: "関心", whyItMatters: "w".repeat(301) }).success).toBe(false);
+    expect(ConcernProposalSchema.safeParse({ operation: "derive", description: "関心", whyItMatters: "理由" }).success).toBe(false);
+    expect(ConcernProposalSchema.safeParse({ operation: "derive", description: "関心", whyItMatters: "理由", derivationReason: "新しい経験が別の関心を生んだ" }).success).toBe(true);
+    expect(ConcernProposalSchema.safeParse({ operation: "create", description: "関心", whyItMatters: "理由", derivationReason: "不要" }).success).toBe(false);
     expect(ConcernChangeSchema.safeParse({ operation: "create", concern: { description: "d".repeat(401), whyItMatters: "理由", status: "active" } }).success).toBe(false);
     expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "upsert", currentDescription: legacy.description, description: "d".repeat(401), whyItMatters: "理由", status: "active" }] }).success).toBe(false);
     expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "upsert", currentDescription: legacy.description, description: "関心", whyItMatters: "理由", status: "active" }] }).success).toBe(true);
+  });
+
+  it("FR-69, NFR-7: permits lineage audit fields only on derived Concern Activity", () => {
+    expect(ConcernActivityIntentSchema.safeParse({ concernId: "child", kind: "derived", eventId: "event", sourceConcernId: "parent", reason: "新しい経験で別の関心が残った", evidenceMemoryIds: ["memory"] }).success).toBe(true);
+    expect(ConcernActivityIntentSchema.safeParse({ concernId: "created", kind: "created", eventId: "event", sourceConcernId: "parent" }).success).toBe(false);
+    expect(ConcernActivityIntentSchema.safeParse({ concernId: "derived", kind: "derived", eventId: "event", sourceConcernId: "parent", reason: "理由だけ" }).success).toBe(false);
   });
 
   it("FR-23: bounds generated Agent Core text by each field's purpose", () => {

@@ -5,11 +5,11 @@ import { userMainSubjectId, type CanonicalSubjectResolver } from "../../applicat
 import type { RegisteredTool } from "../../application/tool-registry.js";
 import { ConcernProposalSchema, ConcernSchema, PersistedSelfSchema, RelationshipSchema, type Observation, type RetrievedItem } from "../../domain/contracts.js";
 export type AgentContextState = { readonly concerns: unknown; readonly relationships: unknown; readonly mood: string };
-export type ConcernActivity = { readonly id: string; readonly kind: string; readonly occurredAt: Date; readonly eventId: string | null; readonly runId: string | null; readonly reflectionId: string | null; readonly evidenceMemoryIds: unknown };
+export type ConcernActivity = { readonly id: string; readonly kind: string; readonly occurredAt: Date; readonly eventId: string | null; readonly runId: string | null; readonly reflectionId: string | null; readonly sourceConcernId: string | null; readonly reason: string | null; readonly evidenceMemoryIds: unknown };
 export type EvidenceMemory = { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date };
 export type ToolExecutionObservation = { readonly tool: string; readonly result: unknown; readonly error: string | null; readonly finishedAt: Date };
 export type AgentSelfState = { readonly identity: string; readonly disposition: string; readonly selfStory: string; readonly commitments: unknown; readonly mood: string };
-export type ConcernDueFocus = { readonly concernId: string; readonly description: string; readonly whyItMatters: string; readonly sourceMemories: readonly { readonly content: string; readonly importance: string; readonly occurredAt: Date }[] };
+export type ConcernDueFocus = { readonly concernId: string; readonly description: string; readonly whyItMatters: string; readonly sourceMemories: readonly { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date }[] };
 
 const compact = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
 const success = (value: unknown) => Promise.resolve({ ok: true as const, value });
@@ -113,7 +113,7 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
       execute: async (_input, context) => {
         if (context.concernDue === undefined) return { ok: false, error: "concern_due_focus is only available during concern-due" };
         const focus = await repository.nextConcernDueFocus(context.agentId, context.concernDue.signalClaimedAt, context.concernDue.focusedConcernIds);
-        return focus === undefined ? success({ available: false }) : success({ available: true, concernId: focus.concernId, concern: { description: compact(focus.description, 400), whyItMatters: compact(focus.whyItMatters, 300) }, triggerExperiences: focus.sourceMemories.map((memory) => ({ summary: compact(memory.content, 320), importance: compact(memory.importance, 180), occurredAt: memory.occurredAt.toISOString() })) });
+        return focus === undefined ? success({ available: false }) : success({ available: true, concernId: focus.concernId, evidenceMemoryIds: focus.sourceMemories.map(({ id }) => id), concern: { description: compact(focus.description, 400), whyItMatters: compact(focus.whyItMatters, 300) }, triggerExperiences: focus.sourceMemories.map((memory) => ({ summary: compact(memory.content, 320), importance: compact(memory.importance, 180), occurredAt: memory.occurredAt.toISOString() })) });
       }
     },
     {
