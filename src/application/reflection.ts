@@ -48,9 +48,7 @@ export const ReflectionOutputSchema = z.object({
 }).superRefine((value, context) => {
   if ((value.self === undefined) !== (value.selfChangeReason === undefined)) context.addIssue({ code: "custom", path: ["selfChangeReason"], message: "Self changes require an explicit reason" });
   if (value.self !== undefined && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "Self changes require Memory evidence" });
-  const createdConcerns = value.concernChanges.filter((change) => change.operation === "create");
-  if (createdConcerns.length > 3) context.addIssue({ code: "custom", path: ["concernChanges"], message: "Reflection can create at most three Concerns at once" });
-  if (createdConcerns.length > 0 && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "New Concerns require Memory evidence" });
+  if (value.concernChanges.some((change) => change.operation === "create")) context.addIssue({ code: "custom", path: ["concernChanges"], message: "Reflection cannot create Concerns" });
 });
 export type ReflectionOutput = z.infer<typeof ReflectionOutputSchema>;
 
@@ -145,13 +143,10 @@ export const MemoryReconciliationOutputSchema = z.object({
 }).strict();
 export const ConcernReflectorOutputSchema = z.object({
   concernChanges: z.array(z.discriminatedUnion("operation", [
-    z.object({ operation: z.literal("create"), description: CurrentConcernDescriptionSchema, whyItMatters: CurrentConcernImportanceSchema }).strict(),
     z.object({ operation: z.literal("upsert"), currentDescription: Text.describe("更新対象を示す現在のConcern本文。既存の長大な本文も照合できるが、IDや局所参照ではない"), description: CurrentConcernDescriptionSchema, whyItMatters: CurrentConcernImportanceSchema, status: z.enum(["active", "satisfied", "abandoned"]) }).strict(),
     z.object({ operation: z.literal("remove"), currentDescription: Text.describe("削除対象を示す現在のConcern本文。IDや局所参照ではない") }).strict()
-  ])).max(4).describe("Memory根拠に基づくConcern差分。ID・根拠Memory IDは出力しない。変更不要なら空配列")
-}).strict().superRefine((value, context) => {
-  if (value.concernChanges.filter((change) => change.operation === "create").length > 3) context.addIssue({ code: "custom", path: ["concernChanges"], message: "Reflection can create at most three Concerns at once" });
-});
+  ])).max(4).describe("既存Concernだけを整理する差分。ID・根拠Memory IDは出力しない。新規Concernの作成・派生はconcern-formation / concern-dueの責務であり、Reflectionでは出力しない。変更不要なら空配列")
+}).strict();
 export const RelationshipReflectorOutputSchema = z.object({
   relationshipChanges: z.array(z.discriminatedUnion("operation", [
     z.object({ operation: z.literal("upsert"), currentDescription: CurrentRelationshipDescriptionSchema.describe("更新対象を示す現在のRelationship本文。IDや局所参照ではない"), description: CurrentRelationshipDescriptionSchema }).strict(),

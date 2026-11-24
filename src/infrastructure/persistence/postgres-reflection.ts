@@ -412,7 +412,6 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const current = await repository.list(input.agentId);
       const byDescription = new Map(current.map((concern) => [concern.description, concern]));
       const changes: ConcernChange[] = output.concernChanges.flatMap<ConcernChange>((change) => {
-        if (change.operation === "create") return [{ operation: "create" as const, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const } }];
         const previous = byDescription.get(change.currentDescription);
         if (previous === undefined) return [];
         if (change.operation === "remove") return [{ operation: "remove" as const, id: previous.id }];

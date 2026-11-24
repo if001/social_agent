@@ -22,19 +22,12 @@ const ReflectionMemorySchema = z.object({
 }).strict().describe("今後の判断に再利用する価値がある経験。入力Eventの単なる要約は保存しない");
 
 const ReflectionConcernChangeSchema = z.object({
-  operation: z.enum(["create", "upsert", "remove"]).describe("新しいConcernを作るならcreate、既存Concernを更新するならupsert、重複や不要な既存Concernを消すならremove"),
-  id: z.string().min(1).optional().describe("入力state.concernsに存在するConcern ID。upsertとremoveでは必須。createでは指定しない"),
+  operation: z.enum(["upsert", "remove"]).describe("既存Concernを更新するならupsert、重複や不要な既存Concernを消すならremove。新規作成・派生はconcern-formation / concern-dueの責務でありReflectionでは行わない"),
+  id: z.string().min(1).optional().describe("入力state.concernsに存在するConcern ID。upsertとremoveでは必須"),
   description: CurrentConcernDescriptionSchema.optional(),
   whyItMatters: CurrentConcernImportanceSchema.optional(),
-  status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。createではactiveだけ、upsertでは必須"),
+  status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。upsertでは必須"),
 }).strict().superRefine((value, context) => {
-  if (value.operation === "create") {
-    if (value.id !== undefined) context.addIssue({ code: "custom", path: ["id"], message: "create must not specify id" });
-    if (value.description === undefined) context.addIssue({ code: "custom", path: ["description"], message: "create requires description" });
-    if (value.whyItMatters === undefined) context.addIssue({ code: "custom", path: ["whyItMatters"], message: "create requires whyItMatters" });
-    if (value.status !== undefined && value.status !== "active") context.addIssue({ code: "custom", path: ["status"], message: "create requires active status" });
-    return;
-  }
   if (value.id === undefined) context.addIssue({ code: "custom", path: ["id"], message: "upsert and remove require id" });
   if (value.operation === "upsert") {
     if (value.description === undefined) context.addIssue({ code: "custom", path: ["description"], message: "upsert requires description" });
@@ -51,7 +44,7 @@ const ReflectionRelationshipChangeSchema = z.object({
 
 export const ReflectionModelOutputSchema = z.object({
   memories: z.array(ReflectionMemorySchema).max(4).describe("Memory DBへ新規保存し、今後のContext検索に使う経験。保存価値がなければ空配列"),
-  concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("現在Stateのconcernsへ適用する変更。新規作成は最大3件。気に掛けていることが変わらなければ空配列"),
+  concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("既存Concernだけを整理する変更。新規作成・派生はconcern-formation / concern-dueの責務であり、このReflectionでは出力しない。気に掛けていることが変わらなければ空配列"),
   relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("現在Stateのrelationshipsへ適用する変更。関係が変わらなければ空配列"),
   mood: PersistentMoodSchema.optional(),
   selfIdentity: CurrentSelfIdentitySchema.optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
@@ -59,10 +52,8 @@ export const ReflectionModelOutputSchema = z.object({
   selfStory: CurrentSelfStorySchema.optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfCommitments: CurrentCommitmentsSchema.optional().describe("全Eventで守るもの、続ける関係、譲らないこと。十分なMemory根拠で変化した場合だけ、完全な配列を指定する"),
   selfChangeReason: z.string().trim().min(1).max(16_000).optional().describe("どの反復経験または強い経験によりSelfがどう変わったか。Selfの全fieldと一緒にだけ指定する"),
-  evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更または新規ConcernをRuntimeが検証するための根拠Memory ID。どちらも変更しない場合は空配列")
+  evidenceMemoryIds: z.array(z.string().min(1)).max(16).describe("Self変更をRuntimeが検証するための根拠Memory ID。Selfを変更しない場合は空配列")
 }).strict().superRefine((value, context) => {
-  if (value.concernChanges.filter((change) => change.operation === "create").length > 3) context.addIssue({ code: "custom", path: ["concernChanges"], message: "create at most three Concerns per reflection" });
-  if (value.concernChanges.some((change) => change.operation === "create") && value.evidenceMemoryIds.length === 0) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "new Concerns require Memory evidence" });
   const selfFields = [value.selfIdentity, value.selfDisposition, value.selfStory, value.selfCommitments];
   const hasSelf = selfFields.some((field) => field !== undefined);
   const hasCompleteSelf = selfFields.every((field) => field !== undefined);
@@ -84,14 +75,14 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 
 出力基準:
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
-- Concern: 入力にあるConcernの重複整理、分離、具体化、終了判定に加え、Memory根拠とwhyItMattersがある新しいConcernを1回1〜3件まで作成できる。一件には一つの持続する関心または動機の核だけを残す。Agentが複数の異なる対象・動機を並行して気に掛けることは自然な通常状態であり、Concernが空、少ない、または一つの対象に偏っているなら、記録された経験から今後も残る関心を積極的にcreateする。件数だけで機械的に作らず、未返信や件数を理由に終了しない。既存Concernが長大でも関心が続くなら、その核を短くupsertする。createではidを指定しない
+- Concern: 入力にある既存Concernの重複整理、具体化、終了判定だけを行う。一件には一つの持続する関心または動機の核だけを残す。未返信や件数を理由に終了しない。既存Concernが長大でも関心が続くなら、その核を短くupsertする。新規Concernの作成はconcern-formation、派生はconcern-dueの責務であり、Reflectionではcreateしない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
 - Mood: ${PersistentMoodDescription}
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
 
 制約:
 - 入力にない事実、ID、日時、関係を作らない
-- 新しいConcernには、入力Memory IDをevidenceMemoryIdsへ含める。入力Eventを網羅的に要約しない。同じ内容のMemoryを重複して作らない
+- 入力Eventを網羅的に要約しない。同じ内容のMemoryを重複して作らない
 - 変更がなければ配列は空、任意fieldは省略する。空のmaintenance結果は正しい
 - reflectionId、agentId、expectedVersion、入力Selfを出力へ複製しない
 - Action、ユーザー向け応答、Markdown、説明文は返さず、指定された構造化出力だけを返す${concernLifecyclePrompt}`;
@@ -102,7 +93,6 @@ function domainOutputFromModel(raw: unknown, input: ReflectionInput): unknown {
   const value = parsed.data;
   const concernChanges = value.concernChanges.map((change) => {
     if (change.operation === "remove") return { operation: change.operation, id: change.id };
-    if (change.operation === "create") return { operation: change.operation, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const } };
     return { operation: change.operation, concern: { id: change.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status } };
   });
   const relationshipChanges: ReflectionOutput["relationshipChanges"] = value.relationshipChanges.flatMap<ReflectionOutput["relationshipChanges"][number]>((change) => {
@@ -285,7 +275,7 @@ function toolExecutionsFrom(error: unknown): readonly ToolExecutionRecord[] {
 /** Target-specific instructions stay small; the durable Mood boundary is
  * repeated here because the self-mood Reflector is invoked independently. */
 export function targetedReflectionSystemPrompt(target: ReflectionTarget): string {
-  const concernBoundary = target === "concern" ? "Concernは疑問文である必要はない。一件には一つの持続する関心または動機の核だけを書く。関心を生んだ出来事、発見、根拠、会話の経緯はMemoryまたはEvent Experienceへ置き、今回だけの行為はDesire、実行日時や詳細手順はScheduled Taskへ置く。既存Concernが長大でも関心が続くなら、その核を短くupsertする。" : "";
+  const concernBoundary = target === "concern" ? "Concernは疑問文である必要はない。一件には一つの持続する関心または動機の核だけを書く。関心を生んだ出来事、発見、根拠、会話の経緯はMemoryまたはEvent Experienceへ置き、今回だけの行為はDesire、実行日時や詳細手順はScheduled Taskへ置く。既存Concernが長大でも関心が続くなら、その核を短くupsertする。新規Concernの作成・派生はconcern-formation / concern-dueの責務であり、このReflectorは既存Concernだけを整理する。" : "";
   return `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。${target === "self-mood" ? `Moodは${PersistentMoodDescription}` : ""}${concernBoundary}通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
 }
 

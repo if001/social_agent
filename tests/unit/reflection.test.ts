@@ -1,4 +1,4 @@
-import { MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, Reflection, ReflectionOutputSchema, RelationshipReflectorOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
+import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, Reflection, ReflectionOutputSchema, RelationshipReflectorOutputSchema, TargetedReflection, type ReflectionInput, type ReflectionOutput } from "../../src/application/reflection.js";
 
 const input: ReflectionInput = {
   reflectionId: "reflection-1", agentId: "agent-a", expectedVersion: 2,
@@ -37,6 +37,11 @@ describe("Reflection", () => {
   it("FR-77: Relationship Reflector identifies an existing relationship by text, never subject ID", () => {
     expect(RelationshipReflectorOutputSchema.safeParse({ relationshipChanges: [{ operation: "upsert", currentDescription: "率直に話せる", description: "予定を確かめ合う" }] }).success).toBe(true);
     expect(RelationshipReflectorOutputSchema.safeParse({ relationshipChanges: [{ operation: "upsert", subjectId: "user", description: "予定を確かめ合う" }] }).success).toBe(false);
+  });
+
+  it("FR-44: Concern Reflector cannot create or derive a new Concern", () => {
+    expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "create", description: "新しい関心", whyItMatters: "経験に由来する" }] }).success).toBe(false);
+    expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "derive", description: "派生関心", whyItMatters: "経験に由来する" }] }).success).toBe(false);
   });
 
   it("FR-77: rejects a Memory Reflector result that attempts to emit an Event ID", async () => {
@@ -163,17 +168,17 @@ describe("Reflection", () => {
     expect(completions).toEqual(["reconciliation"]);
   });
 
-  it("FR-44, FR-60: passes Memory committed in this Session to a later Concern Reflector", async () => {
+  it("FR-41, FR-60: passes Memory committed in this Session to a later Concern Reflector for existing Concern organization", async () => {
     const committedMemory = { id: "memory-created", summary: "新しく確定した経験", significance: "次の関心の根拠", subjects: ["user"], occurredAt: "2026-01-01T00:02:00Z", createdAt: "2026-01-01T00:02:00Z" };
     const concernInputs: ReflectionInput[] = [];
     const reflection = new TargetedReflection({
-      load: () => Promise.resolve(input),
+      load: () => Promise.resolve({ ...input, state: { ...input.state, concerns: [{ id: "existing", description: "既存の関心", whyItMatters: "確かめたい", status: "active" }] } }),
       refresh: (value) => Promise.resolve({ ...value, memories: [...value.memories, committedMemory] }),
       beginTarget: () => Promise.resolve("pending"), memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(), commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
     }, {
       reflect: (target, value) => {
         if (target === "memory") return Promise.resolve({ output: { memories: [{ content: committedMemory.summary, reason: committedMemory.significance, target: "episodic", perspective: "user" }] }, toolExecutions: [] });
-        if (target === "concern") { concernInputs.push(value); return Promise.resolve({ output: { concernChanges: [{ operation: "create", concern: { description: "新しい関心", whyItMatters: "経験に由来する", status: "active" } }], evidenceMemoryIds: [committedMemory.id] }, toolExecutions: [] }); }
+        if (target === "concern") { concernInputs.push(value); return Promise.resolve({ output: { concernChanges: [{ operation: "upsert", currentDescription: "既存の関心", description: "経験を踏まえた既存の関心", whyItMatters: "確かめたい", status: "active" }] }, toolExecutions: [] }); }
         if (target === "relationship") return Promise.resolve({ output: { relationshipChanges: [] }, toolExecutions: [] });
         return Promise.resolve({ output: { evidenceMemoryIds: [] }, toolExecutions: [] });
       }
@@ -201,24 +206,22 @@ describe("Reflection", () => {
     expect(failures).toHaveLength(1);
   });
 
-  it("FR-25, FR-41, FR-44, AC-6: accepts a grounded new Concern during Reflection", async () => {
+  it("FR-25, FR-41, FR-44: rejects a new Concern during Reflection", async () => {
     const output: ReflectionOutput = { memories: [], concernChanges: [{ operation: "create", concern: { description: "新しい対象を調べる", whyItMatters: "知りたいため", status: "active" } }], relationshipChanges: [], evidenceMemoryIds: ["memory-1"] };
-    const commits: ReflectionOutput[] = [];
-    const reflection = new Reflection({ load: () => Promise.resolve(input), commit: (_input, value) => { commits.push(value); return Promise.resolve("committed"); }, fail: () => Promise.resolve() }, { reflect: () => Promise.resolve(output) });
-    await expect(reflection.process("reflection-1", "agent-a", new AbortController().signal)).resolves.toEqual(output);
-    expect(commits).toEqual([output]);
+    const reflection = new Reflection({ load: () => Promise.resolve(input), commit: () => Promise.resolve("committed"), fail: () => Promise.resolve() }, { reflect: () => Promise.resolve(output) });
+    await expect(reflection.process("reflection-1", "agent-a", new AbortController().signal)).rejects.toThrow("Reflection cannot create Concerns");
   });
 
-  it("FR-25, FR-44: requires evidence and required fields for a new Concern", () => {
+  it("FR-25, FR-44: rejects any new Concern shape during Reflection", () => {
     expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [{ operation: "create", concern: { description: "新しい対象を調べる", whyItMatters: "知りたいため", status: "active" } }], relationshipChanges: [], evidenceMemoryIds: [] }).success).toBe(false);
     expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [{ operation: "create", concern: { description: "新しい対象を調べる", status: "active" } }], relationshipChanges: [], evidenceMemoryIds: ["memory-1"] }).success).toBe(false);
     expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [{ operation: "create", concern: { description: "新しい対象を調べる", whyItMatters: "知りたいため", status: "satisfied" } }], relationshipChanges: [], evidenceMemoryIds: ["memory-1"] }).success).toBe(false);
   });
 
-  it("FR-25, FR-44: limits Reflection to three new Concerns per run", () => {
+  it("FR-25, FR-44: rejects multiple new Concerns per Reflection", () => {
     const create = (index: number) => ({ operation: "create" as const, concern: { description: `新しい対象${String(index)}`, whyItMatters: "知りたいため", status: "active" as const } });
     expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [create(1), create(2), create(3), create(4)], relationshipChanges: [], evidenceMemoryIds: ["memory-1"] }).success).toBe(false);
-    expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [create(1), create(2), create(3)], relationshipChanges: [], evidenceMemoryIds: ["memory-1"] }).success).toBe(true);
+    expect(ReflectionOutputSchema.safeParse({ memories: [], concernChanges: [create(1), create(2), create(3)], relationshipChanges: [], evidenceMemoryIds: ["memory-1"] }).success).toBe(false);
   });
 
   it("FR-25, FR-44: rejects upsert of an unknown existing Concern", async () => {
