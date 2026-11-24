@@ -413,7 +413,7 @@ const NewConcernSchema = z.object({
 }).strict();
 const ProposedRelationshipSchema = RelationshipSchema.extend({ description: AgentStateDescription });
 export const ConcernChangeSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("create").describe("Reflectionで新しいConcernを作成する"), concern: NewConcernSchema.describe("作成するConcern。IDはRuntimeが付与する") }),
+  z.object({ operation: z.literal("create").describe("通常Eventで新しい独立Concernを作成する"), concern: NewConcernSchema.describe("作成するConcern。IDはRuntimeが付与する") }),
   z.object({ operation: z.literal("upsert").describe("Concernを追加または更新する"), concern: ProposedConcernSchema.describe("追加または更新するConcernの完全な値") }),
   z.object({ operation: z.literal("remove").describe("Concernを削除する"), id: Id.describe("削除するConcernのID") })
 ]).describe("次のEventにも残すConcernの変更。変更不要なら出力しない");

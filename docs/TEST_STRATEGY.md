@@ -145,7 +145,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-23 | Unit, System, Evaluation | `tests/unit/agent-state-patch.test.ts`, `tests/unit/domain-contracts.test.ts`, `tests/system/invalid-output.test.ts` | Patch 対象の限定 |
 | FR-24 | Unit, Integration, System | `tests/unit/agent-state-patch.test.ts`, `tests/integration/persistence.test.ts`, `tests/unit/scheduler.test.ts`, `tests/system/tool-loop.test.ts` | Concern 更新と schedule 同期 |
 | FR-25 | Unit, Integration, System | `tests/unit/agent-prompts.test.ts`, `tests/unit/scheduler.test.ts`, `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | Concern ライフサイクルと状態遷移 |
-| FR-44 | Unit, Integration, System | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts` | Reflection の新規Concern作成、根拠、上限、空一覧で非作成 |
+| FR-44 | Unit, Integration, System | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts` | Reflection が既存Concernだけを整理し、新規作成・派生を拒否すること |
 | FR-26 | Unit, System | `tests/unit/scheduler.test.ts`, `tests/unit/agent-prompts.test.ts`, `tests/system/self-drive-autonomy.test.ts` | idle 探索モード |
 | FR-27 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/self-drive-autonomy.test.ts` | 具体対象への着地 |
 | FR-28 | Unit | `tests/unit/config-lifecycle.test.ts`, `tests/unit/scheduler.test.ts` | カタログ件数・重複・抽出 |

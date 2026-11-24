@@ -213,14 +213,13 @@ describe("structured Reflection model", () => {
     });
   });
 
-  it("FR-25, FR-44: converts a create Concern and defaults it to active", async () => {
-    const result = await new StructuredReflectionModel({ invoke: () => Promise.resolve({ structuredResponse: {
+  it("FR-25, FR-44: rejects a create Concern from the legacy combined Reflection path", async () => {
+    await expect(new StructuredReflectionModel({ invoke: () => Promise.resolve({ structuredResponse: {
       memories: [],
       concernChanges: [{ operation: "create", description: "新しい設計意図を確かめる", whyItMatters: "探索役としての役割に関わる" }],
       relationshipChanges: [],
       evidenceMemoryIds: ["memory-1"]
-    } }) }).reflect(input, new AbortController().signal);
-    expect(result.concernChanges).toEqual([{ operation: "create", concern: { description: "新しい設計意図を確かめる", whyItMatters: "探索役としての役割に関わる", status: "active" } }]);
+    } }) }).reflect(input, new AbortController().signal)).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("FR-42: fails without a valid commit value after the configured repair", async () => {
@@ -275,7 +274,7 @@ describe("structured Reflection model", () => {
     expect(properties.selfDisposition?.description).toContain("意味づけの傾向");
     expect(properties.evidenceMemoryIds?.description).toContain("Runtimeが検証");
     expect(reflectionSystemPrompt).toContain("空のmaintenance結果は正しい");
-    expect(reflectionSystemPrompt).toContain("新しいConcern");
+    expect(reflectionSystemPrompt).toContain("新規Concernの作成");
     expect(reflectionSystemPrompt).toContain("入力Eventを網羅的に要約しない");
   });
 

@@ -80,6 +80,7 @@ describe("domain contracts", () => {
     expect(ConcernProposalSchema.safeParse({ operation: "derive", description: "関心", whyItMatters: "理由", derivationReason: "新しい経験が別の関心を生んだ" }).success).toBe(true);
     expect(ConcernProposalSchema.safeParse({ operation: "create", description: "関心", whyItMatters: "理由", derivationReason: "不要" }).success).toBe(false);
     expect(ConcernChangeSchema.safeParse({ operation: "create", concern: { description: "d".repeat(401), whyItMatters: "理由", status: "active" } }).success).toBe(false);
+    expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "create", description: "新しい関心", whyItMatters: "理由" }] }).success).toBe(false);
     expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "upsert", currentDescription: legacy.description, description: "d".repeat(401), whyItMatters: "理由", status: "active" }] }).success).toBe(false);
     expect(ConcernReflectorOutputSchema.safeParse({ concernChanges: [{ operation: "upsert", currentDescription: legacy.description, description: "関心", whyItMatters: "理由", status: "active" }] }).success).toBe(true);
   });

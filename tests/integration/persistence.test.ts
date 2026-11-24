@@ -744,17 +744,17 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id='experience-requeue-event'")).rowCount).toBe(1);
   });
 
-  it("FR-31, FR-41, FR-44: commits Reflection state and Memory atomically and deduplicates retries", async () => {
+  it("FR-31, FR-41, FR-44: commits Reflection organization and Memory atomically without creating a Concern", async () => {
     await setConcerns("a", [{ id: "concern-1", description: "信頼を守る方法を確認する", whyItMatters: "約束を重視している", status: "active" }]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-event','a','user-message',$1,'test','completed',$2)", [{ summary: "約束を果たした" }, fixtureInstant]);
     await recordExperience("reflection-event", "約束を果たした");
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('reflection-evidence','a','episodic','約束を果たした経験','信頼が深まった',now(),'pending') ON CONFLICT DO NOTHING");
-    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reflection-concern", "reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");
-    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "create" as const, concern: { description: "次の約束の進め方を確かめる", whyItMatters: "信頼を続けるため", status: "active" as const } }, { operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: ["reflection-evidence"] };
+    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: ["reflection-evidence"] };
     await expect(repository.commit(input, output)).resolves.toBe("committed");
     await expect(repository.commit(input, output)).resolves.toBe("duplicate");
-    expect(await getConcerns("a")).toMatchObject([{ id: "concern-1" }, { id: "reflection-concern" }]);
+    expect(await getConcerns("a")).toMatchObject([{ id: "concern-1" }]);
     expect((await pool.query<{ relationships: { subjectId: string }[] }>("SELECT relationships FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ relationships: [{ subjectId: "owner" }] });
     expect((await pool.query<{ content: string; importance: string }>("SELECT content,importance FROM memories WHERE id='reflection-memory'")).rows[0]).toEqual({ content: "約束を果たした", importance: "信頼が深まった" });
     expect((await pool.query("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rowCount).toBe(0);
@@ -762,7 +762,6 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ concern_id: string; kind: string; reflection_id: string; evidence_memory_ids: string[] }>("SELECT ca.concern_id,ca.kind,ca.reflection_id,ca.evidence_memory_ids FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id='a' AND ca.reflection_id='reflection-1' ORDER BY ca.concern_id,ca.kind")).rows).toEqual([
       { concern_id: "concern-1", kind: "presented", reflection_id: "reflection-1", evidence_memory_ids: [] },
       { concern_id: "concern-1", kind: "reviewed", reflection_id: "reflection-1", evidence_memory_ids: ["reflection-evidence"] },
-      { concern_id: "reflection-concern", kind: "created", reflection_id: "reflection-1", evidence_memory_ids: ["reflection-evidence"] }
     ]);
   });
 
@@ -872,6 +871,19 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ deleted_at: Date | null }>("SELECT deleted_at FROM concerns WHERE id='concern-removed'")).rows[0]?.deleted_at).toBeInstanceOf(Date);
     await setConcerns("a", []);
     await pool.query("DELETE FROM reflection_runs WHERE id='reflection-lifecycle'");
+  });
+
+  it("FR-44: rejects a Concern Reflector create before the targeted writer can persist it", async () => {
+    await setConcerns("a", [{ id: "existing-concern", description: "既存Concern", whyItMatters: "まだ確かめたい", status: "active" }]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('reflection-no-create-event','a','internal',$1,'test','completed',now())", [{ summary: "既存Concernを整理する" }]);
+    await recordExperience("reflection-no-create-event", "既存Concernを整理する");
+    const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["forbidden-concern"]), () => new Date("2026-01-02T00:00:00Z"));
+    const input = await repository.load("reflection-no-create", "a");
+    if (input === undefined) throw new Error("Reflection input was not created");
+    await repository.beginTarget(input, "concern");
+    await expect(repository.commitTarget(input, "concern", { output: { concernChanges: [{ operation: "create", description: "新規Concern", whyItMatters: "Reflectionでは作らない" }] }, toolExecutions: [] })).rejects.toThrow();
+    expect(await getConcerns("a")).toEqual([expect.objectContaining({ id: "existing-concern" })]);
+    expect((await pool.query("SELECT id FROM concerns WHERE id='forbidden-concern'")).rowCount).toBe(0);
   });
 
   it("FR-25, NFR-7: closes only stale, repeatedly presented Concerns at Reflection completion", async () => {
