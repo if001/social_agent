@@ -80,14 +80,19 @@ export const ConcernProposalSchema = z.object({
   operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern。createはconcern-formationまたはidle、deriveはconcern-dueでのみ使う"),
   description: CurrentConcernDescriptionSchema,
   whyItMatters: CurrentConcernImportanceSchema,
-  sourceConcernId: Id.optional().describe("derive時の派生元Concern ID。createでは指定しない"),
   explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("提案したConcernの探索の向き。deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは既存Focusから離れた具体対象への移動。exploration-domains候補はconcern-formationだけが受け取る"),
   transition: z.literal("fork").optional().describe("deriveは派生元を残して並行追跡するforkだけを許可する")
-}).strict().superRefine((value, context) => {
-  if (value.operation === "derive" && value.sourceConcernId === undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "derive requires sourceConcernId" });
-  if (value.operation === "create" && value.sourceConcernId !== undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "create must not specify sourceConcernId" });
-}).describe("Agent実行中は永続化せず、成功したEvent commit時だけ適用するConcern提案");
+}).strict().describe("Agent実行中は永続化せず、成功したEvent commit時だけ適用するConcern提案。deriveの親はモデルがIDで指定せず、concern-dueの直前focusをRuntimeが結び付ける");
 export type ConcernProposal = z.infer<typeof ConcernProposalSchema>;
+
+/** Runtime-resolved proposal. Parent identifiers are never part of the model contract. */
+export const ResolvedConcernProposalSchema = ConcernProposalSchema.extend({
+  sourceConcernId: Id.optional()
+}).strict().superRefine((value, context) => {
+  if (value.operation === "derive" && value.sourceConcernId === undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "derive requires a Runtime-resolved sourceConcernId" });
+  if (value.operation === "create" && value.sourceConcernId !== undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "create must not have a sourceConcernId" });
+});
+export type ResolvedConcernProposal = z.infer<typeof ResolvedConcernProposalSchema>;
 
 export const RelationshipSchema = z.object({ subjectId: Id.describe("関係する相手を識別するID"), description: CurrentRelationshipDescriptionSchema }).describe("特定の相手との持続的な関係状態");
 export type Relationship = z.infer<typeof RelationshipSchema>;
@@ -562,7 +567,7 @@ export const AgentRunResultSchema = z.object({
   assessment: EventAssessmentSchema.optional(),
   output: AgentCoreOutputSchema,
   toolExecutions: z.array(ToolExecutionRecordSchema),
-  concernProposals: z.array(ConcernProposalSchema).optional(),
+  concernProposals: z.array(ResolvedConcernProposalSchema).optional(),
   budget: z.object({
     limits: RunLimitsSchema.pick({ deadlineMs: true, maxSteps: true, maxToolCalls: true }),
     consumed: z.object({ modelCalls: z.number().int().nonnegative(), toolCalls: z.number().int().nonnegative(), repairs: z.number().int().nonnegative() })

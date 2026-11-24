@@ -16,6 +16,9 @@ export class ToolExecutionCollector {
   skillReadReservedCharacters = 0;
   contentReadLimitReached = false;
   focusConcernAcquired = false;
+  /** Runtime-only parent selected by concern_due_focus; never rendered to the model. */
+  concernDueFocusId: string | undefined;
+  readonly concernDueFocusedIds = new Set<string>();
   readonly executions: ToolExecutionRecord[] = [];
 }
 
@@ -40,7 +43,9 @@ function concernProposalPermission(targetKind: string | undefined, input: Record
   const operation = input.operation;
   if (operation !== "create" && operation !== "derive") return undefined;
   const allowed = operation === "create" ? ["idle", "concern-formation"] : ["concern-due"];
-  return allowed.includes(targetKind) ? undefined : `concern_propose operation '${operation}' is not allowed for ${targetKind}; allowed Event kinds are ${allowed.join(", ")}`;
+  if (!allowed.includes(targetKind)) return `concern_propose operation '${operation}' is not allowed for ${targetKind}; allowed Event kinds are ${allowed.join(", ")}`;
+  if (operation === "derive" && input.sourceConcernId !== undefined) return "derive must not specify a Concern ID; use concern_due_focus first";
+  return undefined;
 }
 
 export type DeepAgentToolRunContext = {
@@ -57,6 +62,7 @@ export type DeepAgentToolRunContext = {
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
   readonly transport?: AgentCoreInput["run"]["transport"];
+  readonly concernDueSignalClaimedAt?: string | undefined;
 };
 
 export const DeepAgentToolRunContextSchema = z.object({
@@ -71,6 +77,7 @@ export const DeepAgentToolRunContextSchema = z.object({
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
   transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
+  , concernDueSignalClaimedAt: z.iso.datetime({ offset: true }).optional()
 });
 
 export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "maxModelCalls" | "maxExplorationModelCalls"> & { readonly maxModelCalls?: number; readonly maxExplorationModelCalls?: number }): DeepAgentToolRunContext {
@@ -111,6 +118,13 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
         logger.log("warn", "tool.completed", { ok: false, errorCode: "CONCERN_OPERATION_NOT_ALLOWED", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
         return JSON.stringify({ ok: false, errorCode: "CONCERN_OPERATION_NOT_ALLOWED", error, requiredNextStep: "Use the Concern operation allowed for this Event, or continue the current Concern without proposing one." });
       }
+      if (rawInput.operation === "derive" && context.eventTargetKind === "concern-due" && context.collector.concernDueFocusId === undefined) {
+        const finishedAt = now().toISOString();
+        const error = "derive requires a preceding concern_due_focus in this Run";
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
+        logger.log("warn", "tool.completed", { ok: false, errorCode: "CONCERN_DUE_FOCUS_REQUIRED", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+        return JSON.stringify({ ok: false, errorCode: "CONCERN_DUE_FOCUS_REQUIRED", error, requiredNextStep: "Call concern_due_focus to inspect one related Concern before deriving a new Concern." });
+      }
     }
     const policy = registry.resultPolicy(name);
     const requestedContentCharacters = policy?.kind === "content-read" ? (typeof rawInput.maxCharacters === "number" ? rawInput.maxCharacters : policy.defaultRequestCharacters) : 0;
@@ -144,9 +158,23 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
     try {
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };
-      const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }) }, context.signal);
+      const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }), ...(context.eventTargetKind === "concern-due" ? { concernDue: { ...(context.concernDueSignalClaimedAt === undefined ? {} : { signalClaimedAt: context.concernDueSignalClaimedAt }), focusedConcernIds: [...context.collector.concernDueFocusedIds] } } : {}) }, context.signal);
       const finishedAt = now().toISOString();
-      if (result.ok) { if (policy?.kind === "content-read") context.collector.contentReadCharacters += contentTextCharacters(result.value); if (name === "concern_get") context.collector.focusConcernAcquired = true; context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(result.value === undefined ? {} : { result: result.value }), startedAt, finishedAt }); }
+      if (result.ok) {
+        if (policy?.kind === "content-read") context.collector.contentReadCharacters += contentTextCharacters(result.value);
+        if (name === "concern_get") context.collector.focusConcernAcquired = true;
+        if (name === "concern_due_focus" && typeof result.value === "object" && result.value !== null && typeof (result.value as Record<string, unknown>).concernId === "string") {
+          const focusId = (result.value as Record<string, unknown>).concernId;
+          if (typeof focusId === "string") {
+            context.collector.concernDueFocusId = focusId;
+            context.collector.concernDueFocusedIds.add(focusId);
+          }
+        }
+        const storedResult = name === "concern_propose" && rawInput.operation === "derive" && context.collector.concernDueFocusId !== undefined && typeof result.value === "object" && result.value !== null
+          ? { ...result.value as Record<string, unknown>, proposal: { ...rawInput, sourceConcernId: context.collector.concernDueFocusId } }
+          : result.value;
+        context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(storedResult === undefined ? {} : { result: storedResult }), startedAt, finishedAt });
+      }
       else context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error: result.error ?? "Tool failed", startedAt, finishedAt });
       logger.log(result.ok ? "info" : "warn", "tool.completed", { ok: result.ok, elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
       return JSON.stringify(result.ok && result.value !== undefined && modelResultProjection !== undefined ? { ...result, value: modelResultProjection(result.value) } : result);

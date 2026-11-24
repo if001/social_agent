@@ -15,7 +15,7 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
   const builtInToolNames = new Set<string>();
   const operationalToolNames = new Set([...registeredToolNames, ...builtInToolNames]);
   const contentReadToolNames = new Set(registry?.registered().filter(({ name }) => registry.resultPolicy(name)?.kind === "content-read").map(({ name }) => name) ?? []);
-  const userMessageHiddenToolNames = new Set(["concern_list", "concern_get", "concern_propose"]);
+  const userMessageHiddenToolNames = new Set(["concern_list", "concern_get", "concern_due_focus", "concern_propose"]);
   return createMiddleware({
     name: "AgentCoreRuntimeMiddleware",
     contextSchema: DeepAgentToolRunContextSchema,
@@ -42,6 +42,7 @@ export function createAgentCoreMiddleware(registry: ToolRegistry | undefined, ba
         if (name === "read_file") return false;
         if (name === undefined) return true;
         if (!registeredToolNames.has(name)) return allowUnregisteredTools;
+        if (name === "concern_due_focus" && context.eventTargetKind !== "concern-due") return false;
         if ((context.eventKind === "message-received" || context.eventKind === "user-message") && userMessageHiddenToolNames.has(name)) return false;
         if (context.collector.focusConcernAcquired && ["concern_list", "concern_get"].includes(name)) return false;
         return true;

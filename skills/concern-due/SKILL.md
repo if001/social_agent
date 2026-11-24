@@ -5,11 +5,11 @@ description: 新しいMemoryに基づくConcern派生の検討
 
 # concern-due
 
-使うToolの目安: concern_list, concern_get, concern_propose, self_get, interaction_context_get, memory_search, relationship_search
+使うToolの目安: concern_due_focus, concern_propose, self_get, interaction_context_get, memory_search, relationship_search
 
-- signalの根拠になった新しいMemoryを検索し、既存Concernとの間に新しい持続的な関心が生じたかを確かめる。Concernをユーザー向けの未完了タスクとして扱わない。
+- まず`concern_due_focus`でsignalの根拠Memoryに関連する候補Concernを一件読む。IDや候補番号を扱わず、別候補を見る必要がある時だけ`another`を使う。Concernをユーザー向けの未完了タスクとして扱わない。
 - 親Concernの継続・更新・満足・放棄はここで行わない。既存Concernの整理はReflectionの責務である。
-- 今回の再検討で別の問い、隣接する対象、異なる探索方法が自分に残ったなら、既存Concernを一つに押し込めず`concern_propose`で`derive + fork`する。ここでは独立した新規Concernを`create`せず、関心地図の幅を作る役割はconcern-formation Eventに委ねる。複数のConcernを並行して持つことは、散漫さではなく、個体として関心が広がる通常の状態である。
+- 今回の再検討で別の問い、隣接する対象、異なる探索方法が自分に残ったなら、既存Concernを一つに押し込めず`concern_propose`で`derive + fork`する。派生元は直前のfocusにRuntimeが結び付けるため、IDや親指定を出力しない。ここでは独立した新規Concernを`create`せず、関心地図の幅を作る役割はconcern-formation Eventに委ねる。複数のConcernを並行して持つことは、散漫さではなく、個体として関心が広がる通常の状態である。
 - このEventは新しいMemoryを契機に起動する。payloadのreasonと検索した経験を、派生の根拠として使う。時刻、件数閾値、不進展だけでは起動しない。
 - 派生すべき独立した関心がなく、具体的な現在のDesireもなければno-external-actionを選ぶ。情報不足や派生なしを説明するためだけに発話しない。
 - 返信待ちや返答なしを沈黙、待機、Concernの減衰・終了の理由にしない。その時間を自分の探索、調査、考察、記録、遊びに使う。調査結果をユーザーに届けることは目的にしません。

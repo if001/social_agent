@@ -54,7 +54,7 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
   });
 
   it("FR-33, AC-5, FR-35, FR-39: limits user-message Tools to self_get and hides Concern Tools", async () => {
-    const definitions = ["concern_list", "concern_get", "concern_propose", "interaction_context_get", "memory_search", "relationship_search", "self_get", "web_page"].map((name) => ({ name, description: name, schema: z.object({}), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true as const }) }));
+    const definitions = ["concern_list", "concern_get", "concern_due_focus", "concern_propose", "interaction_context_get", "memory_search", "relationship_search", "self_get", "web_page"].map((name) => ({ name, description: name, schema: z.object({}), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true as const }) }));
     const registry = new ToolRegistry(definitions);
     const middleware = createAgentCoreMiddleware(registry, noopLogger, () => new Date(fixtureInstant)) as unknown as { wrapModelCall(request: { tools: { name: string }[]; messages: { type: string; content: string }[]; systemMessage: { content: string }; runtime: { context: ReturnType<typeof context> } }, handler: (request: { tools: { name: string }[] }) => Promise<unknown>): Promise<unknown> };
     const userContext = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "user-run", eventId: "user-event", eventKind: "user-message", maxToolCalls: 10, signal: new AbortController().signal });
@@ -67,6 +67,9 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     autonomous.collector.focusConcernAcquired = true;
     await middleware.wrapModelCall({ tools: definitions.map(({ name }) => ({ name })), messages: [], systemMessage: { content: "system" }, runtime: { context: autonomous } }, (request) => { visible = request.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
     expect(visible).not.toContain("concern_list"); expect(visible).not.toContain("concern_get"); expect(visible).toContain("self_get");
+    const due = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-run", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", maxToolCalls: 10, signal: new AbortController().signal });
+    await middleware.wrapModelCall({ tools: definitions.map(({ name }) => ({ name })), messages: [], systemMessage: { content: "system" }, runtime: { context: due } }, (request) => { visible = request.tools.map(({ name }) => name); return Promise.resolve({ content: "done" }); });
+    expect(visible).toContain("concern_due_focus");
   });
 
   it("FR-12, FR-13: reserves two Tool-free calls for structured output after exploration", async () => {
@@ -183,6 +186,51 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
     const due = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-route", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", maxToolCalls: 2, signal: new AbortController().signal });
     await expect(propose?.invoke({ operation: "create", description: "別の関心" }, { context: due })).resolves.toContain('"errorCode":"CONCERN_OPERATION_NOT_ALLOWED"');
     expect(dispatched).toBe(0);
+  });
+
+  it("FR-69: binds a concern-due derive to the Runtime focus without exposing a parent ID to the Tool input", async () => {
+    const registry = new ToolRegistry([
+      { name: "concern_due_focus", description: "focus", schema: z.object({ mode: z.enum(["initial", "another"]).default("initial") }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { concernId: "parent", concern: { description: "記憶の変質", whyItMatters: "気になる" } } }) },
+      { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
+    ]);
+    const [focus, propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    const context = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-focus", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", concernDueSignalClaimedAt: fixtureInstant, maxToolCalls: 4, signal: new AbortController().signal });
+    await focus?.invoke({ mode: "initial" }, { context });
+    await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい" }, { context });
+    expect(context.collector.executions.at(-1)?.input).not.toHaveProperty("sourceConcernId");
+    expect(context.collector.executions.at(-1)?.result).toMatchObject({ proposal: { operation: "derive", sourceConcernId: "parent" } });
+  });
+
+  it("FR-69: rejects a concern-due derive until the Runtime has focused a Concern", async () => {
+    let dispatched = 0;
+    const registry = new ToolRegistry([{ name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string() }).strict(), resultPolicy: { kind: "standard" }, execute: () => { dispatched += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
+    const [propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+    const context = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-no-focus", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", maxToolCalls: 2, signal: new AbortController().signal });
+    await expect(propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい" }, { context })).resolves.toContain('"errorCode":"CONCERN_DUE_FOCUS_REQUIRED"');
+    expect(dispatched).toBe(0);
+    expect(context.collector.executions.at(-1)).toMatchObject({ ok: false, error: "derive requires a preceding concern_due_focus in this Run" });
+  });
+
+  it("FR-69: carries the Runtime-resolved parent into the committed proposal", async () => {
+    const registry = new ToolRegistry([
+      { name: "concern_due_focus", description: "focus", schema: z.object({}).strict(), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { concernId: "parent", concern: { description: "記憶の変質", whyItMatters: "気になる" } } }) },
+      { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
+    ]);
+    const invoker: DeepAgentInvoker = { invoke: async (_input, options) => {
+      const context = createDeepAgentToolRunContext(options);
+      const [focus, propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
+      await focus?.invoke({}, { context });
+      await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい" }, { context });
+      return { structuredResponse: finalOutput, toolExecutions: context.collector.executions };
+    } };
+    const input = agentCoreInputFixture();
+    input.observation = { eventId: input.run.eventId, summary: "新しい経験", facts: [], observedAt: fixtureInstant, content: { targetKind: "concern-due", signalClaimedAt: fixtureInstant } };
+    input.availableTools = [
+      { name: "concern_due_focus", description: "focus", inputSchema: {} },
+      { name: "concern_propose", description: "propose", inputSchema: {} }
+    ];
+    const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["concern_due_focus", "concern_propose"]) }).run(input, new AbortController().signal);
+    expect(result.concernProposals).toEqual([expect.objectContaining({ operation: "derive", sourceConcernId: "parent", description: "別の検証方法" })]);
   });
 
   it("FR-4, FR-39: can choose a Tool on autonomy review from Self, Concern, and Memory", async () => {

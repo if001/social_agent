@@ -24,6 +24,7 @@ import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { BotHost } from "../../src/bootstrap/bot-host.js";
 import { ProcessLifecycle } from "../../src/bootstrap/lifecycle.js";
 import { PostgresMemoryEmbeddingLifecycle } from "../../src/infrastructure/persistence/postgres-memory-embedding.js";
+import { PostgresConcernEmbeddingLifecycle } from "../../src/infrastructure/persistence/postgres-concern-embedding.js";
 import { PostgresWebArchive } from "../../src/infrastructure/persistence/postgres-web-archive.js";
 import { createWebTools } from "../../src/infrastructure/tools/web-tools.js";
 import { createScheduledTaskTools } from "../../src/infrastructure/tools/scheduled-task-tools.js";
@@ -259,6 +260,18 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(lifecycle.backfill({ agentId: "embedding-b" })).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
   });
 
+  it("FR-69, NFR-1: embeds active Concerns and backfills only the owning Agent's pending retrieval index", async () => {
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('concern-embedding-a','family','Concern embedding A','Calm'),('concern-embedding-b','family','Concern embedding B','Calm')");
+    await pool.query("INSERT INTO concerns(id,agent_id,description,why_it_matters,status,embedding_status) VALUES ('concern-embedding-a','concern-embedding-a','変質の条件を調べる','比較したい','active','pending'),('concern-embedding-b','concern-embedding-b','別の関心','比較したい','active','pending')");
+    const vector = Array.from({ length: 768 }, (_, index) => index === 0 ? 1 : 0);
+    const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(createRuntimeDatabase(pool), new FakeEmbeddingProvider({ "変質の条件を調べる\n比較したい": vector, "別の関心\n比較したい": vector }), "fake-embed");
+    const lifecycle = new PostgresConcernEmbeddingLifecycle(createRuntimeDatabase(pool), memoryEmbedding);
+    await expect(lifecycle.embedConcernIds("concern-embedding-a", ["concern-embedding-a", "concern-embedding-b"])).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
+    expect((await pool.query<{ embedding_status: string; embedding_model: string; embedding_dimension: number }>("SELECT embedding_status,embedding_model,embedding_dimension FROM concerns WHERE id='concern-embedding-a'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "fake-embed", embedding_dimension: 768 });
+    expect((await pool.query<{ embedding_status: string }>("SELECT embedding_status FROM concerns WHERE id='concern-embedding-b'")).rows[0]?.embedding_status).toBe("pending");
+    await expect(lifecycle.backfill({ agentId: "concern-embedding-b" })).resolves.toEqual({ attempted: 1, ready: 1, failed: 0 });
+  });
+
   it("FR-37: archives fetched pages as shared files and supports cross-Bot search and bounded reads", async () => {
     const markdown = "# Vector indexes\n\nHNSW provides fast approximate search."; const changed = `${markdown}\n\nIVFFlat requires training.`;
     const summary = "HNSWによる高速な近似ベクトル検索を説明する記事。"; const changedSummary = "HNSWと、学習を必要とするIVFFlatを比較する記事。";
@@ -337,7 +350,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(JSON.stringify(input.recentExperiences)).not.toContain("raw input must not enter recent experiences".repeat(5));
     expect(input.runtimeConstraints.every((value) => value.length > 0)).toBe(true);
     expect(input.runtimeConstraints.join(" ")).not.toContain("Curious");
-    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_propose", "interaction_context_get", "memory_search", "event_search", "event_tool_results_get", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
+    expect(input.availableTools.map(({ name }) => name)).toEqual(["retrieval_search", "concern_list", "concern_get", "concern_history", "concern_due_focus", "concern_propose", "interaction_context_get", "memory_search", "event_search", "event_tool_results_get", "relationship_search", "self_get", "web_list", "web_page", "file_read"]);
     await pool.query("UPDATE agent_states SET relationships=$1::jsonb WHERE agent_id='a'", [JSON.stringify([{ subjectId: "user-main", description: "Trusted" }])]);
     await pool.query("UPDATE memory_subjects SET subject_id='user-main' WHERE memory_id='memory-a1' AND subject_id='owner'");
     const toolContext = { agentId: "a", runId: "context-run", eventId: "context-event", idempotencyKey: "context-tool" };

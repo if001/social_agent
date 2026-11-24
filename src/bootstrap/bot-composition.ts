@@ -98,7 +98,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     limits, logger,
     ...(config.persona === undefined ? {} : { persona: config.persona })
   });
-  const persistence = new PostgresRuntimePersistence(database, (event) => contextLoader.load(event), ids, () => clock.now(), config.botId, config.runtimeCorrelationTtlMs, config.runtimeRateWindowRetentionMs);
+  const persistence = new PostgresRuntimePersistence(database, (event) => contextLoader.load(event), ids, () => clock.now(), config.botId, config.runtimeCorrelationTtlMs, config.runtimeRateWindowRetentionMs, memoryEmbedding);
   const observationGate = new ObservationGate(new PostgresObservationGateContext(database, retrievalService), createOllamaObservationGateModel(config.chat, logger));
   const conversationRepository = new PostgresConversationRepository(database);
   const harness = new DeepAgentHarness({
