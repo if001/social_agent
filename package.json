@@ -32,6 +32,7 @@
     "db:migrate:test": "node --env-file=.env.db.test ./node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "ops": "tsx src/cli.ts",
     "memory:embed:migrate": "node --env-file=.env --import tsx scripts/backfill-memory-embeddings.ts",
+    "concern:embed:migrate": "node --env-file=.env --import tsx scripts/backfill-concern-embeddings.ts",
     "memory:evidence:normalize": "node --env-file=.env --import tsx scripts/normalize-overfull-memory-evidence.ts",
     "event:embed:migrate": "node --env-file=.env --import tsx scripts/backfill-event-projection-embeddings.ts",
     "event:storage:migrate": "node --env-file=.env --import tsx scripts/migrate-normalized-event-storage.ts",

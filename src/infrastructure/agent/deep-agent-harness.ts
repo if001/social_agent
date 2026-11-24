@@ -12,7 +12,7 @@ import { z } from "zod";
 import type { AgentHarness } from "../../application/ports.js";
 import { estimateTokens } from "../../application/context-builder.js";
 import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
-import { AgentCoreOutputSchema, ConcernProposalSchema, DomainError, EventAssessmentSchema, type AgentCoreInput, type AgentRunResult, type ConcernProposal, type EventAssessment, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { AgentCoreOutputSchema, DomainError, EventAssessmentSchema, ResolvedConcernProposalSchema, type AgentCoreInput, type AgentRunResult, type EventAssessment, type ResolvedConcernProposal, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 
 type DeepAgentToolsOption = NonNullable<NonNullable<Parameters<typeof createDeepAgent>[0]>["tools"]>;
@@ -61,11 +61,11 @@ function decisionResult(value: z.infer<typeof AgentCoreDecisionSchema>): { reado
   return { output, ...(assessment === undefined ? {} : { assessment }) };
 }
 
-function concernProposals(executions: readonly ToolExecutionRecord[]): ConcernProposal[] {
+function concernProposals(executions: readonly ToolExecutionRecord[]): ResolvedConcernProposal[] {
   return executions.flatMap((execution) => {
     if (execution.name !== "concern_propose" || !execution.ok) return [];
     const value = typeof execution.result === "object" && execution.result !== null && "proposal" in execution.result ? execution.result.proposal : undefined;
-    const parsed = ConcernProposalSchema.safeParse(value);
+    const parsed = ResolvedConcernProposalSchema.safeParse(value);
     return parsed.success ? [parsed.data] : [];
   });
 }
@@ -90,7 +90,7 @@ export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
 export type { EventAssessment } from "../../domain/contracts.js";
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly maxExplorationModelCalls?: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly maxExplorationModelCalls?: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly concernDueSignalClaimedAt?: string | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
   invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>;
 }
@@ -175,6 +175,11 @@ function eventTargetKind(input: AgentCoreInput): string | undefined {
   return typeof content === "object" && content !== null && "targetKind" in content && typeof content.targetKind === "string" ? content.targetKind : undefined;
 }
 
+function concernDueSignalClaimedAt(input: AgentCoreInput): string | undefined {
+  const content = input.observation.content;
+  return eventTargetKind(input) === "concern-due" && typeof content === "object" && content !== null && "signalClaimedAt" in content && typeof content.signalClaimedAt === "string" ? content.signalClaimedAt : undefined;
+}
+
 export class DeepAgentHarness implements AgentHarness {
   readonly #maxRepairs: number;
   constructor(private readonly options: DeepAgentHarnessOptions) { this.#maxRepairs = options.maxRepairs ?? 0; }
@@ -216,7 +221,7 @@ export class DeepAgentHarness implements AgentHarness {
         const finalizationReserveModelCalls = Math.min(2, remainingModelCalls);
         const exploratoryModelCalls = remainingModelCalls - finalizationReserveModelCalls;
         const recursionLimit = remainingModelCalls * 2 + attemptToolCalls + 6;
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: remainingModelCalls, maxExplorationModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: remainingModelCalls, maxExplorationModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), ...(concernDueSignalClaimedAt(input) === undefined ? {} : { concernDueSignalClaimedAt: concernDueSignalClaimedAt(input) }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
         if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the total model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
         consumedModelCalls += invokedModelCalls;
@@ -248,7 +253,7 @@ export class DeepAgentHarness implements AgentHarness {
             outputSchema: AgentCoreModelOutputJsonSchema
           });
           try {
-            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, maxExplorationModelCalls: 0, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, maxExplorationModelCalls: 0, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), ...(concernDueSignalClaimedAt(input) === undefined ? {} : { concernDueSignalClaimedAt: concernDueSignalClaimedAt(input) }), maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
             const recoveryModelCalls = recovery.modelCalls ?? 1;
             if (recoveryModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Recovery invoker exceeded the reserved final model call", { cause: { modelCalls: recoveryModelCalls, toolExecutions: recovery.toolExecutions ?? [] } });
             consumedModelCalls += recoveryModelCalls;
@@ -332,6 +337,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         eventId: options.eventId,
         eventKind: options.eventKind,
         eventTargetKind: options.eventTargetKind,
+        ...(options.concernDueSignalClaimedAt === undefined ? {} : { concernDueSignalClaimedAt: options.concernDueSignalClaimedAt }),
         maxModelCalls: options.maxModelCalls,
         ...(options.maxExplorationModelCalls === undefined ? {} : { maxExplorationModelCalls: options.maxExplorationModelCalls }),
         maxToolCalls: Math.min(25, options.maxToolCalls),

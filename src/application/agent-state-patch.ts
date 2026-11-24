@@ -1,4 +1,4 @@
-import { DomainError, type ConcernActivityIntent, type ConcernProposal, type CurrentAgentState } from "../domain/contracts.js";
+import { DomainError, type ConcernActivityIntent, type CurrentAgentState, type ResolvedConcernProposal } from "../domain/contracts.js";
 
 export type AgentStatePatchChange = {
   readonly target: "mood" | "concerns" | "relationships";
@@ -20,10 +20,10 @@ export class AgentStatePatchService {
     return { state, changes: [], concernActivities: [] };
   }
 
-  applyConcernProposals(result: AgentStatePatchResult, proposals: readonly ConcernProposal[], eventId: string, nextId: () => string): AgentStatePatchResult {
+  applyConcernProposals(result: AgentStatePatchResult, proposals: readonly ResolvedConcernProposal[], eventId: string, nextId: () => string): AgentStatePatchResult {
     if (proposals.length === 0) return result;
     const before = result.state.concerns;
-    let concerns = [...before];
+    const concerns = [...before];
     const activities: ConcernActivityIntent[] = [];
     for (const proposal of proposals) {
       if (proposal.operation === "derive") {

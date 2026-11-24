@@ -351,6 +351,13 @@
       "when": 1795517454829,
       "tag": "0049_gifted_doctor_doom",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1795527571208,
+      "tag": "0050_burly_newton_destine",
+      "breakpoints": true
     }
   ]
 }

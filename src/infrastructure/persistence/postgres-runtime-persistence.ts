@@ -2,7 +2,7 @@ import { and, asc, eq, lte, lt, sql } from "drizzle-orm";
 import { errorLogContext } from "../../observability/logger.js";
 
 import type { PendingOutput, RuntimeExecutionInput, RuntimePersistence } from "../../application/agent-runtime.js";
-import type { IdGenerator } from "../../application/ports.js";
+import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/ports.js";
 import type { AgentStatePatchResult } from "../../application/agent-state-patch.js";
 import { DomainError, type AgentCoreInput, type AgentRunResult, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { PostgresEventTransaction } from "./event-transaction.js";
@@ -12,6 +12,7 @@ import { messageReceipts, outboxMessages, runtimeCorrelations, runtimeRateWindow
 import type { ObservationGateAudit } from "../../application/observation-gate.js";
 import { observationFromEvent } from "./postgres-agent-context-loader.js";
 import { conversationKey } from "./conversation-key.js";
+import { PostgresConcernEmbeddingLifecycle } from "./postgres-concern-embedding.js";
 
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput | RuntimeExecutionInput>;
 /** The canonical pre-execution Agent Core input used by audit and Integration. */
@@ -31,7 +32,7 @@ function auditObservation(input: AgentCoreInput, event: DomainEvent): unknown {
 
 export class PostgresRuntimePersistence implements RuntimePersistence {
   readonly #transaction: PostgresEventTransaction;
-  constructor(private readonly database: RuntimeDatabase, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly agentId?: string, private readonly correlationTtlMs = 7 * 86_400_000, private readonly rateWindowRetentionMs = 3_600_000) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(database.native), ids, now); }
+  constructor(private readonly database: RuntimeDatabase, private readonly inputLoader: RuntimeInputLoader, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly agentId?: string, private readonly correlationTtlMs = 7 * 86_400_000, private readonly rateWindowRetentionMs = 3_600_000, private readonly concernEmbeddings?: MemoryEmbeddingPreparer) { this.#transaction = new PostgresEventTransaction(new PostgresUnitOfWork(database.native), ids, now); }
 
   async hasReceipt(destination: string, messageId: string): Promise<boolean> {
     return (await this.database.db.select({ messageId: messageReceipts.messageId }).from(messageReceipts).where(and(
@@ -112,6 +113,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       outbox: outgoing
       , ...(conversation === undefined ? {} : { conversation })
     });
+    if (committed === "committed" && this.concernEmbeddings !== undefined) await new PostgresConcernEmbeddingLifecycle(this.database, this.concernEmbeddings).embedConcernIds(event.agentId, update.concernActivities.filter(({ kind }) => kind === "created" || kind === "derived").map(({ concernId }) => concernId));
     return committed;
   }
 

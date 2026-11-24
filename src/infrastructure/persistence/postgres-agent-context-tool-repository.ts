@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 
 import type { EventRetrievalInput, RetrievedEvent, RetrievalInput, RetrievalService } from "../../application/ports.js";
 import type { Observation, RetrievedItem } from "../../domain/contracts.js";
-import type { AgentContextState, AgentContextToolRepository, AgentSelfState, ConcernActivity, EvidenceMemory, ToolExecutionObservation } from "../tools/agent-context-tools.js";
+import type { AgentContextState, AgentContextToolRepository, AgentSelfState, ConcernActivity, ConcernDueFocus, EvidenceMemory, ToolExecutionObservation } from "../tools/agent-context-tools.js";
 import { PostgresRetrievalService } from "./postgres-retrieval-service.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agents, agentRuns, agentStates, concernActivities, concerns, events, memories, toolExecutions } from "./schema.js";
+import { agents, agentRuns, agentStates, concernActivities, concernReevaluationSignalSources, concerns, events, memories, toolExecutions } from "./schema.js";
 import { ConcernRepository } from "./concern-repository.js";
 
 function actor(observation: unknown): Observation["actor"] | undefined {
@@ -118,5 +118,26 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
     }).from(agents).innerJoin(agentStates, eq(agentStates.agentId, agents.id))
       .where(eq(agents.id, agentId)).limit(1))[0];
     return row;
+  }
+
+  async nextConcernDueFocus(agentId: string, signalClaimedAt: string | undefined, excludedConcernIds: readonly string[]): Promise<ConcernDueFocus | undefined> {
+    const claimedAt = signalClaimedAt === undefined ? undefined : new Date(signalClaimedAt);
+    const sources = await this.database.db.select({ id: memories.id, content: memories.content, importance: memories.importance, occurredAt: memories.occurredAt, embedding: memories.embedding, embeddingStatus: memories.embeddingStatus })
+      .from(concernReevaluationSignalSources).innerJoin(memories, eq(memories.id, concernReevaluationSignalSources.sourceId))
+      .where(and(eq(concernReevaluationSignalSources.agentId, agentId), eq(concernReevaluationSignalSources.sourceKind, "memory"), claimedAt === undefined ? undefined : sql`${concernReevaluationSignalSources.createdAt} <= ${claimedAt}`))
+      .orderBy(desc(memories.occurredAt)).limit(8);
+    if (sources.length === 0) return undefined;
+    const active = await this.database.db.select().from(concerns).where(and(eq(concerns.agentId, agentId), eq(concerns.status, "active"), isNull(concerns.deletedAt), excludedConcernIds.length === 0 ? undefined : notInArray(concerns.id, [...excludedConcernIds])));
+    const keywords = sources.flatMap(({ content }) => content.toLocaleLowerCase("ja").split(/[\s、。・,，.()（）「」『』]+/u).filter((word) => word.length >= 2));
+    const cosine = (left: readonly number[] | null, right: readonly number[] | null): number => left === null || right === null || left.length !== right.length || left.length === 0 ? 0 : left.reduce((sum, value, index) => sum + value * (right[index] ?? 0), 0) / Math.sqrt(left.reduce((sum, value) => sum + value * value, 0) * right.reduce((sum, value) => sum + value * value, 0));
+    const sourceEmbedding = sources.find(({ embeddingStatus, embedding }) => embeddingStatus === "ready" && embedding !== null)?.embedding ?? null;
+    const ranked = active.map((concern) => {
+      const text = `${concern.description} ${concern.whyItMatters}`.toLocaleLowerCase("ja");
+      const keywordScore = keywords.reduce((count, word) => count + (text.includes(word) ? 1 : 0), 0);
+      const semanticScore = concern.embeddingStatus === "ready" ? cosine(sourceEmbedding, concern.embedding) : 0;
+      return { concern, score: semanticScore * 10 + keywordScore };
+    }).filter(({ score }) => score > 0).sort((left, right) => right.score - left.score || left.concern.id.localeCompare(right.concern.id));
+    const selected = ranked[0]?.concern;
+    return selected === undefined ? undefined : { concernId: selected.id, description: selected.description, whyItMatters: selected.whyItMatters, sourceMemories: sources.map(({ content, importance, occurredAt }) => ({ content, importance, occurredAt })) };
   }
 }
