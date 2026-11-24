@@ -53,7 +53,7 @@ flowchart TD
 | `message-received` | 人間又はallowlist peerの発話、送信者種別、宛先性、前回の評価・欲求、必要に応じて取得した相手文脈 | directは通常Loop、peer/observedはGateの`engage`時だけ通常Loopへ入り、発話又は`no-external-action`・Experience Integration | 人間・peerとの社会的入力を解釈する |
 | `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 自分が気に掛かる事柄を、自身の興味・感情で進める |
 | `concern-formation` | Self、Memory、Relationship、背景経験、探索候補 | 新しい Concern、または外部 Action なし | 継続して気に掛ける問いを形成する |
-| `concern-due` | 再検討時刻、新しいMemory、既存 Concern | Concern の再評価・派生、発話または拒否 | 継続して気に掛ける対象を外へ表し直す |
+| `concern-due` | 新しい関連Memory又は外部変化、候補の既存 Concern | 派生 Concern、必要時だけ発話、または無発話完了 | 既存Concernから別の持続的関心が分かれたかを見直す |
 | `external-change` | 外部変化、既存 Concern | Concern の再評価・派生、共有する動機があれば発話 | 変化に応じて関心を更新する |
 | `scheduled-task` | 予約内容と時刻 | 通常 Loop の Action / Outbox / 監査 | 約束・予約を実行する |
 | `memory-update` | 決定済みの MemoryIntent と RAG 候補 | Conversation Memory の create / update / no-op | LLM を呼ばず記憶だけを安全に適用する |
@@ -63,14 +63,14 @@ flowchart TD
 
 ### 発話するEvent／しないEvent
 
-`idle`だけが自律発話の契機ではない。`concern-due`は、継続して気に掛けていた対象を再評価した結果として、各Eventで必ず共有channelへ質問・報告・話題提供または拒否を返す。`external-change`も、変化がConcernに影響して共有する理由があれば発話できる。未返信・返答待ち・連投回避は、`idle`と`concern-due`で発話を抑制する理由にしない。
+`idle`は自律発話の契機であり、未返信・返答待ち・連投回避を発話抑制の理由にしない。`concern-due`は、新しい関連経験又は外部変化を受けたConcernの派生検討を行うmaintenanceであり、その結果に現在の具体的Desireが生じた場合だけ発話できる。`external-change`は、変化がConcernに影響して共有する理由があれば発話できる。
 
 | 区分 | Event |
 |---|---|
 | 発話を返せる通常Loop | `message-received`、`idle`、`concern-due`、`external-change`、配送先を持つ`scheduled-task`、`prediction-g3-result` |
 | 発話を返さないmaintenance | `concern-formation`、`memory-update`、`reflection` |
 
-`idle`と`concern-due`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
+`idle`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
 
 `idle`の探索はユーザーへの報告をゴールにしない。Agent自身の知りたい欲、驚き、不満、仮説、遊びから行動し、発話は独り言、途中経過、反論、または自分が知りたい具体的な事実への問いになり得る。退屈や面倒で先送り・中断・脱線してもよいが、完了・予約・確認済みの事実は偽らない。明示的な`scheduled-task`は、自由な探索ではなく約束・役割の実行である。
 
@@ -104,7 +104,7 @@ flowchart LR
 - Session開始時に根拠となるEvent範囲を固定する。Memory Formationは最大16件のEvent Experienceから、今後も再利用すべき経験を形成する。
 - Reconciliationは形成結果・利用履歴・未再検討のMemoryなどから候補を取得し、関連するMemoryを補強・更新・分割・維持する。全Memoryを一括で書き換えない。
 - Memoryの整理後に、根拠Memoryを用いてConcern、Relationship、Self、Moodを順に見直す。Selfは通常Eventでは変更せず、Reflectionだけが更新できる。
-- Concernは作成・統合・具体化・終了を扱える。長く扱われず、再検討でも進展しないConcernはRuntimeが決定論的に`abandoned`へ移す。
+- Concernは既存Concernの統合・具体化・終了を扱う。新規作成・派生は行わない。長く扱われず、Reflectionでも進展しないConcernはRuntimeが決定論的に`abandoned`へ移す。
 - 各対象は独立したstatusと監査を持つ。失敗した対象だけを次回Sessionで再試行し、完了済みのbatchや対象は重複実行しない。Memoryが失敗した場合は後続の長期状態更新を`blocked`にする。
 
 ## 通常会話のフロー

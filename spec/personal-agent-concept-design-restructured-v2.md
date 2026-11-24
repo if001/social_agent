@@ -247,18 +247,16 @@ type Concern = {
   description: string;
   whyItMatters: string;
   status: "active" | "satisfied" | "abandoned";
-  reconsiderAt?: string;
 };
 ```
 
 - `description`: 何を気に掛けているか
 - `whyItMatters`: 現在のSelfにとってなぜ重要か
 - `status`: 継続、満足、放棄
-- `reconsiderAt`: 次に判断できる具体的な時機がある場合だけ設定する
 
 Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`から、今回のDesireを形成する。保存済みConcernが空でも行動を止めない。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`からDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formation、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。既存Concernからの派生はconcern-dueまたはexternal-changeがderiveで行い、ReflectionはMemory根拠のあるConcernを作成・整理できる。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formationであり、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。新しい関連Memory又は外部変化を契機とするconcern-due / external-changeは、既存Concernから別の持続的な関心が分かれた場合だけderive + forkする。Reflectionは既存Concernを統合・具体化・満足・放棄する。各deriveは親Concernと根拠ExperienceをConcern Activityとして残し、親を置換・終了しない。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -626,9 +624,9 @@ Action:
 
 - C-17：自律性は定期実行ではなくRuntime発のEventで起動し、Tool利用と外部発話を独立に判断する。
 
-Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否、非実行通知、または今回は発話しない選択ができる。ただし対話製品として、`idle` と `concern-due` は各Eventで必ず `respond` または `refuse` を配送する。これは未返信や連投回避による抑制を許さず、Agentが継続して外へ現れるための配送方針であり、何を話すかというDesireの選択とは分ける。
+Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否、非実行通知、または今回は発話しない選択ができる。`idle` は対話製品として各Eventで必ず `respond` または `refuse` を配送する。`concern-due` は新しい経験によりConcernの派生可否を見直す内部Eventであり、外部発話を必要としない。未返信や連投回避は、idleの発話やConcernの減衰・終了を正当化しない。
 
-代表的なEvent sourceは、ユーザーまたは他AgentからのMessage、Concernの `reconsiderAt` 到来、一定期間の無活動、外部サービスの変化、ToolやScheduled Taskの結果、定期Reflectionの完了、起動・停止・権限変更などのSystem Eventである。
+代表的なEvent sourceは、ユーザーまたは他AgentからのMessage、一定期間の無活動、新しい関連Memory、外部サービスの変化、ToolやScheduled Taskの結果、定期Reflectionの完了、起動・停止・権限変更などのSystem Eventである。Concernそのものの時刻到来はEvent sourceにしない。
 
 現在のScheduler targetKindは、`idle`、`concern-formation`、`concern-due`、`external-change`、`reflection`、`scheduled-task` である。`reflection` は通常のAction生成ではなく専用のmaintenance処理へ送る。`scheduled-task` はSystem Eventとして通常のAgent Loopへ入れる。
 
