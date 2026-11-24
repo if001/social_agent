@@ -32,7 +32,9 @@ export class AgentStatePatchService {
       }
       const id = nextId();
       concerns.push({ id, description: proposal.description, whyItMatters: proposal.whyItMatters, status: "active" });
-      activities.push({ concernId: id, kind: proposal.operation === "derive" ? "derived" : "created", eventId });
+      activities.push(proposal.operation === "derive"
+        ? { concernId: id, kind: "derived", eventId, sourceConcernId: proposal.sourceConcernId, reason: proposal.derivationReason, evidenceMemoryIds: proposal.evidenceMemoryIds }
+        : { concernId: id, kind: "created", eventId });
     }
     if (concerns.length === before.length && concerns.every((value, index) => value === before[index])) return result;
     return {

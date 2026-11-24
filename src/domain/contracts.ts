@@ -72,25 +72,47 @@ export type ConcernActivityKind = z.infer<typeof ConcernActivityKindSchema>;
 export const ConcernActivityIntentSchema = z.object({
   concernId: Id,
   kind: ConcernActivityKindSchema,
-  eventId: Id
-}).strict();
+  eventId: Id,
+  /** Only a derived Activity records lineage; this is never model supplied. */
+  sourceConcernId: Id.optional(),
+  /** Immutable explanation of why the child forked from its parent. */
+  reason: z.string().trim().min(1).max(800).optional(),
+  evidenceMemoryIds: z.array(Id).min(1).max(8).optional()
+}).strict().superRefine((value, context) => {
+  if (value.kind === "derived") {
+    if (value.sourceConcernId === undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "derived Activity requires a sourceConcernId" });
+    if (value.reason === undefined) context.addIssue({ code: "custom", path: ["reason"], message: "derived Activity requires a reason" });
+    if (value.evidenceMemoryIds === undefined) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "derived Activity requires signal Memory evidence" });
+    return;
+  }
+  if (value.sourceConcernId !== undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "only derived Activity may have a sourceConcernId" });
+  if (value.reason !== undefined) context.addIssue({ code: "custom", path: ["reason"], message: "only derived Activity may have a derivation reason" });
+});
 export type ConcernActivityIntent = z.infer<typeof ConcernActivityIntentSchema>;
 
 export const ConcernProposalSchema = z.object({
   operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern。createはconcern-formationまたはidle、deriveはconcern-dueでのみ使う"),
   description: CurrentConcernDescriptionSchema,
   whyItMatters: CurrentConcernImportanceSchema,
+  derivationReason: z.string().trim().min(1).max(800).optional().describe("derive時だけ、親Concernから別のConcernをforkする理由。子Concernが重要な理由（whyItMatters）や出来事のログではなく、今回の新しい経験が親の関心をなぜ別の持続的関心へ分けるかを短く書く。createでは指定しない"),
   explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("提案したConcernの探索の向き。deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは既存Focusから離れた具体対象への移動。exploration-domains候補はconcern-formationだけが受け取る"),
   transition: z.literal("fork").optional().describe("deriveは派生元を残して並行追跡するforkだけを許可する")
-}).strict().describe("Agent実行中は永続化せず、成功したEvent commit時だけ適用するConcern提案。deriveの親はモデルがIDで指定せず、concern-dueの直前focusをRuntimeが結び付ける");
+}).strict().superRefine((value, context) => {
+  if (value.operation === "derive" && value.derivationReason === undefined) context.addIssue({ code: "custom", path: ["derivationReason"], message: "derive requires a derivationReason" });
+  if (value.operation === "create" && value.derivationReason !== undefined) context.addIssue({ code: "custom", path: ["derivationReason"], message: "create must not have a derivationReason" });
+}).describe("Agent実行中は永続化せず、成功したEvent commit時だけ適用するConcern提案。deriveの親はモデルがIDで指定せず、concern-dueの直前focusをRuntimeが結び付ける");
 export type ConcernProposal = z.infer<typeof ConcernProposalSchema>;
 
 /** Runtime-resolved proposal. Parent identifiers are never part of the model contract. */
 export const ResolvedConcernProposalSchema = ConcernProposalSchema.extend({
-  sourceConcernId: Id.optional()
+  sourceConcernId: Id.optional(),
+  /** Runtime-only signal Memory IDs; never exposed to the model. */
+  evidenceMemoryIds: z.array(Id).min(1).max(8).optional()
 }).strict().superRefine((value, context) => {
   if (value.operation === "derive" && value.sourceConcernId === undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "derive requires a Runtime-resolved sourceConcernId" });
+  if (value.operation === "derive" && value.evidenceMemoryIds === undefined) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "derive requires Runtime-resolved signal Memory evidence" });
   if (value.operation === "create" && value.sourceConcernId !== undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "create must not have a sourceConcernId" });
+  if (value.operation === "create" && value.evidenceMemoryIds !== undefined) context.addIssue({ code: "custom", path: ["evidenceMemoryIds"], message: "create must not have Runtime-resolved signal Memory evidence" });
 });
 export type ResolvedConcernProposal = z.infer<typeof ResolvedConcernProposalSchema>;
 

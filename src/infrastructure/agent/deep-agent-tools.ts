@@ -18,6 +18,8 @@ export class ToolExecutionCollector {
   focusConcernAcquired = false;
   /** Runtime-only parent selected by concern_due_focus; never rendered to the model. */
   concernDueFocusId: string | undefined;
+  /** Runtime-only signal evidence selected with the parent Concern. */
+  concernDueEvidenceMemoryIds: readonly string[] | undefined;
   readonly concernDueFocusedIds = new Set<string>();
   readonly executions: ToolExecutionRecord[] = [];
 }
@@ -167,11 +169,15 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
           const focusId = (result.value as Record<string, unknown>).concernId;
           if (typeof focusId === "string") {
             context.collector.concernDueFocusId = focusId;
+            const evidenceMemoryIds = (result.value as Record<string, unknown>).evidenceMemoryIds;
+            context.collector.concernDueEvidenceMemoryIds = Array.isArray(evidenceMemoryIds)
+              ? evidenceMemoryIds.filter((id): id is string => typeof id === "string")
+              : undefined;
             context.collector.concernDueFocusedIds.add(focusId);
           }
         }
         const storedResult = name === "concern_propose" && rawInput.operation === "derive" && context.collector.concernDueFocusId !== undefined && typeof result.value === "object" && result.value !== null
-          ? { ...result.value as Record<string, unknown>, proposal: { ...rawInput, sourceConcernId: context.collector.concernDueFocusId } }
+          ? { ...result.value as Record<string, unknown>, proposal: { ...rawInput, sourceConcernId: context.collector.concernDueFocusId, evidenceMemoryIds: context.collector.concernDueEvidenceMemoryIds } }
           : result.value;
         context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: true, ...(storedResult === undefined ? {} : { result: storedResult }), startedAt, finishedAt });
       }

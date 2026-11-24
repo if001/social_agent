@@ -35,6 +35,7 @@ describe("FR-65, NFR-20, AC-19: structured output descriptions", () => {
       expect(serialized).toContain("一つの持続する関心");
       expect(serialized).toContain("経緯");
       expect(serialized).toContain("実行手順");
+      if (schema === ConcernProposalSchema) expect(serialized).toContain("親Concernから別のConcernをforkする理由");
     }
   });
 

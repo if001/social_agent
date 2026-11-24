@@ -16,7 +16,7 @@ export type CommitEventInput = {
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly inputSnapshot?: unknown; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly { readonly id: string; readonly target: string; readonly operation: string; readonly before: unknown; readonly after: unknown; readonly reason: string; readonly evidenceIds: readonly string[] }[];
-  readonly concernActivities?: readonly { readonly id: string; readonly concernId: string; readonly kind: string; readonly eventId: string; readonly evidenceMemoryIds?: readonly string[] }[];
+  readonly concernActivities?: readonly { readonly id: string; readonly concernId: string; readonly kind: string; readonly eventId: string; readonly sourceConcernId?: string | undefined; readonly reason?: string | undefined; readonly evidenceMemoryIds?: readonly string[] | undefined }[];
   readonly memoryIntents?: readonly MemoryIntent[];
   readonly memorySubjects?: readonly (readonly string[])[];
   readonly memoryCandidates?: readonly MemoryCandidate[];
@@ -53,7 +53,7 @@ export class PostgresEventTransaction {
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
       if (input.changes.length > 0) await client.insert(stateChanges).values(input.changes.map((change) => ({ id: change.id, runId: input.run.id, target: change.target, operation: change.operation, before: change.before, after: change.after, reason: change.reason, evidenceIds: change.evidenceIds })));
-      if ((input.concernActivities?.length ?? 0) > 0) await client.insert(concernActivities).values((input.concernActivities ?? []).map((activity) => ({ id: activity.id, concernId: activity.concernId, kind: activity.kind, eventId: activity.eventId, runId: input.run.id, evidenceMemoryIds: activity.evidenceMemoryIds ?? [], occurredAt: input.event.occurredAt }))).onConflictDoNothing();
+      if ((input.concernActivities?.length ?? 0) > 0) await client.insert(concernActivities).values((input.concernActivities ?? []).map((activity) => ({ id: activity.id, concernId: activity.concernId, kind: activity.kind, sourceConcernId: activity.sourceConcernId ?? null, reason: activity.reason ?? null, eventId: activity.eventId, runId: input.run.id, evidenceMemoryIds: activity.evidenceMemoryIds ?? [], occurredAt: input.event.occurredAt }))).onConflictDoNothing();
       for (const [index, intent] of (input.memoryIntents ?? []).entries()) {
         if (this.ids === undefined || this.now === undefined) throw new Error("MemoryWriteService requires ids and now");
         const options: MemoryWriteOptions = { subjectIds: input.memorySubjects?.[index] ?? [], sourceEventId: input.event.id, sourceRunId: input.run.id, sourceKind: "agent-run", sourceId: input.run.id, intentIndex: index, ...(input.memoryCandidates === undefined ? {} : { candidates: input.memoryCandidates }), ...(input.memoryEmbeddings?.[index] === undefined ? {} : { embedding: input.memoryEmbeddings[index] }) };

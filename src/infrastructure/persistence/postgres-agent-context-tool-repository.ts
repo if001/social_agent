@@ -60,6 +60,7 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
     )).orderBy(desc(concernActivities.occurredAt), desc(concernActivities.id)).limit(limit)).map(({ activity: row }) => ({
       id: row.id, kind: row.kind, occurredAt: row.occurredAt,
       eventId: row.eventId, runId: row.runId, reflectionId: row.reflectionId,
+      sourceConcernId: row.sourceConcernId, reason: row.reason,
       evidenceMemoryIds: row.evidenceMemoryIds
     }));
   }
@@ -138,6 +139,6 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
       return { concern, score: semanticScore * 10 + keywordScore };
     }).filter(({ score }) => score > 0).sort((left, right) => right.score - left.score || left.concern.id.localeCompare(right.concern.id));
     const selected = ranked[0]?.concern;
-    return selected === undefined ? undefined : { concernId: selected.id, description: selected.description, whyItMatters: selected.whyItMatters, sourceMemories: sources.map(({ content, importance, occurredAt }) => ({ content, importance, occurredAt })) };
+    return selected === undefined ? undefined : { concernId: selected.id, description: selected.description, whyItMatters: selected.whyItMatters, sourceMemories: sources.map(({ id, content, importance, occurredAt }) => ({ id, content, importance, occurredAt })) };
   }
 }
