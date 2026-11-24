@@ -280,13 +280,14 @@ G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`p
 
 ## 自律性とScheduled Task
 
-自律性は常時思考loopではなくEvent sourceで実現する。Idle、Concern形成、期限を迎えたConcern、外部変化、Scheduled TaskがEventを発生させ、通常と同じAgent Loopへ入る。ReflectionだけはAction生成ではなく経験統合の保守Eventとして専用処理へ送られる。
+自律性は常時思考loopではなくEvent sourceで実現する。Idle、Concern形成、新しい関連Memory、外部変化、Scheduled TaskがEventを発生させる。Concernそのものの期限はEventを発生させない。ReflectionだけはAction生成ではなく経験統合の保守Eventとして専用処理へ送られる。
 
 ```mermaid
 flowchart TD
     SCH[Scheduler] --> I[idle]
     SCH --> CF[concern-formation]
-    SCH --> CD[concern-due]
+    MEM[新しい関連Memory] --> CD[concern-due]
+    EXT[外部変化] --> CD
     SCH --> EC[external-change]
     SCH --> RF[reflection]
     SCH --> TASK[scheduled-task]
@@ -316,8 +317,8 @@ Concernを作る経路と、既存Concernを進める経路を混同しない。
 |---|---|---|
 | `concern-formation` | `create` | Self、Memory、Relationship、Background Experienceから独立Concernを作る。探索領域カタログも、関心の幅を作る独立した生成根拠として使える。 |
 | `idle` | 既存Concernの消化、例外的な`create` | active Concernを自分の興味・感情で進め、独り言・仮説・問いなどとして発話する。行動中に強く残った独立Concernだけをcreateできる。探索領域カタログは受け取らない。 |
-| `concern-due` / `external-change` | `derive` | 既存Concernを再評価し、別の問い・対象・方法が残った場合だけ派生Concernをforkする。 |
-| `reflection` | `create`、整理 | 複数経験を統合し、Memory根拠のあるConcernを作成・統合・終了する。 |
+| `concern-due` / `external-change` | `derive` | 新しい関連Memory又は外部変化を契機に、既存Concernから別の問い・対象・方法という持続的関心が分かれた場合だけ派生Concernをforkする。親は置換・終了しない。 |
+| `reflection` | 整理 | 複数経験を統合し、既存Concernを統合・具体化・満足・放棄する。新規Concernは作成しない。 |
 
 `create`と`derive`の許可はpromptだけに委ねず、Eventの`targetKind`ごとにRuntimeが検証する。Concern数や一律の経過時間だけで、作成・終了・置換はしない。
 
@@ -332,12 +333,11 @@ stateDiagram-v2
     abandoned --> [*]: ReflectionまたはPatchで整理
 ```
 
-Concernの寿命と飽和は、新しい数値counterをモデルへ出力させず、既存の`status`、任意の`reconsiderAt`、Recent Experiencesの`progressChanged`から判断する。
+Concernの寿命と飽和は、新しい数値counterをモデルへ出力させず、既存の`status`、Concern Activity、Recent Experiencesの`progressChanged`から判断する。
 
 - `active`: 次のEventでも判断に影響し、まだ具体的に進められる。
 - `satisfied`: 現在の知識に応じた当面の満足点へ到達した。
 - `abandoned`: 現在のSelfにとっての価値、または進展可能性を失った。
-- `reconsiderAt`: 次に判断できる具体的な時機がある場合だけ設定する。単なる延命には使わない。
 - 同じConcernへの進展のない試行が反復した場合、同じ内容のまま更新しない。問い・対象・方法を変えるか、満足・放棄・削除で閉じる。
 
 ```mermaid
@@ -349,14 +349,13 @@ flowchart LR
     ACT --> CURRENT[Concern current State]
     CURRENT --> STALE{stale候補}
     ACT --> STALE
-    DUE[future reconsiderAt] -. 除外 .-> STALE
     REVIEW[同一Sessionのreview / focus / progress / derive / status change] -. 除外 .-> STALE
     STALE -->|対象だけ| CLOSE[Runtime deterministic close]
     CLOSE --> ABANDONED[status: abandoned]
     CLOSE --> ACT
 ```
 
-stale closeはActivityが示す十分な再検討機会と、当該Sessionでの未処理の両方を満たす場合だけ行う。future `reconsiderAt`、明示的review、ユーザーの未返信はclose根拠にしない。
+stale closeはActivityが示す十分な再検討機会と、当該Sessionでの未処理の両方を満たす場合だけ行う。明示的review、ユーザーの未返信はclose根拠にしない。
 
 ## 経験と個体化
 

@@ -51,12 +51,12 @@ Agentを便利なAssistantではなく、ユーザーとは別の価値傾向・
 
 ## 自律Eventの完了条件
 
-- 自律Eventの成功runは、具体的なTool、送信、記録、予約、または`notify-no-execution`を持つ。
-- 何も実行しない判断は`notify-no-execution`としてユーザーへ配送する。
-- Actionも通知もない成功runを型、Runtime、testで禁止する。
-- `no-external-action`は各Eventの発話契約が許す場合に、Actionを配送せず完了する。内部Eventと会話目的が満たされた`peer/direct` Eventで明示的に使い、idleでは選択せず、外部へ観測可能な結果が必要な自律Eventでは`notify-no-execution`を使う。
+- 自律発話Eventの成功runは、具体的なTool、送信、記録、予約、または`notify-no-execution`を持つ。
+- 発話を目的としないmaintenance Eventは、根拠取得・派生proposal・状態更新を監査した`no-external-action`で成功できる。何も実行しない判断を外部へ通知するのは、外部へ観測可能な結果が必要なEventだけとする。
+- 発話必須Eventが、Actionも通知もない成功runで完了する経路を型、Runtime、testで禁止する。
+- `no-external-action`は各Eventの発話契約が許す場合に、Actionを配送せず完了する。内部Event、`concern-due`、会話目的が満たされた`peer/direct` Eventで明示的に使い、idleでは選択しない。
 - 通知先を解決できない自律Eventは成功扱いにせず、再試行・運用通知の対象にする。
-- `idle`、`concern-formation`、`concern-due`、`external-change`は別Event sourceでよいが、同じAgent CoreとAction契約を通る。
+- `idle`、`concern-formation`、`external-change`は別Event sourceでよいが、同じAgent CoreとAction契約を通る。`concern-due`は同じSelf・Memory・Relationship・Concernの判断材料を用いるが、派生検討に限定したmaintenance loopとする。
 - 明示的Scheduled Taskは自律判断と区別し、System Eventとして実行契約を維持する。
 - `prediction-g3`はG3専用処理でActionを生成しない。`prediction-g3-result`は通常Agent Loopで再判断し、Agent自身に共有する動機がある場合だけ発話する。`no-external-action`を成功として扱う。
 
@@ -81,8 +81,8 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ### 自律性
 
-- 自律Eventを処理したすべての成功runが、具体的Actionまたは`notify-no-execution`を持つ。
-- Actionも通知もない成功経路が存在しない。
+- 発話必須の自律Eventを処理したすべての成功runが、具体的Actionまたは`notify-no-execution`を持つ。
+- 発話必須EventでActionも通知もない成功経路が存在しない。maintenance Eventは監査付き`no-external-action`で完了できる。
 - Concern、Memory、Relationshipの違いによって自律Actionが変わる。
 - 同じ失敗手段を無限に繰り返さない。
 - 通知不能な自律Eventを成功扱いにしない。
@@ -126,7 +126,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 - FR-6：Current Selfはidentity、disposition、selfStory、commitmentsを持つ。selfStoryは現在の自己理解・継続する役割・現在の変化だけを600文字以内で表す。commitmentsは守るもの・続ける関係・譲らないことを各400文字以内、最大12件で表す。出来事の時系列と調査結果はMemory、実行時刻と仕事はScheduled Task、継続的な関心はConcern、今回のDesireは各Self fieldへ残さない。（C-01, C-02, C-05, C-21）
 - FR-7：Current Stateは任意のmood、concerns、relationshipsを持つ。（C-06, C-07, C-09, C-12, C-21）
-- FR-8：Concernは感情、価値、関係、約束、未完了課題、感情的なしこりから生じ、複数Eventにわたって現在も「気に掛けている」関心・動機である。未解決課題や疑問文だけに限らず、任意の再検討時刻を持つ。一件には一つの関心・動機の核だけを保持する。出来事・発見・根拠・会話経緯はMemory / Event Experience、今回だけの行為はDesire、実行日時・詳細手順はScheduled Task、長期に守る原則・役割・約束はCommitment、相手との安定した前提はRelationshipを正本とし、Concern本文へ履歴として複製しない。旧契約で保存されたactive Concernは、IDをLLMへ渡さず一件ずつ`keep | normalize`し、同じ関心の核を現行writer契約へ収束させられる。statusと`reconsiderAt`は変更せず、分割・作成・終了は行わない。（C-06）
+- FR-8：Concernは感情、価値、関係、約束、未完了課題、感情的なしこりから生じ、複数Eventにわたって現在も「気に掛けている」関心・動機である。未解決課題や疑問文だけに限らない。一件には一つの関心・動機の核だけを保持する。出来事・発見・根拠・会話経緯はMemory / Event Experience、今回だけの行為はDesire、実行日時・詳細手順はScheduled Task、長期に守る原則・役割・約束はCommitment、相手との安定した前提はRelationshipを正本とし、Concern本文へ履歴として複製しない。旧契約で保存されたactive Concernは、IDをLLMへ渡さず一件ずつ`keep | normalize`し、同じ関心の核を現行writer契約へ収束させられる。分割・作成・終了は行わない。（C-06）
 - FR-9：FeelingはEvent内の短期反応とし、原則として保存しない。直近のAssessmentを`previousAssessment`として次のEventへ1件渡し、持続する変化だけStateまたはMemoryへ保存する。Moodは、次の複数Eventの意味づけと行動の調子を変えるAgent自身の持続的な感情的構えだけを120文字以内の一文で持つ。出来事、探索テーマ、固有名詞、ユーザー、返答待ち、約束、Concern、行動計画、願望、理由はMoodに保存せず、該当するExperience、Memory、Concern、Relationship、Desireへ分ける。持続する変化がなければMoodを更新しない。（C-07, C-15）
 - FR-10：Memoryはepisodic / semantic / self-related / self-change / common-ground、内容、重要度、時刻、subject、根拠Event / Memoryを保持する。（C-10, C-49）
 - FR-46：共通の社会基盤として、応答優先、相手の開示より1段だけ深い話題、現在の話題・共有文脈・Memoryからの共通点、質問最大1件/0件、機微話題の関係根拠、低圧な非同期、Memoryにない共有体験の不在を守る。個体差はDispositionで表現し、数値パラメータを持たない。（C-01, C-02, C-11, C-12）
@@ -153,15 +153,15 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-21：`no-external-action`は各Eventの発話契約が許す場合に、Actionを配送せず完了する。内部Event、会話目的が満たされた`peer/direct`、認知後も具体的な発話動機がない`peer/observed`で明示的に使い、idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。ユーザーからの返信待ちを理由にしない。（C-17, C-23、更新）
 - FR-22：設定された夜間時間帯はidle Eventを発生させず、次の許可時刻へ再スケジュールする。他のEventや配送は禁止しない。（C-17）
 - FR-23：Patchはmood、Relationship 1件、即時Memory意図に限定する。Concernは`concern_propose`で提案する。（C-24）
-- FR-24：Concernのupsert/removeと`reconsiderAt` scheduleを同期する。（C-06, C-08, C-24）
-- FR-25：Concernは進展、満足点、現在のSelfにとっての価値に基づいて継続・変更・満足・放棄・削除する。Concern Activityで作成、focus、progress、derive、review、status変更を監査し、`CONCERN_STALE_AFTER_MS`（既定30日）と`CONCERN_STALE_MIN_REFLECTION_SESSIONS`（既定2）を満たすstale候補が、当該Sessionでreview / focus / progress / derive / status変更に至らず、future `reconsiderAt`も明示的継続reviewもない場合だけRuntimeが`abandoned`へ移す。ユーザー未返信、Concern件数、一律の時間だけでは終了させない。導入前のConcernはmigration時点をbaselineとし、過去履歴を推測しない。（C-06, C-15）
+- FR-24：Concernのcreate / update / status変更はConcern Activityと同一transactionで確定する。新しいMemory又はexternal-changeによりConcern再評価が必要になった場合、RuntimeはAgentごとに一つの`concern-due` signalへcoalesceし、関連active Concernを候補化する。Concernごとの定期schedule、期限超過の再実行、成功後の自動再予約は持たない。signal失敗時のretryはAgent単位で冪等に行う。（C-06, C-24, NFR-6）
+- FR-25：Concernは進展、満足点、現在のSelfにとっての価値に基づいて継続・変更・満足・放棄・削除する。Concern Activityで作成、focus、progress、derive、review、status変更を監査し、`CONCERN_STALE_AFTER_MS`（既定30日）と`CONCERN_STALE_MIN_REFLECTION_SESSIONS`（既定2）を満たすstale候補が、当該Sessionでreview / focus / progress / derive / status変更に至らず、明示的継続reviewもない場合だけRuntimeが`abandoned`へ移す。ユーザー未返信、Concern件数、一律の時間だけでは終了させない。導入前のConcernはmigration時点をbaselineとし、過去履歴を推測しない。（C-06, C-15）
 - FR-26：`idle` Eventは既存active Concernを1件Focusとして選び、探索・考察・共有を行う。`deepen`、`bridge`、`distant`は`concern_propose`の探索モードであり、永続的なmodeやcursor、固定順の巡回は持たない。（C-11, C-14, C-17）
 - FR-68：`concern-formation`は一定間隔で起動する内部Eventであり、ユーザーへの発話ではなく関心地図の形成を担う。Self、Memory、Background Experience、Relationshipから根拠のある独立Concernをcreateできるほか、`exploration-domains` の候補を用いて既存Concernだけでは生まれにくい異領域のConcernをcreateできる。件数だけを根拠に作らず、createできない場合はno-external-actionで終える。（C-06, C-11, C-14, C-17）
-- FR-69：`concern-due`は具体的な`reconsiderAt`、新しいMemory、又はexternal-changeを契機に既存Concernを再評価する。継続・方法変更・終了に加え、別の問い・対象・方法が残ればderive + forkする。不進展・予測誤差は、起動済みEventでの再評価材料として使う。独立Concernの幅を作る責務は持たない。（C-06, C-14, C-17）
+- FR-69：`concern-due`は、新しい関連Memory又はexternal-changeを契機に、既存Concernから別の問い・対象・方法という持続的な関心が分かれたかを評価する。派生が必要な場合だけderive + forkし、親Concernは置換・終了しない。派生元Concern、根拠Experience、派生理由はConcern Activityとして保存する。既存Concernの統合・満足・放棄はReflectionだけが行う。不進展・予測誤差は、起動済みEventでの再評価材料として使う。独立Concernの幅を作る責務は持たない。（C-06, C-14, C-17）
 - FR-27：`bridge`と`distant`の探索も抽象語だけで完結させず、人物、作品、出来事、技術、場所など検証可能な具体的対象へ着地させる。（C-11, C-17）
 - FR-28：探索領域カタログは`config/exploration-domains.yaml`に重複のない100〜200件を保持する。全件をモデル入力へ入れず、`concern-formation` Eventごとにランダムな最大8件を候補として渡す。永続cursorや固定順の巡回は持たない。（C-11, C-17、追加：カタログ件数と供給方法は実装判断）
-- FR-66：`idle`、`concern-due`の自律発話は、Concern、Self、Memory、Mood、探索結果からAgent自身が扱いたい具体的対象を選ぶ。ユーザーの現在話題・好み・共有文脈は届き方を調整する任意の材料であり、話題選択の前提にしない。唐突な話題転換を許容するが、Desireには対象が現在の個体状態・経験と結び付く理由を含める。（C-01, C-03, C-14, C-17）
-- FR-67：`idle`、`concern-due`では、ユーザーの未返信・返答待ち・連投回避を待機、沈黙、Concernの減衰・終了の根拠にしない。各EventでAgent自身が探索・調査・考察・記録・共有から行動を選び、必ずユーザーへ発話する。複数の独立したactive Concernを並行して持つことを自然な通常状態とする。独立Concernの幅はconcern-formationがcreateし、既存Concernの派生はconcern-due / external-changeがderive + forkする。idleは行動中に強く残った独立Concernだけをcreateでき、件数閾値だけで機械的に作らない。件数を減らすためだけに置換・終了しない。（C-01, C-03, C-06, C-14, C-17）
+- FR-66：`idle`の自律発話は、Concern、Self、Memory、Mood、探索結果からAgent自身が扱いたい具体的対象を選ぶ。ユーザーの現在話題・好み・共有文脈は届き方を調整する任意の材料であり、話題選択の前提にしない。唐突な話題転換を許容するが、Desireには対象が現在の個体状態・経験と結び付く理由を含める。`concern-due`は発話を目的にせず、派生検討の結果に現在の具体的Desireが生じた場合だけ発話でき、それ以外は`no-external-action`で終える。（C-01, C-03, C-14, C-17）
+- FR-67：`idle`では、ユーザーの未返信・返答待ち・連投回避を待機、沈黙、Concernの減衰・終了の根拠にしない。各EventでAgent自身が探索・調査・考察・記録・共有から行動を選び、必ずユーザーへ発話する。複数の独立したactive Concernを並行して持つことを自然な通常状態とする。独立Concernの幅はconcern-formationがcreateし、既存Concernの派生はconcern-due / external-changeがderive + forkする。idleは行動中に強く残った独立Concernだけをcreateでき、件数閾値だけで機械的に作らない。件数を減らすためだけに置換・終了しない。（C-01, C-03, C-06, C-14, C-17）
 - FR-70：`idle`がユーザー自身への関心・質問を扱うときは、既知の予定、試み、関心、未完了の話題と直近の質問を必要な範囲で確認する。Memoryに根拠があり同じ問いの再送でなければ、自律的な探索・共有に加えて最大1件、その人自身について自然に尋ねられる。ユーザー文脈の取得は毎回の話題選択の前提にしない。探索対象とDesireは、会話Memory、Concern、Self、Mood、探索結果、またはBackground Experienceの出来事・Feeling・lessonの少なくとも一つに根拠を持つ。Background Experienceを現在のユーザーとの共有経験として扱わない。（C-01, C-03, C-10, C-14, C-17, C-45）
 
 ## R5. Contextと実行予算
@@ -191,10 +191,10 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-40：明示的Scheduled Taskは主として利用者から明示された将来・定期実行依頼としてConcern、Conversation Goal、Memoryと分離する。Agent自身の予約は、特定時刻の観測、時間差比較、又は明示的に引き受けた将来履行など時刻が本質的な例外に限り、会話の次の一手、実験手順、文言調整、単なる再検討には使わない。`executeAt`は実行日時、`instruction`は期限到来時に実行する1,000文字以内の仕事、`reason`は予約理由、`destination`は明示的な配送先だけを保持する。`instruction`には日時、予約理由、配送先、Toolの使い方、共通動作規則を重複させない。（C-08）
 - NFR-6：Schedulerはclaim / lease / retryを持ち、同一Agentの重複実行を防ぐ。（C-08, C-27）
 - FR-41：Reflectionは通常Action・外部探索・日常的Concern消化を行わず、Memory、Concern、Relationship、Self、Moodを長期統合するmaintenance処理とする。Session開始時に対象Event範囲を固定し、Memory Formation、Memory Reconciliation、Concern / Relationship、Self / Moodの順で対象別Reflectorを実行する。Self / Mood Reflectorは、持続する感情的構えの変化があるときだけFR-9のMoodを出し、今回のEvent、探索、対人状況、待機、計画を要約しない。（C-03, C-25）
-- FR-44：Reflectionは既存Concernの整理・統合・具体化・終了に加え、Memory根拠と`whyItMatters`を伴う新しいConcernを1回1〜3件まで作成できる。新規ConcernのIDはRuntimeが付与し、作成ActivityへReflection Sessionと根拠Memoryを対応付ける。（C-25）
+- FR-44：Reflectionは既存Concernの整理・統合・具体化・終了だけを行う。新規Concernの作成又は派生は行わない。各変更にはReflection Sessionと根拠MemoryをConcern Activityとして対応付ける。（C-25）
 - FR-42：各Reflectorは説明付き構造化出力、厳密なDomain検証、repair、対象別のretry / backoffを持つ。repairは初回と同じ固定入力・対象schema・検証エラーを渡し、通常読み取りToolを無効にする。LLM出力は永続ID・局所参照を含めず、根拠と更新対象はRuntimeが入力範囲と検索結果から解決する。Self / Mood Reflectorは全Self fieldの意味と対象外をdescriptionで示し、完全なSelfとMemory根拠・理由だけを返す。Relationship Reflectorは現在本文と操作だけを返し、Runtimeが本文に一意一致するcanonical human又はpeer Relationshipだけを更新する。読み取りToolで必要な根拠を取得し、連続失敗時は最大24時間まで指数backoffする。（C-25, C-27）
 - FR-45：`idle`の再開間隔はActionに依存せず、`notify-no-execution`の後も通常間隔で再開する。promptはidleでrespondまたはrefuseを必須とし、no-external-actionを禁止する。（C-17）
-- FR-76：発話は`message-received`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`と`concern-due`は発話またはrefuseを必須とする。これは未返信・返答待ち・連投回避を抑制理由にしない配送方針であり、話題とDesireはAgent自身が選ぶ。`peer/direct`とFR-91で`engage`されたpeer/observedは、今回の具体的な問い、判断を変える差分、Concern又は約束の次行為、自発表現が残る時だけ発話し、それ以外は`no-external-action`を選べる。長期協力、礼儀、採用、感謝、同意、言い換えは単独の発話根拠にしない。発話時は独立共有、source返信、明示peer発話を区別する。他の許可EventもAgent自身の動機により発話しないことができる。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、外部へ発話しない。（C-06, C-16, C-17、更新）
+- FR-76：発話は`message-received`、`idle`、`concern-due`、`external-change`、明示的配送先を持つ`scheduled-task`、および`prediction-g3-result`の通常Agent Loopで許可する。`idle`は発話またはrefuseを必須とする。`concern-due`は派生検討の結果に現在の具体的Desireが生じた場合だけ発話でき、派生だけ又はno-opでは`no-external-action`で完了する。これは未返信・返答待ち・連投回避を抑制理由にしない配送方針であり、話題とDesireはAgent自身が選ぶ。`concern-formation`、`memory-update`、`reflection`はmaintenance処理であり、外部へ発話しない。`peer/direct`とFR-91で`engage`されたpeer/observedは、今回の具体的な問い、判断を変える差分、Concern又は約束の次行為、自発表現が残る時だけ発話し、それ以外は`no-external-action`を選べる。長期協力、礼儀、採用、感謝、同意、言い換えは単独の発話根拠にしない。発話時は独立共有、source返信、明示peer発話を区別する。他の許可EventもAgent自身の動機により発話しないことができる。（C-06, C-16, C-17、更新）
 - FR-77：全LLM経路は、永続canonical ID、Discord ID、local handle、局所参照、cursor、その他の永続Recordを指すIDを入力・出力・repair payload・Tool結果へ含めず、自然言語上のviewと候補だけを扱う。Event監査の生actor IDはEvent / Runに残すが、Context Builderがmodel-facing actor viewから除く。自然言語のpeer表示名は候補として扱えるが、Runtimeだけが固定範囲、検索結果、所有権、時刻、種別を用いて根拠と更新対象を解決する。ID付与、検索、更新、永続化を担う。解決できない、曖昧な、又は対象外の候補はcommitしない。（追加：LLMのID幻覚を永続化・参照・更新へ伝播させず、根拠選択を再現可能なRuntimeの責務にするため）
 - FR-82：Experience Integrationは完了済みsource Eventを唯一の直接根拠として、Event固有経験、Memory候補、actorに束縛されたRelationship候補、Mood候補を意味づける。LLMは`content`、`reason`、種別、視点、Relationship本文だけを返し、Runtimeがsource Event、解決済みinteraction subject、既存Relationshipからcanonical根拠・subject・更新対象を解決する。Relationship候補のoperation、現在本文、更新本文、理由は全て説明付きschemaで返す。Mood候補はFR-9の持続的な感情的構えだけとし、今回のEventや探索の進展、相手への届け、返答待ち、次の行動を混在させない。owner humanだけを`user-main`へ、allowlistに一意一致するpeerだけを`agent:<agentId>`へ正規化する。owner外human、未登録Bot、actor不在、対象不一致、複数一致はRelationship、Memory subject、Event subjectを書かない。peerについてのMemoryは、peerの客観的な視点・事実を代理保存せず、当該Agentがpeerの発言・観測をどう受け取ったかという`self / self-guidance`の経験としてpeer subjectを付与する。Relationship本文は現在の関係の型、安定した前提、未解決の約束だけを400文字以内で保持する。（追加）
 - FR-88：Discord Adapterはowner humanの自Bot宛mentionを`message-received/human/direct`、allowlist peerから自Bot発話へのreplyを`message-received/peer/direct`、allowlist peerの同一観測channelへの非reply通常投稿を`message-received/peer/observed`として受理する。移行互換として受信したpeer mentionもdirectに正規化できるが、本システムのBotはBot宛mentionを生成しない。self、owner外human、allowlist外BotはEventを作らず、direct投稿をobservationとして二重作成しない。peer/observedはFR-91で`ignore`又は`engage`される。モデルには本文、`senderKind`、`addressing`、自然言語のpeer表示名だけを渡し、actor ID、Discord ID、channel、reply metadataはRuntime監査に留める。配送はFR-92の単一Action・単一宛先に従い、Adapterがallowlistとchannelを再検証する。各Botは配送に成功したDiscord message IDと外部correlationの対応をAgent所有relationへ永続化し、owner human又はallowlist peerがその自Bot発話へreplyした時は再起動後も同じ因果系列を復元する。process内短期Mapはhopとcausationの即時復元を補助するだけで、Conversation継続の正本にしない。対応のないreplyと通常投稿は新規ingressとし、allowlist外Botは対応の有無にかかわらずEventを作らない。未登録・曖昧・自己参照・channel未設定・配送metadata不正・interaction不一致・hop超過では配送しない。`agent_send`のような任意Agent IDを受ける内部配送ToolはAgent Coreへ公開しない。（C-09, C-16, C-17, C-20, C-27、更新）
@@ -265,12 +265,12 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-3：隔離PostgreSQLを使うproduction-like E2EはUIに依存せずContext、Tool binding、commit、Outbox配送まで通ることを確認する。（FR-2, FR-4, NFR-8, NFR-9）
 - AC-4：人格・状態差が行動差を生むという概念上の主張は、自動test合格だけでは完了としない。同一ObservationでSelf、Mood、Concern、Relationship、Memoryだけを変えた反復paired live evaluationと保存artifactで評価する。（C-03, C-13, C-14, C-29, C-53, FR-3, FR-41）
 - AC-5：Event種別とinteractionに応じたTool公開と実行拒否を自動testで確認する。directな`message-received`ではself_getが公開され、concern_list、concern_get、concern_proposeは公開されず、直接呼ばれても実行されない。（FR-33, FR-90）
-- AC-6：`previousDesire`の即時引き継ぎ、時間経過、満足済みDesire、Reflectionの新規Concern作成を自動testで確認する。（FR-43, FR-44）
+- AC-6：`previousDesire`の即時引き継ぎ、時間経過、満足済みDesire、Reflectionが既存Concernだけを整理することを自動testで確認する。（FR-43, FR-44）
 - AC-7：idleのno-external-action拒否、再開間隔、夜間時間帯のidle Event抑制をUnit/Contract testで確認する。（FR-22, FR-45）
 - AC-8：共通の社会基盤を満たしつつ、質問しない選択とDispositionによる個体差を許容することをUnit testで確認する。（FR-46）
 - AC-9：Agent Coreの実効system promptは4,500文字以下を保つ。SkillsMiddlewareのskill catalogはモデルへ渡す前に除去する。（NFR-4）
 - AC-10：Event種別とinteractionごとのskillが読み込まれ、`message-received`のhuman/direct、peer/direct、peer/observed、idle、concern-due、scheduled-taskのFlowに応じた指示へ到達することをUnit testで確認する。（FR-47, FR-90）
-- AC-21：自律EventのpromptとConcern適用が、未返信を抑制根拠にせず、毎回の発話と独立Concernの並行保持を指示・実現することをUnit testで確認する。（FR-67）
+- AC-21：idleのpromptとConcern適用が、未返信を抑制根拠にせず、毎回の発話と独立Concernの並行保持を指示・実現すること、concern-dueが派生又は無発話完了だけを行うことをUnit testで確認する。（FR-67, FR-69）
 - AC-22：idleが、ユーザー自身への関心を扱う場合にだけ必要なユーザー文脈を確認し、根拠付きの最大1件の問いを選べること、およびBackground Experienceを現在のユーザーとの共有経験として扱わないことをUnit testで確認する。（FR-70）
 - AC-23：Background Experienceの単独投入がYAMLを検証し、対象Storeだけを置換して会話Memoryを保持することをIntegration testで確認する。（FR-86）
 - AC-20：Agent Coreと自律skillが、予測誤差・Tool結果・探索結果からネガティブなFeelingと持続状態への反映を許可し、前向きな結論への丸めを禁止することをUnit testで確認する。（FR-87）
@@ -293,8 +293,8 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 | 怒り・悲しみがActionまたは持続状態へ影響する。 | FR-9, FR-25, AC-4 |
 | CommitmentsとConcernsを保持する。 | FR-6, FR-8 |
 | 自律性がEvent駆動で、常時思考loopに依存しない。 | FR-39 |
-| 自律Eventの成功runが具体的Actionまたは通知を持つ。 | FR-19, FR-21 |
-| Actionも通知もない成功runを型・Runtime・testで禁止する。 | FR-19, FR-21, NFR-7 |
+| 発話必須Eventの成功runが具体的Actionまたは通知を持つ。 | FR-19, FR-21 |
+| 発話必須EventのActionも通知もない成功runを型・Runtime・testで禁止する。 | FR-19, FR-21, NFR-7 |
 | 経験がMemory、Self Story、Disposition、Relationshipへ反映される。 | FR-41, FR-42, NFR-2 |
 | 認知目的の多段後処理と重複した永続化経路が残らない。 | FR-5, NFR-11 |
 | 旧互換層なしで再起動、配送再試行、複数Agent分離、安全制約が成立する。 | NFR-1, NFR-9, NFR-10, NFR-13 |
