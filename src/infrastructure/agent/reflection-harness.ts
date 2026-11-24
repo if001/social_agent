@@ -27,7 +27,6 @@ const ReflectionConcernChangeSchema = z.object({
   description: CurrentConcernDescriptionSchema.optional(),
   whyItMatters: CurrentConcernImportanceSchema.optional(),
   status: z.enum(["active", "satisfied", "abandoned"]).optional().describe("activeは継続、satisfiedは満足して完了、abandonedは取り下げ。createではactiveだけ、upsertでは必須"),
-  reconsiderAt: z.iso.datetime({ offset: true }).optional().describe("Schedulerが再検討Eventを起こすISO 8601日時。入力から明確な将来時刻を決められる場合だけ指定する")
 }).strict().superRefine((value, context) => {
   if (value.operation === "create") {
     if (value.id !== undefined) context.addIssue({ code: "custom", path: ["id"], message: "create must not specify id" });
@@ -103,8 +102,8 @@ function domainOutputFromModel(raw: unknown, input: ReflectionInput): unknown {
   const value = parsed.data;
   const concernChanges = value.concernChanges.map((change) => {
     if (change.operation === "remove") return { operation: change.operation, id: change.id };
-    if (change.operation === "create") return { operation: change.operation, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } };
-    return { operation: change.operation, concern: { id: change.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } };
+    if (change.operation === "create") return { operation: change.operation, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const } };
+    return { operation: change.operation, concern: { id: change.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status } };
   });
   const relationshipChanges: ReflectionOutput["relationshipChanges"] = value.relationshipChanges.flatMap<ReflectionOutput["relationshipChanges"][number]>((change) => {
     const current = input.state.relationships.find((relationship) => relationship.description === change.currentDescription);

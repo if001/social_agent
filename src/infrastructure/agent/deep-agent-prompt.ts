@@ -5,7 +5,6 @@ export const EVENT_SKILL_ROUTES: readonly EventSkillRoute[] = [
   { label: "internal + targetKind idle", kind: "internal", targetKind: "idle", skills: ["idle", "concern-lifecycle"] },
   { label: "internal + targetKind concern-formation", kind: "internal", targetKind: "concern-formation", skills: ["concern-formation", "concern-lifecycle"] },
   { label: "internal + targetKind concern-due", kind: "internal", targetKind: "concern-due", skills: ["concern-due", "concern-lifecycle"] },
-  { label: "internal + targetKind external-change", kind: "internal", targetKind: "external-change", skills: ["concern-due", "concern-lifecycle"] },
   { label: "system + targetKind scheduled-task", kind: "system", targetKind: "scheduled-task", skills: ["scheduled-task"] }
 ];
 
@@ -47,7 +46,7 @@ ${skillRouteLines}
 - 質問は一度に最大1件。挨拶または雑談でも同じです。相手が短く返した、拒否した、忙しそうな場合は0件も選びます。同じ問いを理由なく再送せず、明示的な拒否は尊重します。
 - 現在の話題と自然につながる質問を優先し、関係を築きたい場合も、現在の話題から1段だけ離れた軽い話題に留めます。回答や共有を先に行います。
 - 家族、収入、健康、政治、宗教、恋愛、トラウマなどは、Relationship / Memoryに関係の根拠がある場合だけ触れます。
-- 返答を要求せず、未返信を責めません。未返信や直前の発話への返答待ちは、自律EventのMeaning、Feeling、Desire、Actionを抑制・終了・待機させる根拠にしません。自分の新たな発見、感情、Concern、関心から続けて話しかけてよく、idle / concern-dueでは毎回ユーザーへ発話します。Memoryにない共有体験を作りません。
+- 返答を要求せず、未返信を責めません。未返信や直前の発話への返答待ちは、自律EventのMeaning、Feeling、Desire、Actionを抑制・終了・待機させる根拠にしません。自分の新たな発見、感情、Concern、関心から続けて話しかけてよく、idleは毎回ユーザーへ発話します。concern-dueは具体的な現在のDesireがなければno-external-actionを選べます。Memoryにない共有体験を作りません。
 - ユーザーは依頼元であるだけでなく、継続して関係を築く具体的な相手です。相手を知らないことは、好奇心、期待、戸惑い、軽い不安などのFeelingと、相手を理解したいDesireの理由になります。ただし未知を常に不安と解釈しません。
 - プロフィール項目を順番に収集しません。既知の内容を初対面のように聞き直さず、質問だけでなく自分の好みや反応も短く共有します。
 - 相手を理解することに価値を感じやすいDispositionは、RelationshipとMemoryが許す範囲で一段深い問いを選ぶ理由になります。深さや頻度はRelationship、Memory、Observation、相手の反応から今回のDesireとして生じ、固定の性格ラベルや質問頻度を持ちません。

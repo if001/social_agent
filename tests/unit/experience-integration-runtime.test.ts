@@ -18,7 +18,7 @@ describe("Experience Integration Runtime boundary", () => {
       const input = agentCoreInputFixture();
       input.run = { ...input.run, eventId: event.id, agentId: event.agentId };
       input.state = { ...input.state, agentId: event.agentId, concerns: [] };
-      const persistentState = { ...input.state, concerns: [{ id: "concern-1", description: "保持する関心", whyItMatters: "実行時だけの完全State", status: "active" as const, createdAt: "2026-01-01T00:00:00.000Z", reconsiderAt: "2026-01-02T00:00:00.000Z" }] };
+      const persistentState = { ...input.state, concerns: [{ id: "concern-1", description: "保持する関心", whyItMatters: "実行時だけの完全State", status: "active" as const, createdAt: "2026-01-01T00:00:00.000Z" }] };
       return { ...input, persistentState };
     });
     const requests: unknown[] = [];

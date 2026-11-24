@@ -20,11 +20,10 @@ describe("AgentStatePatchService", () => {
     const service = new AgentStatePatchService();
     const populated: CurrentAgentState = { ...state, concerns: [{ id: "focus", description: "調査する", whyItMatters: "判断するため", status: "active" }] };
     const patched = service.initial("a", populated);
-    const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", explorationMode: "deepen", transition: "replace", description: "検証方法を確認する", whyItMatters: "結果の信頼性を判断するため" }], "event-5", () => "successor");
-    expect(committed.state.concerns).toMatchObject([{ id: "focus", status: "satisfied" }, { id: "successor", status: "active", description: "検証方法を確認する" }]);
+    const committed = service.applyConcernProposals(patched, [{ operation: "derive", sourceConcernId: "focus", explorationMode: "deepen", transition: "fork", description: "検証方法を確認する", whyItMatters: "結果の信頼性を判断するため" }], "event-5", () => "successor");
+    expect(committed.state.concerns).toMatchObject([{ id: "focus", status: "active" }, { id: "successor", status: "active", description: "検証方法を確認する" }]);
     expect(committed.changes.at(-1)).toMatchObject({ target: "concerns", before: [{ id: "focus", status: "active" }] });
     expect(committed.concernActivities).toEqual([
-      { concernId: "focus", kind: "status-changed", eventId: "event-5" },
       { concernId: "successor", kind: "derived", eventId: "event-5" }
     ]);
     expect(patched.state.concerns).toMatchObject([{ id: "focus", status: "active" }]);

@@ -39,7 +39,7 @@ function concernProposalPermission(targetKind: string | undefined, input: Record
   if (targetKind === undefined) return undefined;
   const operation = input.operation;
   if (operation !== "create" && operation !== "derive") return undefined;
-  const allowed = operation === "create" ? ["idle", "concern-formation"] : ["concern-due", "external-change"];
+  const allowed = operation === "create" ? ["idle", "concern-formation"] : ["concern-due"];
   return allowed.includes(targetKind) ? undefined : `concern_propose operation '${operation}' is not allowed for ${targetKind}; allowed Event kinds are ${allowed.join(", ")}`;
 }
 

@@ -258,10 +258,10 @@ Eventには、入力経路を表すDomain Event `kind`と、Schedulerが発火�
 | `tool-result` | Tool実行結果を監査可能なEventとして保存したもの |
 | `time` | 時刻を直接契機とする入力 |
 | `external` | 他Agentや外部システムからの入力 |
-| `internal` | `idle`、`concern-formation`、`concern-due`、`external-change`、`memory-update`、`prediction-g3`、`prediction-g3-result`など内部契機 |
+| `internal` | `idle`、`concern-formation`、`concern-due`、`memory-update`、`prediction-g3`、`prediction-g3-result`など内部契機 |
 | `system` | `scheduled-task`や運用上のSystem入力 |
 
-Schedulerの`targetKind`は`idle`、`concern-formation`、`concern-due`、`external-change`、`reflection`、`scheduled-task`である。`reflection`は通常Agent Loopへ入らず、`scheduled-task`はDomain Event `system`、それ以外の自律対象は基本的に`internal`となる。`external-change`は契約上サポートされているが、現在の通常構成には常用する登録元がない。
+Schedulerの`targetKind`は`idle`、`concern-formation`、`concern-due`、`reflection`、`scheduled-task`である。`reflection`は通常Agent Loopへ入らず、`scheduled-task`はDomain Event `system`、それ以外の自律対象は基本的に`internal`となる。
 
 `memory-update`はG1/G2と、G3のMemoryIntentを採否したMainAgentが発生させるinternal Eventである。`memory-update`はMemoryUpdateHandler、`prediction-g3`はG3専用DeepAgent、`prediction-g3-result`はG3完了後のRuntimeが発生させる。ReflectionはMemoryWriteServiceを共通利用し、加えてSelf / Relationship / Concernを対象別commitする。
 
@@ -287,8 +287,6 @@ flowchart TD
     SCH[Scheduler] --> I[idle]
     SCH --> CF[concern-formation]
     MEM[新しい関連Memory] --> CD[concern-due]
-    EXT[外部変化] --> CD
-    SCH --> EC[external-change]
     SCH --> RF[reflection]
     SCH --> TASK[scheduled-task]
 
@@ -317,7 +315,7 @@ Concernを作る経路と、既存Concernを進める経路を混同しない。
 |---|---|---|
 | `concern-formation` | `create` | Self、Memory、Relationship、Background Experienceから独立Concernを作る。探索領域カタログも、関心の幅を作る独立した生成根拠として使える。 |
 | `idle` | 既存Concernの消化、例外的な`create` | active Concernを自分の興味・感情で進め、独り言・仮説・問いなどとして発話する。行動中に強く残った独立Concernだけをcreateできる。探索領域カタログは受け取らない。 |
-| `concern-due` / `external-change` | `derive` | 新しい関連Memory又は外部変化を契機に、既存Concernから別の問い・対象・方法という持続的関心が分かれた場合だけ派生Concernをforkする。親は置換・終了しない。 |
+| `concern-due` | `derive` | signalの根拠となった新しい関連Memoryから、既存Concernの別の問い・対象・方法という持続的関心が分かれた場合だけ派生Concernをforkする。親は置換・終了しない。 |
 | `reflection` | 整理 | 複数経験を統合し、既存Concernを統合・具体化・満足・放棄する。新規Concernは作成しない。 |
 
 `create`と`derive`の許可はpromptだけに委ねず、Eventの`targetKind`ごとにRuntimeが検証する。Concern数や一律の経過時間だけで、作成・終了・置換はしない。

@@ -4,7 +4,7 @@ import { ConcernNormalizationService, type ConcernNormalizationModel, type Conce
 import { parseConcernNormalizationOptions } from "../../src/application/concern-normalization-cli.js";
 
 const concerns = [
-  { id: "c-long", description: "長い研究経緯", whyItMatters: "自分の好奇心に残る", status: "active" as const, reconsiderAt: "2026-12-01T00:00:00.000Z" },
+  { id: "c-long", description: "長い研究経緯", whyItMatters: "自分の好奇心に残る", status: "active" as const },
   { id: "c-keep", description: "記憶の変質が気になる", whyItMatters: "曖昧さへの好奇心", status: "active" as const }
 ];
 

@@ -41,13 +41,12 @@ describe("structured Reflection model", () => {
       description: `継続中のConcern ${String(index)} ${"本文".repeat(80)}`,
       whyItMatters: `理由 ${"根拠".repeat(80)}`,
       status: "active" as const,
-      ...(index === 99 ? { reconsiderAt: "2025-12-31T00:00:00.000Z" } : {})
     }));
     const context = reflectionConcernContext({ ...input, state: { ...input.state, concerns: [...concerns, { id: "satisfied", description: "完了", whyItMatters: "完了した", status: "satisfied" }] } }, new Date("2026-01-01T00:00:00.000Z"));
 
-    expect(context.stats).toMatchObject({ total: 101, active: 100, selected: 16, overdue: 1, memorySelected: 1 });
+    expect(context.stats).toMatchObject({ total: 101, active: 100, selected: 16, memorySelected: 1 });
     expect(context.concerns).toHaveLength(16);
-    expect(context.concerns[0]?.description).toContain("Concern 99");
+    expect(context.concerns[0]?.description).toContain("Concern 0");
     expect(JSON.stringify(context.concerns)).not.toContain("satisfied");
   });
 

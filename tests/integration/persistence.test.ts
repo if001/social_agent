@@ -37,6 +37,7 @@ import { createIntegrationDatabase, integrationDatabaseConfigured } from "../sup
 import { createRuntimeDatabase } from "../../src/infrastructure/persistence/runtime-database.js";
 import { agentFamilies, events, outboxMessages } from "../../src/infrastructure/persistence/schema.js";
 import { migrateNormalizedEventStorage } from "../../scripts/migrate-normalized-event-storage.js";
+import { migrateConcernReevaluationSignals } from "../../scripts/migrate-concern-reevaluation-signals.js";
 import { backfillReflectionToolExecutions } from "../../scripts/backfill-reflection-tool-executions.js";
 import { PostgresRetrievalService } from "../../src/infrastructure/persistence/postgres-retrieval-service.js";
 import { PostgresConversationRepository } from "../../src/infrastructure/persistence/postgres-conversation-repository.js";
@@ -51,9 +52,9 @@ describeDatabase("PostgreSQL persistence", () => {
   };
   const setConcerns = async (agentId: string, values: readonly Concern[]) => {
     await pool.query("DELETE FROM concerns WHERE agent_id=$1", [agentId]);
-    for (const concern of values) await pool.query("INSERT INTO concerns(id,agent_id,description,why_it_matters,status,reconsider_at) VALUES ($1,$2,$3,$4,$5,$6)", [concern.id, agentId, concern.description, concern.whyItMatters, concern.status, concern.reconsiderAt ?? null]);
+    for (const concern of values) await pool.query("INSERT INTO concerns(id,agent_id,description,why_it_matters,status) VALUES ($1,$2,$3,$4,$5)", [concern.id, agentId, concern.description, concern.whyItMatters, concern.status]);
   };
-  const getConcerns = async (agentId: string): Promise<readonly Concern[]> => (await pool.query<{ id: string; description: string; why_it_matters: string; status: Concern["status"]; reconsider_at: Date | null }>("SELECT id,description,why_it_matters,status,reconsider_at FROM concerns WHERE agent_id=$1 AND deleted_at IS NULL ORDER BY created_at,id", [agentId])).rows.map((row) => ({ id: row.id, description: row.description, whyItMatters: row.why_it_matters, status: row.status, ...(row.reconsider_at === null ? {} : { reconsiderAt: row.reconsider_at.toISOString() }) }));
+  const getConcerns = async (agentId: string): Promise<readonly Concern[]> => (await pool.query<{ id: string; description: string; why_it_matters: string; status: Concern["status"] }>("SELECT id,description,why_it_matters,status FROM concerns WHERE agent_id=$1 AND deleted_at IS NULL ORDER BY created_at,id", [agentId])).rows.map((row) => ({ id: row.id, description: row.description, whyItMatters: row.why_it_matters, status: row.status }));
 
   beforeAll(async () => {
     database = createIntegrationDatabase(); pool = database.pool;
@@ -175,27 +176,24 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query("SELECT id FROM outbox_messages WHERE id='outbox-1'")).rowCount).toBe(1);
   });
 
-  it("FR-24: synchronizes reconsiderAt schedules with Concern changes", async () => {
+  it("FR-24: never creates a schedule when a Concern changes", async () => {
     const transaction = new PostgresEventTransaction(new PostgresUnitOfWork(pool));
     const version = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
-    const concern = { id: "concern-schedule", description: "次回の確認方法を決める", whyItMatters: "約束の履行を確認するため", status: "active" as const, reconsiderAt: "2026-01-05T00:00:00.000Z" };
+    const concern = { id: "concern-schedule", description: "次回の確認方法を決める", whyItMatters: "約束の履行を確認するため", status: "active" as const };
     await expect(transaction.commit({
       destination: "agent:a", messageId: "incoming-concern-schedule",
       event: { id: "event-concern-schedule", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date() },
       run: { id: "run-concern-schedule", inputStateVersion: version, startedAt: new Date(), result: {} },
       stateValues: { concerns: [concern] }, changes: [], outbox: []
     })).resolves.toBe("committed");
-    const scheduled = await pool.query<{ id: string; reason: string; next_due_at: Date }>("SELECT id,reason,next_due_at FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'");
-    expect(scheduled.rows).toHaveLength(1);
-    expect(scheduled.rows[0]).toMatchObject({ id: "concern:concern-schedule", reason: "約束の履行を確認するため" });
-    expect(scheduled.rows[0]?.next_due_at.toISOString()).toBe("2026-01-05T00:00:00.000Z");
+    expect((await pool.query("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rowCount).toBe(0);
 
     const nextVersion = (await pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='a'")).rows[0]?.version ?? 0;
     await expect(transaction.commit({
       destination: "agent:a", messageId: "incoming-concern-clear",
       event: { id: "event-concern-clear", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date() },
       run: { id: "run-concern-clear", inputStateVersion: nextVersion, startedAt: new Date(), result: {} },
-      stateValues: { concerns: [{ ...concern, status: "satisfied" as const, reconsiderAt: undefined }] }, changes: [], outbox: []
+      stateValues: { concerns: [{ ...concern, status: "satisfied" as const }] }, changes: [], outbox: []
     })).resolves.toBe("committed");
     expect((await pool.query("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rowCount).toBe(0);
     await setConcerns("a", []);
@@ -417,13 +415,43 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ source_event_id: string; source_run_id: string; reason: string }>("SELECT source_event_id,source_run_id,reason FROM scheduled_tasks WHERE id='task-created-audit'")).rows).toEqual([{ source_event_id: "task-source-event", source_run_id: "task-source-run", reason: "48時間後の変化そのものを観測したい" }]);
   });
 
-  it("NFR-11: never claims a legacy or unknown autonomous schedule kind", async () => {
-    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','autonomy-review','legacy','2026-01-01'),('idle-due','a','idle','idle','2026-01-01')");
+  it("NFR-11: never claims removed, legacy, or unknown autonomous schedule kinds", async () => {
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-drive','a','autonomy-review','legacy','2026-01-01'),('external-change-due','a','external-change','removed','2026-01-01'),('idle-due','a','idle','idle','2026-01-01')");
     const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool));
     const claims = await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10);
     expect(claims.map(({ id }) => id)).toContain("idle-due");
     expect(claims.map(({ id }) => id)).not.toContain("legacy-drive");
+    expect(claims.map(({ id }) => id)).not.toContain("external-change-due");
     expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM autonomous_schedules WHERE id='legacy-drive'")).rows[0]?.lease_until).toBeNull();
+    expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM autonomous_schedules WHERE id='external-change-due'")).rows[0]?.lease_until).toBeNull();
+  });
+
+  it("FR-24, NFR-6: removes legacy concern-due and external-change schedules only when migration is applied", async () => {
+    const agentId = "legacy-signal-migration-agent";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Legacy Signal Migration','Calm')", [agentId]);
+    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-concern-due',$1,'concern-due','old concern','2026-01-01'),('legacy-external-change',$1,'external-change','removed event','2026-01-01')", [agentId]);
+    await expect(migrateConcernReevaluationSignals(database.admin, { apply: false, agentId })).resolves.toEqual({ apply: false, agentId, concernDueSchedulesRemoved: 1, externalChangeSchedulesRemoved: 1 });
+    expect((await pool.query("SELECT 1 FROM autonomous_schedules WHERE agent_id=$1", [agentId])).rowCount).toBe(2);
+    await expect(migrateConcernReevaluationSignals(database.admin, { apply: true, agentId })).resolves.toEqual({ apply: true, agentId, concernDueSchedulesRemoved: 1, externalChangeSchedulesRemoved: 1 });
+    expect((await pool.query("SELECT 1 FROM autonomous_schedules WHERE agent_id=$1", [agentId])).rowCount).toBe(0);
+  });
+
+  it("FR-24, NFR-6: coalesces and claims one pending Concern signal, retains it on retry, and does not reschedule after completion", async () => {
+    await pool.query("INSERT INTO concern_reevaluation_signals(agent_id,next_due_at,reason) VALUES ('a','2026-01-01','new memories')");
+    await pool.query("INSERT INTO concern_reevaluation_signal_sources(agent_id,source_kind,source_id) VALUES ('a','memory','memory-1'),('a','memory','memory-2')");
+    const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 1_000);
+    const claimed = (await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ kind }) => kind === "concern-due");
+    expect(claimed).toMatchObject({ id: "concern-due:a", agentId: "a", kind: "concern-due", reason: "new memories" });
+    if (claimed === undefined || claimed.kind !== "concern-due") throw new Error("Signal was not claimed");
+    await repository.release(claimed);
+    expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM concern_reevaluation_signals WHERE agent_id='a'")).rows[0]?.lease_until).toBeNull();
+    await pool.query("UPDATE concern_reevaluation_signals SET next_due_at='2026-01-01' WHERE agent_id='a'");
+    const restarted = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 1_000);
+    const retried = (await restarted.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ kind }) => kind === "concern-due");
+    if (retried === undefined || retried.kind !== "concern-due") throw new Error("Signal was not reclaimed");
+    await restarted.complete(retried, null);
+    expect((await pool.query("SELECT 1 FROM concern_reevaluation_signals WHERE agent_id='a'")).rowCount).toBe(0);
+    expect((await pool.query("SELECT 1 FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rowCount).toBe(0);
   });
 
   it("FR-26, FR-28: reschedules idle without persisted exploration state", async () => {
@@ -586,7 +614,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const core = agentCoreInputFixture();
     const input = { ...core, run: { ...core.run, agentId, eventId, runId: "experience-projection-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ('experience-projection-run',$1,$2,0,$3,$4,$5,$5)", [agentId, eventId, input, { output: { desire: "予定を整理したい", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] }, fixtureInstant]);
-    const request = { integrationId: "experience-projection-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: {} }, sourceRunId: input.run.runId, input, result: { output: { desire: "予定を整理したい", action: { type: "no-external-action" as const, reason: "maintenance" } }, toolExecutions: [] } };
+    const request = { integrationId: "experience-projection-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: { targetKind: "idle" } }, sourceRunId: input.run.runId, input, result: { output: { desire: "予定を整理したい", action: { type: "no-external-action" as const, reason: "maintenance" } }, toolExecutions: [] } };
     const repository = new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     await repository.begin(request);
     await repository.apply(request, { experience: { summary: "展示の予定を確かめた", facts: ["展示の予定を確認した"] }, memories: [] });
@@ -594,6 +622,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const projection = (await pool.query<{ content_hash: string | null; content: string | null; agent_id: string | null }>("SELECT content_hash,content,agent_id FROM event_projections WHERE event_id=$1", [eventId])).rows[0];
     expect(projection?.content_hash).toMatch(/^[a-f0-9]{64}$/u);
     expect(projection).toMatchObject({ content: null, agent_id: null });
+    expect((await pool.query("SELECT 1 FROM concern_reevaluation_signal_sources WHERE agent_id=$1", [agentId])).rowCount).toBe(0);
     await expect((new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"))).load("experience-projection-reflection", agentId)).resolves.toMatchObject({ events: [expect.objectContaining({ id: eventId, summary: "展示の予定を確かめた" })] });
   });
 
@@ -676,13 +705,13 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('reflection-evidence','a','episodic','約束を果たした経験','信頼が深まった',now(),'pending') ON CONFLICT DO NOTHING");
     const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reflection-concern", "reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");
-    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "create" as const, concern: { description: "次の約束の進め方を確かめる", whyItMatters: "信頼を続けるため", status: "active" as const, reconsiderAt: "2026-01-03T00:00:00Z" } }, { operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: ["reflection-evidence"] };
+    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "create" as const, concern: { description: "次の約束の進め方を確かめる", whyItMatters: "信頼を続けるため", status: "active" as const } }, { operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: ["reflection-evidence"] };
     await expect(repository.commit(input, output)).resolves.toBe("committed");
     await expect(repository.commit(input, output)).resolves.toBe("duplicate");
     expect(await getConcerns("a")).toMatchObject([{ id: "concern-1" }, { id: "reflection-concern" }]);
     expect((await pool.query<{ relationships: { subjectId: string }[] }>("SELECT relationships FROM agent_states WHERE agent_id='a'")).rows[0]).toMatchObject({ relationships: [{ subjectId: "owner" }] });
     expect((await pool.query<{ content: string; importance: string }>("SELECT content,importance FROM memories WHERE id='reflection-memory'")).rows[0]).toEqual({ content: "約束を果たした", importance: "信頼が深まった" });
-    expect((await pool.query<{ id: string; next_due_at: Date }>("SELECT id,next_due_at FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rows[0]).toMatchObject({ id: "concern:reflection-concern" });
+    expect((await pool.query("SELECT id FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rowCount).toBe(0);
     expect((await pool.query<{ status: string; plan: { memory: string } }>("SELECT status,plan FROM reflection_runs WHERE id='reflection-1'")).rows[0]).toMatchObject({ status: "completed", plan: { memory: "completed" } });
     expect((await pool.query<{ concern_id: string; kind: string; reflection_id: string; evidence_memory_ids: string[] }>("SELECT ca.concern_id,ca.kind,ca.reflection_id,ca.evidence_memory_ids FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id='a' AND ca.reflection_id='reflection-1' ORDER BY ca.concern_id,ca.kind")).rows).toEqual([
       { concern_id: "concern-1", kind: "presented", reflection_id: "reflection-1", evidence_memory_ids: [] },
@@ -802,7 +831,7 @@ describeDatabase("PostgreSQL persistence", () => {
   it("FR-25, NFR-7: closes only stale, repeatedly presented Concerns at Reflection completion", async () => {
     const concerns = [
       { id: "stale-close", description: "長く進展のない関心", whyItMatters: "以前は重要だった", status: "active" },
-      { id: "future-due", description: "予定時刻まで待つ関心", whyItMatters: "予定がある", status: "active", reconsiderAt: "2026-02-16T00:00:00.000Z" },
+      { id: "future-due", description: "予定時刻まで待つ関心", whyItMatters: "予定がある", status: "active" },
       { id: "too-recent", description: "まだ期間を満たさない関心", whyItMatters: "最近進展した", status: "active" },
       { id: "too-few-sessions", description: "再検討機会が足りない関心", whyItMatters: "再検討を待つ", status: "active" },
       { id: "reviewed-now", description: "今回見直す関心", whyItMatters: "まだ判断する", status: "active" }
@@ -830,7 +859,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(repository.commit(input, output)).resolves.toBe("duplicate");
     expect(await getConcerns("a")).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "stale-close", status: "abandoned" }),
-      expect.objectContaining({ id: "future-due", status: "active" }),
+      expect.objectContaining({ id: "future-due", status: "abandoned" }),
       expect.objectContaining({ id: "too-recent", status: "active" }),
       expect.objectContaining({ id: "too-few-sessions", status: "active" }),
       expect.objectContaining({ id: "reviewed-now", status: "active" })
@@ -840,13 +869,12 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("DELETE FROM reflection_runs WHERE id=ANY($1::text[])", [["stale-session-1", "stale-session-2", "stale-close-reflection"]]);
   });
 
-  it("FR-25, FR-60, NFR-17: targeted Concern retries a stale-close version conflict and synchronizes its schedule", async () => {
+  it("FR-25, FR-60, NFR-17: targeted Concern retries a stale-close version conflict without synchronizing a schedule", async () => {
     const agentId = "targeted-concern-close-agent";
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Targeted Concern Agent','Careful')", [agentId]);
     await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,relationships,mood) VALUES ($1,'Careful','Story','[]','[]','Calm')", [agentId]);
     await setConcerns(agentId, [{ id: "targeted-stale", description: "進展のないConcern", whyItMatters: "以前は重要だった", status: "active" }]);
     await pool.query("INSERT INTO concern_activities(id,concern_id,kind,evidence_memory_ids,occurred_at) VALUES ('targeted-stale-baseline','targeted-stale','baseline','[]','2025-12-01T00:00:00.000Z')");
-    await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('concern:targeted-stale',$1,'concern-due','再検討する','2026-02-16T00:00:00.000Z')", [agentId]);
     const runtimeDatabase = createRuntimeDatabase(pool);
     const repository = new PostgresReflectionRepository(runtimeDatabase, new SequenceIdGenerator([]), () => new Date("2026-02-15T00:00:00.000Z"), undefined, undefined, { staleAfterMs: 30 * 24 * 60 * 60 * 1000, minReflectionSessions: 2 });
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('targeted-close-event-1',$1,'internal',$2,'test','completed',now()-interval '1 hour')", [agentId, { summary: "Concernを再検討する" }]);
@@ -881,8 +909,8 @@ describeDatabase("PostgreSQL persistence", () => {
     if (retry === undefined) throw new Error("Retryable Reflection input was not loaded");
     await repository.complete(retry);
     await repository.complete(retry);
-    const attempt = await pool.query<{ input: { concernContext: { total: number; active: number; selected: number; overdue: number; memorySelected: number; estimatedContentTokens: number } } }>("SELECT input FROM reflection_attempts WHERE reflection_id=$1 AND target='concern'", [second.reflectionId]);
-    expect(attempt.rows[0]?.input).toMatchObject({ concernContext: { total: 1, active: 1, selected: 1, overdue: 0, memorySelected: first.memories.length } });
+    const attempt = await pool.query<{ input: { concernContext: { total: number; active: number; selected: number; memorySelected: number; estimatedContentTokens: number } } }>("SELECT input FROM reflection_attempts WHERE reflection_id=$1 AND target='concern'", [second.reflectionId]);
+    expect(attempt.rows[0]?.input).toMatchObject({ concernContext: { total: 1, active: 1, selected: 1, memorySelected: first.memories.length } });
     expect(await getConcerns(agentId)).toEqual([expect.objectContaining({ id: "targeted-stale", status: "abandoned" })]);
     expect((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1 AND ca.concern_id='targeted-stale' AND ca.kind='presented'", [agentId])).rows[0]?.count).toBe("2");
     expect((await pool.query<{ kind: string; count: string }>("SELECT kind,count(*)::text AS count FROM concern_activities WHERE concern_id='targeted-stale' AND kind=ANY(ARRAY['status-changed','closed']) GROUP BY kind ORDER BY kind")).rows).toEqual([{ kind: "closed", count: "1" }, { kind: "status-changed", count: "1" }]);

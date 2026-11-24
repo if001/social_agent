@@ -18,8 +18,7 @@ export class ConcernRepository {
       id: row.id,
       description: row.description,
       whyItMatters: row.whyItMatters,
-      status: row.status,
-      ...(row.reconsiderAt === null ? {} : { reconsiderAt: row.reconsiderAt.toISOString() })
+      status: row.status
     }));
   }
 
@@ -38,14 +37,12 @@ export class ConcernRepository {
       description: concern.description,
       whyItMatters: concern.whyItMatters,
       status: concern.status,
-      reconsiderAt: concern.reconsiderAt === undefined ? null : new Date(concern.reconsiderAt),
       deletedAt: null,
       updatedAt: at
     }).onConflictDoUpdate({ target: concerns.id, set: {
       description: concern.description,
       whyItMatters: concern.whyItMatters,
       status: concern.status,
-      reconsiderAt: concern.reconsiderAt === undefined ? null : new Date(concern.reconsiderAt),
       version: sql`${concerns.version}+1`,
       deletedAt: null,
       updatedAt: at

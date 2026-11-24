@@ -57,10 +57,11 @@ describeDatabase("memory-update Event", () => {
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE content='ユーザーAは技術の話を好む'")).rows[0]).toEqual({ count: 1 });
     expect((await pool.query<{ embedding_status: string; embedding_model: string }>("SELECT embedding_status,embedding_model FROM memories WHERE content='ユーザーAは技術の話を好む'")).rows[0]).toEqual({ embedding_status: "ready", embedding_model: "fake" });
     expect((await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memory_mutations WHERE source_event_id='event-1' AND source_id='memory-update-event'")).rows[0]?.count).toBe(2);
-    const schedule = (await pool.query<{ id: string; kind: string; reason: string }>("SELECT id,kind,reason FROM autonomous_schedules WHERE id='concern-due:memory:a'")).rows[0];
-    expect(schedule?.id).toBe("concern-due:memory:a");
-    expect(schedule?.kind).toBe("concern-due");
-    expect(schedule?.reason).toContain("新しいMemory");
+    const signal = (await pool.query<{ agent_id: string; reason: string }>("SELECT agent_id,reason FROM concern_reevaluation_signals WHERE agent_id='a'")).rows[0];
+    expect(signal?.agent_id).toBe("a");
+    expect(signal?.reason).toContain("新しいMemory");
+    expect((await pool.query<{ source_id: string }>("SELECT source_id FROM concern_reevaluation_signal_sources WHERE agent_id='a' ORDER BY source_id")).rows).toEqual([{ source_id: "id-1" }]);
+    expect((await pool.query("SELECT id FROM autonomous_schedules WHERE kind='concern-due'")).rowCount).toBe(0);
     expect(embedded).toEqual(["ユーザーAは技術の話を好む", "低確度の推測", "ユーザーAは技術の話を好む", "低確度の推測"]);
   });
 });

@@ -243,7 +243,7 @@ type Event =
 - `tool-result`: Web検索、ファイル操作、外部APIなどの結果。
 - `time`: 時間経過や予定時刻。
 - `external`: 外部サービスや他AgentなどからのEvent。
-- `internal`: `idle`、`concern-due`、`external-change` などScheduler内部契機。
+- `internal`: `idle`、`concern-due`、`concern-formation` などScheduler内部契機。
 - `system`: 起動、停止、Memory変更、モデル更新、権限変更、Scheduled Taskなどシステム由来のEvent。
 
 Eventには入力経路を表すDomain Event `kind` と、Schedulerが発火した目的を表す `targetKind` がある。両者を混同しない。
@@ -352,7 +352,7 @@ type Concern = {
 
 Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`から今回のDesireを形成する。保存済みConcernが空でも行動を止めない。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`からDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formation、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。既存Concernからの派生はconcern-dueまたはexternal-changeがderiveで行い、ReflectionはMemory根拠のあるConcernを作成・整理できる。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formation、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。既存Concernからの派生はconcern-dueだけがderiveで行い、Reflectionは既存Concernを整理する。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -778,12 +778,11 @@ Activity導入前からあるConcernは、過去のsnapshotを推測して履歴
 
 Internal Eventは自律性の入口として採用するが、Agent Coreが直接自由生成しない。Runtimeが既存Stateから発火する。
 
-現在のScheduler targetKindは、`idle`、`concern-formation`、`concern-due`、`external-change`、`reflection`、`scheduled-task` である。
+現在のScheduler targetKindは、`idle`、`concern-formation`、`concern-due`、`reflection`、`scheduled-task` である。
 
 - `idle`: 一定期間の無活動を契機とし、既存ConcernをAgent自身の興味・感情・動機で行動・探索・発話する。
 - `concern-formation`: 一定間隔で起動し、Self、Memory、Background Experience、Relationshipまたは`explorationCandidates`から独立Concernを形成する。候補としてランダムな最大8件の探索領域をpayloadに含める。
-- `concern-due`: Concernの `reconsiderAt`、新しいMemory、またはexternal-changeを契機に既存Concernを再評価する。
-- `external-change`: 外部変化。現在の通常構成では常用する登録元がない。
+- `concern-due`: 新しいMemoryを契機に、既存Concernから持続的関心が派生したかを検討する。
 - `reflection`: 通常のAgent Coreではなく専用Reflection処理へ渡す。
 - `scheduled-task`: System Eventとして通常のAgent Loopへ渡す。
 

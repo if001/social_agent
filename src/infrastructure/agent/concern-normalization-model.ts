@@ -18,7 +18,7 @@ Concernは、複数EventにわたってAgentが現在も気に掛ける、一つ
 - 「正式版を完了させる」ではなく「その判別基準がどの条件で成り立つか確かめたい」
 - 「判別手順を確定する」ではなく「結果の不一致が何によって生じるか知りたい」
 
-分割、作成、終了、status変更、reconsiderAt変更は行いません。IDを推測または出力しません。Markdownや説明文を返さず、指定された構造化出力だけを返してください。`;
+分割、作成、終了、status変更は行いません。IDを推測または出力しません。Markdownや説明文を返さず、指定された構造化出力だけを返してください。`;
 const concernNormalizationRepairPrompt = `${concernNormalizationSystemPrompt}\n直前の出力はschema検証に失敗しました。新しい意味判断を行わず、固定inputと直前出力を使い、descriptionとwhyItMattersを必須の文字列として修復してください。`;
 
 function contentOf(value: unknown): string {
