@@ -190,12 +190,12 @@ describe("Agent prompts", () => {
     expect(prompt).toContain("一律の経過時間だけでは終了させず");
   });
 
-  it("FR-25, NFR-22: leaves semantic closure to the Reflector without keyword rules or mechanical reconsiderAt extension", () => {
+  it("FR-25, NFR-22: leaves semantic closure to the Reflector without keyword rules", () => {
     const reflectionConcernSkill = skill("reflection-concern");
     for (const prompt of [lifecycleSkill, reflectionConcernSkill]) {
       expect(prompt).toContain("特定の語句");
       expect(prompt).toContain("意味全体");
-      expect(prompt).toContain("単なる延命として再設定しない");
+      expect(prompt).toContain("Concern自身の時刻やscheduleで再検討を予約しない");
     }
   });
 
@@ -213,7 +213,7 @@ describe("Agent prompts", () => {
     expect(resolveEventSkills("internal", "concern-due")).toEqual(["concern-due", "concern-lifecycle"]);
     expect(resolveEventSkills("internal", "concern-formation")).toEqual(["concern-formation", "concern-lifecycle"]);
     expect(resolveEventSkills("system", "scheduled-task")).toEqual(["scheduled-task"]);
-    expect(resolveEventSkills("internal", "external-change")).toEqual(["concern-due", "concern-lifecycle"]);
+    expect(completeAgentCoreSystemPrompt).not.toContain("external-change");
     expect(resolveEventSkills("time", undefined)).toEqual([]);
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=social-message");
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=idle");

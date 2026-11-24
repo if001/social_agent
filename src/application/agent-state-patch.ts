@@ -29,13 +29,9 @@ export class AgentStatePatchService {
       if (proposal.operation === "derive") {
         const source = concerns.find(({ id }) => id === proposal.sourceConcernId);
         if (source === undefined || source.status !== "active") continue;
-        if (proposal.transition === "replace") {
-          concerns = concerns.map((concern) => concern.id === source.id ? { ...concern, status: "satisfied" as const } : concern);
-          activities.push({ concernId: source.id, kind: "status-changed", eventId });
-        }
       }
       const id = nextId();
-      concerns.push({ id, description: proposal.description, whyItMatters: proposal.whyItMatters, status: "active", ...(proposal.reconsiderAt === undefined ? {} : { reconsiderAt: proposal.reconsiderAt }) });
+      concerns.push({ id, description: proposal.description, whyItMatters: proposal.whyItMatters, status: "active" });
       activities.push({ concernId: id, kind: proposal.operation === "derive" ? "derived" : "created", eventId });
     }
     if (concerns.length === before.length && concerns.every((value, index) => value === before[index])) return result;

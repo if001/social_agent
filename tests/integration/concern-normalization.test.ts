@@ -17,10 +17,10 @@ describeDatabase("Concern normalization persistence", () => {
     await database.pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ('aka','family','Aka','Curious')");
     await database.pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,relationships,mood,version) VALUES ('aka','Curious','Story','[]','[]','Alert',3)");
     await database.pool.query("DELETE FROM concerns WHERE agent_id='aka'");
-    await database.pool.query(`INSERT INTO concerns(id,agent_id,description,why_it_matters,status,reconsider_at) VALUES
-      ('active-change','aka','長い経緯','長い理由','active','2026-12-01T00:00:00.000Z'),
-      ('active-keep','aka','短い関心','短い理由','active',NULL),
-      ('closed','aka','終了済み','終了','satisfied',NULL)`);
+    await database.pool.query(`INSERT INTO concerns(id,agent_id,description,why_it_matters,status) VALUES
+      ('active-change','aka','長い経緯','長い理由','active'),
+      ('active-keep','aka','短い関心','短い理由','active'),
+      ('closed','aka','終了済み','終了','satisfied')`);
   });
 
   afterAll(async () => { await database.close(); });
@@ -35,10 +35,10 @@ describeDatabase("Concern normalization persistence", () => {
 
     const row = (await database.pool.query<{ version: number }>("SELECT version FROM agent_states WHERE agent_id='aka'")).rows[0];
     expect(row?.version).toBe(4);
-    expect((await database.pool.query("SELECT id,description,why_it_matters,status,reconsider_at FROM concerns WHERE agent_id='aka' AND deleted_at IS NULL ORDER BY created_at,id")).rows).toEqual([
-      { id: "active-change", description: "記憶の変質条件が気になる", why_it_matters: "曖昧さへの好奇心が残る", status: "active", reconsider_at: new Date("2026-12-01T00:00:00.000Z") },
-      { id: "active-keep", description: "短い関心", why_it_matters: "短い理由", status: "active", reconsider_at: null },
-      { id: "closed", description: "終了済み", why_it_matters: "終了", status: "satisfied", reconsider_at: null }
+    expect((await database.pool.query("SELECT id,description,why_it_matters,status FROM concerns WHERE agent_id='aka' AND deleted_at IS NULL ORDER BY created_at,id")).rows).toEqual([
+      { id: "active-change", description: "記憶の変質条件が気になる", why_it_matters: "曖昧さへの好奇心が残る", status: "active" },
+      { id: "active-keep", description: "短い関心", why_it_matters: "短い理由", status: "active" },
+      { id: "closed", description: "終了済み", why_it_matters: "終了", status: "satisfied" }
     ]);
     expect((await database.pool.query("SELECT ca.id,ca.concern_id,ca.kind,ca.occurred_at FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id='aka'")).rows).toEqual([{ id: "concern-normalization:normalize-run:0:active-change", concern_id: "active-change", kind: "reviewed", occurred_at: occurredAt }]);
   });

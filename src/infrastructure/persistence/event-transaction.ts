@@ -4,7 +4,7 @@ import { MemoryWriteService, recordMemoryMutationFailure, type MemoryCandidate, 
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
 import { and, eq, isNull } from "drizzle-orm";
-import { agentRuns, autonomousSchedules, concernActivities, conversationMessages, conversations, events, eventSubjects, memoryWebEvidence, messageReceipts, observationGateDecisions, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
+import { agentRuns, concernActivities, conversationMessages, conversations, events, eventSubjects, memoryWebEvidence, messageReceipts, observationGateDecisions, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
 
 export type CommitEventInput = {
   readonly destination: string;
@@ -52,7 +52,6 @@ export class PostgresEventTransaction {
       }
       const repository = new AgentStateRepository(client);
       await repository.update(input.event.agentId, input.run.inputStateVersion, input.stateValues);
-      await this.#syncConcernSchedules(client, input.event.agentId, input.stateValues.concerns);
       if (input.changes.length > 0) await client.insert(stateChanges).values(input.changes.map((change) => ({ id: change.id, runId: input.run.id, target: change.target, operation: change.operation, before: change.before, after: change.after, reason: change.reason, evidenceIds: change.evidenceIds })));
       if ((input.concernActivities?.length ?? 0) > 0) await client.insert(concernActivities).values((input.concernActivities ?? []).map((activity) => ({ id: activity.id, concernId: activity.concernId, kind: activity.kind, eventId: activity.eventId, runId: input.run.id, evidenceMemoryIds: activity.evidenceMemoryIds ?? [], occurredAt: input.event.occurredAt }))).onConflictDoNothing();
       for (const [index, intent] of (input.memoryIntents ?? []).entries()) {
@@ -112,19 +111,6 @@ export class PostgresEventTransaction {
   async #insertToolExecutions(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], _input: Pick<CommitEventInput, "event" | "run">, executions: readonly (ToolExecutionRecord & { readonly id: string })[]): Promise<void> {
     for (const execution of executions) {
       await client.insert(toolExecutions).values({ id: execution.id, runId: execution.runId, toolCallId: execution.callId, tool: execution.name, input: execution.input, result: execution.result ?? null, error: execution.error ?? null, startedAt: new Date(execution.startedAt), finishedAt: new Date(execution.finishedAt) }).onConflictDoNothing();
-    }
-  }
-
-
-  async #syncConcernSchedules(client: Parameters<Parameters<PostgresUnitOfWork["transaction"]>[0]>[0], agentId: string, rawConcerns: unknown): Promise<void> {
-    if (!Array.isArray(rawConcerns)) return;
-    await client.delete(autonomousSchedules).where(and(eq(autonomousSchedules.agentId, agentId), eq(autonomousSchedules.kind, "concern-due")));
-    for (const value of rawConcerns) {
-      if (typeof value !== "object" || value === null) continue;
-      const concern = value as { id?: unknown; description?: unknown; whyItMatters?: unknown; status?: unknown; reconsiderAt?: unknown };
-      if (concern.status !== "active" || typeof concern.id !== "string" || typeof concern.reconsiderAt !== "string") continue;
-      const reason = typeof concern.whyItMatters === "string" ? concern.whyItMatters : typeof concern.description === "string" ? concern.description : "Concernを再検討する";
-      await client.insert(autonomousSchedules).values({ id: `concern:${concern.id}`, agentId, kind: "concern-due", reason, nextDueAt: new Date(concern.reconsiderAt) });
     }
   }
 }

@@ -2,9 +2,10 @@ import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { ScheduleRepository, ScheduledTarget } from "../../application/scheduler.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { autonomousSchedules, reflectionRuns, scheduledTasks } from "./schema.js";
+import { autonomousSchedules, concernReevaluationSignals, reflectionRuns, scheduledTasks } from "./schema.js";
 
-type DueAutonomousRow = { id: string; agent_id: string; kind: "idle" | "concern-formation" | "concern-due" | "external-change" | "reflection"; reason: string };
+type DueAutonomousRow = { id: string; agent_id: string; kind: "idle" | "concern-formation" | "reflection"; reason: string };
+type DueConcernSignalRow = { agent_id: string; reason: string; claimed_at: Date | string };
 type DueTaskRow = { id: string; agent_id: string; instruction: string; reason: string | null; destination: string | null };
 
 export class PostgresScheduleRepository implements ScheduleRepository {
@@ -26,7 +27,7 @@ export class PostgresScheduleRepository implements ScheduleRepository {
       let autonomousRows: DueAutonomousRow[] = [];
       if (remaining > 0) {
         const autonomous = await tx.execute(sql<DueAutonomousRow>`WITH due AS (
-          SELECT id FROM app.autonomous_schedules WHERE kind IN ('idle','concern-formation','concern-due','external-change','reflection')
+          SELECT id FROM app.autonomous_schedules WHERE kind IN ('idle','concern-formation','reflection')
           AND next_due_at<=${now} AND (lease_until IS NULL OR lease_until<=${now})
           AND (${this.agentId ?? null}::text IS NULL OR agent_id=${this.agentId ?? null})
           ORDER BY next_due_at,id FOR UPDATE SKIP LOCKED LIMIT ${remaining}
@@ -34,9 +35,22 @@ export class PostgresScheduleRepository implements ScheduleRepository {
           FROM due WHERE s.id=due.id RETURNING s.id,s.agent_id,s.kind,s.reason`);
         autonomousRows = autonomous.rows as unknown as DueAutonomousRow[];
       }
+      const signalRemaining = Math.max(0, remaining - autonomousRows.length);
+      let signalRows: DueConcernSignalRow[] = [];
+      if (signalRemaining > 0) {
+        const signals = await tx.execute(sql<DueConcernSignalRow>`WITH due AS (
+          SELECT agent_id FROM app.concern_reevaluation_signals WHERE next_due_at<=${now}
+          AND (lease_until IS NULL OR lease_until<=${now})
+          AND (${this.agentId ?? null}::text IS NULL OR agent_id=${this.agentId ?? null})
+          ORDER BY next_due_at,agent_id FOR UPDATE SKIP LOCKED LIMIT ${signalRemaining}
+        ) UPDATE app.concern_reevaluation_signals s SET lease_until=${leasedUntil},updated_at=${now}
+          FROM due WHERE s.agent_id=due.agent_id RETURNING s.agent_id,s.reason,s.updated_at AS claimed_at`);
+        signalRows = signals.rows as unknown as DueConcernSignalRow[];
+      }
       return [
         ...taskRows.map((row): ScheduledTarget => ({ id: row.id, agentId: row.agent_id, kind: "scheduled-task", reason: row.reason ?? "Scheduled Taskの期限到来", instruction: row.instruction, ...(row.destination === null ? {} : { destination: row.destination }) })),
-        ...autonomousRows.map((row): ScheduledTarget => ({ id: row.id, agentId: row.agent_id, kind: row.kind, reason: row.reason }))
+        ...autonomousRows.map((row): ScheduledTarget => ({ id: row.id, agentId: row.agent_id, kind: row.kind, reason: row.reason })),
+        ...signalRows.map((row): ScheduledTarget => ({ id: `concern-due:${row.agent_id}`, agentId: row.agent_id, kind: "concern-due", reason: row.reason, signalClaimedAt: new Date(row.claimed_at) }))
       ];
     });
   }
@@ -47,6 +61,18 @@ export class PostgresScheduleRepository implements ScheduleRepository {
         status: "completed", leaseUntil: null, failureReason: null,
         executionEventId: executionEventId ?? null, updatedAt: new Date()
       }).where(and(eq(scheduledTasks.id, target.id), eq(scheduledTasks.agentId, target.agentId)));
+      return;
+    }
+    if (target.kind === "concern-due") {
+      const removed = await this.database.db.delete(concernReevaluationSignals).where(and(
+        eq(concernReevaluationSignals.agentId, target.agentId),
+        eq(concernReevaluationSignals.updatedAt, target.signalClaimedAt)
+      )).returning({ agentId: concernReevaluationSignals.agentId });
+      // A producer wrote a newer source while this claim was running.  Keep it
+      // pending and let a future tick process that newer evidence.
+      if (removed.length === 0) await this.database.db.update(concernReevaluationSignals).set({
+        leaseUntil: null, nextDueAt: new Date(), updatedAt: new Date()
+      }).where(eq(concernReevaluationSignals.agentId, target.agentId));
       return;
     }
     await this.database.db.update(autonomousSchedules).set({
@@ -61,6 +87,12 @@ export class PostgresScheduleRepository implements ScheduleRepository {
         executeAt: sql`CASE WHEN ${scheduledTasks.attempt}>=3 THEN ${scheduledTasks.executeAt} ELSE now()+${this.retryDelayMs}*interval '1 millisecond' END`,
         leaseUntil: null, failureReason: "Scheduled Task execution failed", updatedAt: new Date()
       }).where(and(eq(scheduledTasks.id, target.id), eq(scheduledTasks.agentId, target.agentId)));
+      return;
+    }
+    if (target.kind === "concern-due") {
+      await this.database.db.update(concernReevaluationSignals).set({
+        leaseUntil: null, nextDueAt: new Date(Date.now() + this.retryDelayMs), updatedAt: new Date()
+      }).where(eq(concernReevaluationSignals.agentId, target.agentId));
       return;
     }
     if (target.kind === "reflection") {

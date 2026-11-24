@@ -32,7 +32,7 @@ flowchart TD
     G -->|observed| OG[Observation Gate]
     OG -->|engage| LOOP
     OG -->|ignore| AUDIT[Event + Gate監査のみ]
-    AU[自律 Event<br/>idle / concern-formation / concern-due<br/>external-change] --> LOOP
+    AU[自律 Event<br/>idle / concern-formation / concern-due] --> LOOP
     ST[scheduled-task<br/>予約時刻] --> LOOP
     G3R[prediction-g3-result<br/>G3 の調査結果] --> LOOP
 
@@ -53,8 +53,7 @@ flowchart TD
 | `message-received` | 人間又はallowlist peerの発話、送信者種別、宛先性、前回の評価・欲求、必要に応じて取得した相手文脈 | directは通常Loop、peer/observedはGateの`engage`時だけ通常Loopへ入り、発話又は`no-external-action`・Experience Integration | 人間・peerとの社会的入力を解釈する |
 | `idle` | 現在の Concern、直近の経験 | 自律的な発話または拒否、Concern の進展 | 自分が気に掛かる事柄を、自身の興味・感情で進める |
 | `concern-formation` | Self、Memory、Relationship、背景経験、探索候補 | 新しい Concern、または外部 Action なし | 継続して気に掛ける問いを形成する |
-| `concern-due` | 新しい関連Memory又は外部変化、候補の既存 Concern | 派生 Concern、必要時だけ発話、または無発話完了 | 既存Concernから別の持続的関心が分かれたかを見直す |
-| `external-change` | 外部変化、既存 Concern | Concern の再評価・派生、共有する動機があれば発話 | 変化に応じて関心を更新する |
+| `concern-due` | 新しい関連Memory、候補の既存 Concern | 派生 Concern、必要時だけ発話、または無発話完了 | 既存Concernから別の持続的関心が分かれたかを見直す |
 | `scheduled-task` | 予約内容と時刻 | 通常 Loop の Action / Outbox / 監査 | 約束・予約を実行する |
 | `memory-update` | 決定済みの MemoryIntent と RAG 候補 | Conversation Memory の create / update / no-op | LLM を呼ばず記憶だけを安全に適用する |
 | `prediction-g3` | G1/G2 が示した要調査の仮説 | 仮説の支持・反証・判断不能、MainAgent 向け調査結果 | 意図・信念・関係など深い層を調べる |
@@ -63,11 +62,11 @@ flowchart TD
 
 ### 発話するEvent／しないEvent
 
-`idle`は自律発話の契機であり、未返信・返答待ち・連投回避を発話抑制の理由にしない。`concern-due`は、新しい関連経験又は外部変化を受けたConcernの派生検討を行うmaintenanceであり、その結果に現在の具体的Desireが生じた場合だけ発話できる。`external-change`は、変化がConcernに影響して共有する理由があれば発話できる。
+`idle`は自律発話の契機であり、未返信・返答待ち・連投回避を発話抑制の理由にしない。`concern-due`は、新しい関連Memoryを受けたConcernの派生検討を行うmaintenanceであり、その結果に現在の具体的Desireが生じた場合だけ発話できる。
 
 | 区分 | Event |
 |---|---|
-| 発話を返せる通常Loop | `message-received`、`idle`、`concern-due`、`external-change`、配送先を持つ`scheduled-task`、`prediction-g3-result` |
+| 発話を返せる通常Loop | `message-received`、`idle`、`concern-due`、配送先を持つ`scheduled-task`、`prediction-g3-result` |
 | 発話を返さないmaintenance | `concern-formation`、`memory-update`、`reflection` |
 
 `idle`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。

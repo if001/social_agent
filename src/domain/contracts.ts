@@ -53,8 +53,7 @@ export const ConcernSchema = z.object({
   id: Id.describe("Concernを同一Agent内で識別する安定したID"),
   description: NaturalLanguage.describe("気に掛け、今後進めたいことの具体的な内容"),
   whyItMatters: NaturalLanguage.describe("このConcernが現在のSelfにとって重要な理由"),
-  status: z.enum(["active", "satisfied", "abandoned"]).describe("activeは継続中、satisfiedは満足して完了、abandonedは取り下げ"),
-  reconsiderAt: Instant.describe("Concernを再検討するISO 8601日時。明確な時刻がある場合だけ指定する").optional()
+  status: z.enum(["active", "satisfied", "abandoned"]).describe("activeは継続中、satisfiedは満足して完了、abandonedは取り下げ")
 }).describe("Agentが複数Eventにわたり持続して気に掛ける事項");
 export type Concern = z.infer<typeof ConcernSchema>;
 
@@ -78,13 +77,12 @@ export const ConcernActivityIntentSchema = z.object({
 export type ConcernActivityIntent = z.infer<typeof ConcernActivityIntentSchema>;
 
 export const ConcernProposalSchema = z.object({
-  operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern。createはconcern-formationまたはidle、deriveはconcern-dueまたはexternal-changeでのみ使う"),
+  operation: z.enum(["create", "derive"]).describe("createは独立した新規Concern、deriveは既存Concernから生じた後続Concern。createはconcern-formationまたはidle、deriveはconcern-dueでのみ使う"),
   description: CurrentConcernDescriptionSchema,
   whyItMatters: CurrentConcernImportanceSchema,
   sourceConcernId: Id.optional().describe("derive時の派生元Concern ID。createでは指定しない"),
   explorationMode: z.enum(["deepen", "bridge", "distant"]).optional().describe("提案したConcernの探索の向き。deepenは同じ対象の深掘り、bridgeは性質を共有する別領域、distantは既存Focusから離れた具体対象への移動。exploration-domains候補はconcern-formationだけが受け取る"),
-  transition: z.enum(["replace", "fork"]).optional().describe("deriveで省略時はfork。replaceは派生元が役目を終えた場合だけ閉じて置換し、forkは派生元を残して並行追跡"),
-  reconsiderAt: Instant.optional().describe("再検討すべき具体的な将来時刻がある場合だけ指定する")
+  transition: z.literal("fork").optional().describe("deriveは派生元を残して並行追跡するforkだけを許可する")
 }).strict().superRefine((value, context) => {
   if (value.operation === "derive" && value.sourceConcernId === undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "derive requires sourceConcernId" });
   if (value.operation === "create" && value.sourceConcernId !== undefined) context.addIssue({ code: "custom", path: ["sourceConcernId"], message: "create must not specify sourceConcernId" });
@@ -384,8 +382,7 @@ const ProposedConcernSchema = ConcernSchema.extend({ description: CurrentConcern
 const NewConcernSchema = z.object({
   description: CurrentConcernDescriptionSchema,
   whyItMatters: CurrentConcernImportanceSchema,
-  status: z.literal("active").describe("新規Concernはactiveで作成する"),
-  reconsiderAt: Instant.describe("再検討するISO 8601日時。明確な時刻がある場合だけ指定する").optional()
+  status: z.literal("active").describe("新規Concernはactiveで作成する")
 }).strict();
 const ProposedRelationshipSchema = RelationshipSchema.extend({ description: AgentStateDescription });
 export const ConcernChangeSchema = z.discriminatedUnion("operation", [

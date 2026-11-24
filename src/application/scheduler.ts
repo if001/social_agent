@@ -6,7 +6,8 @@ import { errorLogContext, noopLogger, type Logger } from "../observability/logge
 type ScheduleTargetBase = { readonly id: string; readonly agentId: string; readonly reason: string; readonly instruction?: string; readonly destination?: string };
 export type ScheduledTarget = ScheduleTargetBase & (
   | { readonly kind: "idle" }
-  | { readonly kind: "concern-formation" | "concern-due" | "external-change" | "reflection" | "scheduled-task" }
+  | { readonly kind: "concern-due"; readonly signalClaimedAt: Date }
+  | { readonly kind: "concern-formation" | "reflection" | "scheduled-task" }
 );
 export interface ScheduleRepository {
   claimDue(now: Date, limit: number): Promise<readonly ScheduledTarget[]>;
@@ -71,7 +72,7 @@ export class Scheduler {
         }
         const destination = target.destination ?? (target.kind === "scheduled-task" ? undefined : this.options.defaultDestination(target.agentId));
         const replyContext = destination === this.options.defaultDestination(target.agentId) ? this.options.defaultReplyContext?.(target.agentId) : undefined;
-        const neutralReason = target.kind === "concern-formation" ? "定期的なConcern形成が起動した" : target.kind === "idle" ? "定期的な自律行動が起動した" : target.kind === "concern-due" ? "Concernの再検討時刻が到来した" : target.kind === "external-change" ? "外部変化の再評価が起動した" : target.kind === "reflection" ? "定期的なReflectionが起動した" : "Scheduled Taskの実行時刻が到来した";
+        const neutralReason = target.kind === "concern-formation" ? "定期的なConcern形成が起動した" : target.kind === "idle" ? "定期的な自律行動が起動した" : target.kind === "concern-due" ? "新しい経験によりConcernの派生検討が起動した" : target.kind === "reflection" ? "定期的なReflectionが起動した" : "Scheduled Taskの実行時刻が到来した";
         const event: DomainEvent = { id: this.options.ids.next(), agentId: target.agentId, kind: target.kind === "scheduled-task" ? "system" : "internal", occurredAt: occurredAt.toISOString(), payload: { targetId: target.id, targetKind: target.kind, reason: neutralReason, triggerReason: target.reason, schedulerGenerated: true, ...(target.kind === "concern-formation" ? { explorationCandidates: randomExplorationCandidates(this.options.explorationDomains ?? [], this.options.random) } : {}), ...(target.instruction === undefined ? {} : { instruction: target.instruction }), ...(destination === undefined || destination.trim() === "" ? {} : { destination }), ...(replyContext === undefined ? {} : { replyContext }) } };
         let action: AgentAction;
         if (target.kind === "reflection") {
@@ -79,7 +80,7 @@ export class Scheduler {
           await this.options.reflection.process(event.id, target.agentId, signal);
           action = { type: "no-external-action", reason: "Reflection maintenance completed" };
         } else action = await this.options.runtime.process(event, signal);
-        const interval = target.kind === "idle" ? this.options.autonomyReviewIntervalMs : target.kind === "concern-formation" ? (this.options.concernFormationIntervalMs ?? this.options.autonomyReviewIntervalMs) : target.kind === "reflection" ? this.options.stateReviewIntervalMs : target.kind === "concern-due" || target.kind === "external-change" ? null : undefined;
+        const interval = target.kind === "idle" ? this.options.autonomyReviewIntervalMs : target.kind === "concern-formation" ? (this.options.concernFormationIntervalMs ?? this.options.autonomyReviewIntervalMs) : target.kind === "reflection" ? this.options.stateReviewIntervalMs : target.kind === "concern-due" ? null : undefined;
         const next = interval === null ? null : interval === undefined ? action.type === "no-external-action" ? null : new Date(occurredAt.getTime() + this.options.autonomyReviewIntervalMs) : new Date(occurredAt.getTime() + interval);
         await this.options.repository.complete(target, next, event.id);
         logger.log("info", "scheduler.target_completed", { actionType: action.type, nextReviewAt: next?.toISOString() });

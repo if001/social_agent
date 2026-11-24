@@ -7,6 +7,7 @@ import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/por
 import { MemoryWriteService, recordMemoryMutationFailure, type MemoryWriteOptions } from "./memory-write-repository.js";
 import { errorLogContext } from "../../observability/logger.js";
 import { AgentStateRepository } from "./postgres.js";
+import { enqueueConcernReevaluationSignal } from "./concern-reevaluation-signal-repository.js";
 import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent, type MemoryIntent } from "../../domain/contracts.js";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { RuntimeDatabase } from "./runtime-database.js";
@@ -26,7 +27,6 @@ const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: 
   const actorType: "human" | "agent" | "tool" | "system" | "unknown" = type === "human" || type === "agent" || type === "tool" || type === "system" ? type : "unknown";
   return actorId === undefined ? undefined : { id: actorId, type: actorType };
 };
-
 function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(value.recentExperiences)) return value;
   return { ...value, recentExperiences: (value.recentExperiences as unknown[]).map((experience: unknown): unknown => {
@@ -94,11 +94,13 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       if (changes.length > 0) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships });
       if (changes.length > 0) await client.insert(stateChanges).values(changes.map((change) => ({ id: this.ids.next(), runId: input.sourceRunId, target: change.target, operation: change.operation, before: change.before, after: change.after, reason: "Experience Integration", evidenceIds: [input.sourceEvent.id] })));
       const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories, this.subjects, actor);
+      const writtenMemoryIds: string[] = [];
       for (const [index, candidate] of output.memories.entries()) {
         const intent: MemoryIntent = { ...candidate, evidenceEventIds: [input.sourceEvent.id], confidence: "medium", purpose: candidate.perspective === "user" ? "user-context" : "self-guidance" };
         const options: MemoryWriteOptions = { sourceEventId: input.sourceEvent.id, sourceRunId: input.sourceRunId, sourceKind: "experience-integration", sourceId: input.integrationId, intentIndex: 10_000 + index, subjectIds: subjects[index] ?? [], ...(embeddings[index] === undefined ? {} : { embedding: embeddings[index] }) };
         failedIntent = intent; failedOptions = options;
-        await memory.apply(input.agentId, intent, options);
+        const applied = await memory.apply(input.agentId, intent, options);
+        if (applied.operation !== "no-op" && applied.memoryId !== undefined) writtenMemoryIds.push(applied.memoryId);
         failedIntent = undefined; failedOptions = undefined;
       }
       const subjectsForExperience = subjectId === undefined ? [] : [subjectId];
@@ -108,6 +110,12 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       if (subjectsForExperience.length > 0) await client.insert(eventSubjects).values(subjectsForExperience.map((subjectId) => ({ eventId: input.sourceEvent.id, subjectId }))).onConflictDoNothing();
       await client.insert(eventProjections).values({ eventId: input.sourceEvent.id, contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date() }).onConflictDoUpdate({ target: eventProjections.eventId, set: { contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date(), updatedAt: new Date() } });
       await client.update(experienceIntegrations).set({ status: "completed", output, applied: { memoryCount: output.memories.length, stateChanges: changes.map(({ target, operation }) => ({ target, operation })) }, failureReason: null, completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId));
+      await enqueueConcernReevaluationSignal(client, {
+        agentId: input.agentId,
+        reason: "新しいMemoryが既存Concernの意味づけを変えうる",
+        sources: writtenMemoryIds.map((id) => ({ kind: "memory" as const, id })),
+        now: this.now()
+      });
     }); } catch (error) { if (failedIntent !== undefined && failedOptions !== undefined) await recordMemoryMutationFailure(this.database.native, input.agentId, failedIntent, failedOptions, error, this.now()); throw error; }
   }
   async fail(input: ExperienceIntegrationInput, error: unknown): Promise<void> { await this.database.db.update(experienceIntegrations).set({ status: "failed", failureReason: JSON.stringify(errorLogContext(error)), completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId)); }

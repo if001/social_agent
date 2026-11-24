@@ -7,6 +7,8 @@ export async function grantConcernsPrivileges(admin: Pool, runtime: Pool): Promi
   const role = (await runtime.query<{ role: string }>("SELECT current_user AS role")).rows[0]?.role;
   if (role === undefined || role === "") throw new Error("Could not determine runtime database role");
   await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concerns TO ${quoteIdentifier(role)}`);
+  await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concern_reevaluation_signals TO ${quoteIdentifier(role)}`);
+  await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concern_reevaluation_signal_sources TO ${quoteIdentifier(role)}`);
   return role;
 }
 

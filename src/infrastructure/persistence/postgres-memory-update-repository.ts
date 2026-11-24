@@ -3,8 +3,7 @@ import { MemoryWriteService, recordMemoryMutationFailure, type MemoryWriteOption
 import type { IdGenerator, MemoryEmbeddingPreparer, RetrievalService } from "../../application/ports.js";
 import { MemoryUpdatePayloadSchema, type DomainEvent } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { sql } from "drizzle-orm";
-import { autonomousSchedules } from "./schema.js";
+import { enqueueConcernReevaluationSignal } from "./concern-reevaluation-signal-repository.js";
 
 export class PostgresMemoryUpdateRepository implements MemoryUpdateRepository {
   constructor(private readonly database: RuntimeDatabase, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly retrieval?: RetrievalService, private readonly memoryEmbedding?: MemoryEmbeddingPreparer) {}
@@ -23,7 +22,13 @@ export class PostgresMemoryUpdateRepository implements MemoryUpdateRepository {
         const result = await service.apply(event.agentId, intent, options); results.push({ intentIndex, result });
         failedIntent = undefined; failedOptions = undefined;
       }
-      if (results.length > 0) { const reason = `新しいMemoryを既存Concernと照らして再評価する: ${payload.intents.map(({ content }) => content).join(" / ").slice(0, 800)}`; await client.insert(autonomousSchedules).values({ id: `concern-due:memory:${event.agentId}`, agentId: event.agentId, kind: "concern-due", reason, nextDueAt: new Date() }).onConflictDoUpdate({ target: autonomousSchedules.id, set: { reason, nextDueAt: sql`least(${autonomousSchedules.nextDueAt},excluded.next_due_at)`, leaseUntil: null, updatedAt: new Date() } }); }
+      const memoryIds = results.flatMap(({ result }) => result.operation === "no-op" || result.memoryId === undefined ? [] : [result.memoryId]);
+      await enqueueConcernReevaluationSignal(client, {
+        agentId: event.agentId,
+        reason: "新しいMemoryが既存Concernの意味づけを変えうる",
+        sources: memoryIds.map((id) => ({ kind: "memory" as const, id })),
+        now: this.now()
+      });
       return results; });
     } catch (error) { if (failedIntent !== undefined && failedOptions !== undefined) await recordMemoryMutationFailure(this.database.native, event.agentId, failedIntent, failedOptions, error, this.now()); throw error; }
   }

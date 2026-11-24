@@ -254,7 +254,6 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const updated = await client.update(agentStates).set({ disposition: self.disposition, selfStory: self.selfStory, commitments: self.commitments, relationships: state.relationships, mood: state.mood, version: sql`${agentStates.version}+1`, updatedAt: occurredAt }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, input.expectedVersion))).returning({ version: agentStates.version });
       if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection state version conflict");
       await new ConcernRepository(client).replace(input.agentId, state.concerns, occurredAt);
-      await this.#syncConcernSchedules(client, input.agentId, state.concerns);
       for (const [index, activity] of appliedConcerns.activities.entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:change:${String(index)}:${activity.kind}:${activity.concernId}`, concernId: activity.concernId, kind: activity.kind, reflectionId: input.reflectionId, evidenceMemoryIds: output.evidenceMemoryIds, occurredAt }).onConflictDoNothing({ target: concernActivities.id });
       if (self.identity !== input.self.identity) await client.update(agents).set({ identity: self.identity, updatedAt: occurredAt }).where(eq(agents.id, input.agentId));
       const reflectionCandidates = input.memories.map((memory) => ({ id: memory.id, kind: "episodic", content: memory.summary, importance: memory.significance }));
@@ -375,7 +374,6 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
               const changed = await client.update(agentStates).set({ version: sql`${agentStates.version}+1`, updatedAt: at }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, current.version))).returning({ version: agentStates.version });
               if (changed.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern stale-close state version conflict");
               await new ConcernRepository(client).replace(input.agentId, closed, at);
-              await this.#syncConcernSchedules(client, input.agentId, closed);
             }
           });
         }
@@ -414,18 +412,17 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const current = await repository.list(input.agentId);
       const byDescription = new Map(current.map((concern) => [concern.description, concern]));
       const changes: ConcernChange[] = output.concernChanges.flatMap<ConcernChange>((change) => {
-        if (change.operation === "create") return [{ operation: "create" as const, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
+        if (change.operation === "create") return [{ operation: "create" as const, concern: { description: change.description, whyItMatters: change.whyItMatters, status: "active" as const } }];
         const previous = byDescription.get(change.currentDescription);
         if (previous === undefined) return [];
         if (change.operation === "remove") return [{ operation: "remove" as const, id: previous.id }];
-        return [{ operation: "upsert" as const, concern: { id: previous.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status, ...(change.reconsiderAt === undefined ? {} : { reconsiderAt: change.reconsiderAt }) } }];
+        return [{ operation: "upsert" as const, concern: { id: previous.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status } }];
       });
       const applied = applyConcerns(current, changes, () => this.ids.next());
       const at = this.now();
       const updated = await client.update(agentStates).set({ version: sql`${agentStates.version}+1`, updatedAt: at }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
       if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");
       await repository.replace(input.agentId, applied.concerns, at);
-      await this.#syncConcernSchedules(client, input.agentId, applied.concerns);
       // Every active Concern was presented to this successful Reflection Session.
       for (const [index, concern] of applied.concerns.filter(({ status }) => status === "active").entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:target-concern:presented:${String(index)}:${concern.id}`, concernId: concern.id, kind: "presented", reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt: at }).onConflictDoNothing({ target: concernActivities.id });
       for (const [index, activity] of applied.activities.entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:target-concern:${String(index)}:${activity.kind}:${activity.concernId}`, concernId: activity.concernId, kind: activity.kind, reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt: at }).onConflictDoNothing({ target: concernActivities.id });
@@ -546,19 +543,10 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     if (self !== undefined) await this.database.db.update(agents).set({ identity: self.identity, updatedAt: this.now() }).where(eq(agents.id, input.agentId));
   }
 
-  async #syncConcernSchedules(client: ReflectionTransaction, agentId: string, concerns: readonly Concern[]): Promise<void> {
-    await client.delete(autonomousSchedules).where(and(eq(autonomousSchedules.agentId, agentId), eq(autonomousSchedules.kind, "concern-due")));
-    for (const concern of concerns) {
-      if (concern.status !== "active" || concern.reconsiderAt === undefined) continue;
-      await client.insert(autonomousSchedules).values({ id: `concern:${concern.id}`, agentId, kind: "concern-due", reason: concern.whyItMatters, nextDueAt: new Date(concern.reconsiderAt) });
-    }
-  }
-
   async #closeStaleConcerns(client: ReflectionTransaction, agentId: string, reflectionId: string, concerns: readonly Concern[], changedConcernIds: ReadonlySet<string>, now: Date): Promise<readonly Concern[]> {
     const next = [...concerns];
     for (const [index, concern] of concerns.entries()) {
       if (concern.status !== "active" || changedConcernIds.has(concern.id)) continue;
-      if (concern.reconsiderAt !== undefined && Date.parse(concern.reconsiderAt) > now.getTime()) continue;
       const lastMeaningful = (await client.select({ occurredAt: concernActivities.occurredAt }).from(concernActivities).innerJoin(concernRecords, eq(concernRecords.id, concernActivities.concernId)).where(and(eq(concernRecords.agentId, agentId), eq(concernActivities.concernId, concern.id), inArray(concernActivities.kind, ["baseline", "created", "derived", "reviewed", "focused", "progressed", "status-changed"]))).orderBy(desc(concernActivities.occurredAt)).limit(1))[0]?.occurredAt;
       if (lastMeaningful === undefined) continue;
       if (now.getTime() - lastMeaningful.getTime() < this.concernLifecycle.staleAfterMs) continue;
@@ -566,7 +554,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const reflectionIds = [...new Set(presentations.flatMap(({ reflectionId: activityReflectionId }) => activityReflectionId === null ? [] : [activityReflectionId]))];
       const sessions = reflectionIds.length === 0 ? [] : await client.select({ id: reflectionRuns.id }).from(reflectionRuns).where(and(eq(reflectionRuns.agentId, agentId), inArray(reflectionRuns.id, reflectionIds), sql`(${reflectionRuns.status} = 'completed' OR ${reflectionRuns.id} = ${reflectionId})`));
       if (sessions.length < this.concernLifecycle.minReflectionSessions) continue;
-      next[index] = { ...concern, status: "abandoned", reconsiderAt: undefined };
+      next[index] = { ...concern, status: "abandoned" };
       for (const kind of ["status-changed", "closed"] as const) await client.insert(concernActivities).values({ id: `reflection:${reflectionId}:close:${String(index)}:${kind}:${concern.id}`, concernId: concern.id, kind, reflectionId, evidenceMemoryIds: [], occurredAt: now }).onConflictDoNothing({ target: concernActivities.id });
     }
     return next;

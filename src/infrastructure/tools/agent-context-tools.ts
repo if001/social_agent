@@ -72,7 +72,7 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
           const aAt = lastMeaningful.get(a.id) ?? ""; const bAt = lastMeaningful.get(b.id) ?? "";
           return order === "stale" ? aAt.localeCompare(bAt) || a.id.localeCompare(b.id) : bAt.localeCompare(aAt) || a.id.localeCompare(b.id);
         });
-        const values = concerns.slice(cursor, cursor + limit).map(({ id, description, reconsiderAt }) => ({ id, description: compact(description, 240), ...(reconsiderAt === undefined ? {} : { reconsiderAt }), ...(lastMeaningful.get(id) === undefined ? {} : { lastMeaningfulAt: lastMeaningful.get(id) }) }));
+        const values = concerns.slice(cursor, cursor + limit).map(({ id, description }) => ({ id, description: compact(description, 240), ...(lastMeaningful.get(id) === undefined ? {} : { lastMeaningfulAt: lastMeaningful.get(id) }) }));
         return success({ count: active.length, concerns: values, ...(cursor + values.length < active.length ? { nextCursor: cursor + values.length } : {}) });
       }
     },
@@ -105,7 +105,7 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
     },
     {
       name: "concern_propose",
-      description: "複数Eventにわたり残る一つの関心または動機の核を提案する。出来事の経緯、発見の列挙、今回だけの行為、実行日時、詳細手順は含めない。concern-formationはSelf・Memory・Background Experience・Relationshipまたは探索候補から独立Concernをcreateし、idleは行動中に強く残った独立Concernだけをcreateできる。concern-dueとexternal-changeは既存Concernから別の関心が残る場合だけderive + forkする。実行中は保存せず、Event成功時だけ確定する。通常1件、明確に独立する場合でも合計3件程度まで。",
+      description: "複数Eventにわたり残る一つの関心または動機の核を提案する。出来事の経緯、発見の列挙、今回だけの行為、実行日時、詳細手順は含めない。concern-formationはSelf・Memory・Background Experience・Relationshipまたは探索候補から独立Concernをcreateし、idleは行動中に強く残った独立Concernだけをcreateできる。concern-dueは既存Concernから別の関心が残る場合だけderive + forkする。実行中は保存せず、Event成功時だけ確定する。通常1件、明確に独立する場合でも合計3件程度まで。",
       schema: ConcernProposalSchema,
       resultPolicy: { kind: "standard", project: (value) => value },
       execute: (proposal) => success({ queued: true, proposal })
