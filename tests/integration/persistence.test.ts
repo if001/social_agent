@@ -455,7 +455,13 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO concerns(id,agent_id,description,why_it_matters,status) VALUES ('batch-concern','a','比較の違いを知りたい','自分の関心','active') ON CONFLICT (id) DO NOTHING");
     await pool.query("INSERT INTO concern_reevaluation_batches(id,agent_id,source_kind,source_id,focus_concern_id,status,impact_reason,next_due_at) VALUES ('batch-1','a','test','one','batch-concern','pending','new experiences','2026-01-01'),('batch-2','a','test','two','batch-concern','pending','new experiences','2026-01-01')");
     const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 1_000);
-    const claimed = (await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ kind }) => kind === "concern-due");
+    const competingRepository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 1_000);
+    const claims = (await Promise.all([
+      repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10),
+      competingRepository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)
+    ])).flat().filter(({ kind }) => kind === "concern-due");
+    expect(claims).toHaveLength(1);
+    const claimed = claims[0];
     expect(claimed).toMatchObject({ id: "concern-due:a:batch-concern", agentId: "a", kind: "concern-due", reason: "new experiences", batchIds: ["batch-1", "batch-2"] });
     if (claimed === undefined || claimed.kind !== "concern-due") throw new Error("Signal was not claimed");
     await repository.release(claimed);
