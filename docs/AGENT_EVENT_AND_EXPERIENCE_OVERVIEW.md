@@ -11,8 +11,8 @@ flowchart LR
     E[Event<br/>出来事・時刻・内部処理] --> I[必要最小限の入力を集める]
     I --> A[MainAgent が appraisal<br/>Meaning / Feeling / Desire / Action]
     A --> C[初回 commit<br/>Action・監査・Outbox]
-    C --> X[Experience Integration]
-    X --> S[短中期の更新候補<br/>Memory / Mood / Relationship]
+    C --> X[Experience Integration<br/>Memory / Mood / Relationship / Focus Concern]
+    X --> S[短中期の更新候補<br/>Memory / Mood / Relationship / Focus Concern]
     C --> P[G1/G2<br/>次の発話を予測]
     P --> PE[次の direct message-received で<br/>予測誤差を評価]
     S --> N[次の Event の入力]
@@ -103,7 +103,7 @@ flowchart LR
 - Session開始時に根拠となるEvent範囲を固定する。Memory Formationは最大16件のEvent Experienceから、今後も再利用すべき経験を形成する。
 - Reconciliationは形成結果・利用履歴・未再検討のMemoryなどから候補を取得し、関連するMemoryを補強・更新・分割・維持する。全Memoryを一括で書き換えない。
 - Memoryの整理後に、根拠Memoryを用いてConcern、Relationship、Self、Moodを順に見直す。Selfは通常Eventでは変更せず、Reflectionだけが更新できる。
-- Concernは既存Concernの統合・具体化・終了を扱う。新規作成・派生は行わない。長く扱われず、Reflectionでも進展しないConcernはRuntimeが決定論的に`abandoned`へ移す。
+- Concernは既存Concernの横断的な統合・具体化・遅延した満足・放棄を扱う。新規作成・派生は行わない。Event直後にFocus Concernが実質的に満足したかを判断するのはExperience Integrationであり、長く扱われず、Reflectionでも進展しないConcernはRuntimeが決定論的に`abandoned`へ移す。
 - 各対象は独立したstatusと監査を持つ。失敗した対象だけを次回Sessionで再試行し、完了済みのbatchや対象は重複実行しない。Memoryが失敗した場合は後続の長期状態更新を`blocked`にする。
 
 ## 通常会話のフロー
@@ -126,7 +126,7 @@ sequenceDiagram
     M-->>R: Meaning + Feeling + Desire + Action
     R->>O: Action・監査・配送を初回 commit
     R->>X: commit 済み結果と同じ Context
-    X-->>R: MemoryIntent、Mood / Relationship の候補
+    X-->>R: MemoryIntent、Mood / Relationship、Focus Concern の候補
 ```
 
 入力はすべてを prompt に詰め込むのではなく、Event と直近の継続情報を起点に必要なものだけを取得する。MainAgent は Event の終了時点で Meaning / Feeling / Desire / Action を一貫して決める。初回 commit 後の Experience Integration は次の Action を決めず、経験を残す価値があるときだけ持続状態の候補を作る。
@@ -138,7 +138,7 @@ sequenceDiagram
 | Meaning / Feeling / Desire / Action | 今回だけ確定する | 変更しない | 直接の Action は決めない |
 | Conversation Memory | Experience Integration が候補を判断する | MemoryWriteService が適用する | Formation / Reconciliation で整理する |
 | Mood / Relationship | Experience Integration が候補を反映できる | 変更しない | 複数経験を根拠に長期的に更新できる |
-| Concern | Event 種別ごとに許可された proposal のみ | 変更しない | 作成・統合・終了を含め整理できる |
+| Concern | Event種別のcreate / derive / focus。Experience IntegrationはFocus 1件だけを即時更新できる | 変更しない | 既存Concernを横断的に統合・具体化・遅延closeする。create / deriveはしない |
 | Self（Disposition / Self Story / Commitments） | 直接変更しない | 変更しない | 複数経験と Memory 根拠に基づいて更新できる |
 
 Conversation Memory の書込み経路は常に `MemoryWriteService` である。候補が既存記憶と合わない、または古くなった場合には、create / update だけでなく no-op も選べる。

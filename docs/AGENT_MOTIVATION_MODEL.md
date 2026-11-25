@@ -40,7 +40,7 @@ flowchart LR
     RF --> ST
 ```
 
-通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。応答commit後のExperience Integrationが同じContextと確定結果からMemory、Mood、Relationshipの候補だけを判断し、MemoryWriteServiceと楽観ロックを通じて適用する。Integrationは次のActionを決めず、失敗してもcommit済みの応答を巻き戻さない。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。`message-received`のdirectはhuman / peerを問わずself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。相手文脈はRuntimeが解決済みsubjectへ束縛し、Concernの生成・派生・消化は共通の自律Eventへ分け、許可する操作はRuntimeでも強制する。
+通常Interactionは一つのAgent Loopで処理する。Agent Coreは直近の成功Event終了時の`previousAssessment`と`previousDesire`を時刻付きで受け、経過時間、重要性、未解決性、前回Actionの結果、現在Eventとの関連から残っている影響だけを用いる。今回のEventを処理し、必要なTool結果も見た後で、`desire`、最終`action`、今回終了時の`meaning`と`feeling`を同じ構造化出力で確定する。応答commit後のExperience Integrationが同じContextと確定結果からMemory、Mood、Relationshipと、RuntimeがFocusした最大1件のConcernの候補を判断する。Concernは共通lifecycle commitを通じてだけ適用し、`progress`、実質的な`satisfied`、明確な価値喪失による`abandoned`以外を即時に変更しない。Integrationは次のActionを決めず、失敗してもcommit済みの応答を巻き戻さない。Self、Concern、Conversation Memory、Relationshipの本文は初期Contextへ一括投入せず、必要なものをRetrieval Toolで得る。Recent Experiencesは新しい永続概念ではなく、直近2 Eventから次の判断に必要なObservation要点、Tool signal、Actionまたはfailure、進展有無を組み立てた入力である。監査用metadataと元のTool本文はEvent logとTool executionに残し、Recent Experiencesへ複製しない。`message-received`のdirectはhuman / peerを問わずself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。相手文脈はRuntimeが解決済みsubjectへ束縛し、Concernの生成・派生・消化は共通の自律Eventへ分け、許可する操作はRuntimeでも強制する。
 
 予測Loopは通常応答の外側にある。G1/G2はdirectな`message-received`への応答後に同じ相手の次ターンを予測し、同一subjectからの次のdirect入力で誤差を1ターン遅れで評価する。peer/observedと自律Eventは予測対象にしない。G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。通常応答のMemory、Mood、RelationshipはExperience Integrationが初回commit後に判断して適用する。Reflectionは別のSessionとして複数経験を長期状態へ統合する。
 
@@ -63,7 +63,7 @@ flowchart LR
 | Desire | 今回のEvent | 今回の現在のコミットメントを自然言語で表す。Concernの言い換えではなく、対象と今回の行為を持つ |
 | Previous Desire | 直近Eventから一時的に継続 | 直前に成功したEventのDesireと時刻を1件だけ渡し、まだ現在の意図か判断する |
 | Action | 今回のEvent | 応答、拒否、非実行通知、または実行済みTool後の配送不要を表す |
-| Experience Integration | 応答commit後 | Memory、Mood、Relationshipの持続的な候補を判断・適用する。失敗は応答へ伝播しない |
+| Experience Integration | 応答commit後 | Memory、Mood、Relationshipと、RuntimeがFocusした最大1件のConcernの即時候補を判断・適用する。Concernは共通lifecycle commitを通し、失敗は応答へ伝播しない |
 | Concern proposal | Eventをまたぐ気に掛けていることが生じた場合のみ | `concern_propose`でrun-localに提案し、成功commit時だけ作成・派生する |
 | Reflection | Event駆動の保守処理 | 複数の経験を圧縮し、Conversation Memory、Self、Concern、Relationshipへ長期反映する。Conversation Memory、Self、Relationship、Concernごとに部分成功を持つ |
 | Scheduled Task | Runtime上の責務 | 指定時刻に新しいEventを発生させる。心理状態ではない |
@@ -177,7 +177,7 @@ flowchart TD
 - MainAgent（Agent Core）は今回のMeaning、Feeling、Desire、Actionを決める。Concernは`concern_propose`で提案する。
 - G1/G2の`predictionEvaluation`は予測シグナルであり、Meaning / Feelingではない。Feelingを確定するのはMainAgentだけである。
 - RuntimeはEvent、Action、Concern変更、Outboxを初回transactionで確定する。
-- Experience Integrationは初回commit後、同じ入力Contextと確定結果からMemoryIntent、Mood、Relationshipを判断する。MemoryIntentはMemoryWriteServiceが適用し、RelationshipとMoodは楽観ロックで更新する。ConcernはConcern ProposalまたはReflectionでのみ更新する。
+- Experience Integrationは初回commit後、同じ入力Contextと確定結果からMemoryIntent、Mood、Relationship、RuntimeがFocusした最大1件のConcernの即時候補を判断する。MemoryIntentはMemoryWriteServiceが適用し、RelationshipとMoodは楽観ロックで更新する。ConcernはConcern lifecycle commitだけが更新し、即時更新は`progress`、実質的な`satisfied`、明確な価値喪失による`abandoned`に限る。
 - MemoryWriteServiceは会話由来Memoryの唯一の書込み経路であり、RAG候補からcreate / update / no-opを決め、Memory versionを照合する。旧直接INSERTを残さない。
 - `memory-update` Eventは専用のMemoryUpdateHandlerが処理し、LLMを呼ばない。directな`message-received`を優先し、強制中断はしない。
 - G3はMainAgentとは別のDeepAgentであり、仮説評価とMemoryIntentをMainAgentへ渡す。
