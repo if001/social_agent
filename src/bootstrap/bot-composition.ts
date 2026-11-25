@@ -6,6 +6,7 @@ import { AgentRuntime, OutboxDispatcher } from "../application/agent-runtime.js"
 import { PredictionLoop } from "../application/prediction-loop.js";
 import { DirectMemoryUpdateSink, MemoryUpdateHandler } from "../application/memory-update.js";
 import { DirectExperienceIntegrationSink, ExperienceIntegration } from "../application/experience-integration.js";
+import { ConcernReevaluation } from "../application/concern-reevaluation.js";
 import { createCanonicalSubjectResolver } from "../application/canonical-subject.js";
 import { DirectG3Sink, G3Service, MemoryG3ResultSink, type G3ResultSink } from "../application/g3.js";
 import { TargetedReflection } from "../application/reflection.js";
@@ -28,6 +29,8 @@ import { PostgresWebArchive } from "../infrastructure/persistence/postgres-web-a
 import { PostgresRuntimePersistence } from "../infrastructure/persistence/postgres-runtime-persistence.js";
 import { PostgresExperienceIntegrationRepository } from "../infrastructure/persistence/postgres-experience-integration.js";
 import { createOllamaExperienceIntegrationModel } from "../infrastructure/agent/experience-integration-harness.js";
+import { createOllamaConcernImpactModel } from "../infrastructure/agent/concern-impact-harness.js";
+import { PostgresConcernReevaluationBatchRepository } from "../infrastructure/persistence/concern-reevaluation-batch-repository.js";
 import { PostgresReflectionRepository } from "../infrastructure/persistence/postgres-reflection.js";
 import { PostgresScheduledTaskToolRepository } from "../infrastructure/persistence/postgres-scheduled-task-tool-repository.js";
 import { PostgresAgentContextToolRepository } from "../infrastructure/persistence/postgres-agent-context-tool-repository.js";
@@ -67,7 +70,8 @@ export function createBotComposition(options: BotCompositionOptions) {
   const retrievalService = new PostgresRetrievalService(pool, embeddingProvider);
   const memoryEmbedding = new PostgresMemoryEmbeddingLifecycle(database, embeddingProvider, config.embedding.model);
   const predictionRepository = new PostgresPredictionRepository(database);
-  const memoryUpdateHandler = new MemoryUpdateHandler(new PostgresMemoryUpdateRepository(database, ids, () => clock.now(), retrievalService, memoryEmbedding));
+  const concernReevaluation = new ConcernReevaluation(new PostgresConcernReevaluationBatchRepository(database, ids, () => clock.now(), config.schedulerTimings.concernReevaluationAggregationMs), createOllamaConcernImpactModel(config.chat, logger));
+  const memoryUpdateHandler = new MemoryUpdateHandler(new PostgresMemoryUpdateRepository(database, ids, () => clock.now(), retrievalService, memoryEmbedding), concernReevaluation);
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
   const subjects = createCanonicalSubjectResolver(config.discord?.ownerIds ?? [], config.peers.peers);
   const runtimeRef: { current?: AgentRuntime } = {};
@@ -85,7 +89,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     ...createScheduledTaskTools(new PostgresScheduledTaskToolRepository(database), ids, () => clock.now())
   ];
   const toolRegistry = new ToolRegistry(configuredTools);
-  const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding, subjects), createOllamaExperienceIntegrationModel({ ...config.chat, toolRegistry }, logger), subjects), ids);
+  const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding, subjects), createOllamaExperienceIntegrationModel({ ...config.chat, toolRegistry }, logger), subjects, concernReevaluation), ids);
   const g3Service = new G3Service(new PostgresG3TaskRepository(database, config.botId), createOllamaG3Model({ ...config.chat, toolRegistry }), g3ResultSink, ids, () => clock.now(), config.runDeadlineMs, config.runDeadlineMs, 3);
   const g3Sink = new DirectG3Sink(g3Service, config.runDeadlineMs);
   const prediction = new PredictionLoop({ repository: predictionRepository, model: createOllamaPredictionModel(config.chat, logger), ids, now: () => clock.now(), retrieval: retrievalService, memoryUpdateSink, g3Sink, limits: { deadlineMs: 180_000, maxAttempts: 1 }, logger });

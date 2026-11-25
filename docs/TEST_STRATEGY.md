@@ -143,7 +143,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-76, FR-90 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/observation-gate.test.ts` | peer/directとpeer/observedが具体的動機を再評価し、終話を無応答で監査すること |
 | FR-22 | Unit | `tests/unit/scheduler.test.ts`, `tests/unit/config-lifecycle.test.ts` | 夜間quiet hoursのidle抑制と再スケジュール |
 | FR-23 | Unit, System, Evaluation | `tests/unit/agent-state-patch.test.ts`, `tests/unit/domain-contracts.test.ts`, `tests/system/invalid-output.test.ts` | Patch 対象の限定 |
-| FR-24 | Unit, Integration, System | `tests/unit/agent-state-patch.test.ts`, `tests/integration/persistence.test.ts`, `tests/unit/scheduler.test.ts`, `tests/system/tool-loop.test.ts` | Concern lifecycle commitとsignal同期 |
+| FR-24 | Unit, Integration, System | `tests/unit/concern-reevaluation.test.ts`, `tests/integration/persistence.test.ts`, `tests/unit/scheduler.test.ts`, `tests/system/tool-loop.test.ts` | Concern lifecycle commit、experience batch、集約claim |
 | FR-25 | Unit, Integration, System | `tests/unit/concern-lifecycle.test.ts`, `tests/unit/agent-prompts.test.ts`, `tests/unit/scheduler.test.ts`, `tests/unit/reflection.test.ts`, `tests/integration/persistence.test.ts` | 共通lifecycle境界、Activity監査、状態遷移 |
 | FR-95 | Unit, Integration, System | `tests/unit/experience-integration.test.ts`, `tests/unit/concern-lifecycle.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts` | Focus Concern 1件の即時遷移、derive重複拒否、Action commit非巻戻し |
 | FR-44 | Unit, Integration, System | `tests/unit/reflection.test.ts`, `tests/unit/reflection-harness.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/tool-loop.test.ts` | Reflection が既存Concernだけを整理し、新規作成・派生を拒否すること |

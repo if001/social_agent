@@ -286,7 +286,7 @@ G3の結果を受けたMainAgentの再判断は通常のAgent Loopに通す。`p
 flowchart TD
     SCH[Scheduler] --> I[idle]
     SCH --> CF[concern-formation]
-    MEM[新しい関連Memory] --> CD[concern-due]
+    MEM[experience batch + impact] --> CD[concern-due]
     SCH --> RF[reflection]
     SCH --> TASK[scheduled-task]
 
@@ -315,7 +315,7 @@ Concernを作る経路と、既存Concernを進める経路を混同しない。
 |---|---|---|
 | `concern-formation` | `create` | Self、Memory、Relationship、Background Experienceから独立Concernを作る。探索領域カタログも、関心の幅を作る独立した生成根拠として使える。 |
 | `idle` | 既存Concernの消化、例外的な`create` | active Concernを自分の興味・感情で進め、独り言・仮説・問いなどとして発話する。行動中に強く残った独立Concernだけをcreateできる。探索領域カタログは受け取らない。 |
-| `concern-due` | `derive` | signalの根拠となった新しい関連Memoryから、既存Concernの別の問い・対象・方法という持続的関心が分かれた場合だけ派生Concernをforkする。親は置換・終了しない。 |
+| `concern-due` | `derive` | Runtimeが束縛した一件のFocus Concernとexperience batchから、別の問い・対象・方法という持続的関心が分かれた場合だけ派生Concernをforkする。親は置換・終了しない。任意Toolを呼ばなくても判断できる。 |
 | `reflection` | 整理 | 複数経験を統合し、既存Concernを統合・具体化・満足・放棄する。新規Concernは作成しない。 |
 
 `create`と`derive`の許可はpromptだけに委ねず、Eventの`targetKind`ごとにRuntimeが検証する。Concern数や一律の経過時間だけで、作成・終了・置換はしない。

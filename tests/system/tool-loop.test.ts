@@ -194,37 +194,36 @@ describe("ST-03 Deep Agent internal Tool Loop", () => {
       { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string(), derivationReason: z.string().optional() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
     ]);
     const [focus, propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
-    const context = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-focus", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", concernDueSignalClaimedAt: fixtureInstant, maxToolCalls: 4, signal: new AbortController().signal });
+    const context = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-focus", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", concernDueFocusId: "parent", concernDueEvidenceMemoryIds: ["memory-parent"], maxToolCalls: 4, signal: new AbortController().signal });
     await focus?.invoke({ mode: "initial" }, { context });
     await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい", derivationReason: "新しい経験が別の比較軸を示した" }, { context });
     expect(context.collector.executions.at(-1)?.input).not.toHaveProperty("sourceConcernId");
     expect(context.collector.executions.at(-1)?.result).toMatchObject({ proposal: { operation: "derive", sourceConcernId: "parent", evidenceMemoryIds: ["memory-parent"], derivationReason: "新しい経験が別の比較軸を示した" } });
   });
 
-  it("FR-69: rejects a concern-due derive until the Runtime has focused a Concern", async () => {
+  it("FR-69: rejects a concern-due derive only when the Runtime binding is absent", async () => {
     let dispatched = 0;
     const registry = new ToolRegistry([{ name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string() }).strict(), resultPolicy: { kind: "standard" }, execute: () => { dispatched += 1; return Promise.resolve({ ok: true, value: {} }); } }]);
     const [propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
     const context = createDeepAgentToolRunContext({ agentId: "agent-a", runId: "due-no-focus", eventId: "due-event", eventKind: "internal", eventTargetKind: "concern-due", maxToolCalls: 2, signal: new AbortController().signal });
-    await expect(propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい" }, { context })).resolves.toContain('"errorCode":"CONCERN_DUE_FOCUS_REQUIRED"');
+    await expect(propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい" }, { context })).resolves.toContain('"errorCode":"CONCERN_DUE_BINDING_MISSING"');
     expect(dispatched).toBe(0);
-    expect(context.collector.executions.at(-1)).toMatchObject({ ok: false, error: "derive requires a preceding concern_due_focus in this Run" });
+    expect(context.collector.executions.at(-1)).toMatchObject({ ok: false, error: "Runtime did not bind a Focus Concern for this concern-due Event" });
   });
 
-  it("FR-69: carries the Runtime-resolved parent into the committed proposal", async () => {
+  it("FR-69: carries the Runtime-resolved parent into the committed proposal without requiring concern_due_focus", async () => {
     const registry = new ToolRegistry([
       { name: "concern_due_focus", description: "focus", schema: z.object({}).strict(), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: { concernId: "parent", evidenceMemoryIds: ["memory-parent"], concern: { description: "記憶の変質", whyItMatters: "気になる" } } }) },
       { name: "concern_propose", description: "propose", schema: z.object({ operation: z.enum(["create", "derive"]), description: z.string(), whyItMatters: z.string(), derivationReason: z.string().optional() }).strict(), resultPolicy: { kind: "standard" }, execute: (proposal) => Promise.resolve({ ok: true, value: { queued: true, proposal } }) }
     ]);
     const invoker: DeepAgentInvoker = { invoke: async (_input, options) => {
       const context = createDeepAgentToolRunContext(options);
-      const [focus, propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
-      await focus?.invoke({}, { context });
+      const [, propose] = createDeepAgentTools(registry, () => new Date(fixtureInstant));
       await propose?.invoke({ operation: "derive", description: "別の検証方法", whyItMatters: "差を確かめたい", derivationReason: "新しい経験が別の比較軸を示した" }, { context });
       return { structuredResponse: finalOutput, toolExecutions: context.collector.executions };
     } };
     const input = agentCoreInputFixture();
-    input.observation = { eventId: input.run.eventId, summary: "新しい経験", facts: [], observedAt: fixtureInstant, content: { targetKind: "concern-due", signalClaimedAt: fixtureInstant } };
+    input.observation = { eventId: input.run.eventId, summary: "新しい経験", facts: [], observedAt: fixtureInstant, content: { targetKind: "concern-due", focusConcernId: "parent", evidenceMemoryIds: ["memory-parent"] } };
     input.availableTools = [
       { name: "concern_due_focus", description: "focus", inputSchema: {} },
       { name: "concern_propose", description: "propose", inputSchema: {} }

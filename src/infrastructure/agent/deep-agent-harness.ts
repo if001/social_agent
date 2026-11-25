@@ -90,7 +90,7 @@ export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions
 
 export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number; readonly graphSteps?: number };
 export type { EventAssessment } from "../../domain/contracts.js";
-export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly maxExplorationModelCalls?: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly concernDueSignalClaimedAt?: string | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
+export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly maxExplorationModelCalls?: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly concernDueFocusId?: string | undefined; readonly concernDueEvidenceMemoryIds?: string[] | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
   invoke(input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] }, options: DeepAgentInvokeOptions): Promise<DeepAgentResult>;
 }
@@ -187,9 +187,16 @@ function eventTargetKind(input: AgentCoreInput): string | undefined {
   return typeof content === "object" && content !== null && "targetKind" in content && typeof content.targetKind === "string" ? content.targetKind : undefined;
 }
 
-function concernDueSignalClaimedAt(input: AgentCoreInput): string | undefined {
+function concernDueRuntimeBinding(input: AgentCoreInput): { readonly focusId: string; readonly evidenceMemoryIds: string[] } | undefined {
   const content = input.observation.content;
-  return eventTargetKind(input) === "concern-due" && typeof content === "object" && content !== null && "signalClaimedAt" in content && typeof content.signalClaimedAt === "string" ? content.signalClaimedAt : undefined;
+  if (eventTargetKind(input) !== "concern-due" || typeof content !== "object" || content === null || !("focusConcernId" in content) || typeof content.focusConcernId !== "string") return undefined;
+  return { focusId: content.focusConcernId, evidenceMemoryIds: "evidenceMemoryIds" in content && Array.isArray(content.evidenceMemoryIds) ? content.evidenceMemoryIds.filter((value): value is string => typeof value === "string") : [] };
+}
+
+function observationForModel(input: AgentCoreInput): AgentCoreInput["observation"] {
+  if (eventTargetKind(input) !== "concern-due" || typeof input.observation.content !== "object" || input.observation.content === null) return input.observation;
+  const { focusConcernId: _focusConcernId, evidenceMemoryIds: _evidenceMemoryIds, batchIds: _batchIds, ...content } = input.observation.content as Record<string, unknown>;
+  return { ...input.observation, content };
 }
 
 export class DeepAgentHarness implements AgentHarness {
@@ -207,7 +214,7 @@ export class DeepAgentHarness implements AgentHarness {
     const budgetResult = (modelCalls: number, repairs: number) => ({ limits: { deadlineMs: input.limits.deadlineMs, maxSteps: input.limits.maxSteps, maxToolCalls: input.limits.maxToolCalls }, consumed: { modelCalls, toolCalls: observedToolExecutions.length, repairs } });
     const logger = (this.options.logger ?? noopLogger).child({ agentId: input.run.agentId, eventId: input.run.eventId, runId: input.run.runId });
     const promptInput = agentCoreModelView({
-      event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: input.observation },
+      event: { kind: input.observation.kind, occurredAt: input.run.occurredAt, observation: observationForModel(input) },
       identity: input.currentSelf.identity,
       dispositionTendency: dispositionTendency(input.currentSelf.disposition),
       ...(input.persona === undefined ? {} : { persona: input.persona }),
@@ -233,7 +240,8 @@ export class DeepAgentHarness implements AgentHarness {
         const finalizationReserveModelCalls = Math.min(2, remainingModelCalls);
         const exploratoryModelCalls = remainingModelCalls - finalizationReserveModelCalls;
         const recursionLimit = this.options.graphRecursionLimit ?? DEFAULT_AGENT_GRAPH_RECURSION_LIMIT;
-        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: remainingModelCalls, maxExplorationModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), ...(concernDueSignalClaimedAt(input) === undefined ? {} : { concernDueSignalClaimedAt: concernDueSignalClaimedAt(input) }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+        const binding = concernDueRuntimeBinding(input);
+        const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: remainingModelCalls, maxExplorationModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), ...(binding === undefined ? {} : { concernDueFocusId: binding.focusId, concernDueEvidenceMemoryIds: binding.evidenceMemoryIds }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
         if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the total model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
         consumedModelCalls += invokedModelCalls;
@@ -265,7 +273,8 @@ export class DeepAgentHarness implements AgentHarness {
             outputSchema: AgentCoreModelOutputJsonSchema
           });
           try {
-            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, maxExplorationModelCalls: 0, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), ...(concernDueSignalClaimedAt(input) === undefined ? {} : { concernDueSignalClaimedAt: concernDueSignalClaimedAt(input) }), maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
+            const binding = concernDueRuntimeBinding(input);
+            const recovery = await this.options.invoker.invoke({ messages: [{ role: "user", content: recoveryContent }] }, { signal: combined, recursionLimit: 8, maxModelCalls: 1, maxExplorationModelCalls: 0, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), ...(binding === undefined ? {} : { concernDueFocusId: binding.focusId, concernDueEvidenceMemoryIds: binding.evidenceMemoryIds }), maxToolCalls: 0, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
             const recoveryModelCalls = recovery.modelCalls ?? 1;
             if (recoveryModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Recovery invoker exceeded the reserved final model call", { cause: { modelCalls: recoveryModelCalls, toolExecutions: recovery.toolExecutions ?? [] } });
             consumedModelCalls += recoveryModelCalls;
@@ -349,7 +358,7 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         eventId: options.eventId,
         eventKind: options.eventKind,
         eventTargetKind: options.eventTargetKind,
-        ...(options.concernDueSignalClaimedAt === undefined ? {} : { concernDueSignalClaimedAt: options.concernDueSignalClaimedAt }),
+        ...(options.concernDueFocusId === undefined ? {} : { concernDueFocusId: options.concernDueFocusId, concernDueEvidenceMemoryIds: options.concernDueEvidenceMemoryIds ?? [] }),
         maxModelCalls: options.maxModelCalls,
         ...(options.maxExplorationModelCalls === undefined ? {} : { maxExplorationModelCalls: options.maxExplorationModelCalls }),
         maxToolCalls: Math.min(25, options.maxToolCalls),

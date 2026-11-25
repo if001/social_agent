@@ -1,4 +1,5 @@
 import type { DomainEvent, MemoryIntent } from "../domain/contracts.js";
+import type { ConcernReevaluation } from "./concern-reevaluation.js";
 
 export type MemoryUpdateInput = { readonly agentId: string; readonly eventId: string; readonly sourceEventId?: string; readonly sourceKind: "agent-run" | "experience-integration" | "memory-update" | "reflection-formation" | "reflection-reconciliation"; readonly sourceId: string; readonly sourceRunId?: string; readonly intents: readonly MemoryIntent[]; readonly subjectsByIntent?: readonly (readonly string[])[]; readonly sourceAgentIds?: readonly (string | undefined)[]; readonly formation?: boolean };
 export type MemoryUpdateResult = { readonly intentIndex: number; readonly result: { readonly operation: "create" | "update" | "no-op"; readonly memoryId?: string; readonly version?: number } };
@@ -24,6 +25,14 @@ export class DirectMemoryUpdateSink implements MemoryUpdateSink {
 }
 
 export class MemoryUpdateHandler {
-  constructor(private readonly repository: MemoryUpdateRepository) {}
-  handle(event: DomainEvent): Promise<readonly MemoryUpdateResult[]> { return this.repository.apply(event); }
+  constructor(private readonly repository: MemoryUpdateRepository, private readonly reevaluation?: ConcernReevaluation) {}
+  async handle(event: DomainEvent): Promise<readonly MemoryUpdateResult[]> {
+    const results = await this.repository.apply(event);
+    const payload = event.payload as Record<string, unknown>;
+    const sourceKind = typeof payload.sourceKind === "string" ? payload.sourceKind : "memory-update";
+    const sourceId = typeof payload.sourceId === "string" ? payload.sourceId : event.id;
+    const memoryIds = results.flatMap(({ result }) => result.operation === "no-op" || result.memoryId === undefined ? [] : [result.memoryId]);
+    if (this.reevaluation !== undefined && memoryIds.length > 0 && sourceKind !== "reflection-formation" && sourceKind !== "reflection-reconciliation") await this.reevaluation.consider({ agentId: event.agentId, sourceKind, sourceId, ...(typeof payload.sourceEventId === "string" ? { sourceEventId: payload.sourceEventId } : {}), ...(typeof payload.sourceRunId === "string" ? { sourceRunId: payload.sourceRunId } : {}), memoryIds }, new AbortController().signal);
+    return results;
+  }
 }

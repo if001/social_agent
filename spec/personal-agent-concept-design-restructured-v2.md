@@ -256,7 +256,7 @@ type Concern = {
 
 Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`から、今回のDesireを形成する。保存済みConcernが空でも行動を止めない。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`からDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formationであり、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。新しい関連Memoryを契機とするconcern-dueは、既存Concernから別の持続的な関心が分かれた場合だけderive + forkする。Event後のExperience Integrationは、RuntimeがそのEventでFocusした最大1件について、得られた経験から進展・実質的な満足・明確な価値喪失だけを更新できる。検索失敗、情報不足、一時的なFeelingだけで放棄しない。Reflectionは既存Concernを横断的に統合・具体化し、遅延した満足・放棄を扱う。各変更は共通のlifecycle境界でConcern Activityと根拠を残し、各deriveは親Concernを置換・終了しない。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formationであり、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。Experience Integration又は通常Memory updateが一回に確定したMemory群は一つのexperience batchとなり、Runtimeが最大一件の既存Concernを束縛して軽量な意味的impactを判定する。`reconsider`だけが集約後のconcern-dueを起動し、既存Concernから別の持続的な関心が分かれた場合だけderive + forkする。Event後のExperience Integrationは、RuntimeがそのEventでFocusした最大1件について、得られた経験から進展・実質的な満足・明確な価値喪失だけを更新できる。検索失敗、情報不足、一時的なFeelingだけで放棄しない。Reflectionは既存Concernを横断的に統合・具体化し、遅延した満足・放棄を扱う。各変更は共通のlifecycle境界でConcern Activityと根拠を残し、各deriveは親Concernを置換・終了しない。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -624,9 +624,9 @@ Action:
 
 - C-17：自律性は定期実行ではなくRuntime発のEventで起動し、Tool利用と外部発話を独立に判断する。
 
-Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否、非実行通知、または今回は発話しない選択ができる。`idle` は対話製品として各Eventで必ず `respond` または `refuse` を配送する。`concern-due` は新しい経験によりConcernの派生可否を見直す内部Eventであり、外部発話を必要としない。未返信や連投回避は、idleの発話やConcernの減衰・終了を正当化しない。
+Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否、非実行通知、または今回は発話しない選択ができる。`idle` は対話製品として各Eventで必ず `respond` または `refuse` を配送する。`concern-due` はexperience batchの意味的impactが`reconsider`となった時だけ、Runtime束縛済みの一件のConcernから派生可否を見直す内部Eventであり、外部発話を必要としない。未返信や連投回避は、idleの発話やConcernの減衰・終了を正当化しない。
 
-代表的なEvent sourceは、ユーザーまたは他AgentからのMessage、一定期間の無活動、新しい関連Memory、ToolやScheduled Taskの結果、定期Reflectionの完了、起動・停止・権限変更などのSystem Eventである。Concernそのものの時刻到来はEvent sourceにしない。
+代表的なEvent sourceは、ユーザーまたは他AgentからのMessage、一定期間の無活動、再検討が必要と判断されたexperience batch、ToolやScheduled Taskの結果、定期Reflectionの完了、起動・停止・権限変更などのSystem Eventである。Concernそのものの時刻到来はEvent sourceにしない。
 
 現在のScheduler targetKindは、`idle`、`concern-formation`、`concern-due`、`reflection`、`scheduled-task` である。`reflection` は通常のAction生成ではなく専用のmaintenance処理へ送る。`scheduled-task` はSystem Eventとして通常のAgent Loopへ入れる。
 
