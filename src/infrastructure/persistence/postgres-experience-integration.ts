@@ -23,6 +23,11 @@ const LegacyPeerActionSchema = z.object({
   content: z.string().trim().min(1).max(6_000).optional(),
   peer: z.object({ name: z.string().trim().min(1).max(120), content: z.string().trim().min(1).max(6_000) }).strict()
 }).strict();
+const LegacyNamedRecipientActionSchema = z.object({
+  type: z.literal("respond"),
+  content: z.string().trim().min(1).max(6_000),
+  recipient: z.string().trim().min(1).max(120)
+}).strict();
 const experienceContent = (experience: { readonly summary: string; readonly facts: readonly string[] }) => `${experience.summary}\n${experience.facts.join("\n")}`;
 const experienceHash = (experience: { readonly summary: string; readonly facts: readonly string[] }) => createHash("sha256").update(experienceContent(experience)).digest("hex");
 const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: "human" | "agent" | "tool" | "system" | "unknown" } | undefined => {
@@ -31,13 +36,17 @@ const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: 
   const actorType: "human" | "agent" | "tool" | "system" | "unknown" = type === "human" || type === "agent" || type === "tool" || type === "system" ? type : "unknown";
   return actorId === undefined ? undefined : { id: actorId, type: actorType };
 };
-function normalizeLegacyPeerAction(action: unknown): unknown {
+function normalizeLegacyResponseAction(action: unknown): unknown {
   if (typeof action !== "object" || action === null) return action;
   const record = action as Record<string, unknown>;
-  if (record.type !== "respond" || !("peer" in record)) return action;
-  const legacy = LegacyPeerActionSchema.safeParse(record);
-  if (!legacy.success) return action;
-  return { type: "respond", content: legacy.data.content ?? legacy.data.peer.content };
+  if (record.type !== "respond") return action;
+  if ("peer" in record) {
+    const legacy = LegacyPeerActionSchema.safeParse(record);
+    return legacy.success ? { type: "respond", content: legacy.data.content ?? legacy.data.peer.content } : action;
+  }
+  if (record.recipient === "user" || record.recipient === "channel" || !("recipient" in record)) return action;
+  const legacy = LegacyNamedRecipientActionSchema.safeParse(record);
+  return legacy.success ? { type: "respond", content: legacy.data.content } : action;
 }
 function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(value.recentExperiences)) return value;
@@ -50,7 +59,7 @@ function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<st
       const stepRecord = step as Record<string, unknown>;
       const action = stepRecord.action;
       if (stepRecord.type !== "action" || typeof action !== "object" || action === null) return step;
-      const normalized = normalizeLegacyPeerAction(action);
+      const normalized = normalizeLegacyResponseAction(action);
       return normalized === action ? step : { ...stepRecord, action: normalized };
     }) };
   }) };
@@ -61,7 +70,7 @@ function normalizeLegacyRunResult(value: unknown): unknown {
   const result = value as Record<string, unknown>;
   if (typeof result.output !== "object" || result.output === null) return value;
   const output = result.output as Record<string, unknown>;
-  const normalized = normalizeLegacyPeerAction(output.action);
+  const normalized = normalizeLegacyResponseAction(output.action);
   return normalized === output.action ? value : { ...result, output: { ...output, action: normalized } };
 }
 
