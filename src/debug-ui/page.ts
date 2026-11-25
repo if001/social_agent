@@ -1,3 +1,7 @@
+import { concernDueOutcome, concernLineage } from "./concern-reevaluation-view.js";
+
+const concernReevaluationViewScript = `${concernLineage.toString()}\n${concernDueOutcome.toString()}`;
+
 export const debugPage = `<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agent Event Trace</title><style>
@@ -20,5 +24,8 @@ function eventParticipants(item){const content=item?.observation?.content||{};co
 function participantHtml(item){const participants=eventParticipants(item);return '<div>発話者: '+escapeHtml(String(participants.発話者))+'</div><div class="muted">処理担当: '+escapeHtml(String(participants.処理担当))+'</div>'}
 function toolActivity(item){const input=item.input||{};if(toolName(item)==='concern_propose')return {tool:'concern_propose',operation:input.operation||'—',origin:input.operation==='derive'?'既存Concernから派生':'独立Concernを作成',sourceConcernId:input.sourceConcernId||'—',explorationMode:input.explorationMode||'—',topic:input.description||'—',whyItMatters:input.whyItMatters||'—',derivationReason:input.derivationReason||'—',status:toolOk(item)?'成功':'失敗'};return {tool:toolName(item),status:toolOk(item)?'成功':'失敗'}}function changeSummary(detail,proposals){return {stateChanges:detail.stateChanges.map(item=>({target:item.target,operation:item.operation})),newConcernProposals:(proposals||[]).map(item=>({operation:item.operation,origin:item.operation==='derive'?'既存Concernから派生':'独立Concernを作成',sourceConcernId:item.sourceConcernId||'—',description:item.description,whyItMatters:item.whyItMatters,derivationReason:item.derivationReason||'—',transition:item.transition,reconsiderAt:item.reconsiderAt||'—'})),memoryUpdateCount:detail.memoryMutations.length,derivedEventCount:detail.derivedEvents.length}}
 reflectionMemoryBatchView=function(item){return {reflectionId:item.reflectionId,batchIndex:item.batchIndex,status:item.status,eventCount:(item.input?.eventIds??item.input?.events??[]).length,selectedEvidence:(item.output?.memories||[]).map(memory=>({content:memory.content||'—',evidenceEventIds:memory.evidenceEventIds||[]})),failureReason:item.failureReason||'—',startedAt:item.startedAt,completedAt:item.completedAt||'—'}};
+${concernReevaluationViewScript}
+const originalLoad=load;load=async function(){await originalLoad();const id=decodeURIComponent(el('agent').value);if(!id)return;const overview=await api('/api/agents/'+encodeURIComponent(id));const lineage=concernLineage(overview.concernActivities||[]);const grid=el('content')?.querySelector('.grid');if(grid)grid.insertAdjacentHTML('beforeend',panel('Concernの派生系譜',{count:lineage.length,recent:lineage.slice(0,8)},lineage,true));};
+const originalLoadEvent=loadEvent;loadEvent=async function(agentId,eventId,row){await originalLoadEvent(agentId,eventId,row);const detail=await api('/api/agents/'+encodeURIComponent(agentId)+'/events/'+encodeURIComponent(eventId));const outcome=concernDueOutcome(detail);if(outcome!==undefined)el('event-detail')?.querySelector('.grid')?.insertAdjacentHTML('afterbegin',panel('Concern再評価の結果',outcome,{outcome,derivedConcerns:concernLineage(detail.concernActivities||[])},true));};
 el('agent').addEventListener('change',load);el('refresh').addEventListener('click',load);loadAgents();
 </script></body></html>`;
