@@ -71,7 +71,7 @@ describe("configuration and lifecycle", () => {
     await writeFile(`${cwd}/.env.sample`, required); await writeFile(`${cwd}/.env`, "BOT_ID=local\nOLLAMA_CHAT_MODEL=local-model\n");
     const config = await loadConfig({ cwd, environment: { BOT_ID: "process" } });
     expect(config.botId).toBe("process"); expect(config.chat.model).toBe("local-model"); expect(config.embedding.dimension).toBe(768);
-    expect(config).toMatchObject({ runtimeCorrelationTtlMs: 604_800_000, runtimeRateWindowRetentionMs: 3_600_000, runtimeMaxHops: 5 });
+    expect(config).toMatchObject({ runtimeCorrelationTtlMs: 604_800_000, runtimeRateWindowRetentionMs: 3_600_000, runtimeMaxHops: 5, agentGraphRecursionLimit: 256 });
     expect(config.schedulerTimings).toEqual({ scanIntervalMs: 30_000, autonomyReviewIntervalMs: 86_400_000, concernFormationIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000, concernStaleAfterMs: 2_592_000_000, concernStaleMinReflectionSessions: 2, retryDelayMs: 300_000, leaseMs: 60_000 });
     await scope.close();
   });
@@ -93,7 +93,7 @@ describe("configuration and lifecycle", () => {
     const config = await loadConfig({ cwd, environment: {} }); const pool = new Pool({ connectionString: config.database.url });
     const composition = createBotComposition({ pool, config, queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() } });
     expect(composition.toolRegistry.definitions().map(({ name }) => name)).not.toContain("agent_send");
-    expect(composition.limits.maxHops).toBe(5);
+    expect(composition.limits).toMatchObject({ maxHops: 5, maxSteps: 22, maxToolCalls: 20 });
     await pool.end(); await scope.close();
   });
 

@@ -160,7 +160,7 @@ G3結果のMainAgent再判断は通常のAgent Loopに通す。`prediction-g3-re
 
 G3とMainAgentのConversation Memory・Background Experienceの検索は`retrieval_search`に集約する。`retrieval_search`はscope（conversation / background / all）、kinds、subjectIds、query、期間、limitを持ち、単一RetrievalServiceのvector、keyword、subject、recencyで検索する。既存の`memory_search`、`interaction_context_get`、`relationship_search`は同じRetrievalServiceの薄いadapterとし、独自の順位付けSQLを残さない。G3は`retrieval_search`、`self_get`、`concern_list`、`concern_get`を使う。
 
-通常コードは登録有無、入力schema、権限、冪等性、最大25回のTool call、Runごとの設定上限、同一Tool・同一入力の反復、結果サイズを検証する。モデルが未登録Tool名を生成した場合はprovider障害としてrunを中断せず、失敗Tool Messageを同じloopへ返して別Toolまたは最終Actionへ回復させる。Tool実績は成功・失敗を含めてRunへ関連付けるが、Tool成否から発話可否を決定しない。
+通常コードは登録有無、入力schema、権限、冪等性、最大20回のTool call、Runごとの設定上限、同一Tool・同一入力の反復、結果サイズを検証する。Graph recursion safetyはTool・model予算から分離した設定上限で止め、実際のGraph stepをRun相関ログへ残す。モデルが未登録Tool名を生成した場合はprovider障害としてrunを中断せず、失敗Tool Messageを同じloopへ返して別Toolまたは最終Actionへ回復させる。Tool実績は成功・失敗を含めてRunへ関連付けるが、Tool成否から発話可否を決定しない。
 
 完全なTool入出力は監査記録に保存するが、Recent Experienceへは再判断に必要な識別子、URL、path、query、件数、状態などのsignalだけを投影する。本文fieldは文字数、短いpreview、hashへ変換し、巨大な本文を次のmodel入力へ戻さない。Tool固有projectorがある場合はそれを優先する。同一Tool入力の反復判定にも同じ投影を使うため、本文をContextへ戻さず反復を検出できる。
 

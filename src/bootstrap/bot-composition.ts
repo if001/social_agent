@@ -61,7 +61,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const logger = options.logger ?? noopLogger;
   const clock = options.clock ?? new SystemClock(); const ids = options.ids ?? new UuidGenerator();
   const queue = options.queue ?? new AddressedFileQueue(config.queueRoot);
-  const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 27, maxToolCalls: 25, maxHops: config.runtimeMaxHops, maxAttempts: 3, ...options.limits };
+  const limits: RunLimits = { deadlineMs: config.runDeadlineMs, maxSteps: 22, maxToolCalls: 20, maxHops: config.runtimeMaxHops, maxAttempts: 3, ...options.limits };
   const embeddingProvider = new OllamaEmbeddingProvider(config.embedding);
   const database = createRuntimeDatabase(pool);
   const retrievalService = new PostgresRetrievalService(pool, embeddingProvider);
@@ -104,7 +104,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const harness = new DeepAgentHarness({
     invoker: createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry, logger, now: () => clock.now() }), logger,
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name)),
-    maxRepairs: 2
+    maxRepairs: 2, graphRecursionLimit: config.agentGraphRecursionLimit
   });
   const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, ...(config.discord?.ownerIds[0] === undefined ? {} : { ownerDiscordUserId: config.discord.ownerIds[0] }), logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler, experienceIntegration, observationGate, subjects });
   runtimeRef.current = runtime;
