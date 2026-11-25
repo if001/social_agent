@@ -56,6 +56,20 @@ describe("ExperienceIntegration", () => {
     expect(experienceIntegrationSystemPrompt).not.toContain("省略または空配列");
   });
 
+  it("FR-95: permits only an ID-free Focus Concern outcome when Runtime supplied a Focus", () => {
+    const output = ExperienceIntegrationOutputSchema.parse({ experience: { summary: "展示の記録を比較した", facts: ["二つの記録方式を確認した"] }, memories: [], focusConcern: { outcome: "progress", reason: "比較できる観察が増えた" } });
+    expect(output.focusConcern).toEqual({ outcome: "progress", reason: "比較できる観察が増えた" });
+    expect(ExperienceIntegrationOutputSchema.safeParse({ experience: { summary: "展示の記録を比較した", facts: [] }, memories: [], focusConcern: { outcome: "satisfied", reason: "満たされた", concernId: "foreign-id" } }).success).toBe(false);
+    for (const phrase of ["focusConcern", "IDは見えず", "検索失敗", "unchanged"]) expect(experienceIntegrationSystemPrompt).toContain(phrase);
+  });
+
+  it("FR-95: discards a Focus Concern judgement when Runtime did not bind a Focus", async () => {
+    const request = input(); const applied: unknown[] = [];
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, { integrate: () => Promise.resolve({ experience: { summary: "展示を確認した", facts: [] }, memories: [], focusConcern: { outcome: "satisfied", reason: "対象が満たされた" } }) });
+    await integration.process(request, new AbortController().signal);
+    expect(applied).toMatchObject([{ focusConcern: undefined }]);
+  });
+
   it("FR-82: describes every Relationship candidate field as durable current state", () => {
     const schema = z.toJSONSchema(ExperienceIntegrationOutputSchema);
     const relationship = (schema.properties as Record<string, Record<string, unknown>>).relationship;

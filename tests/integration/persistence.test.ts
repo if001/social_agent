@@ -591,7 +591,6 @@ describeDatabase("PostgreSQL persistence", () => {
     expect((await pool.query<{ concern_id: string; kind: string; event_id: string; run_id: string }>("SELECT ca.concern_id,ca.kind,ca.event_id,ca.run_id FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id='a' AND ca.concern_id='runtime-concern' ORDER BY ca.kind")).rows).toEqual([
       { concern_id: "runtime-concern", kind: "created", event_id: "runtime-event", run_id: "runtime-run" },
       { concern_id: "runtime-concern", kind: "focused", event_id: "runtime-event", run_id: "runtime-run" },
-      { concern_id: "runtime-concern", kind: "focused", event_id: "runtime-event", run_id: "runtime-run" },
       { concern_id: "runtime-concern", kind: "progressed", event_id: "runtime-event", run_id: "runtime-run" }
     ]);
     const inputSnapshot = (await pool.query<{ input_snapshot: { run: { runId: string }; observation: { summary: string }; currentSelf: { version: number }; availableTools: { name: string; inputSchema?: unknown }[]; memories: { id: string }[] } }>("SELECT input_snapshot FROM agent_runs WHERE id='runtime-run'")).rows[0]?.input_snapshot;
@@ -670,6 +669,27 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(projection).toMatchObject({ content: null, agent_id: null });
     expect((await pool.query("SELECT 1 FROM concern_reevaluation_signal_sources WHERE agent_id=$1", [agentId])).rowCount).toBe(0);
     await expect((new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date("2026-01-02T00:00:00Z"))).load("experience-projection-reflection", agentId)).resolves.toMatchObject({ events: [expect.objectContaining({ id: eventId, summary: "展示の予定を確かめた" })] });
+  });
+
+  it("FR-24, FR-25, FR-95: applies an ID-free Focus Concern outcome with one auditable activity", async () => {
+    const agentId = "experience-focus-agent";
+    const eventId = "experience-focus-event";
+    const runId = "experience-focus-run";
+    await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Focus Agent','Curious')", [agentId]);
+    await pool.query("INSERT INTO agent_states(agent_id,disposition,self_story,commitments,relationships,mood) VALUES ($1,'Curious','Story','[]','[]','Calm')", [agentId]);
+    await pool.query("INSERT INTO concerns(id,agent_id,description,why_it_matters,status) VALUES ('experience-focus-concern',$1,'展示記録の差を確かめたい','自分の観察を比べたい','active')", [agentId]);
+    await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,$2,'internal',$3,'test','completed',$4)", [eventId, agentId, { summary: "比較を終えた" }, fixtureInstant]);
+    const core = agentCoreInputFixture();
+    const input = { ...core, run: { ...core.run, agentId, eventId, runId, occurredAt: fixtureInstant }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
+    const result = { output: { desire: "比較を終えた", action: { type: "no-external-action" as const, reason: "finished" } }, toolExecutions: [] };
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ($1,$2,$3,0,$4,$5,$6,$6)", [runId, agentId, eventId, input, result, fixtureInstant]);
+    const request = { integrationId: "experience-focus-integration", agentId, sourceEvent: { id: eventId, agentId, kind: "internal" as const, occurredAt: fixtureInstant, payload: {} }, sourceRunId: runId, input, result, focusConcern: { concernId: "experience-focus-concern", description: "展示記録の差を確かめたい", whyItMatters: "自分の観察を比べたい" } };
+    const repository = new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["experience-focus-state-change"]), () => new Date(fixtureInstant));
+    await repository.begin(request);
+    await repository.apply(request, { experience: { summary: "比較を終えた", facts: ["二つの記録方式を比べた"] }, memories: [], focusConcern: { outcome: "satisfied", reason: "比較したい差を実際に確認できた" } });
+    expect((await pool.query("SELECT status FROM concerns WHERE id='experience-focus-concern'")).rows).toEqual([{ status: "satisfied" }]);
+    expect((await pool.query("SELECT kind,reason,event_id,run_id FROM concern_activities WHERE concern_id='experience-focus-concern'")).rows).toEqual([{ kind: "status-changed", reason: "比較したい差を実際に確認できた", event_id: eventId, run_id: runId }]);
+    expect((await pool.query<{ input: { focusConcern: { concernId: string } }; applied: { focusConcern: { concernId: string } } }>("SELECT input,applied FROM experience_integrations WHERE id='experience-focus-integration'")).rows[0]).toMatchObject({ input: { focusConcern: { concernId: "experience-focus-concern" } }, applied: { focusConcern: { concernId: "experience-focus-concern" } } });
   });
 
   it("NFR-8: rolls back Event Experience and Projection together when Projection persistence fails", async () => {

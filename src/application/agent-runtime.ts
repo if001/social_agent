@@ -5,6 +5,7 @@ import type { MemoryUpdateHandler } from "./memory-update.js";
 import type { ExperienceIntegrationSink } from "./experience-integration.js";
 import { AgentStatePatchService, type AgentStatePatchResult } from "./agent-state-patch.js";
 import { DomainError, type AgentAction, type AgentCoreInput, type AgentRunResult, type CurrentAgentState, type DomainEvent, type MessageEnvelope, type ToolExecutionRecord } from "../domain/contracts.js";
+import { focusedConcernForIntegration } from "./focus-concern.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 import type { ObservationGate, ObservationGateAudit } from "./observation-gate.js";
@@ -176,7 +177,8 @@ export class AgentRuntime {
     const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing, subject === undefined ? [] : [subject], observationGate, receiptPreclaimed);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
     if (committed === "committed" && this.options.experienceIntegration !== undefined) {
-      try { await this.options.experienceIntegration.enqueue({ agentId: event.agentId, sourceEvent: event, sourceRunId: input.run.runId, input, result }); }
+      const focus = focusedConcernForIntegration(result, persistentState.concerns);
+      try { await this.options.experienceIntegration.enqueue({ agentId: event.agentId, sourceEvent: event, sourceRunId: input.run.runId, input, result, ...(focus === undefined ? {} : { focusConcern: { concernId: focus.id, description: focus.description, whyItMatters: focus.whyItMatters } }) }); }
       catch (error) { logger.log("warn", "experience_integration.enqueue_failed_after_commit", { ...errorLogContext(error) }); }
     }
     if (committed === "committed" && this.options.prediction !== undefined) {

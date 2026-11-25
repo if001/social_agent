@@ -1,10 +1,13 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import type { ConcernNormalizationRepository } from "../../application/concern-normalization.js";
+import { ConcernLifecycleService } from "../../application/concern-lifecycle.js";
 import { CurrentConcernDescriptionSchema, CurrentConcernImportanceSchema, DomainError, type Concern } from "../../domain/contracts.js";
 import { agentStates, concernActivities } from "./schema.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { ConcernRepository } from "./concern-repository.js";
+
+const concernLifecycle = new ConcernLifecycleService();
 
 export class PostgresConcernNormalizationRepository implements ConcernNormalizationRepository {
   constructor(private readonly database: RuntimeDatabase) {}
@@ -31,17 +34,18 @@ export class PostgresConcernNormalizationRepository implements ConcernNormalizat
         const concern = current.find(({ id }) => id === concernId);
         if (concern === undefined || concern.status !== "active") throw new DomainError("CONFLICT", `Active Concern was not found: ${concernId}`);
       }
-      const concerns = current.map((concern) => {
+      const normalized = current.map((concern) => {
         const change = changes.get(concern.id);
         return change === undefined ? concern : { ...concern, ...change };
       });
+      const applied = concernLifecycle.reconcile(current, normalized.flatMap((concern) => changes.has(concern.id) ? [{ operation: "upsert" as const, concern }] : []), () => { throw new Error("Concern normalization cannot create a Concern"); });
       const updated = (await transaction.update(agentStates).set({ version: sql`${agentStates.version}+1`, updatedAt: request.occurredAt }).where(and(eq(agentStates.agentId, request.agentId), eq(agentStates.version, request.expectedVersion))).returning({ version: agentStates.version }))[0];
       if (updated === undefined) throw new DomainError("CONFLICT", "Agent state version conflict");
-      await new ConcernRepository(transaction).replace(request.agentId, concerns, request.occurredAt);
-      if (request.changes.length > 0) await transaction.insert(concernActivities).values(request.changes.map((change, index) => ({
-        id: `concern-normalization:${request.runId}:${String(index)}:${change.concernId}`,
-        concernId: change.concernId,
-        kind: "reviewed",
+      await new ConcernRepository(transaction).replace(request.agentId, applied.concerns, request.occurredAt);
+      if (applied.activities.length > 0) await transaction.insert(concernActivities).values(applied.activities.map((activity, index) => ({
+        id: `concern-normalization:${request.runId}:${String(index)}:${activity.concernId}`,
+        concernId: activity.concernId,
+        kind: activity.kind,
         evidenceMemoryIds: [],
         occurredAt: request.occurredAt
       })));

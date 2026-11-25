@@ -13,8 +13,11 @@ import type { ObservationGateAudit } from "../../application/observation-gate.js
 import { observationFromEvent } from "./postgres-agent-context-loader.js";
 import { conversationKey } from "./conversation-key.js";
 import { PostgresConcernEmbeddingLifecycle } from "./postgres-concern-embedding.js";
+import { focusConcernId, focusProgressedByHistory, derivedConcernSourceIds } from "../../application/focus-concern.js";
+import { ConcernLifecycleService } from "../../application/concern-lifecycle.js";
 
 type RuntimeInputLoader = (event: DomainEvent) => Promise<AgentCoreInput | RuntimeExecutionInput>;
+const concernLifecycle = new ConcernLifecycleService();
 /** The canonical pre-execution Agent Core input used by audit and Integration. */
 function decisionInputSnapshot(input: AgentCoreInput): AgentCoreInput { return input; }
 /** Audit retains transport provenance; Agent Core only ever receives `input.observation`. */
@@ -73,17 +76,11 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
   }
   async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], eventSubjectIds: readonly string[] = [], observationGate?: ObservationGateAudit, receiptPreclaimed = false): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
-    const focusedConcerns = validatedTools.flatMap((execution) => {
-      if (!execution.ok || (execution.name !== "concern_get" && execution.name !== "concern_history") || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
-      return [{ concernId: execution.input.concernId, kind: "focused" as const, eventId: event.id }];
-    });
-    // A generic successful Tool call is not necessarily about the selected
-    // Concern. concern_history is the narrow read seam that carries both the
-    // Concern ID and the evidence it retrieved, so only it proves progress.
-    const progressedConcerns = validatedTools.flatMap((execution) => {
-      if (!execution.ok || execution.name !== "concern_history" || !("concernId" in execution.input) || typeof execution.input.concernId !== "string") return [];
-      return [{ concernId: execution.input.concernId, kind: "progressed" as const, eventId: event.id }];
-    });
+    const validatedResult = { ...result, toolExecutions: validatedTools };
+    const selectedFocusId = focusConcernId(validatedResult);
+    const focusId = selectedFocusId === undefined || derivedConcernSourceIds(validatedResult).has(selectedFocusId) ? undefined : selectedFocusId;
+    const focusedConcerns = focusId === undefined ? [] : [{ ...concernLifecycle.focus(focusId), eventId: event.id }];
+    const progressedConcerns = focusId === undefined || !focusProgressedByHistory(validatedResult, focusId) ? [] : [{ ...concernLifecycle.progress(focusId), eventId: event.id }];
     const correlationId = event.correlationId ?? event.id;
     const conversationId = conversationKey(event.agentId, correlationId);
     const isSocial = event.kind === "message-received";
