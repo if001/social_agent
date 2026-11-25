@@ -70,7 +70,6 @@ export function createBotComposition(options: BotCompositionOptions) {
   const memoryUpdateHandler = new MemoryUpdateHandler(new PostgresMemoryUpdateRepository(database, ids, () => clock.now(), retrievalService, memoryEmbedding));
   const memoryUpdateSink = new DirectMemoryUpdateSink(memoryUpdateHandler, () => clock.now());
   const subjects = createCanonicalSubjectResolver(config.discord?.ownerIds ?? [], config.peers.peers);
-  const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding, subjects), createOllamaExperienceIntegrationModel(config.chat, logger), subjects), ids);
   const runtimeRef: { current?: AgentRuntime } = {};
   const fallbackG3Result: G3ResultSink = new MemoryG3ResultSink();
   const g3ResultSink: G3ResultSink = { async handle(result, g3Input) {
@@ -86,6 +85,7 @@ export function createBotComposition(options: BotCompositionOptions) {
     ...createScheduledTaskTools(new PostgresScheduledTaskToolRepository(database), ids, () => clock.now())
   ];
   const toolRegistry = new ToolRegistry(configuredTools);
+  const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding, subjects), createOllamaExperienceIntegrationModel({ ...config.chat, toolRegistry }, logger), subjects), ids);
   const g3Service = new G3Service(new PostgresG3TaskRepository(database, config.botId), createOllamaG3Model({ ...config.chat, toolRegistry }), g3ResultSink, ids, () => clock.now(), config.runDeadlineMs, config.runDeadlineMs, 3);
   const g3Sink = new DirectG3Sink(g3Service, config.runDeadlineMs);
   const prediction = new PredictionLoop({ repository: predictionRepository, model: createOllamaPredictionModel(config.chat, logger), ids, now: () => clock.now(), retrieval: retrievalService, memoryUpdateSink, g3Sink, limits: { deadlineMs: 180_000, maxAttempts: 1 }, logger });

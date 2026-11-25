@@ -2,7 +2,9 @@ import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubject
 import { createCanonicalSubjectResolver } from "../../src/application/canonical-subject.js";
 import { z } from "zod";
 import { PersistentMoodSchema } from "../../src/domain/contracts.js";
-import { experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
+import { eventExperienceRepairInput, experienceIntegrationModelInput, experienceIntegrationRepairInstruction, experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
+import { projectToolExecutionForModel } from "../../src/infrastructure/agent/tool-result-model-view.js";
+import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import { parseDecisionInput } from "../../src/infrastructure/persistence/postgres-experience-integration.js";
 
@@ -46,6 +48,34 @@ describe("ExperienceIntegration", () => {
   it("FR-82: requires an Event-specific Experience even when no long-term Memory is retained", () => {
     expect(ExperienceIntegrationOutputSchema.safeParse({ experience: null, memories: [] }).success).toBe(false);
     expect(ExperienceIntegrationOutputSchema.parse({ experience: { summary: "展示の予定を確認した", facts: ["ユーザーは週末に展示へ行く予定だと話した"] }, memories: [] })).toMatchObject({ experience: { summary: "展示の予定を確認した" }, memories: [] });
+  });
+
+  it("FR-82, NFR-8: keeps Experience Integration Memory candidates short", () => {
+    const base = { experience: { summary: "展示の予定を確認した", facts: [] }, memories: [{ content: "要点", reason: "再利用する", target: "episodic", perspective: "user" }] };
+    expect(ExperienceIntegrationOutputSchema.safeParse(base).success).toBe(true);
+    expect(ExperienceIntegrationOutputSchema.safeParse({ ...base, memories: [{ ...base.memories[0], content: "あ".repeat(801) }] }).success).toBe(false);
+    expect(ExperienceIntegrationOutputSchema.safeParse({ ...base, memories: [{ ...base.memories[0], reason: "あ".repeat(401) }] }).success).toBe(false);
+  });
+
+  it("FR-37: shares the Agent Core Tool projection with Integration and Event Experience repair", () => {
+    const request = input();
+    const body = "本文-".repeat(1_000);
+    const tools = new ToolRegistry([
+      { name: "reader", description: "read", schema: z.object({ path: z.string() }), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) },
+      { name: "lookup", description: "lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true }) }
+    ]);
+    const executions = [
+      { callId: "tool-1", runId: request.sourceRunId, eventId: request.sourceEvent.id, name: "reader", input: { path: "notes/a.md", content: body }, ok: true, result: { content: body, matches: [{ snippet: body }] }, startedAt: request.sourceEvent.occurredAt, finishedAt: request.sourceEvent.occurredAt },
+      { callId: "tool-2", runId: request.sourceRunId, eventId: request.sourceEvent.id, name: "lookup", input: { query: body }, ok: true, result: { items: body }, startedAt: request.sourceEvent.occurredAt, finishedAt: request.sourceEvent.occurredAt }
+    ];
+    const withTools = { ...request, result: { ...request.result, toolExecutions: executions } };
+    const expected = executions.map((execution) => projectToolExecutionForModel(execution, tools));
+    const integrationView = experienceIntegrationModelInput(withTools, tools) as { toolExecutions: unknown[] };
+    const repairView = eventExperienceRepairInput(withTools, tools) as { toolExecutions: unknown[] };
+    expect(integrationView.toolExecutions).toEqual(expected);
+    expect(repairView.toolExecutions).toEqual(expected);
+    expect(JSON.stringify(integrationView)).not.toContain(body);
+    expect(JSON.stringify(repairView)).not.toContain(body);
   });
 
   it("FR-82: states the ID-free Memory candidate contract and the empty-memory form", () => {
@@ -139,6 +169,7 @@ describe("ExperienceIntegration", () => {
 
   it("FR-82, FR-95: states the Relationship and Focus Concern output boundary explicitly", () => {
     for (const phrase of ["summaryとfactsだけ", "occurredAt", "kind", "upsert または remove", "reason は必須", "target", "subjectId", "concernStatus", "focusConcern"] ) expect(experienceIntegrationSystemPrompt).toContain(phrase);
+    for (const phrase of ["summaryとfactsだけ", "occurredAt", "kind", "upsert又はremove", "reasonは必須", "target", "subjectId", "concernStatus", "focusConcern"]) expect(experienceIntegrationRepairInstruction).toContain(phrase);
   });
 
   it("FR-9, FR-82: accepts only a short enduring emotional stance as Mood", () => {

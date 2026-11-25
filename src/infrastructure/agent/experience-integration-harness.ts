@@ -5,24 +5,29 @@ import { errorLogContext, noopLogger, type Logger } from "../../observability/lo
 import { modelJsonSchema } from "./model-json-schema.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { toModelRecordView } from "./model-record-view.js";
+import type { ToolRegistry } from "../../application/tool-registry.js";
+import { projectToolExecutionForModel } from "./tool-result-model-view.js";
 
-export const experienceIntegrationSystemPrompt = `あなたはExperience Integration担当です。すでにユーザーへの応答はcommit済みです。入力のEvent、Agent CoreのMeaning/Feeling/Desire/Action、Tool結果、既存Stateを見て、次回以降へ残す持続的な経験だけを判断します。
+export const experienceIntegrationSystemPrompt = `あなたはExperience Integration担当です。応答は既にcommit済みであり、次のActionは選ばない。今回の確定Event、Core結果、投影済みTool結果から、将来へ残す持続的な経験だけを構造化出力する。
 
-experienceは、今回実際に起きたこと・選択・確認済みの結果をsummaryとfactsで短く残し、必ず形成する。experience objectの許可fieldはsummaryとfactsだけである。occurredAt、kind、eventId、時刻、sourceなどの監査情報はEvent正本をRuntimeが持つため、出力してはいけない。長期Memoryとして残すことがなくても、今回のEvent固有の経験は残す。定期Scheduleのreason、Meaning、Feeling、Desire、未確認の推測、Tool失敗だけはexperienceに書かない。
-Memoryは最大3件。各Memoryはcontent、reason、target、perspectiveだけを持つ。根拠Event、subject、confidence、purpose、IDはRuntimeが今回のsource Eventから解決する。保存する経験がなければ必ず {"memories":[]} を返す。単発のTool失敗、単なる応答文、未確認の推測はMemoryにしない。
-Relationshipは今回のactorとの持続的変化だけを出します。出す場合、許可fieldはoperation、currentDescription、description、reasonだけである。operationは必ず upsert または remove のどちらか、reason は必須です。target、subjectId、agentId、相手名、IDはRuntimeが今回のactorから解決するため、出力してはいけない。本文は現在の関係の型・安定した会話前提・未解決の約束だけとし、個別Event、人物プロフィール、Concern、Feeling、応答方針は入れません。変化がなければrelationship全体を省略します。Moodは${PersistentMoodDescription} 変化がなければ省略します。Concernの状態をrootのconcernStatusなどで返してはいけません。入力にfocusConcernがある時だけ、focusConcernのoutcomeとreasonでその一件だけを判断できます。IDは見えず、出力もしません。核が満たされた時だけsatisfied、現在のSelfにとって価値を失ったことが明確な時だけabandonedです。検索失敗、情報不足、一時的なFeelingだけではabandonedにしません。変化がなければunchangedにします。入力にfocusConcernがなければ出しません。Memory、Relationship、Desireの代わりに出来事や計画を置かないでください。SelfとRuntimeが束縛していないConcernは扱いません。構造化出力だけを返してください。`;
+experienceは必ず形成する。今回の確定した出来事・選択・結果だけをsummaryとfactsで短く残す。許可fieldはsummaryとfactsだけで、occurredAt、kind、eventId、時刻、source、Meaning、Feeling、Desire、起動理由、未確認推測、Tool失敗は書かない。
+Memoryは必要な時だけ最大3件。各要素はcontent、reason、target、perspectiveだけ。contentは要点、reasonは保存理由を短く書く。根拠Event、subject、confidence、purpose、ID、Tool本文、応答文、未確認推測は書かない。変化がなければ省略します。不要なら {"memories":[]}。
+Relationshipは今回のactorとの持続的変化だけ。許可fieldはoperation、currentDescription、description、reasonだけで、operationはupsert または remove、reason は必須。本文は現在の関係の型だけを表す。target、subjectId、agentId、相手名、ID、個別Event、人物プロフィール、Concern、Feeling、応答方針は書かない。変化がなければrelationship全体を省略します。Moodは${PersistentMoodDescription}だけを必要時に出す。
+focusConcernは入力にある一件だけにoutcomeとreasonで答える。IDは見えず出力しない。核が満たされた時だけsatisfied、価値を明確に失った時だけabandoned、検索失敗・情報不足・一時的Feelingならunchanged。rootのconcernStatusは返さない。構造化出力だけを返す。`;
+export const experienceIntegrationRepairInstruction = "直前の出力を、同じ入力事実だけでschemaに直す。experienceは必須でsummaryとfactsだけ。occurredAt、kind、eventId、時刻、sourceは削除する。Memoryを残さないならmemoriesは空配列。Relationshipはoperation、currentDescription、description、reasonだけで、operationはupsert又はremove、reasonは必須。target、subjectId、agentId、相手名、IDは削除する。rootのconcernStatusは返さず、focusConcernはRuntimeが束縛した一件だけを判断する。";
 
 const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.map((part) => { if (typeof part !== "object" || part === null || !("text" in part)) return ""; const text = (part as Record<string, unknown>).text; return typeof text === "string" ? text : ""; }).join("") : "";
 const parseJson = (content: string): unknown => JSON.parse(content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""));
-const recordView = (input: ExperienceIntegrationInput) => toModelRecordView({ event: { kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, content: input.input.observation }, result: { assessment: input.result.assessment, output: input.result.output }, toolExecutions: input.result.toolExecutions.map(({ name, ok, result, error }) => ({ name, ok, ...(ok ? { result } : { error }) })) });
+type ExperienceIntegrationHarnessConfig = OllamaChatConfig & { readonly toolRegistry?: ToolRegistry };
+export const eventExperienceRepairInput = (input: ExperienceIntegrationInput, tools?: ToolRegistry) => toModelRecordView({ event: { kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, content: input.input.observation }, result: { assessment: input.result.assessment, output: input.result.output }, toolExecutions: input.result.toolExecutions.map((execution) => projectToolExecutionForModel(execution, tools)) });
 
 export type EventExperienceRepairModel = { integrate(input: ExperienceIntegrationInput, signal: AbortSignal): Promise<unknown> };
-export function createOllamaEventExperienceRepairModel(config: OllamaChatConfig, logger: Logger = noopLogger): EventExperienceRepairModel {
+export function createOllamaEventExperienceRepairModel({ toolRegistry, ...config }: ExperienceIntegrationHarnessConfig, logger: Logger = noopLogger): EventExperienceRepairModel {
   const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(EventExperienceSchema) });
   return { async integrate(input, signal) {
     const startedAt = Date.now();
     try {
-      const result = await model.invoke([{ role: "system", content: "完了済みEventのEvent Experienceだけを補完する。今回実際に起きたこと・選択・確認済み結果をsummaryとfactsで短く返す。Memory、Mood、Relationship、Self、Concernを判断・変更しない。定期起動理由、Meaning、Feeling、Desire、未確認の推測、Tool失敗だけを書かない。構造化出力だけを返す。" }, { role: "user", content: JSON.stringify(recordView(input)) }], { signal });
+      const result = await model.invoke([{ role: "system", content: "完了済みEventのEvent Experienceだけを補完する。今回実際に起きたこと・選択・確認済み結果をsummaryとfactsで短く返す。Memory、Mood、Relationship、Self、Concernを判断・変更しない。定期起動理由、Meaning、Feeling、Desire、未確認の推測、Tool失敗だけを書かない。構造化出力だけを返す。" }, { role: "user", content: JSON.stringify(eventExperienceRepairInput(input, toolRegistry)) }], { signal });
       const output = contentOf(result.content); if (output.trim().length === 0) throw new Error("Event Experience repair returned empty content");
       logger.log("info", "event_experience_repair.model_completed", { agentId: input.agentId, sourceRunId: input.sourceRunId, elapsedMs: Date.now() - startedAt, outputChars: output.length });
       return parseJson(output);
@@ -30,9 +35,9 @@ export function createOllamaEventExperienceRepairModel(config: OllamaChatConfig,
   } };
 }
 
-export function createOllamaExperienceIntegrationModel(config: OllamaChatConfig, logger: Logger = noopLogger): ExperienceIntegrationModel {
+export function createOllamaExperienceIntegrationModel({ toolRegistry, ...config }: ExperienceIntegrationHarnessConfig, logger: Logger = noopLogger): ExperienceIntegrationModel {
   const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(ExperienceIntegrationOutputSchema) });
-  const modelInput = (input: ExperienceIntegrationInput) => toModelRecordView({ event: { kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, content: input.input.observation }, input: { observation: input.input.observation, currentSelf: input.input.currentSelf, state: input.input.state, ...(input.focusConcern === undefined ? {} : { focusConcern: { description: input.focusConcern.description, whyItMatters: input.focusConcern.whyItMatters } }) }, result: { assessment: input.result.assessment, output: input.result.output }, toolExecutions: input.result.toolExecutions.map(({ name, ok, result, error }) => ({ name, ok, ...(ok ? { result } : { error }) })) });
+  const modelInput = (input: ExperienceIntegrationInput) => experienceIntegrationModelInput(input, toolRegistry);
   const payload = (input: ExperienceIntegrationInput) => JSON.stringify(modelInput(input));
   const invoke = async (content: string, input: ExperienceIntegrationInput, signal: AbortSignal): Promise<unknown> => {
     const startedAt = Date.now();
@@ -50,6 +55,8 @@ export function createOllamaExperienceIntegrationModel(config: OllamaChatConfig,
   };
   return {
     integrate: (input, signal) => invoke(payload(input), input, signal),
-    repair: (input, validationIssues, signal) => invoke(JSON.stringify({ instruction: "直前の出力はschema検証に失敗しました。新しい判断はせず、同じ入力事実だけで以下の検証エラーを直した完全な構造化出力を返してください。今回のEvent固有experienceは必須で、summaryとfactsだけを持ちます。occurredAt、kind、eventId、時刻、sourceなどは削除してください。Memoryを保存しない場合は memories を空配列にしてください。Relationshipを返すならoperation、currentDescription、description、reasonだけを持ち、operationはupsert又はremoveだけにし、reasonを必ず含めてください。target、subjectId、agentId、相手名、IDは削除してください。rootのconcernStatusは返さず、Runtimeが束縛した一件だけをfocusConcernで判断してください。", input: modelInput(input), validationIssues }), input, signal)
+    repair: (input, validationIssues, signal) => invoke(JSON.stringify({ instruction: experienceIntegrationRepairInstruction, input: modelInput(input), validationIssues }), input, signal)
   };
 }
+
+export const experienceIntegrationModelInput = (input: ExperienceIntegrationInput, tools?: ToolRegistry) => toModelRecordView({ event: { kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, content: input.input.observation }, input: { observation: input.input.observation, currentSelf: input.input.currentSelf, state: input.input.state, ...(input.focusConcern === undefined ? {} : { focusConcern: { description: input.focusConcern.description, whyItMatters: input.focusConcern.whyItMatters } }) }, result: { assessment: input.result.assessment, output: input.result.output }, toolExecutions: input.result.toolExecutions.map((execution) => projectToolExecutionForModel(execution, tools)) });
