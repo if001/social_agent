@@ -642,12 +642,13 @@ describeDatabase("PostgreSQL persistence", () => {
     const toolExecutions = [{ callId: "stored-tool", runId: current.run.runId, eventId: current.run.eventId, name: "memory_search", input: { query: "予定" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }];
     await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [current.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions })]);
     const legacyTools = toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId }));
-    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [legacy.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions: legacyTools })]);
+    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [legacy.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解", peer: { name: "aka", content: "旧形式の返答" } } }, toolExecutions: legacyTools })]);
     await pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ('integration-current',$1,'failed'),('integration-legacy',$2,'failed')", [current.run.runId, legacy.run.runId]);
     const pending = await new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
     expect(pending.find(({ integrationId }) => integrationId === "integration-current")?.result.toolExecutions).toEqual(toolExecutions);
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTools);
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.input.recentExperiences[0]?.steps[0]).toEqual({ type: "action", action: { type: "respond", content: "旧形式の返答" } });
+    expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.output.action).toEqual({ type: "respond", content: "了解" });
   });
 
   it("FR-82, FR-78: persists an Event Experience without a long-term Memory and exposes it to Reflection", async () => {
