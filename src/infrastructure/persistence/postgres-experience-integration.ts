@@ -31,6 +31,14 @@ const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: 
   const actorType: "human" | "agent" | "tool" | "system" | "unknown" = type === "human" || type === "agent" || type === "tool" || type === "system" ? type : "unknown";
   return actorId === undefined ? undefined : { id: actorId, type: actorType };
 };
+function normalizeLegacyPeerAction(action: unknown): unknown {
+  if (typeof action !== "object" || action === null) return action;
+  const record = action as Record<string, unknown>;
+  if (record.type !== "respond" || !("peer" in record)) return action;
+  const legacy = LegacyPeerActionSchema.safeParse(record);
+  if (!legacy.success) return action;
+  return { type: "respond", content: legacy.data.content ?? legacy.data.peer.content };
+}
 function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(value.recentExperiences)) return value;
   return { ...value, recentExperiences: (value.recentExperiences as unknown[]).map((experience: unknown): unknown => {
@@ -42,14 +50,19 @@ function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<st
       const stepRecord = step as Record<string, unknown>;
       const action = stepRecord.action;
       if (stepRecord.type !== "action" || typeof action !== "object" || action === null) return step;
-      const actionRecord = action as Record<string, unknown>;
-      if (actionRecord.type !== "respond" || !("peer" in actionRecord)) return step;
-      const legacy = LegacyPeerActionSchema.safeParse(actionRecord);
-      if (!legacy.success) return step;
-      const content = legacy.data.content ?? legacy.data.peer.content;
-      return { ...stepRecord, action: { type: "respond", content } };
+      const normalized = normalizeLegacyPeerAction(action);
+      return normalized === action ? step : { ...stepRecord, action: normalized };
     }) };
   }) };
+}
+
+function normalizeLegacyRunResult(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const result = value as Record<string, unknown>;
+  if (typeof result.output !== "object" || result.output === null) return value;
+  const output = result.output as Record<string, unknown>;
+  const normalized = normalizeLegacyPeerAction(output.action);
+  return normalized === output.action ? value : { ...result, output: { ...output, action: normalized } };
 }
 
 /** Removes known legacy fields before strictly restoring the canonical Core input. */
@@ -184,7 +197,7 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
     return rows.map((row) => {
       const input = typeof row.integration_input === "object" && row.integration_input !== null ? row.integration_input as Record<string, unknown> : {};
       const focus = FocusConcernInputSchema.safeParse(input.focusConcern);
-      return { integrationId: row.id, agentId: row.agent_id, sourceEvent: { id: row.source_event_id, agentId: row.agent_id, kind: row.kind, occurredAt: row.occurred_at.toISOString(), payload: row.observation }, sourceRunId: row.source_run_id, input: parseDecisionInput(row.input_snapshot), result: AgentRunResultSchema.parse(row.result), ...(focus.success ? { focusConcern: focus.data } : {}) };
+      return { integrationId: row.id, agentId: row.agent_id, sourceEvent: { id: row.source_event_id, agentId: row.agent_id, kind: row.kind, occurredAt: row.occurred_at.toISOString(), payload: row.observation }, sourceRunId: row.source_run_id, input: parseDecisionInput(row.input_snapshot), result: AgentRunResultSchema.parse(normalizeLegacyRunResult(row.result)), ...(focus.success ? { focusConcern: focus.data } : {}) };
     });
   }
   async #inputs(statuses: readonly string[], ids?: readonly string[], agentId?: string): Promise<PendingIntegrationRow[]> {
