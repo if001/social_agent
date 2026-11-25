@@ -17,12 +17,19 @@ const RelationshipCandidateSchema = z.object({
   reason: z.string().trim().min(1).max(800).describe("今回の確定Eventが、なぜ関係の持続的な変化を示すかを短く書く。人物プロフィールや次の行動計画は書かない")
 }).strict();
 
+/** The Runtime binds the target; the model never receives or returns its ID. */
+export const FocusConcernOutcomeSchema = z.object({
+  outcome: z.enum(["unchanged", "progress", "satisfied", "abandoned"]).describe("今回の確定経験によるFocus Concernの変化。核となる関心が実質的に満たされた時だけsatisfied、現在のSelfにとって価値を失ったことが明確な時だけabandonedを選ぶ。検索失敗・情報不足・一時的なFeelingだけではabandonedにしない"),
+  reason: z.string().trim().min(1).max(800).describe("今回のEvent、Tool結果、作成Memoryから判断できる短い理由。Concern ID、Event ID、実行手順、次の行動計画は書かない")
+}).strict().describe("Runtimeが束縛した一件のFocus ConcernへのIDなしの判断");
+
 export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
   memories: z.array(z.object({ content: z.string().trim().min(1).max(16_000), reason: z.string().trim().min(1).max(16_000), target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
   relationship: RelationshipCandidateSchema.optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
-  mood: PersistentMoodSchema.optional()
-}).strict().describe("応答commit後のExperience Integration出力。SelfとConcernは扱わない");
+  mood: PersistentMoodSchema.optional(),
+  focusConcern: FocusConcernOutcomeSchema.optional().describe("入力にfocusConcernがある時だけ、その一件への変化を判断する。入力にない時は出さない")
+}).strict().describe("応答commit後のExperience Integration出力。Selfと、Runtimeが束縛していないConcernは扱わない");
 export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;
 
 export type ExperienceIntegrationInput = {
@@ -32,6 +39,8 @@ export type ExperienceIntegrationInput = {
   readonly sourceRunId: string;
   readonly input: AgentCoreInput;
   readonly result: AgentRunResult;
+  /** Runtime-only association. Its ID is never exposed to the model. */
+  readonly focusConcern?: { readonly concernId: string; readonly description: string; readonly whyItMatters: string };
 };
 
 export interface ExperienceIntegrationModel {
@@ -67,6 +76,7 @@ export class ExperienceIntegration {
         ? (() => { throw first.error; })()
         : ExperienceIntegrationOutputSchema.parse(await this.model.repair(input, first.error.issues, signal));
       if (output.relationship !== undefined && this.subjects.resolve(input.input.observation.actor) === undefined) output = { ...output, relationship: undefined };
+      if (input.focusConcern === undefined && output.focusConcern !== undefined) output = { ...output, focusConcern: undefined };
       await this.repository.apply(input, output);
     } catch (error) {
       await this.repository.fail(input, error);

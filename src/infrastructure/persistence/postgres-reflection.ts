@@ -8,6 +8,7 @@ import { reflectionConcernContext } from "../../application/reflection-concern-c
 import { selectReactivationAnchors, type ReactivationCandidate } from "../../application/memory-reconciliation.js";
 import type { MemoryUpdateSink } from "../../application/memory-update.js";
 import { userMainSubjectId } from "../../application/canonical-subject.js";
+import { ConcernLifecycleService } from "../../application/concern-lifecycle.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionMemoryBatchSchema, ReflectionOutputSchema, ReflectionPlanSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionMemoryBatch, type ReflectionOutput, type ReflectionRepository, type ReflectionTarget, type ReflectorResult, type TargetedReflectionRepository } from "../../application/reflection.js";
 import { AgentStateSchema, DomainError, EpisodicMemorySchema, PersistedSelfSchema, ToolExecutionRecordSchema, type Concern, type ConcernActivityKind, type ConcernChangeSchema, type Relationship, type RelationshipChangeSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
@@ -60,21 +61,7 @@ function toolExecutionsFromFailure(error: unknown): readonly ToolExecutionRecord
   });
 }
 
-type AppliedConcerns = { readonly concerns: readonly Concern[]; readonly activities: readonly { readonly concernId: string; readonly kind: ConcernActivityKind }[] };
-
-function applyConcerns(current: readonly Concern[], changes: ReflectionOutput["concernChanges"], nextId: () => string): AppliedConcerns {
-  const values = new Map(current.map((value) => [value.id, value]));
-  const activities: { concernId: string; kind: ConcernActivityKind }[] = [];
-  for (const change of changes) {
-    if (change.operation === "remove") { values.delete(change.id); activities.push({ concernId: change.id, kind: "removed" }); continue; }
-    if (change.operation === "create") { const id = nextId(); values.set(id, { ...change.concern, id }); activities.push({ concernId: id, kind: "created" }); continue; }
-    const previous = values.get(change.concern.id);
-    values.set(change.concern.id, change.concern);
-    activities.push({ concernId: change.concern.id, kind: "reviewed" });
-    if (previous !== undefined && previous.status !== change.concern.status) activities.push({ concernId: change.concern.id, kind: "status-changed" });
-  }
-  return { concerns: [...values.values()], activities };
-}
+const concernLifecycle = new ConcernLifecycleService();
 
 function applyRelationships(current: readonly Relationship[], changes: ReflectionOutput["relationshipChanges"]): Relationship[] {
   const values = new Map(current.map((value) => [value.subjectId, value]));
@@ -245,7 +232,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const run = (await client.select({ status: reflectionRuns.status }).from(reflectionRuns).where(and(eq(reflectionRuns.id, input.reflectionId), eq(reflectionRuns.agentId, input.agentId))).for("update").limit(1))[0];
       if (run?.status === "completed") return "duplicate";
       if (run === undefined) throw new DomainError("NOT_FOUND", "Reflection run was not found");
-      const appliedConcerns = applyConcerns(input.state.concerns, output.concernChanges, () => this.ids.next());
+      const appliedConcerns = concernLifecycle.reconcile(input.state.concerns, output.concernChanges, () => this.ids.next());
       const occurredAt = this.now();
       for (const [index, concern] of input.state.concerns.filter(({ status }) => status === "active").entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:presented:${String(index)}:${concern.id}`, concernId: concern.id, kind: "presented", reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt }).onConflictDoNothing({ target: concernActivities.id });
       const closedConcerns = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, appliedConcerns.concerns, new Set(appliedConcerns.activities.map(({ concernId }) => concernId)), occurredAt);
@@ -417,7 +404,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
         if (change.operation === "remove") return [{ operation: "remove" as const, id: previous.id }];
         return [{ operation: "upsert" as const, concern: { id: previous.id, description: change.description, whyItMatters: change.whyItMatters, status: change.status } }];
       });
-      const applied = applyConcerns(current, changes, () => this.ids.next());
+      const applied = concernLifecycle.reconcile(current, changes, () => this.ids.next());
       const at = this.now();
       const updated = await client.update(agentStates).set({ version: sql`${agentStates.version}+1`, updatedAt: at }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
       if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection Concern state version conflict");

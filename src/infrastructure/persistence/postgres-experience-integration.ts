@@ -7,13 +7,17 @@ import type { IdGenerator, MemoryEmbeddingPreparer } from "../../application/por
 import { MemoryWriteService, recordMemoryMutationFailure, type MemoryWriteOptions } from "./memory-write-repository.js";
 import { errorLogContext } from "../../observability/logger.js";
 import { AgentStateRepository } from "./postgres.js";
+import { ConcernRepository } from "./concern-repository.js";
+import { ConcernLifecycleService } from "../../application/concern-lifecycle.js";
 import { enqueueConcernReevaluationSignal } from "./concern-reevaluation-signal-repository.js";
 import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent, type MemoryIntent } from "../../domain/contracts.js";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agentRuns, eventExperiences, eventProjections, eventSubjects, events, experienceIntegrations, stateChanges } from "./schema.js";
+import { agentRuns, concernActivities, eventExperiences, eventProjections, eventSubjects, events, experienceIntegrations, stateChanges } from "./schema.js";
 
-type PendingIntegrationRow = { id: string; agent_id: string; source_event_id: string; source_run_id: string; kind: DomainEvent["kind"]; occurred_at: Date; observation: Record<string, unknown>; input_snapshot: unknown; result: Record<string, unknown> };
+type PendingIntegrationRow = { id: string; agent_id: string; source_event_id: string; source_run_id: string; kind: DomainEvent["kind"]; occurred_at: Date; observation: Record<string, unknown>; input_snapshot: unknown; result: Record<string, unknown>; integration_input: unknown };
+const FocusConcernInputSchema = z.object({ concernId: z.string().min(1), description: z.string().min(1), whyItMatters: z.string().min(1) }).strict();
+const concernLifecycle = new ConcernLifecycleService();
 const LegacyPeerActionSchema = z.object({
   type: z.literal("respond"),
   content: z.string().trim().min(1).max(6_000).optional(),
@@ -59,7 +63,7 @@ export function parseDecisionInput(value: unknown) {
 export class PostgresExperienceIntegrationRepository implements ExperienceIntegrationRepository {
   constructor(private readonly database: RuntimeDatabase, private readonly ids: IdGenerator, private readonly now: () => Date, private readonly embedding?: MemoryEmbeddingPreparer, private readonly subjects?: CanonicalSubjectResolver) {}
   async begin(input: ExperienceIntegrationInput): Promise<"created" | "duplicate"> {
-    const result = await this.database.db.insert(experienceIntegrations).values({ id: input.integrationId, sourceRunId: input.sourceRunId, status: "pending" }).onConflictDoNothing({ target: experienceIntegrations.sourceRunId }).returning({ id: experienceIntegrations.id });
+    const result = await this.database.db.insert(experienceIntegrations).values({ id: input.integrationId, agentId: input.agentId, sourceEventId: input.sourceEvent.id, sourceRunId: input.sourceRunId, status: "pending", input: input.focusConcern === undefined ? {} : { focusConcern: input.focusConcern } }).onConflictDoNothing({ target: experienceIntegrations.sourceRunId }).returning({ id: experienceIntegrations.id });
     return result.length === 1 ? "created" : "duplicate";
   }
   async apply(input: ExperienceIntegrationInput, output: ExperienceIntegrationOutput): Promise<void> {
@@ -73,6 +77,9 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       if (row === undefined) throw new Error("Agent state is unavailable for Experience Integration");
       const relationships = Array.isArray(row.relationships) ? row.relationships as { subjectId: string; description: string }[] : [];
       let nextRelationships = relationships; let nextMood = row.mood;
+      const concernRepository = new ConcernRepository(client);
+      const currentConcerns = await concernRepository.list(input.agentId);
+      let focusActivity: { readonly concernId: string; readonly kind: "progressed" | "status-changed"; readonly reason: string } | undefined;
       const changes: { target: string; operation: string; before: unknown; after: unknown }[] = [];
       if (output.mood !== undefined && output.mood !== row.mood) { nextMood = output.mood; changes.push({ target: "mood", operation: "set", before: row.mood, after: nextMood }); }
       const actor = sourceActor(input.sourceEvent);
@@ -91,7 +98,16 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
           changes.push({ target: "relationships", operation: relationship.operation, before, after: nextRelationships });
         }
       }
-      if (changes.length > 0) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships });
+      if (input.focusConcern !== undefined && output.focusConcern !== undefined && output.focusConcern.outcome !== "unchanged") {
+        const applied = concernLifecycle.applyOutcome(currentConcerns, input.focusConcern.concernId, output.focusConcern.outcome);
+        if (applied !== undefined) {
+          const before = currentConcerns.find((concern) => concern.id === applied.activity.concernId)!;
+          focusActivity = { concernId: applied.activity.concernId, kind: applied.activity.kind as "progressed" | "status-changed", reason: output.focusConcern.reason };
+          changes.push({ target: "concerns", operation: output.focusConcern.outcome, before, after: applied.concerns.find((concern) => concern.id === before.id) });
+          if (focusActivity !== undefined) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships, concerns: applied.concerns });
+        }
+      }
+      if (changes.length > 0 && focusActivity === undefined) await stateRepository.update(input.agentId, row.version, { mood: nextMood, relationships: nextRelationships });
       if (changes.length > 0) await client.insert(stateChanges).values(changes.map((change) => ({ id: this.ids.next(), runId: input.sourceRunId, target: change.target, operation: change.operation, before: change.before, after: change.after, reason: "Experience Integration", evidenceIds: [input.sourceEvent.id] })));
       const memory = new MemoryWriteService(client, this.ids, this.now); const subjects = memorySubjectsForIntegration(input, output.memories, this.subjects, actor);
       const writtenMemoryIds: string[] = [];
@@ -103,13 +119,23 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
         if (applied.operation !== "no-op" && applied.memoryId !== undefined) writtenMemoryIds.push(applied.memoryId);
         failedIntent = undefined; failedOptions = undefined;
       }
+      if (focusActivity !== undefined) await client.insert(concernActivities).values({
+        id: `experience-integration:${input.integrationId}:${focusActivity.kind}:${focusActivity.concernId}`,
+        concernId: focusActivity.concernId,
+        kind: focusActivity.kind,
+        reason: focusActivity.reason,
+        eventId: input.sourceEvent.id,
+        runId: input.sourceRunId,
+        evidenceMemoryIds: writtenMemoryIds,
+        occurredAt: this.now()
+      }).onConflictDoNothing();
       const subjectsForExperience = subjectId === undefined ? [] : [subjectId];
       const vector = experienceEmbedding?.vector === undefined ? null : [...experienceEmbedding.vector];
       const status = experienceEmbedding?.status ?? "pending";
       await client.insert(eventExperiences).values({ eventId: input.sourceEvent.id, integrationId: input.integrationId, summary: output.experience.summary, facts: output.experience.facts }).onConflictDoNothing();
       if (subjectsForExperience.length > 0) await client.insert(eventSubjects).values(subjectsForExperience.map((subjectId) => ({ eventId: input.sourceEvent.id, subjectId }))).onConflictDoNothing();
       await client.insert(eventProjections).values({ eventId: input.sourceEvent.id, contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date() }).onConflictDoUpdate({ target: eventProjections.eventId, set: { contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date(), updatedAt: new Date() } });
-      await client.update(experienceIntegrations).set({ status: "completed", output, applied: { memoryCount: output.memories.length, stateChanges: changes.map(({ target, operation }) => ({ target, operation })) }, failureReason: null, completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId));
+      await client.update(experienceIntegrations).set({ status: "completed", output, applied: { memoryCount: output.memories.length, stateChanges: changes.map(({ target, operation }) => ({ target, operation })), ...(focusActivity === undefined ? {} : { focusConcern: { concernId: focusActivity.concernId, kind: focusActivity.kind } }) }, failureReason: null, completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId));
       await enqueueConcernReevaluationSignal(client, {
         agentId: input.agentId,
         reason: "新しいMemoryが既存Concernの意味づけを変えうる",
@@ -155,10 +181,14 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
     return this.#restorePending(await this.#inputs(["pending", "failed"], [...new Set(ids)]));
   }
   #restorePending(rows: readonly PendingIntegrationRow[]): readonly ExperienceIntegrationInput[] {
-    return rows.map((row) => ({ integrationId: row.id, agentId: row.agent_id, sourceEvent: { id: row.source_event_id, agentId: row.agent_id, kind: row.kind, occurredAt: row.occurred_at.toISOString(), payload: row.observation }, sourceRunId: row.source_run_id, input: parseDecisionInput(row.input_snapshot), result: AgentRunResultSchema.parse(row.result) }));
+    return rows.map((row) => {
+      const input = typeof row.integration_input === "object" && row.integration_input !== null ? row.integration_input as Record<string, unknown> : {};
+      const focus = FocusConcernInputSchema.safeParse(input.focusConcern);
+      return { integrationId: row.id, agentId: row.agent_id, sourceEvent: { id: row.source_event_id, agentId: row.agent_id, kind: row.kind, occurredAt: row.occurred_at.toISOString(), payload: row.observation }, sourceRunId: row.source_run_id, input: parseDecisionInput(row.input_snapshot), result: AgentRunResultSchema.parse(row.result), ...(focus.success ? { focusConcern: focus.data } : {}) };
+    });
   }
   async #inputs(statuses: readonly string[], ids?: readonly string[], agentId?: string): Promise<PendingIntegrationRow[]> {
-    return this.database.db.select({ id: experienceIntegrations.id, agent_id: events.agentId, source_event_id: events.id, source_run_id: experienceIntegrations.sourceRunId, kind: events.kind, occurred_at: events.occurredAt, observation: events.observation, input_snapshot: agentRuns.inputSnapshot, result: agentRuns.result }).from(experienceIntegrations)
+    return this.database.db.select({ id: experienceIntegrations.id, agent_id: events.agentId, source_event_id: events.id, source_run_id: experienceIntegrations.sourceRunId, kind: events.kind, occurred_at: events.occurredAt, observation: events.observation, input_snapshot: agentRuns.inputSnapshot, result: agentRuns.result, integration_input: experienceIntegrations.input }).from(experienceIntegrations)
       .innerJoin(agentRuns, eq(agentRuns.id, experienceIntegrations.sourceRunId))
       .innerJoin(events, eq(events.id, agentRuns.eventId))
       .where(and(inArray(experienceIntegrations.status, [...statuses]), ids === undefined ? undefined : inArray(experienceIntegrations.id, [...ids]), agentId === undefined ? undefined : eq(events.agentId, agentId)))
