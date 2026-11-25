@@ -634,21 +634,26 @@ describeDatabase("PostgreSQL persistence", () => {
     const makeInput = (eventId: string, runId: string) => ({ ...core, run: { ...core.run, eventId, runId, agentId: "a" }, observation: { ...core.observation, eventId }, currentSelf: { ...core.currentSelf, agentId: "a" }, state: { ...core.state, agentId: "a" } });
     const current = makeInput("integration-current-event", "integration-current-run");
     const legacy = makeInput("integration-legacy-event", "integration-legacy-run");
+    const namedRecipient = makeInput("integration-named-recipient-event", "integration-named-recipient-run");
     legacy.recentExperiences = [{ eventId: "legacy-prior-event", runId: "legacy-prior-run", agentId: "a", occurredAt: fixtureInstant, eventKind: "message-received", observation: { summary: "旧peer形式で応答した", facts: [] }, steps: [{ type: "action", action: { type: "respond", content: "旧形式の返答", peer: { name: "aka", content: "旧形式の返答" } } as never }], progressChanged: false }];
-    for (const value of [current, legacy]) {
+    for (const value of [current, legacy, namedRecipient]) {
       await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,'a','user-message',$2,'test','completed',$3)", [value.run.eventId, JSON.stringify(value.observation), fixtureInstant]);
       await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,input_snapshot,result,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$4,$5,$5)", [value.run.runId, value.run.eventId, JSON.stringify(value), JSON.stringify({ output: { desire: "返す", action: { type: "respond", content: "了解" } }, toolExecutions: [] }), fixtureInstant]);
     }
     const toolExecutions = [{ callId: "stored-tool", runId: current.run.runId, eventId: current.run.eventId, name: "memory_search", input: { query: "予定" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }];
-    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [current.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解" } }, toolExecutions })]);
+    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [current.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解", recipient: "channel" } }, toolExecutions })]);
     const legacyTools = toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId }));
     await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [legacy.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解", peer: { name: "aka", content: "旧形式の返答" } } }, toolExecutions: legacyTools })]);
-    await pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ('integration-current',$1,'failed'),('integration-legacy',$2,'failed')", [current.run.runId, legacy.run.runId]);
+    const namedRecipientTools = toolExecutions.map((item) => ({ ...item, runId: namedRecipient.run.runId, eventId: namedRecipient.run.eventId }));
+    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [namedRecipient.run.runId, JSON.stringify({ output: { desire: "アカにも伝えたい", action: { type: "respond", content: "了解", recipient: "アカ" } }, toolExecutions: namedRecipientTools })]);
+    await pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ('integration-current',$1,'failed'),('integration-legacy',$2,'failed'),('integration-named-recipient',$3,'failed')", [current.run.runId, legacy.run.runId, namedRecipient.run.runId]);
     const pending = await new PostgresExperienceIntegrationRepository(createRuntimeDatabase(pool), new SequenceIdGenerator([]), () => new Date(fixtureInstant)).pending("a");
     expect(pending.find(({ integrationId }) => integrationId === "integration-current")?.result.toolExecutions).toEqual(toolExecutions);
+    expect(pending.find(({ integrationId }) => integrationId === "integration-current")?.result.output.action).toEqual({ type: "respond", content: "了解", recipient: "channel" });
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTools);
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.input.recentExperiences[0]?.steps[0]).toEqual({ type: "action", action: { type: "respond", content: "旧形式の返答" } });
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.output.action).toEqual({ type: "respond", content: "了解" });
+    expect(pending.find(({ integrationId }) => integrationId === "integration-named-recipient")?.result.output.action).toEqual({ type: "respond", content: "了解" });
   });
 
   it("FR-82, FR-78: persists an Event Experience without a long-term Memory and exposes it to Reflection", async () => {
