@@ -65,13 +65,27 @@ function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<st
   }) };
 }
 
+function normalizeLegacyConcernProposals(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  let normalized = false;
+  const proposals = value.map((proposal): unknown => {
+    if (typeof proposal !== "object" || proposal === null || !("reconsiderAt" in proposal)) return proposal;
+    const { reconsiderAt: _legacySchedule, ...current } = proposal as Record<string, unknown>;
+    normalized = true;
+    return current;
+  });
+  return normalized ? proposals : value;
+}
+
 function normalizeLegacyRunResult(value: unknown): unknown {
   if (typeof value !== "object" || value === null) return value;
   const result = value as Record<string, unknown>;
   if (typeof result.output !== "object" || result.output === null) return value;
   const output = result.output as Record<string, unknown>;
-  const normalized = normalizeLegacyResponseAction(output.action);
-  return normalized === output.action ? value : { ...result, output: { ...output, action: normalized } };
+  const action = normalizeLegacyResponseAction(output.action);
+  const concernProposals = normalizeLegacyConcernProposals(result.concernProposals);
+  if (action === output.action && concernProposals === result.concernProposals) return value;
+  return { ...result, ...(action === output.action ? {} : { output: { ...output, action } }), ...(concernProposals === result.concernProposals ? {} : { concernProposals }) };
 }
 
 /** Removes known legacy fields before strictly restoring the canonical Core input. */

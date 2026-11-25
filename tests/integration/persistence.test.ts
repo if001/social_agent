@@ -643,7 +643,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const toolExecutions = [{ callId: "stored-tool", runId: current.run.runId, eventId: current.run.eventId, name: "memory_search", input: { query: "予定" }, ok: true, result: { memories: [] }, startedAt: fixtureInstant, finishedAt: fixtureInstant }];
     await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [current.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解", recipient: "channel" } }, toolExecutions })]);
     const legacyTools = toolExecutions.map((item) => ({ ...item, runId: legacy.run.runId, eventId: legacy.run.eventId }));
-    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [legacy.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解", peer: { name: "aka", content: "旧形式の返答" } } }, toolExecutions: legacyTools })]);
+    await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [legacy.run.runId, JSON.stringify({ output: { desire: "覚えておきたい", action: { type: "respond", content: "了解", peer: { name: "aka", content: "旧形式の返答" } } }, toolExecutions: legacyTools, concernProposals: [{ operation: "create", description: "展示の記録方法を比べたい", whyItMatters: "次の観察で判断に使いたい", reconsiderAt: "2026-11-26T00:00:00.000Z" }] })]);
     const namedRecipientTools = toolExecutions.map((item) => ({ ...item, runId: namedRecipient.run.runId, eventId: namedRecipient.run.eventId }));
     await pool.query("UPDATE agent_runs SET result=$2 WHERE id=$1", [namedRecipient.run.runId, JSON.stringify({ output: { desire: "アカにも伝えたい", action: { type: "respond", content: "了解", recipient: "アカ" } }, toolExecutions: namedRecipientTools })]);
     await pool.query("INSERT INTO experience_integrations(id,source_run_id,status) VALUES ('integration-current',$1,'failed'),('integration-legacy',$2,'failed'),('integration-named-recipient',$3,'failed')", [current.run.runId, legacy.run.runId, namedRecipient.run.runId]);
@@ -653,6 +653,7 @@ describeDatabase("PostgreSQL persistence", () => {
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.toolExecutions).toEqual(legacyTools);
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.input.recentExperiences[0]?.steps[0]).toEqual({ type: "action", action: { type: "respond", content: "旧形式の返答" } });
     expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.output.action).toEqual({ type: "respond", content: "了解" });
+    expect(pending.find(({ integrationId }) => integrationId === "integration-legacy")?.result.concernProposals).toEqual([{ operation: "create", description: "展示の記録方法を比べたい", whyItMatters: "次の観察で判断に使いたい" }]);
     expect(pending.find(({ integrationId }) => integrationId === "integration-named-recipient")?.result.output.action).toEqual({ type: "respond", content: "了解" });
   });
 
