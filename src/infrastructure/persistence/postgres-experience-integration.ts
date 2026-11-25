@@ -28,6 +28,14 @@ const LegacyNamedRecipientActionSchema = z.object({
   content: z.string().trim().min(1).max(6_000),
   recipient: z.string().trim().min(1).max(120)
 }).strict();
+const LegacyDerivedConcernProposalSchema = z.object({
+  operation: z.literal("derive"),
+  description: z.string().trim().min(1).max(400),
+  whyItMatters: z.string().trim().min(1).max(300),
+  sourceConcernId: z.string().min(1),
+  explorationMode: z.enum(["deepen", "bridge", "distant"]).optional(),
+  transition: z.enum(["replace", "fork"]).optional()
+}).strict();
 const experienceContent = (experience: { readonly summary: string; readonly facts: readonly string[] }) => `${experience.summary}\n${experience.facts.join("\n")}`;
 const experienceHash = (experience: { readonly summary: string; readonly facts: readonly string[] }) => createHash("sha256").update(experienceContent(experience)).digest("hex");
 const sourceActor = (event: DomainEvent): { readonly id: string; readonly type: "human" | "agent" | "tool" | "system" | "unknown" } | undefined => {
@@ -68,12 +76,20 @@ function normalizeLegacyRecentActions(value: Record<string, unknown>): Record<st
 function normalizeLegacyConcernProposals(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
   let normalized = false;
-  const proposals = value.map((proposal): unknown => {
-    if (typeof proposal !== "object" || proposal === null || !("reconsiderAt" in proposal)) return proposal;
-    const { reconsiderAt: _legacySchedule, ...current } = proposal as Record<string, unknown>;
-    normalized = true;
-    return current;
-  });
+  const proposals: unknown[] = [];
+  for (const proposal of value) {
+    let current = proposal;
+    if (typeof current === "object" && current !== null && "reconsiderAt" in current) {
+      const { reconsiderAt: _legacySchedule, ...withoutSchedule } = current as Record<string, unknown>;
+      current = withoutSchedule;
+      normalized = true;
+    }
+    if (LegacyDerivedConcernProposalSchema.safeParse(current).success) {
+      normalized = true;
+      continue;
+    }
+    proposals.push(current);
+  }
   return normalized ? proposals : value;
 }
 
