@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { ToolMessage } from "langchain";
 import { z } from "zod";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
-import { agentCoreModelView, AgentCoreModelOutputJsonSchema, DeepAgentHarness, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelCallInputBudget, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
+import { agentCoreModelView, AgentCoreModelOutputJsonSchema, DeepAgentHarness, GraphStepCollector, MAX_MODEL_INPUT_TOKENS, checkOllamaChatCapability, createOllamaDeepAgentInvoker, modelCallInputBudget, modelInputBudget, type DeepAgentInvoker } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { modelJsonSchema } from "../../src/infrastructure/agent/model-json-schema.js";
 import { agentCoreSystemPrompt } from "../../src/infrastructure/agent/deep-agent-prompt.js";
 import { compactPriorToolMessages } from "../../src/infrastructure/agent/tool-history.js";
@@ -17,6 +17,13 @@ const output: AgentCoreOutput = { desire: "respond to this event", action: { typ
 const result = { output, toolExecutions: [] };
 
 describe("AgentHarness contract", () => {
+  it("NFR-5: observes LangGraph supersteps independently from model and Tool budgets", () => {
+    const collector = new GraphStepCollector();
+    collector.handleChainStart({}, {}, "run-1", undefined, undefined, { langgraph_step: 3 });
+    collector.handleChainStart({}, {}, "run-2", undefined, undefined, { langgraph_step: 3 });
+    collector.handleChainStart({}, {}, "run-3", undefined, undefined, { langgraph_step: 7 });
+    expect(collector.count).toBe(2); expect(collector.highest).toBe(7);
+  });
   it("FR-77: uses the shared ID-free view for repair payloads and Tool evidence", () => {
     expect(agentCoreModelView({ id: "event-1", eventId: "event-1", value: { memoryId: "memory-1", content: "根拠" } })).toEqual({ value: { content: "根拠" } });
   });
@@ -187,7 +194,7 @@ describe("AgentHarness contract", () => {
     const input = agentCoreInputFixture();
     input.limits = { ...input.limits, maxSteps: 27, maxToolCalls: 15 };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
-    expect(received).toMatchObject({ maxModelCalls: 27, maxExplorationModelCalls: 25, maxToolCalls: 15, recursionLimit: 75 });
+    expect(received).toMatchObject({ maxModelCalls: 27, maxExplorationModelCalls: 25, maxToolCalls: 15, recursionLimit: 256 });
   });
 
   it("NFR-5: recovers one final Action with collected Tool evidence after graph recursion stops exploration", async () => {
@@ -205,7 +212,7 @@ describe("AgentHarness contract", () => {
     const recovered = await new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]) }).run(input, new AbortController().signal);
     expect(recovered).toMatchObject({ output, toolExecutions: [toolExecution], budget: { consumed: { modelCalls: 4, toolCalls: 1 } } });
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.options).toMatchObject({ maxModelCalls: 4, maxExplorationModelCalls: 2, maxToolCalls: 2, recursionLimit: 16 });
+    expect(calls[0]?.options).toMatchObject({ maxModelCalls: 4, maxExplorationModelCalls: 2, maxToolCalls: 2, recursionLimit: 256 });
     expect(calls[1]?.options).toMatchObject({ maxModelCalls: 1, maxExplorationModelCalls: 0, maxToolCalls: 0, recursionLimit: 8 });
     expect(calls[1]?.content).toContain("通常の探索は上限で停止しました");
     expect(calls[1]?.content).toContain("dotsは継続作業を行うエージェント");

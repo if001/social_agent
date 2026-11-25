@@ -73,7 +73,7 @@ function concernProposals(executions: readonly ToolExecutionRecord[]): ResolvedC
 type ReusableDeepAgent = {
   invoke(
     input: { readonly messages: readonly { readonly role: "user"; readonly content: string }[] },
-    options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly context: DeepAgentToolRunContext }
+    options: { readonly signal: AbortSignal; readonly recursionLimit: number; readonly context: DeepAgentToolRunContext; readonly callbacks?: readonly unknown[] }
   ): Promise<{ readonly structuredResponse?: unknown; readonly messages?: unknown }>;
 };
 
@@ -88,7 +88,7 @@ export type ReusableDeepAgentFactoryOptions = {
 
 export type ReusableDeepAgentFactory = (options: ReusableDeepAgentFactoryOptions) => ReusableDeepAgent;
 
-export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number };
+export type DeepAgentResult = { readonly structuredResponse?: unknown; readonly messages?: unknown; readonly toolExecutions?: readonly ToolExecutionRecord[]; readonly modelCalls?: number; readonly graphSteps?: number };
 export type { EventAssessment } from "../../domain/contracts.js";
 export type DeepAgentInvokeOptions = { readonly signal: AbortSignal; readonly recursionLimit: number; readonly maxModelCalls: number; readonly maxExplorationModelCalls?: number; readonly agentId: string; readonly runId: string; readonly eventId: string; readonly eventKind?: AgentCoreInput["observation"]["kind"]; readonly eventTargetKind?: string | undefined; readonly concernDueSignalClaimedAt?: string | undefined; readonly maxToolCalls: number; readonly transport?: AgentCoreInput["run"]["transport"] };
 export interface DeepAgentInvoker {
@@ -100,7 +100,19 @@ export type DeepAgentHarnessOptions = {
   readonly registeredToolNames: ReadonlySet<string>;
   readonly maxRepairs?: number;
   readonly logger?: Logger;
+  readonly graphRecursionLimit?: number;
 };
+
+export const DEFAULT_AGENT_GRAPH_RECURSION_LIMIT = 256;
+
+/** Observes LangGraph's own superstep metadata; it is not derived from budgets. */
+export class GraphStepCollector {
+  name = "AgentGraphStepCollector";
+  readonly #steps = new Set<number>();
+  handleChainStart(_chain: unknown, _inputs: unknown, _runId: string, _runType?: string, _tags?: string[], metadata?: Record<string, unknown>): void { const step = metadata?.langgraph_step; if (typeof step === "number") this.#steps.add(step); }
+  get count(): number { return this.#steps.size; }
+  get highest(): number | undefined { return this.#steps.size === 0 ? undefined : Math.max(...this.#steps); }
+}
 
 // ContextBuilder may retain 4,500 tokens of Agent context. Production Tool
 // schemas and the system/final-action contracts require roughly 3,500 more.
@@ -220,7 +232,7 @@ export class DeepAgentHarness implements AgentHarness {
         // and one repair call. Keep these two calls inside the total model budget.
         const finalizationReserveModelCalls = Math.min(2, remainingModelCalls);
         const exploratoryModelCalls = remainingModelCalls - finalizationReserveModelCalls;
-        const recursionLimit = remainingModelCalls * 2 + attemptToolCalls + 6;
+        const recursionLimit = this.options.graphRecursionLimit ?? DEFAULT_AGENT_GRAPH_RECURSION_LIMIT;
         const result = await this.options.invoker.invoke({ messages: [{ role: "user", content }] }, { signal: combined, recursionLimit, maxModelCalls: remainingModelCalls, maxExplorationModelCalls: exploratoryModelCalls, agentId: input.run.agentId, runId: input.run.runId, eventId: input.run.eventId, eventKind: input.observation.kind, ...(eventTargetKind(input) === undefined ? {} : { eventTargetKind: eventTargetKind(input) }), ...(concernDueSignalClaimedAt(input) === undefined ? {} : { concernDueSignalClaimedAt: concernDueSignalClaimedAt(input) }), maxToolCalls: attemptToolCalls, ...(input.run.transport === undefined ? {} : { transport: input.run.transport }) });
         const invokedModelCalls = result.modelCalls ?? 1;
         if (invokedModelCalls > remainingModelCalls) throw new DomainError("LIMIT_EXCEEDED", "Invoker exceeded the total model call budget", { cause: { modelCalls: invokedModelCalls, toolExecutions: result.toolExecutions ?? [] } });
@@ -235,7 +247,7 @@ export class DeepAgentHarness implements AgentHarness {
             logger.log("warn", "agent_core.idle_silence_rejected", { attempt: attempt + 1 });
             continue;
           }
-          logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls });
+          logger.log("info", "agent_core.model_attempt_completed", { attempt: attempt + 1, modelCalls: consumedModelCalls, maxToolCalls: input.limits.maxToolCalls, graphSteps: result.graphSteps, recursionLimit });
           return { ...decision, toolExecutions: observedToolExecutions, concernProposals: concernProposals(observedToolExecutions), budget: budgetResult(consumedModelCalls, attempt) };
         }
         validationIssues = parsed.error.issues.map(({ code, message, path }) => ({ code, message, path }));
@@ -344,10 +356,15 @@ export function createOllamaDeepAgentInvoker(config: OllamaDeepAgentConfig): Dee
         signal: options.signal,
         ...(options.transport === undefined ? {} : { transport: options.transport })
       });
+      const graphSteps = new GraphStepCollector();
       try {
-        const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context });
-        return { structuredResponse: domainOutputFromFlat(result.structuredResponse), messages: result.messages, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) };
-      } catch (error) { throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount) } }); }
+        const result = await agent.invoke({ messages: [...input.messages] }, { signal: options.signal, recursionLimit: options.recursionLimit, context, callbacks: [graphSteps] });
+        logger.child({ agentId: options.agentId, eventId: options.eventId, runId: options.runId }).log("info", "agent_core.graph_steps", { graphSteps: graphSteps.count, highestGraphStep: graphSteps.highest, recursionLimit: options.recursionLimit });
+        return { structuredResponse: domainOutputFromFlat(result.structuredResponse), messages: result.messages, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount), graphSteps: graphSteps.count };
+      } catch (error) {
+        logger.child({ agentId: options.agentId, eventId: options.eventId, runId: options.runId }).log("warn", "agent_core.graph_steps", { graphSteps: graphSteps.count, highestGraphStep: graphSteps.highest, recursionLimit: options.recursionLimit, reachedLimit: hasGraphRecursionError(error) });
+        throw new DomainError("EXTERNAL", "Deep Agent invocation failed", { cause: { providerError: error, toolExecutions: context.collector.executions, modelCalls: Math.max(1, context.collector.modelCallCount), graphSteps: graphSteps.count } });
+      }
     }
   };
 }

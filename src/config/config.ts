@@ -68,6 +68,7 @@ const ConfigSchema = z.object({
   FILE_READ_ROOTS: z.string().default("./var/files"),
   FILE_WRITE_ROOTS: z.string().default("./var/files"),
   RUN_DEADLINE_MS: z.coerce.number().int().positive().default(120_000),
+  AGENT_GRAPH_RECURSION_LIMIT: z.coerce.number().int().min(32).max(2_000).default(256),
   RUNTIME_CORRELATION_TTL_MS: z.coerce.number().int().positive().default(604_800_000),
   RUNTIME_RATE_WINDOW_RETENTION_MS: z.coerce.number().int().positive().default(3_600_000),
   RUNTIME_MAX_HOPS: z.coerce.number().int().min(1).max(32).default(5),
@@ -100,6 +101,7 @@ export type AppConfig = {
   readonly fileReadRoots: readonly string[];
   readonly fileWriteRoots: readonly string[];
   readonly runDeadlineMs: number;
+  readonly agentGraphRecursionLimit: number;
   readonly runtimeCorrelationTtlMs: number;
   readonly runtimeRateWindowRetentionMs: number;
   readonly runtimeMaxHops: number;
@@ -155,6 +157,7 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
     fileReadRoots: paths(cwd, value.FILE_READ_ROOTS),
     fileWriteRoots: paths(cwd, value.FILE_WRITE_ROOTS),
     runDeadlineMs: value.RUN_DEADLINE_MS,
+    agentGraphRecursionLimit: value.AGENT_GRAPH_RECURSION_LIMIT,
     runtimeCorrelationTtlMs: value.RUNTIME_CORRELATION_TTL_MS,
     runtimeRateWindowRetentionMs: value.RUNTIME_RATE_WINDOW_RETENTION_MS,
     runtimeMaxHops: value.RUNTIME_MAX_HOPS,
