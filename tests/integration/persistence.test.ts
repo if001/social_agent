@@ -445,27 +445,27 @@ describeDatabase("PostgreSQL persistence", () => {
     const agentId = "legacy-signal-migration-agent";
     await pool.query("INSERT INTO agents(id,family_id,identity,initial_disposition) VALUES ($1,'family','Legacy Signal Migration','Calm')", [agentId]);
     await pool.query("INSERT INTO autonomous_schedules(id,agent_id,kind,reason,next_due_at) VALUES ('legacy-concern-due',$1,'concern-due','old concern','2026-01-01'),('legacy-external-change',$1,'external-change','removed event','2026-01-01')", [agentId]);
-    await expect(migrateConcernReevaluationSignals(database.admin, { apply: false, agentId })).resolves.toEqual({ apply: false, agentId, concernDueSchedulesRemoved: 1, externalChangeSchedulesRemoved: 1 });
+    await expect(migrateConcernReevaluationSignals(database.admin, { apply: false, agentId })).resolves.toMatchObject({ apply: false, agentId, concernDueSchedulesRemoved: 1, externalChangeSchedulesRemoved: 1, legacyBatchesCreated: 0 });
     expect((await pool.query("SELECT 1 FROM autonomous_schedules WHERE agent_id=$1", [agentId])).rowCount).toBe(2);
-    await expect(migrateConcernReevaluationSignals(database.admin, { apply: true, agentId })).resolves.toEqual({ apply: true, agentId, concernDueSchedulesRemoved: 1, externalChangeSchedulesRemoved: 1 });
+    await expect(migrateConcernReevaluationSignals(database.admin, { apply: true, agentId })).resolves.toMatchObject({ apply: true, agentId, concernDueSchedulesRemoved: 1, externalChangeSchedulesRemoved: 1 });
     expect((await pool.query("SELECT 1 FROM autonomous_schedules WHERE agent_id=$1", [agentId])).rowCount).toBe(0);
   });
 
-  it("FR-24, NFR-6: coalesces and claims one pending Concern signal, retains it on retry, and does not reschedule after completion", async () => {
-    await pool.query("INSERT INTO concern_reevaluation_signals(agent_id,next_due_at,reason) VALUES ('a','2026-01-01','new memories')");
-    await pool.query("INSERT INTO concern_reevaluation_signal_sources(agent_id,source_kind,source_id) VALUES ('a','memory','memory-1'),('a','memory','memory-2')");
+  it("FR-24, NFR-6: coalesces pending experience batches for one Focus Concern, retains them on retry, and consumes them together", async () => {
+    await pool.query("INSERT INTO concerns(id,agent_id,description,why_it_matters,status) VALUES ('batch-concern','a','比較の違いを知りたい','自分の関心','active') ON CONFLICT (id) DO NOTHING");
+    await pool.query("INSERT INTO concern_reevaluation_batches(id,agent_id,source_kind,source_id,focus_concern_id,status,impact_reason,next_due_at) VALUES ('batch-1','a','test','one','batch-concern','pending','new experiences','2026-01-01'),('batch-2','a','test','two','batch-concern','pending','new experiences','2026-01-01')");
     const repository = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 1_000);
     const claimed = (await repository.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ kind }) => kind === "concern-due");
-    expect(claimed).toMatchObject({ id: "concern-due:a", agentId: "a", kind: "concern-due", reason: "new memories" });
+    expect(claimed).toMatchObject({ id: "concern-due:a:batch-concern", agentId: "a", kind: "concern-due", reason: "new experiences", batchIds: ["batch-1", "batch-2"] });
     if (claimed === undefined || claimed.kind !== "concern-due") throw new Error("Signal was not claimed");
     await repository.release(claimed);
-    expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM concern_reevaluation_signals WHERE agent_id='a'")).rows[0]?.lease_until).toBeNull();
-    await pool.query("UPDATE concern_reevaluation_signals SET next_due_at='2026-01-01' WHERE agent_id='a'");
+    expect((await pool.query<{ lease_until: Date | null }>("SELECT lease_until FROM concern_reevaluation_batches WHERE id='batch-1'")).rows[0]?.lease_until).toBeNull();
+    await pool.query("UPDATE concern_reevaluation_batches SET next_due_at='2026-01-01' WHERE id IN ('batch-1','batch-2')");
     const restarted = new PostgresScheduleRepository(createRuntimeDatabase(pool), 60_000, "a", 1_000);
     const retried = (await restarted.claimDue(new Date("2026-01-02T00:00:00Z"), 10)).find(({ kind }) => kind === "concern-due");
     if (retried === undefined || retried.kind !== "concern-due") throw new Error("Signal was not reclaimed");
     await restarted.complete(retried, null);
-    expect((await pool.query("SELECT 1 FROM concern_reevaluation_signals WHERE agent_id='a'")).rowCount).toBe(0);
+    expect((await pool.query("SELECT 1 FROM concern_reevaluation_batches WHERE id IN ('batch-1','batch-2') AND status='consumed'")).rowCount).toBe(2);
     expect((await pool.query("SELECT 1 FROM autonomous_schedules WHERE agent_id='a' AND kind='concern-due'")).rowCount).toBe(0);
   });
 

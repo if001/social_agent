@@ -22,6 +22,7 @@ export const SchedulerTimingsSchema = z.object({
   CONCERN_STALE_MIN_REFLECTION_SESSIONS: z.coerce.number().int().positive().default(2),
   SCHEDULER_RETRY_DELAY_MS: z.coerce.number().int().positive().default(300_000),
   SCHEDULER_LEASE_MS: z.coerce.number().int().positive().default(60_000),
+  CONCERN_REEVALUATION_AGGREGATION_MS: z.coerce.number().int().nonnegative().default(300_000),
   AUTONOMY_IDLE_QUIET_HOURS: QuietHoursSchema,
   AUTONOMY_IDLE_QUIET_TIME_ZONE: TimeZoneSchema
 });
@@ -32,6 +33,7 @@ export type SchedulerTimings = {
   readonly stateReviewIntervalMs: number;
   readonly concernStaleAfterMs: number;
   readonly concernStaleMinReflectionSessions: number;
+  readonly concernReevaluationAggregationMs: number;
   readonly retryDelayMs: number;
   readonly leaseMs: number;
   readonly idleQuietHours?: { readonly startMinutes: number; readonly endMinutes: number; readonly timeZone: string };
@@ -41,7 +43,7 @@ export function parseSchedulerTimings(environment: Record<string, unknown>): Sch
   const value = SchedulerTimingsSchema.parse(environment);
   const quiet = value.AUTONOMY_IDLE_QUIET_HOURS;
   const [start, end] = quiet === undefined ? [] : quiet.split("-");
-  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, concernFormationIntervalMs: value.CONCERN_FORMATION_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, concernStaleAfterMs: value.CONCERN_STALE_AFTER_MS, concernStaleMinReflectionSessions: value.CONCERN_STALE_MIN_REFLECTION_SESSIONS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS, ...(start === undefined || end === undefined ? {} : { idleQuietHours: { startMinutes: minutesOf(start), endMinutes: minutesOf(end), timeZone: value.AUTONOMY_IDLE_QUIET_TIME_ZONE } }) };
+  return { scanIntervalMs: value.SCHEDULER_INTERVAL_MS, autonomyReviewIntervalMs: value.AUTONOMY_REVIEW_INTERVAL_MS, concernFormationIntervalMs: value.CONCERN_FORMATION_INTERVAL_MS, stateReviewIntervalMs: value.STATE_REVIEW_INTERVAL_MS, concernStaleAfterMs: value.CONCERN_STALE_AFTER_MS, concernStaleMinReflectionSessions: value.CONCERN_STALE_MIN_REFLECTION_SESSIONS, concernReevaluationAggregationMs: value.CONCERN_REEVALUATION_AGGREGATION_MS, retryDelayMs: value.SCHEDULER_RETRY_DELAY_MS, leaseMs: value.SCHEDULER_LEASE_MS, ...(start === undefined || end === undefined ? {} : { idleQuietHours: { startMinutes: minutesOf(start), endMinutes: minutesOf(end), timeZone: value.AUTONOMY_IDLE_QUIET_TIME_ZONE } }) };
 }
 const ConfigSchema = z.object({
   BOT_ID: z.string().min(1),

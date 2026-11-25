@@ -9,7 +9,7 @@ export type ConcernActivity = { readonly id: string; readonly kind: string; read
 export type EvidenceMemory = { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date };
 export type ToolExecutionObservation = { readonly tool: string; readonly result: unknown; readonly error: string | null; readonly finishedAt: Date };
 export type AgentSelfState = { readonly identity: string; readonly disposition: string; readonly selfStory: string; readonly commitments: unknown; readonly mood: string };
-export type ConcernDueFocus = { readonly concernId: string; readonly description: string; readonly whyItMatters: string; readonly sourceMemories: readonly { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date }[] };
+export type ConcernDueFocus = { readonly description: string; readonly whyItMatters: string; readonly sourceMemories: readonly { readonly content: string; readonly importance: string; readonly occurredAt: Date }[] };
 
 const compact = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
 const success = (value: unknown) => Promise.resolve({ ok: true as const, value });
@@ -36,7 +36,7 @@ export interface AgentContextToolRepository {
   listRecentActionResults(agentId: string, actorIds: readonly string[], limit: number): Promise<readonly unknown[]>;
   listToolExecutions(agentId: string, eventId: string, limit: number): Promise<readonly ToolExecutionObservation[]>;
   loadSelf(agentId: string): Promise<AgentSelfState | undefined>;
-  nextConcernDueFocus(agentId: string, signalClaimedAt: string | undefined, excludedConcernIds: readonly string[]): Promise<ConcernDueFocus | undefined>;
+  loadConcernDueFocus(agentId: string, concernId: string, evidenceMemoryIds: readonly string[]): Promise<ConcernDueFocus | undefined>;
 }
 const currentUserSubject = z.literal("current-user").describe("現在会話しているユーザーだけに絞る。IDは指定しない");
 const noSubjects: CanonicalSubjectResolver = { resolve: () => undefined, actorIdsFor: () => [] };
@@ -107,13 +107,13 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
     },
     {
       name: "concern_due_focus",
-      description: "concern-due専用。signalになった新しい経験に関連するactive Concernを一件だけ読む。ID・候補番号は扱わない。最初はinitial、別の候補も検討したい時だけanotherを使う。",
-      schema: z.object({ mode: z.enum(["initial", "another"]).default("initial").describe("最初の候補か、既に読んだ候補と別の候補か") }).strict(),
+      description: "concern-due専用。Runtimeが既に束縛したFocus Concernと今回の経験を、派生判断の補助として読み直す。呼ばなくても派生できる。ID・候補番号は扱わない。",
+      schema: z.object({}).strict(),
       resultPolicy: { kind: "standard", project: (value) => value },
       execute: async (_input, context) => {
         if (context.concernDue === undefined) return { ok: false, error: "concern_due_focus is only available during concern-due" };
-        const focus = await repository.nextConcernDueFocus(context.agentId, context.concernDue.signalClaimedAt, context.concernDue.focusedConcernIds);
-        return focus === undefined ? success({ available: false }) : success({ available: true, concernId: focus.concernId, evidenceMemoryIds: focus.sourceMemories.map(({ id }) => id), concern: { description: compact(focus.description, 400), whyItMatters: compact(focus.whyItMatters, 300) }, triggerExperiences: focus.sourceMemories.map((memory) => ({ summary: compact(memory.content, 320), importance: compact(memory.importance, 180), occurredAt: memory.occurredAt.toISOString() })) });
+        const focus = await repository.loadConcernDueFocus(context.agentId, context.concernDue.focusConcernId, context.concernDue.evidenceMemoryIds);
+        return focus === undefined ? success({ available: false }) : success({ available: true, concern: { description: compact(focus.description, 400), whyItMatters: compact(focus.whyItMatters, 300) }, triggerExperiences: focus.sourceMemories.map((memory) => ({ summary: compact(memory.content, 320), importance: compact(memory.importance, 180), occurredAt: memory.occurredAt.toISOString() })) });
       }
     },
     {

@@ -18,6 +18,7 @@ export type AgentOverview = {
    * audit projection, not model reasoning or prompt text. */
   readonly reflectionResolutions: readonly Record<string, unknown>[];
   readonly concernActivities: readonly Record<string, unknown>[];
+  readonly concernReevaluationBatches: readonly Record<string, unknown>[];
   readonly concernLifecycle: Record<string, unknown>;
   readonly conversations: readonly Record<string, unknown>[];
 };
@@ -100,7 +101,7 @@ export class DebugUiRepository {
       FROM agents a JOIN agent_families f ON f.id=a.family_id LEFT JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1`, [agentId]);
     const agent = agents[0];
     if (agent === undefined) return undefined;
-    const [states, currentConcerns, scheduledTasks, schedules, reflections, rawReflectionAttempts, rawReflectionMemoryBatches, reflectionToolExecutions, reflectionResolutions, concernActivities, conversations, lifecycleTotals, dormantConcerns, similarConcerns] = await Promise.all([
+    const [states, currentConcerns, scheduledTasks, schedules, reflections, rawReflectionAttempts, rawReflectionMemoryBatches, reflectionToolExecutions, reflectionResolutions, concernActivities, concernReevaluationBatches, conversations, lifecycleTotals, dormantConcerns, similarConcerns] = await Promise.all([
       this.query<QueryResultRow>(`SELECT mood,relationships,version,updated_at AS "updatedAt" FROM agent_states WHERE agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,description,why_it_matters AS "whyItMatters",status,version,created_at AS "createdAt",updated_at AS "updatedAt" FROM concerns WHERE agent_id=$1 AND deleted_at IS NULL ORDER BY created_at,id`, [agentId]),
       this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,source_event_id AS "sourceEventId",source_run_id AS "sourceRunId",execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 ORDER BY execute_at DESC,id LIMIT 100`, [agentId]),
@@ -118,6 +119,7 @@ export class DebugUiRepository {
         LEFT JOIN concerns source_concern ON source_concern.id=ca.source_concern_id
         LEFT JOIN events source_event ON source_event.id=ca.event_id AND source_event.agent_id=c.agent_id
         WHERE c.agent_id=$1 ORDER BY ca.occurred_at DESC,ca.id DESC LIMIT 100`, [agentId]),
+      this.query<QueryResultRow>(`SELECT b.id,b.status,b.impact_reason AS "impactReason",b.failure_reason AS "failureReason",b.next_due_at AS "nextDueAt",b.claimed_at AS "claimedAt",b.consumed_at AS "consumedAt",b.created_at AS "createdAt",b.updated_at AS "updatedAt",c.description AS "focusConcern",COUNT(m.memory_id)::integer AS "memoryCount" FROM concern_reevaluation_batches b LEFT JOIN concerns c ON c.id=b.focus_concern_id LEFT JOIN concern_reevaluation_batch_memories m ON m.batch_id=b.id WHERE b.agent_id=$1 GROUP BY b.id,c.description ORDER BY b.updated_at DESC,b.id DESC LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT c.id,c.goal,c.status,c.started_event_id AS "startedEventId",c.last_event_id AS "lastEventId",c.ended_reason AS "endedReason",c.completed_at AS "completedAt",c.created_at AS "createdAt",c.updated_at AS "updatedAt",COUNT(cm.external_message_id)::integer AS "messageCount" FROM conversations c LEFT JOIN conversation_messages cm ON cm.conversation_id=c.id AND cm.agent_id=c.agent_id WHERE c.agent_id=$1 GROUP BY c.id ORDER BY c.updated_at DESC,c.id DESC LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT /* lifecycle activity totals */ COUNT(*) FILTER (WHERE ca.kind='created')::integer AS created,COUNT(*) FILTER (WHERE ca.kind='derived')::integer AS derived,COUNT(*) FILTER (WHERE ca.kind='focused')::integer AS focused,COUNT(*) FILTER (WHERE ca.kind='progressed')::integer AS progressed,COUNT(*) FILTER (WHERE ca.kind='reviewed')::integer AS reviewed FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1`, [agentId]),
       this.query<QueryResultRow>(`SELECT /* dormant active Concerns */ c.id,c.description,c.why_it_matters AS "whyItMatters",c.created_at AS "createdAt",MAX(ca.occurred_at) FILTER (WHERE ca.kind IN ('focused','progressed','reviewed')) AS "lastMeaningfulAt",MAX(ca.occurred_at) AS "lastActivityAt" FROM concerns c LEFT JOIN concern_activities ca ON ca.concern_id=c.id WHERE c.agent_id=$1 AND c.deleted_at IS NULL AND c.status='active' GROUP BY c.id ORDER BY "lastMeaningfulAt" NULLS FIRST,c.created_at,c.id LIMIT 50`, [agentId]),
@@ -126,7 +128,7 @@ export class DebugUiRepository {
     const reflectionAttempts = rawReflectionAttempts.map((attempt) => ({ ...attempt, toolExecutions: reflectionToolExecutions.filter((execution) => execution.reflectionId === attempt.reflectionId && execution.target === attempt.target) }));
     const reflectionMemoryBatches = rawReflectionMemoryBatches.map((batch) => ({ ...batch, toolExecutions: reflectionToolExecutions.filter((execution) => execution.reflectionId === batch.reflectionId && execution.target === "memory" && execution.batchIndex === batch.batchIndex) }));
     const lifecycle = concernLifecycleHealth(currentConcerns.map((concern) => ({ id: String(concern.id), status: typeof concern.status === "string" ? concern.status : "unknown", description: String(concern.description) })), []);
-    return { agent, state: { ...(states[0] ?? {}), concerns: currentConcerns }, scheduledTasks, schedules, reflections, reflectionAttempts, reflectionMemoryBatches, reflectionResolutions, concernActivities, conversations, concernLifecycle: { current: lifecycle.current, activities: lifecycleTotals[0] ?? {}, dormant: dormantConcerns, similar: similarConcerns } };
+    return { agent, state: { ...(states[0] ?? {}), concerns: currentConcerns }, scheduledTasks, schedules, reflections, reflectionAttempts, reflectionMemoryBatches, reflectionResolutions, concernActivities, concernReevaluationBatches, conversations, concernLifecycle: { current: lifecycle.current, activities: lifecycleTotals[0] ?? {}, dormant: dormantConcerns, similar: similarConcerns } };
   }
 
   async listRuns(agentId: string, limit = 30): Promise<readonly RunListItem[]> {

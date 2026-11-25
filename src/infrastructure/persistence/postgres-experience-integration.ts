@@ -9,7 +9,7 @@ import { errorLogContext } from "../../observability/logger.js";
 import { AgentStateRepository } from "./postgres.js";
 import { ConcernRepository } from "./concern-repository.js";
 import { ConcernLifecycleService } from "../../application/concern-lifecycle.js";
-import { enqueueConcernReevaluationSignal } from "./concern-reevaluation-signal-repository.js";
+import type { ConcernReevaluationSource } from "../../application/concern-reevaluation.js";
 import { AgentCoreInputSchema, AgentRunResultSchema, type DomainEvent, type MemoryIntent } from "../../domain/contracts.js";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { RuntimeDatabase } from "./runtime-database.js";
@@ -187,14 +187,15 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
       await client.insert(eventExperiences).values({ eventId: input.sourceEvent.id, integrationId: input.integrationId, summary: output.experience.summary, facts: output.experience.facts }).onConflictDoNothing();
       if (subjectsForExperience.length > 0) await client.insert(eventSubjects).values(subjectsForExperience.map((subjectId) => ({ eventId: input.sourceEvent.id, subjectId }))).onConflictDoNothing();
       await client.insert(eventProjections).values({ eventId: input.sourceEvent.id, contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date() }).onConflictDoUpdate({ target: eventProjections.eventId, set: { contentHash: experienceHash(output.experience), embedding: vector, embeddingModel: experienceEmbedding?.model ?? null, embeddingDimension: experienceEmbedding?.dimension ?? null, embeddingStatus: status, embeddingError: experienceEmbedding?.error ?? null, embeddingLastAttemptAt: new Date(), updatedAt: new Date() } });
-      await client.update(experienceIntegrations).set({ status: "completed", output, applied: { memoryCount: output.memories.length, stateChanges: changes.map(({ target, operation }) => ({ target, operation })), ...(focusActivity === undefined ? {} : { focusConcern: { concernId: focusActivity.concernId, kind: focusActivity.kind } }) }, failureReason: null, completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId));
-      await enqueueConcernReevaluationSignal(client, {
-        agentId: input.agentId,
-        reason: "新しいMemoryが既存Concernの意味づけを変えうる",
-        sources: writtenMemoryIds.map((id) => ({ kind: "memory" as const, id })),
-        now: this.now()
-      });
+      await client.update(experienceIntegrations).set({ status: "completed", output, applied: { memoryCount: output.memories.length, memoryIds: writtenMemoryIds, stateChanges: changes.map(({ target, operation }) => ({ target, operation })), ...(focusActivity === undefined ? {} : { focusConcern: { concernId: focusActivity.concernId, kind: focusActivity.kind } }) }, failureReason: null, completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId));
     }); } catch (error) { if (failedIntent !== undefined && failedOptions !== undefined) await recordMemoryMutationFailure(this.database.native, input.agentId, failedIntent, failedOptions, error, this.now()); throw error; }
+  }
+  async reevaluationSource(input: ExperienceIntegrationInput): Promise<ConcernReevaluationSource | undefined> {
+    const row = (await this.database.db.select({ applied: experienceIntegrations.applied }).from(experienceIntegrations).where(and(eq(experienceIntegrations.id, input.integrationId), eq(experienceIntegrations.status, "completed"))).limit(1))[0];
+    const applied = row?.applied;
+    const rawMemoryIds = typeof applied === "object" && applied !== null ? (applied as Record<string, unknown>).memoryIds : undefined;
+    const memoryIds = Array.isArray(rawMemoryIds) ? rawMemoryIds.filter((value): value is string => typeof value === "string") : [];
+    return memoryIds.length === 0 ? undefined : { agentId: input.agentId, sourceKind: "experience-integration", sourceId: input.integrationId, sourceEventId: input.sourceEvent.id, sourceRunId: input.sourceRunId, memoryIds };
   }
   async fail(input: ExperienceIntegrationInput, error: unknown): Promise<void> { await this.database.db.update(experienceIntegrations).set({ status: "failed", failureReason: JSON.stringify(errorLogContext(error)), completedAt: new Date(), updatedAt: new Date() }).where(eq(experienceIntegrations.id, input.integrationId)); }
   async missingEventExperienceCandidates(agentId?: string): Promise<readonly { id: string; agentId: string }[]> {

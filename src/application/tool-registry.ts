@@ -11,8 +11,8 @@ export type ToolExecutionContext = {
   readonly toolCallId?: string;
   readonly idempotencyKey: string;
   readonly transport?: { readonly hop: number; readonly expiresAt: string; readonly replyTo?: string };
-  /** Runtime-only concern-due signal context. Never serialized into model input. */
-  readonly concernDue?: { readonly signalClaimedAt?: string; readonly focusedConcernIds: readonly string[] };
+  /** Runtime-only concern-due binding. Never serialized into model input. */
+  readonly concernDue?: { readonly focusConcernId: string; readonly evidenceMemoryIds: readonly string[] };
 };
 export type ToolResultPolicy =
   | { readonly kind: "standard"; readonly project?: (result: unknown) => unknown }

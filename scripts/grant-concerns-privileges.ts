@@ -9,6 +9,8 @@ export async function grantConcernsPrivileges(admin: Pool, runtime: Pool): Promi
   await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concerns TO ${quoteIdentifier(role)}`);
   await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concern_reevaluation_signals TO ${quoteIdentifier(role)}`);
   await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concern_reevaluation_signal_sources TO ${quoteIdentifier(role)}`);
+  await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concern_reevaluation_batches TO ${quoteIdentifier(role)}`);
+  await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.concern_reevaluation_batch_memories TO ${quoteIdentifier(role)}`);
   return role;
 }
 

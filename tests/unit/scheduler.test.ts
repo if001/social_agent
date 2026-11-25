@@ -69,7 +69,7 @@ describe("Scheduler", () => {
   });
   it("FR-24, FR-25: consumes a due Concern without installing a fixed periodic schedule", async () => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const completions: (Date | null)[] = [];
-    const motive: ScheduledTarget = { id: "concern-due:agent-a", agentId: "agent-a", kind: "concern-due", reason: "新しい経験", signalClaimedAt: new Date("2026-01-01T00:00:00Z") };
+    const motive: ScheduledTarget = { id: "concern-due:agent-a:c1", agentId: "agent-a", kind: "concern-due", reason: "新しい経験", batchIds: ["batch-1"], focusConcernId: "c1", focusConcern: { description: "展示の現況", whyItMatters: "気になる" }, evidenceMemoryIds: ["memory-1"], experienceSummaries: ["新しい経験"] };
     const scheduler = new Scheduler({ repository: { claimDue: () => Promise.resolve([motive]), complete: (_target, next) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() }, runtime: { process: () => Promise.resolve({ type: "no-external-action", reason: "今は行動しない" }) }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event"]), lifecycle, defaultDestination: () => undefined, ...timings });
     await scheduler.tick(new AbortController().signal);
     expect(completions).toEqual([null]);

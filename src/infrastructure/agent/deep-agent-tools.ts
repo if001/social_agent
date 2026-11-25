@@ -16,7 +16,7 @@ export class ToolExecutionCollector {
   skillReadReservedCharacters = 0;
   contentReadLimitReached = false;
   focusConcernAcquired = false;
-  /** Runtime-only parent selected by concern_due_focus; never rendered to the model. */
+  /** Runtime-bound parent for derive; never rendered to the model. */
   concernDueFocusId: string | undefined;
   /** Runtime-only signal evidence selected with the parent Concern. */
   concernDueEvidenceMemoryIds: readonly string[] | undefined;
@@ -46,7 +46,7 @@ function concernProposalPermission(targetKind: string | undefined, input: Record
   if (operation !== "create" && operation !== "derive") return undefined;
   const allowed = operation === "create" ? ["idle", "concern-formation"] : ["concern-due"];
   if (!allowed.includes(targetKind)) return `concern_propose operation '${operation}' is not allowed for ${targetKind}; allowed Event kinds are ${allowed.join(", ")}`;
-  if (operation === "derive" && input.sourceConcernId !== undefined) return "derive must not specify a Concern ID; use concern_due_focus first";
+  if (operation === "derive" && input.sourceConcernId !== undefined) return "derive must not specify a Concern ID; Runtime binds the parent Concern";
   return undefined;
 }
 
@@ -64,7 +64,8 @@ export type DeepAgentToolRunContext = {
   readonly signal: AbortSignal;
   readonly collector: ToolExecutionCollector;
   readonly transport?: AgentCoreInput["run"]["transport"];
-  readonly concernDueSignalClaimedAt?: string | undefined;
+  readonly concernDueFocusId?: string | undefined;
+  readonly concernDueEvidenceMemoryIds?: string[] | undefined;
 };
 
 export const DeepAgentToolRunContextSchema = z.object({
@@ -78,8 +79,9 @@ export const DeepAgentToolRunContextSchema = z.object({
   maxToolCalls: z.number().int().nonnegative(),
   signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal),
   collector: z.instanceof(ToolExecutionCollector),
-  transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional()
-  , concernDueSignalClaimedAt: z.iso.datetime({ offset: true }).optional()
+  transport: z.object({ hop: z.number().int().nonnegative(), expiresAt: z.string(), replyTo: z.string().optional() }).optional(),
+  concernDueFocusId: z.string().min(1).optional(),
+  concernDueEvidenceMemoryIds: z.array(z.string().min(1)).max(16).optional()
 });
 
 export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunContext, "collector" | "maxModelCalls" | "maxExplorationModelCalls"> & { readonly maxModelCalls?: number; readonly maxExplorationModelCalls?: number }): DeepAgentToolRunContext {
@@ -88,7 +90,7 @@ export function createDeepAgentToolRunContext(options: Omit<DeepAgentToolRunCont
     ...options,
     maxModelCalls,
     maxExplorationModelCalls: Math.min(maxModelCalls, options.maxExplorationModelCalls ?? maxModelCalls),
-    collector: new ToolExecutionCollector()
+    collector: Object.assign(new ToolExecutionCollector(), { concernDueFocusId: options.concernDueFocusId, concernDueEvidenceMemoryIds: options.concernDueEvidenceMemoryIds === undefined ? undefined : [...options.concernDueEvidenceMemoryIds] })
   };
 }
 
@@ -122,10 +124,10 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
       }
       if (rawInput.operation === "derive" && context.eventTargetKind === "concern-due" && context.collector.concernDueFocusId === undefined) {
         const finishedAt = now().toISOString();
-        const error = "derive requires a preceding concern_due_focus in this Run";
+        const error = "Runtime did not bind a Focus Concern for this concern-due Event";
         context.collector.executions.push({ callId, runId: context.runId, eventId: context.eventId, name, input: rawInput, ok: false, error, startedAt, finishedAt });
-        logger.log("warn", "tool.completed", { ok: false, errorCode: "CONCERN_DUE_FOCUS_REQUIRED", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
-        return JSON.stringify({ ok: false, errorCode: "CONCERN_DUE_FOCUS_REQUIRED", error, requiredNextStep: "Call concern_due_focus to inspect one related Concern before deriving a new Concern." });
+        logger.log("warn", "tool.completed", { ok: false, errorCode: "CONCERN_DUE_BINDING_MISSING", elapsedMs: Date.parse(finishedAt) - Date.parse(startedAt) });
+        return JSON.stringify({ ok: false, errorCode: "CONCERN_DUE_BINDING_MISSING", error });
       }
     }
     const policy = registry.resultPolicy(name);
@@ -160,7 +162,7 @@ async function executeDeepAgentTool(registry: ToolRegistry, name: string, rawInp
     }
     try {
       const transport = context.transport === undefined ? undefined : { hop: context.transport.hop, expiresAt: context.transport.expiresAt, ...(context.transport.replyTo === undefined ? {} : { replyTo: context.transport.replyTo }) };
-      const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }), ...(context.eventTargetKind === "concern-due" ? { concernDue: { ...(context.concernDueSignalClaimedAt === undefined ? {} : { signalClaimedAt: context.concernDueSignalClaimedAt }), focusedConcernIds: [...context.collector.concernDueFocusedIds] } } : {}) }, context.signal);
+      const result = await registry.execute(name, rawInput, { agentId: context.agentId, runId: context.runId, eventId: context.eventId, toolCallId: callId, idempotencyKey: `${context.runId}:${callId}`, ...(transport === undefined ? {} : { transport }), ...(context.eventTargetKind === "concern-due" && context.collector.concernDueFocusId !== undefined ? { concernDue: { focusConcernId: context.collector.concernDueFocusId, evidenceMemoryIds: context.collector.concernDueEvidenceMemoryIds ?? [] } } : {}) }, context.signal);
       const finishedAt = now().toISOString();
       if (result.ok) {
         if (policy?.kind === "content-read") context.collector.contentReadCharacters += contentTextCharacters(result.value);

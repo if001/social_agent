@@ -4,6 +4,7 @@ import type { IdGenerator } from "./ports.js";
 import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 import type { AgentCoreInput, AgentRunResult, DomainEvent, MemoryIntent } from "../domain/contracts.js";
 import { CurrentRelationshipDescriptionSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistentMoodSchema } from "../domain/contracts.js";
+import type { ConcernReevaluation, ConcernReevaluationSource } from "./concern-reevaluation.js";
 
 export const EventExperienceSchema = z.object({
   summary: z.string().trim().min(1).max(800).describe("確定した今回のEventで起きたこと・選択・結果を1〜2文で要約する。起動理由、Meaning、Feeling、Desire、未確認の推測は書かない"),
@@ -61,12 +62,13 @@ export interface ExperienceIntegrationRepository {
   fail(input: ExperienceIntegrationInput, error: unknown): Promise<void>;
   pending?(agentId?: string): Promise<readonly ExperienceIntegrationInput[]>;
   claim?(integrationId: string): Promise<boolean>;
+  reevaluationSource?(input: ExperienceIntegrationInput): Promise<ConcernReevaluationSource | undefined>;
 }
 
 const noSubjects: CanonicalSubjectResolver = { resolve: () => undefined, actorIdsFor: () => [] };
 
 export class ExperienceIntegration {
-  constructor(private readonly repository: ExperienceIntegrationRepository, private readonly model: ExperienceIntegrationModel, private readonly subjects: CanonicalSubjectResolver = noSubjects) {}
+  constructor(private readonly repository: ExperienceIntegrationRepository, private readonly model: ExperienceIntegrationModel, private readonly subjects: CanonicalSubjectResolver = noSubjects, private readonly reevaluation?: ConcernReevaluation) {}
 
   async reserve(input: ExperienceIntegrationInput): Promise<boolean> { return (await this.repository.begin(input)) === "created"; }
 
@@ -85,6 +87,8 @@ export class ExperienceIntegration {
       if (output.relationship !== undefined && this.subjects.resolve(input.input.observation.actor) === undefined) output = { ...output, relationship: undefined };
       if (input.focusConcern === undefined && output.focusConcern !== undefined) output = { ...output, focusConcern: undefined };
       await this.repository.apply(input, output);
+      const source = this.repository.reevaluationSource === undefined ? undefined : await this.repository.reevaluationSource(input);
+      if (source !== undefined && this.reevaluation !== undefined) await this.reevaluation.consider(source, signal);
     } catch (error) {
       await this.repository.fail(input, error);
       throw error;
