@@ -93,6 +93,21 @@ describe("ExperienceIntegration", () => {
     ]));
   });
 
+  it("FR-82, NFR-8: rejects Event audit fields and a Relationship target supplied by the model", () => {
+    const invalid = ExperienceIntegrationOutputSchema.safeParse({
+      experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"], occurredAt: "2026-11-25T00:00:00.000Z", kind: "user-message" },
+      memories: [],
+      relationship: { operation: "upsert", description: "展示の話題を共有する相手", reason: "今後も展示の話題を共有する前提が生じた", target: "user-main" }
+    });
+    expect(invalid.success).toBe(false);
+    if (invalid.success) return;
+    expect(invalid.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ["experience"], message: expect.stringContaining("occurredAt") }),
+      expect.objectContaining({ path: ["experience"], message: expect.stringContaining("kind") }),
+      expect.objectContaining({ path: ["relationship"], message: expect.stringContaining("target") })
+    ]));
+  });
+
   it("FR-82, NFR-8: repairs an invalid Relationship and legacy Concern status before applying", async () => {
     const request = input(); const applied: unknown[] = []; const repairs: unknown[] = [];
     const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, {
@@ -105,8 +120,25 @@ describe("ExperienceIntegration", () => {
     expect(applied).toEqual([expect.objectContaining({ relationship: { operation: "upsert", description: "展示の話題を共有する相手", reason: "展示の予定を繰り返し話し、今後も共有する前提が生じた" } })]);
   });
 
+  it("FR-82, NFR-8: repairs audit fields and a Relationship target before applying", async () => {
+    const request = input(); const applied: unknown[] = []; const repairs: unknown[] = [];
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, {
+      integrate: () => Promise.resolve({
+        experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"], occurredAt: "2026-11-25T00:00:00.000Z", kind: "user-message" },
+        memories: [],
+        relationship: { operation: "upsert", description: "展示の話題を共有する相手", reason: "今後も展示の話題を共有する前提が生じた", target: "user-main" }
+      } as never),
+      repair: (_input, issues) => { repairs.push(issues); return Promise.resolve({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, memories: [], relationship: { operation: "upsert", description: "展示の話題を共有する相手", reason: "今後も展示の話題を共有する前提が生じた" } }); }
+    }, createCanonicalSubjectResolver(["user-1"]));
+    await integration.process(request, new AbortController().signal);
+    expect(repairs).toHaveLength(1);
+    expect(JSON.stringify(repairs[0])).toContain("occurredAt");
+    expect(JSON.stringify(repairs[0])).toContain("target");
+    expect(applied).toEqual([expect.objectContaining({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, relationship: { operation: "upsert", description: "展示の話題を共有する相手", reason: "今後も展示の話題を共有する前提が生じた" } })]);
+  });
+
   it("FR-82, FR-95: states the Relationship and Focus Concern output boundary explicitly", () => {
-    for (const phrase of ["upsert または remove", "reason は必須", "concernStatus", "focusConcern"] ) expect(experienceIntegrationSystemPrompt).toContain(phrase);
+    for (const phrase of ["summaryとfactsだけ", "occurredAt", "kind", "upsert または remove", "reason は必須", "target", "subjectId", "concernStatus", "focusConcern"] ) expect(experienceIntegrationSystemPrompt).toContain(phrase);
   });
 
   it("FR-9, FR-82: accepts only a short enduring emotional stance as Mood", () => {
