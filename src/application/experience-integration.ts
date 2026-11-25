@@ -17,6 +17,13 @@ const RelationshipCandidateSchema = z.object({
   reason: z.string().trim().min(1).max(800).describe("今回の確定Eventが、なぜ関係の持続的な変化を示すかを短く書く。人物プロフィールや次の行動計画は書かない")
 }).strict();
 
+const ExperienceIntegrationMemoryCandidateSchema = z.object({
+  content: z.string().trim().min(1).max(800).describe("将来の判断で再利用できる、今回の経験の具体的な要点を1〜2文で書く。会話やTool本文の複写、未確認の推測、実行手順は書かない"),
+  reason: z.string().trim().min(1).max(400).describe("この要点を今後も残す理由を短く書く。保存先、ID、根拠一覧、次の行動計画は書かない"),
+  target: MemoryIntentTargetSchema,
+  perspective: MemoryPerspectiveSchema
+}).strict().describe("Experience Integrationが提案する短い再利用用Memory候補");
+
 /** The Runtime binds the target; the model never receives or returns its ID. */
 export const FocusConcernOutcomeSchema = z.object({
   outcome: z.enum(["unchanged", "progress", "satisfied", "abandoned"]).describe("今回の確定経験によるFocus Concernの変化。核となる関心が実質的に満たされた時だけsatisfied、現在のSelfにとって価値を失ったことが明確な時だけabandonedを選ぶ。検索失敗・情報不足・一時的なFeelingだけではabandonedにしない"),
@@ -25,7 +32,7 @@ export const FocusConcernOutcomeSchema = z.object({
 
 export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
-  memories: z.array(z.object({ content: z.string().trim().min(1).max(16_000), reason: z.string().trim().min(1).max(16_000), target: MemoryIntentTargetSchema, perspective: MemoryPerspectiveSchema }).strict()).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
+  memories: z.array(ExperienceIntegrationMemoryCandidateSchema).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
   relationship: RelationshipCandidateSchema.optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
   mood: PersistentMoodSchema.optional(),
   focusConcern: FocusConcernOutcomeSchema.optional().describe("入力にfocusConcernがある時だけ、その一件への変化を判断する。入力にない時は出さない")

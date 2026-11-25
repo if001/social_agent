@@ -1,5 +1,6 @@
 import { createMiddleware, ToolMessage } from "langchain";
-import { projectToolResult, type ToolRegistry } from "../../application/tool-registry.js";
+import type { ToolRegistry } from "../../application/tool-registry.js";
+import { projectToolResultForModel } from "./tool-result-model-view.js";
 
 function parsedRecord(content: unknown): Record<string, unknown> | undefined {
   if (typeof content !== "string") return undefined;
@@ -7,9 +8,7 @@ function parsedRecord(content: unknown): Record<string, unknown> | undefined {
 }
 function compactToolContent(name: string | undefined, content: unknown, registry?: ToolRegistry): string {
   const envelope = parsedRecord(content);
-  const project = (value: unknown): unknown => name === undefined || registry === undefined
-    ? projectToolResult(undefined, value, "conversation-history")
-    : registry.projectResult(name, value, "conversation-history");
+  const project = (value: unknown): unknown => projectToolResultForModel(name, value, registry);
   if (envelope !== undefined && "ok" in envelope) {
     return JSON.stringify(envelope.ok === true ? { ...envelope, value: project(envelope.value) } : project(envelope));
   }
@@ -27,4 +26,3 @@ export function compactPriorToolMessages(messages: readonly unknown[], registry?
 export function createToolHistoryCompactionMiddleware(registry?: ToolRegistry): unknown {
   return createMiddleware({ name: "AgentCoreToolHistoryCompactionMiddleware", wrapModelCall: (request, handler) => handler({ ...request, messages: compactPriorToolMessages(request.messages, registry) as typeof request.messages }) });
 }
-
