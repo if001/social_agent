@@ -2,6 +2,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 
 import { DebugUiRepository, type SqlQuery } from "../../src/debug-ui/repository.js";
 import { createDebugUiServer } from "../../src/debug-ui/server.js";
+import { concernDueOutcome, concernLineage } from "../../src/debug-ui/concern-reevaluation-view.js";
 
 async function request(server: Server, url: string): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string }> {
   return new Promise((resolve) => {
@@ -15,12 +16,27 @@ async function request(server: Server, url: string): Promise<{ readonly status: 
 }
 
 describe("Agent Debug UI", () => {
+  it("NFR-12: renders Concern derivation and concern-due outcomes from durable Event and Activity fixtures", () => {
+    const activities = [{
+      kind: "derived", description: "子の関心", sourceConcernDescription: "親の関心", reason: "対象が独立して残った",
+      evidenceMemoryIds: ["memory-1"], eventKind: "concern-due", eventSummary: "新しい経験を受け取った", occurredAt: "2026-11-25T00:00:00.000Z"
+    }];
+    expect(concernLineage(activities)).toEqual([expect.objectContaining({ parent: "親の関心", child: "子の関心", evidenceMemoryIds: ["memory-1"] })]);
+    expect(concernDueOutcome({ event: { internalKind: "concern-due" }, concernActivities: activities })).toMatchObject({ result: "派生を確定", derivedCount: 1 });
+    expect(concernDueOutcome({ event: { internalKind: "concern-due" }, concernActivities: [] })).toMatchObject({ result: "派生なし（no-op）" });
+    expect(concernDueOutcome({ event: { internalKind: "concern-due" }, run: { failureReason: "model timeout" } })).toMatchObject({ result: "再試行待ち", delivery: expect.stringContaining("配送失敗ではなく") });
+  });
+
   it("NFR-12: uses only bounded SELECT queries and keeps Agent ownership filters", async () => {
     const calls: { sql: string; values: readonly unknown[] }[] = [];
     const query: SqlQuery = <T>(sql: string, values: readonly unknown[] = []) => {
       calls.push({ sql, values });
       if (sql.includes("FROM agents a JOIN")) return Promise.resolve([{ id: "ao" }] as T[]);
       if (sql.includes("FROM agent_states WHERE")) return Promise.resolve([{ mood: "calm" }] as T[]);
+      if (sql.includes("FROM concern_activities")) return Promise.resolve([{
+        concernId: "child-1", kind: "derived", description: "子の関心", sourceConcernId: "parent-1", sourceConcernDescription: "親の関心",
+        reason: "対象が独立して残った", evidenceMemoryIds: ["memory-1"], eventKind: "concern-due", eventSummary: "新しい経験を受け取った"
+      }] as T[]);
       return Promise.resolve([]);
     };
     const repository = new DebugUiRepository(query);
@@ -35,6 +51,8 @@ describe("Agent Debug UI", () => {
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_tool_executions t"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_resolutions x"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.sql).toContain('AS "eventKind"');
+    expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.sql).toContain('AS "sourceConcernDescription"');
     expect(calls.find(({ sql }) => sql.includes("FROM conversations c"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM conversations c"))?.sql).toContain('ended_reason AS "endedReason"');
     expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.values).toEqual(["ao"]);
@@ -44,6 +62,9 @@ describe("Agent Debug UI", () => {
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.values).toEqual(["ao", 100]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.sql).toContain("e.observation#>>'{content,targetKind}'");
     expect(overview?.state).toEqual({ mood: "calm", concerns: [] });
+    expect(overview?.concernActivities).toEqual([expect.objectContaining({
+      kind: "derived", description: "子の関心", sourceConcernDescription: "親の関心", eventKind: "concern-due", evidenceMemoryIds: ["memory-1"]
+    })]);
     expect(calls.find(({ sql }) => sql.includes("FROM memories"))?.values).toEqual(["ao", 1]);
   });
 
@@ -91,7 +112,7 @@ describe("Agent Debug UI", () => {
     const repository = { listAgents: () => Promise.resolve([]), getOverview: () => Promise.resolve(undefined), listRuns: () => Promise.resolve([]), getRun: () => Promise.resolve(undefined), listMemories: () => Promise.resolve([]) } as unknown as DebugUiRepository;
     const server = createDebugUiServer(repository); const page = (await request(server, "/")).body;
     expect(page).toContain("overview.conversations"); expect(page).toContain("Conversations");
-    expect(page).toContain("function escapeHtml"); expect(page).toContain("function eventOf(item)"); expect(page).toContain("関心形成（concern-formation）"); expect(page).toContain("Eventの役割・Concern経路"); expect(page).toContain("explorationCandidates"); expect(page).toContain("sourceConcernId"); expect(page).toContain("item.kind==='internal'&&item.internalKind"); expect(page).toContain("判断入力（Run開始時の保存断面）"); expect(page).toContain("function inputSummary(snapshot)"); expect(page).toContain("function toolActivity(item)"); expect(page).toContain("explorationMode"); expect(page).toContain("function followingSummary(detail)"); expect(page).toContain("predictionEvaluations"); expect(page).toContain("experienceIntegrations"); expect(page).toContain("Core後の処理（Integration・配送・予測・派生Event）"); expect(page).toContain("詳細を表示"); expect(page).toContain("State・Concern・Memory の変更"); expect(page).toContain("モデルの内部思考過程"); expect(page).toContain("overview.state"); expect(page).toContain("overview.reflections"); expect(page).toContain("現在の Self / State"); expect(page).toContain("function selfStateSummary(state,agent)"); expect(page).toContain("Active Concerns"); expect(page).toContain("function concernActivitySummary(activity,concerns)"); expect(page).toContain("return {...activity,description:"); expect(page).toContain("予約されたタスク"); expect(page).toContain("全取得件数"); expect(page).toContain("実行日時順の直近8件"); expect(page).toContain("function scheduledTaskSummary(task)"); expect(page).toContain("function scheduledTaskCounts(tasks)"); expect(page).toContain("overview.scheduledTasks"); expect(page).toContain("function reflectionView(item)"); expect(page).toContain("function reflectionAttemptView(item)"); expect(page).toContain("function reflectionMemoryBatchView(item)"); expect(page).toContain("Memory batch"); expect(page).toContain("memoryEvidence"); expect(page).toContain("executedAt:item.createdAt"); expect(page).toContain("detail.derivedEvents"); expect(page).toContain("timeZone:'Asia/Tokyo'"); expect(page).toContain("const jst=value=>"); expect(page).toContain("String(value??'—').replace"); expect(page).toContain("JSON.stringify(display(value),null,2)??'—'"); expect(page).toContain("function eventParticipants(item)"); expect(page).toContain("発話者 / 処理担当"); expect(page).toContain("function participantHtml(item)"); expect(page).toContain("'&lt;'"); expect(page).not.toContain("MutationObserver"); expect(page).not.toContain("setInterval"); server.close();
+    expect(page).toContain("function escapeHtml"); expect(page).toContain("function eventOf(item)"); expect(page).toContain("関心形成（concern-formation）"); expect(page).toContain("Eventの役割・Concern経路"); expect(page).toContain("explorationCandidates"); expect(page).toContain("sourceConcernId"); expect(page).toContain("item.kind==='internal'&&item.internalKind"); expect(page).toContain("判断入力（Run開始時の保存断面）"); expect(page).toContain("function inputSummary(snapshot)"); expect(page).toContain("function toolActivity(item)"); expect(page).toContain("explorationMode"); expect(page).toContain("function followingSummary(detail)"); expect(page).toContain("predictionEvaluations"); expect(page).toContain("experienceIntegrations"); expect(page).toContain("Core後の処理（Integration・配送・予測・派生Event）"); expect(page).toContain("詳細を表示"); expect(page).toContain("State・Concern・Memory の変更"); expect(page).toContain("モデルの内部思考過程"); expect(page).toContain("overview.state"); expect(page).toContain("overview.reflections"); expect(page).toContain("現在の Self / State"); expect(page).toContain("function selfStateSummary(state,agent)"); expect(page).toContain("Active Concerns"); expect(page).toContain("function concernActivitySummary(activity,concerns)"); expect(page).toContain("function concernLineage"); expect(page).toContain("Concernの派生系譜"); expect(page).toContain("function concernDueOutcome"); expect(page).toContain("派生なし（no-op）"); expect(page).toContain("再試行待ち"); expect(page).toContain("予約されたタスク"); expect(page).toContain("全取得件数"); expect(page).toContain("実行日時順の直近8件"); expect(page).toContain("function scheduledTaskSummary(task)"); expect(page).toContain("function scheduledTaskCounts(tasks)"); expect(page).toContain("overview.scheduledTasks"); expect(page).toContain("function reflectionView(item)"); expect(page).toContain("function reflectionAttemptView(item)"); expect(page).toContain("function reflectionMemoryBatchView(item)"); expect(page).toContain("Memory batch"); expect(page).toContain("memoryEvidence"); expect(page).toContain("executedAt:item.createdAt"); expect(page).toContain("detail.derivedEvents"); expect(page).toContain("timeZone:'Asia/Tokyo'"); expect(page).toContain("const jst=value=>"); expect(page).toContain("String(value??'—').replace"); expect(page).toContain("JSON.stringify(display(value),null,2)??'—'"); expect(page).toContain("function eventParticipants(item)"); expect(page).toContain("発話者 / 処理担当"); expect(page).toContain("function participantHtml(item)"); expect(page).toContain("'&lt;'"); expect(page).not.toContain("MutationObserver"); expect(page).not.toContain("setInterval"); server.close();
   });
 
   it("NFR-12: serves an Event timeline and trace, including Events without a Run", async () => {

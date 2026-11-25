@@ -108,7 +108,14 @@ export class DebugUiRepository {
       this.query<QueryResultRow>(`SELECT b.id,b.reflection_id AS "reflectionId",b.batch_index AS "batchIndex",b.status,b.input,b.output,b.failure_reason AS "failureReason",b.started_at AS "startedAt",b.completed_at AS "completedAt",b.updated_at AS "updatedAt" FROM reflection_memory_batches b JOIN reflection_runs r ON r.id=b.reflection_id WHERE r.agent_id=$1 ORDER BY b.updated_at DESC,b.id LIMIT 200`, [agentId]),
       this.query<QueryResultRow>(`SELECT t.reflection_id AS "reflectionId",t.target,t.batch_index AS "batchIndex",t.anchor_memory_id AS "anchorMemoryId",t.execution_index AS "executionIndex",t.tool_call_id AS "toolCallId",t.tool,t.input,t.result,t.error,t.started_at AS "startedAt",t.finished_at AS "finishedAt" FROM reflection_tool_executions t JOIN reflection_runs r ON r.id=t.reflection_id WHERE r.agent_id=$1 ORDER BY t.created_at DESC,t.id DESC LIMIT 500`, [agentId]),
       this.query<QueryResultRow>(`SELECT x.id,x.reflection_id AS "reflectionId",x.target,x.batch_index AS "batchIndex",x.anchor_memory_id AS "anchorMemoryId",x.resolver_version AS "resolverVersion",x.query_summary AS "querySummary",x.candidate_count AS "candidateCount",x.selected_event_ids AS "selectedEventIds",x.rejected,x.score,x.temporal_decision AS "temporalDecision",x.outcome,x.created_at AS "createdAt" FROM reflection_resolutions x JOIN reflection_runs r ON r.id=x.reflection_id WHERE r.agent_id=$1 ORDER BY x.created_at DESC,x.id DESC LIMIT 200`, [agentId]),
-      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.source_concern_id AS "sourceConcernId",ca.reason,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt" FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1 ORDER BY ca.occurred_at DESC,ca.id DESC LIMIT 100`, [agentId]),
+      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.source_concern_id AS "sourceConcernId",ca.reason,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt",
+        c.description,c.status,source_concern.description AS "sourceConcernDescription",
+        CASE WHEN source_event.kind='internal' THEN source_event.observation#>>'{content,targetKind}' ELSE source_event.kind END AS "eventKind",
+        source_event.observation->>'summary' AS "eventSummary"
+        FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id
+        LEFT JOIN concerns source_concern ON source_concern.id=ca.source_concern_id
+        LEFT JOIN events source_event ON source_event.id=ca.event_id AND source_event.agent_id=c.agent_id
+        WHERE c.agent_id=$1 ORDER BY ca.occurred_at DESC,ca.id DESC LIMIT 100`, [agentId]),
       this.query<QueryResultRow>(`SELECT c.id,c.goal,c.status,c.started_event_id AS "startedEventId",c.last_event_id AS "lastEventId",c.ended_reason AS "endedReason",c.completed_at AS "completedAt",c.created_at AS "createdAt",c.updated_at AS "updatedAt",COUNT(cm.external_message_id)::integer AS "messageCount" FROM conversations c LEFT JOIN conversation_messages cm ON cm.conversation_id=c.id AND cm.agent_id=c.agent_id WHERE c.agent_id=$1 GROUP BY c.id ORDER BY c.updated_at DESC,c.id DESC LIMIT 100`, [agentId])
     ]);
     const reflectionAttempts = rawReflectionAttempts.map((attempt) => ({ ...attempt, toolExecutions: reflectionToolExecutions.filter((execution) => execution.reflectionId === attempt.reflectionId && execution.target === attempt.target) }));
@@ -161,7 +168,14 @@ export class DebugUiRepository {
       this.query<QueryResultRow>(`SELECT e.id,e.kind,e.status,e.source,e.observation,e.causation_id AS "causationId",e.correlation_id AS "correlationId",e.occurred_at AS "occurredAt",r.id AS "runId",r.failure_reason AS "failureReason"
         FROM events e LEFT JOIN LATERAL (SELECT id,failure_reason FROM agent_runs WHERE event_id=e.id AND agent_id=e.agent_id ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
         WHERE e.agent_id=$1 AND e.kind<>'tool-result' AND (e.causation_id=$2 OR ($3::text IS NOT NULL AND e.causation_id=$3)) ORDER BY e.occurred_at,e.id`, [agentId, eventId, runId ?? null]),
-      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.source_concern_id AS "sourceConcernId",ca.reason,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt" FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1 AND (ca.event_id=$2 OR ($3::text IS NOT NULL AND ca.run_id=$3)) ORDER BY ca.occurred_at,ca.id`, [agentId, eventId, runId ?? null]),
+      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.source_concern_id AS "sourceConcernId",ca.reason,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt",
+        c.description,c.status,source_concern.description AS "sourceConcernDescription",
+        CASE WHEN source_event.kind='internal' THEN source_event.observation#>>'{content,targetKind}' ELSE source_event.kind END AS "eventKind",
+        source_event.observation->>'summary' AS "eventSummary"
+        FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id
+        LEFT JOIN concerns source_concern ON source_concern.id=ca.source_concern_id
+        LEFT JOIN events source_event ON source_event.id=ca.event_id AND source_event.agent_id=c.agent_id
+        WHERE c.agent_id=$1 AND (ca.event_id=$2 OR ($3::text IS NOT NULL AND ca.run_id=$3)) ORDER BY ca.occurred_at,ca.id`, [agentId, eventId, runId ?? null]),
       this.query<QueryResultRow>(`SELECT decision,reason,conversation_goal AS "conversationGoal",input,model_calls AS "modelCalls",retrieval_count AS "retrievalCount",failure_reason AS "failureReason",created_at AS "createdAt" FROM observation_gate_decisions WHERE event_id=$1`, [eventId])
     ]);
     const observationGate = gates[0] as Record<string, unknown> | undefined;
@@ -178,7 +192,14 @@ export class DebugUiRepository {
     const [stateChanges, toolExecutions, concernActivities] = await Promise.all([
       this.query<QueryResultRow>(`SELECT id,target,operation,before,after,reason,evidence_ids AS "evidenceIds",created_at AS "createdAt" FROM state_changes WHERE run_id=$1 ORDER BY created_at,id`, [runId]),
       this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,error IS NULL AS ok,started_at AS "startedAt",finished_at AS "finishedAt" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId]),
-      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.source_concern_id AS "sourceConcernId",ca.reason,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt" FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id WHERE c.agent_id=$1 AND ca.run_id=$2 ORDER BY ca.occurred_at,ca.id`, [agentId, runId])
+      this.query<QueryResultRow>(`SELECT ca.concern_id AS "concernId",ca.kind,ca.source_concern_id AS "sourceConcernId",ca.reason,ca.event_id AS "eventId",ca.run_id AS "runId",ca.reflection_id AS "reflectionId",ca.evidence_memory_ids AS "evidenceMemoryIds",ca.occurred_at AS "occurredAt",
+        c.description,c.status,source_concern.description AS "sourceConcernDescription",
+        CASE WHEN source_event.kind='internal' THEN source_event.observation#>>'{content,targetKind}' ELSE source_event.kind END AS "eventKind",
+        source_event.observation->>'summary' AS "eventSummary"
+        FROM concern_activities ca JOIN concerns c ON c.id=ca.concern_id
+        LEFT JOIN concerns source_concern ON source_concern.id=ca.source_concern_id
+        LEFT JOIN events source_event ON source_event.id=ca.event_id AND source_event.agent_id=c.agent_id
+        WHERE c.agent_id=$1 AND ca.run_id=$2 ORDER BY ca.occurred_at,ca.id`, [agentId, runId])
     ]);
     return { run, stateChanges, toolExecutions, concernActivities };
   }
