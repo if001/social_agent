@@ -108,7 +108,7 @@ Shared Dispositionは、そのAgent群に共通する「種類としての性質
 次回も自発探索を選びやすくなる
 ```
 
-このように、経験はMemory、Mood、Relationship、Self Story、Dispositionへ反映され、将来の意味解釈と行動を変える。各Eventの小さな持続的反映は応答commit後のExperience Integrationが担い、複数の経験をまとめたSelf・Concernと、反復・蓄積によって形成されるMoodの長期反映はReflectionが担う。
+このように、経験はMemory、Mood、Relationship、Self Story、Dispositionへ反映され、将来の意味解釈と行動を変える。各Eventの小さな持続的反映は応答commit後のExperience Integrationが担う。今回FocusしたConcernについては、そのEventで得た結果により進展・明確な満足・明確な価値喪失があった場合だけ同じ境界で更新できる。複数の経験をまとめたSelf・Concernと、反復・蓄積によって形成されるMoodの長期反映はReflectionが担う。
 
 ## 4. Disposition
 
@@ -233,7 +233,7 @@ Selfは通常Interactionから直接変更しない。長期的な変化は、Me
 
 ## 8. Desire と Concern
 
-- C-06：今回の望みをDesire、reply chain内で複数Eventにまたがる目的をConversation Goal、会話外の次のEventにも残る「気に掛けていること」をConcernとして扱い、混同しない。
+- C-06：今回の望みをDesire、reply chain内で複数Eventにまたがる目的をConversation Goal、会話外の次のEventにも残る「気に掛けていること」をConcernとして扱い、混同しない。Concernの作成・派生・進展・終了はEvent種別ごとに排他的な保存先を作らず、共通のlifecycle境界を通じて協調させる。
 
 Desireは、今回のEventを受けて「今、何をしたいか」を表す今回の現在のコミットメントである。Desireは保存状態として重複させず、Agent Coreの出力に含める。直前stepのDesireを`occurredAt`付きで次の判断へ1件渡してよい。これは独立したDesire状態ではなく、前回の意図がまだ現在かを判断する入力である。
 
@@ -256,7 +256,7 @@ type Concern = {
 
 Agent Coreは、保存済みConcern、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`から、今回のDesireを形成する。保存済みConcernが空でも行動を止めない。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。ただしuser-messageでは、保存済みConcernの取得・作成を行わず、今回のEvent、Self、Memory、Relationship、Mood、`previousDesire`からDesireを形成する。
 
-ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formationであり、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。新しい関連Memoryを契機とするconcern-dueは、既存Concernから別の持続的な関心が分かれた場合だけderive + forkする。Reflectionは既存Concernを統合・具体化・満足・放棄する。各deriveは親Concernと根拠ExperienceをConcern Activityとして残し、親を置換・終了しない。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
+ConcernはAgent Coreの最終出力へ直接混在させず、`concern_propose` Toolによるrun-localな提案とし、成功したcommit時だけ作成・派生する。user-messageでは`concern_propose`を使用しない。独立Concernの主な作成はconcern-formationであり、idleでは行動中に強く残った独立Concernだけを例外的にcreateできる。新しい関連Memoryを契機とするconcern-dueは、既存Concernから別の持続的な関心が分かれた場合だけderive + forkする。Event後のExperience Integrationは、RuntimeがそのEventでFocusした最大1件について、得られた経験から進展・実質的な満足・明確な価値喪失だけを更新できる。検索失敗、情報不足、一時的なFeelingだけで放棄しない。Reflectionは既存Concernを横断的に統合・具体化し、遅延した満足・放棄を扱う。各変更は共通のlifecycle境界でConcern Activityと根拠を残し、各deriveは親Concernを置換・終了しない。進展のない同一内容を機械的に延長せず、一律の時間だけで削除しない。
 
 旧Motive、activeMotive、Intention、独立したDesire状態は使用しない。
 
@@ -585,12 +585,12 @@ Desire / Action
         ↓
 Result / New Experience
         ↓
-Experience Integration（Memory / Mood / Relationship） / Reflection
+Experience Integration（Memory / Mood / Relationship / Focus Concern） / Reflection
         ↓
 loop
 ```
 
-Agent CoreはLLMを中心とする。Observationの解釈、Final Meaningの形成、Desireの生成、Feeling、必要なMemoryの検索判断、Tool選択、Action生成を行う。単一EventからのMood・Relationship・Memoryの持続更新の判断は、commit済みのEvent、確定したAssessment / Desire / Action、Tool結果、同じ初期Contextを受けるExperience Integrationが行う。複数経験をまたぐSelf Story、Concern、Moodの長期更新はReflectionとConcern Eventの責務である。
+Agent CoreはLLMを中心とする。Observationの解釈、Final Meaningの形成、Desireの生成、Feeling、必要なMemoryの検索判断、Tool選択、Action生成を行う。単一EventからのMood・Relationship・Memoryの持続更新の判断は、commit済みのEvent、確定したAssessment / Desire / Action、Tool結果、同じ初期Contextを受けるExperience Integrationが行う。RuntimeがそのEventでFocusした最大1件のConcernも、ここで進展・明確な満足・明確な価値喪失だけを更新できる。複数経験をまたぐSelf Story、Concern、Moodの長期更新はReflectionとConcern Eventの責務である。
 
 MeaningとFeelingは、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。Event Assessmentを独立した別のLLM callとして必須にしない。Runtimeは出力のうちMeaningとFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。Experience Integrationのschema・provider・保存失敗は、既にcommitしたActionやoutboxを失敗にしない。
 

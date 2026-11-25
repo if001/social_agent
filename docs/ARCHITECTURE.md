@@ -34,7 +34,7 @@
 | ADR-4 | Deep AgentsのresponseFormatとtoolStrategyで構造化出力を取得し、Runtimeで厳密に再検証してrepairする。 | FR-11, FR-12, FR-13, FR-14, FR-15, FR-16 |
 | ADR-5 | 最終Actionをrespond、refuse、notify-no-execution、no-external-actionに限定する。`no-external-action`はEventごとの発話契約が許す場合に使い、内部Event、会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observedを明示的な根拠にする。 | FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-90 |
 | ADR-6 | ToolはDeep Agent内のloopで実行し、登録、権限、回数、冪等性、結果投影をRuntimeが管理する。 | FR-4, FR-32, FR-33, FR-35, FR-36, FR-37, FR-38 |
-| ADR-7 | 自律EventはRuntimeが生成し、Reflectionを通常Action選択から分離した、Memory→Concern / Relationship→Self / Moodの対象別maintenance Sessionとする。 | FR-24, FR-39, FR-40, FR-41, FR-42, NFR-6 |
+| ADR-7 | 自律EventはRuntimeが生成する。Concern操作は共通lifecycle commitで監査・確定する。Experience IntegrationはRuntimeがFocusした最大1件だけを即時に更新する。Reflectionは複数経験を横断するmaintenance Sessionとする。 | FR-24, FR-25, FR-39, FR-40, FR-41, FR-42, FR-95, NFR-6 |
 | ADR-8 | PostgreSQLを正本とし、Event、State、Conversation Memory、Prediction、MemoryMutation、Outboxをtransactionとadvisory lockで確定する。通常CRUDはDrizzle repository、PostgreSQL固有操作だけはrepository内の限定SQLに閉じる。 | NFR-7, NFR-8, NFR-9, NFR-10, NFR-11 |
 | ADR-9 | Debug UIは読取り専用とし、secretは実行時だけ読み込む。 | NFR-12, NFR-13 |
 | ADR-10 | 概念語彙をSelf、State、Conversation Memory、Background Experience、Prediction、Reflectionの境界へ簡略化し、予測LoopとMemoryUpdateに必要な最小のtableとmoduleだけを追加する。それ以外の個別tableや認知moduleを増やさない。 | FR-5, FR-6, FR-7, NFR-11 |
@@ -94,7 +94,7 @@ UI層はEventの送受信だけを担い、認知・状態更新・永続化を�
 2. Context BuilderがCurrent Self、Current State、Recent Experience、関連するConversation Memory、Background Experience、`previousDesire`、`predictionContext`、利用可能Tool、実行制約を読み込む。`message-received`では本文、相手の自然言語表示、`senderKind`、`addressing`だけを渡す。middlewareはEventとinteractionに応じてToolを制限し、directではself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。相手固有文脈はRuntimeが解決済みsubjectに束縛する。
 3. MainAgentがContextからFinal Meaning、Feeling、`desire`、最終`action`、任意の`patch`、任意の`remember`（MemoryIntent）を一つの構造化出力で決める。Toolを使う場合も同じDeep Agent内でTool resultを受けて続行する。
 4. RuntimeがMeaningとFeelingをAssessmentへ分離し、出力、参照、ActionとTool実績の整合性、Patchの更新範囲、rememberのevidenceとtargetを検証する。
-5. Event、Run、Tool execution、State change、Receipt、Outboxを一つのtransactionで確定する。長期経験はこの後のExperience IntegrationがMemoryWriteServiceを通して統合する。
+5. Event、Run、Tool execution、State change、Receipt、Outboxを一つのtransactionで確定する。長期経験はこの後のExperience IntegrationがMemoryWriteServiceを通して統合する。Runtimeが同じEventでFocusしたConcernがある場合だけ、Experience Integrationは共通Concern lifecycle commitを通してその1件の即時進展・満足・明確な放棄を確定できる。Integration失敗は初回commitを巻き戻さない。
 6. Outbox dispatcherがUIへ配送し、失敗時は未送信recordを保持して再試行する。
 7. directな`message-received`への応答commit後、G1/G2が追加の1 callで同じ相手の次ターンを予測し、次の同一subjectのdirect入力で誤差を`predictionEvaluation`として評価する。予測は1ターン遅れでMainAgentへ渡る。peer/observedと自律Eventはこの対象にしない。
 8. G1/G2/ReflectionのMemoryIntentはmemory-update EventとしてMemoryUpdateHandlerが適用する。memory-updateはLLMを呼ばず、MemoryWriteServiceがcreate / update / no-opを決める。G3結果の長期経験は通常Agent Loop後のExperience Integrationがsource EventとRuntime根拠から統合する。
@@ -119,7 +119,7 @@ ContextへAgentState全体を無制限に渡さず、現在の判断に必要な
 
 Feelingは現在Eventへの短期反応であり、それ自体は永続状態にしない。予測誤差はFeelingではなく、MainAgentがappraisalしてMeaning / Feelingを確定する。次のEventにも影響する変化だけをMood、Concern、Relationship、MemoryIntentとしてPatchする。Selfは通常Interactionから直接変更できず、ReflectionだけがConversation Memory根拠と理由を伴って更新できる。
 
-Concernのライフサイクルは新しい数値counterを増やさず、`active / satisfied / abandoned`、Concern Activity、Recent Experienceの`progressChanged`で扱う。進展のない同一試行を繰り返すConcernは、問い・対象・方法を変えるか、満足・放棄・削除で閉じる。一律の経過時間だけでは終了させない。
+Concernのライフサイクルは新しい数値counterを増やさず、`active / satisfied / abandoned`、Concern Activity、Recent Experienceの`progressChanged`で扱う。create / derive / focus / progress / status change / reconcileは共通Concern lifecycle commitに集約する。Event後のExperience IntegrationはRuntimeがFocusした1件だけを即時に扱い、進展のない同一試行を繰り返すConcernは、問い・対象・方法を変えるか、満足・放棄・削除で閉じる。一律の経過時間だけでは終了させない。
 
 ## Deep Agentと構造化出力
 

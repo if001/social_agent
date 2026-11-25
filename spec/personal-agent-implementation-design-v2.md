@@ -656,7 +656,7 @@ Memoryの圧縮・統合
 Self変更の監査Memory
 ```
 
-通常EventではSelfを直接変更しない。Reflectionだけが、複数経験とMemory根拠に基づいてSelf、Concern、Relationship、Memoryを更新する。Scheduled Taskの登録は心理状態更新ではなくTool経由のRuntime操作とする。
+通常EventではSelfを直接変更しない。Reflectionだけが、複数経験とMemory根拠に基づいてSelfを更新する。Concernは共通lifecycle commitを通じ、Event後のExperience IntegrationがRuntimeのFocus Concern 1件に対して即時の進展・実質的な満足・明確な放棄を扱え、Reflectionが複数経験を横断した統合・具体化・遅延closeを扱う。Scheduled Taskの登録は心理状態更新ではなくTool経由のRuntime操作とする。
 
 ## 22. Reflection Input
 
