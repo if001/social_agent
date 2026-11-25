@@ -3,6 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { DebugUiRepository, type SqlQuery } from "../../src/debug-ui/repository.js";
 import { createDebugUiServer } from "../../src/debug-ui/server.js";
 import { concernDueOutcome, concernLineage } from "../../src/debug-ui/concern-reevaluation-view.js";
+import { concernLifecycleHealth } from "../../src/debug-ui/concern-lifecycle-health.js";
 
 async function request(server: Server, url: string): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string }> {
   return new Promise((resolve) => {
@@ -16,6 +17,10 @@ async function request(server: Server, url: string): Promise<{ readonly status: 
 }
 
 describe("Agent Debug UI", () => {
+  it("FR-25: summarizes lifecycle activity and current satisfied/abandoned counts without a threshold", () => {
+    expect(concernLifecycleHealth([{ id: "active", status: "active", description: "調べたい" }, { id: "satisfied", status: "satisfied", description: "分かった" }, { id: "abandoned", status: "abandoned", description: "やめた" }], [{ kind: "created" }, { kind: "created" }, { kind: "derived" }, { kind: "focused" }, { kind: "reviewed" }])).toEqual({ current: { total: 3, active: 1, satisfied: 1, abandoned: 1 }, activities: { created: 2, derived: 1, focused: 1, progressed: 0, reviewed: 1 } });
+  });
+
   it("NFR-12: renders Concern derivation and concern-due outcomes from durable Event and Activity fixtures", () => {
     const activities = [{
       kind: "derived", description: "子の関心", sourceConcernDescription: "親の関心", reason: "対象が独立して残った",
@@ -44,7 +49,7 @@ describe("Agent Debug UI", () => {
     await repository.listRuns("ao", 999);
     await repository.listMemories("ao", 0);
     expect(calls.every(({ sql }) => /^SELECT\b/u.test(sql.trim()))).toBe(true);
-    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(14);
+    expect(calls.filter(({ values }) => values[0] === "ao")).toHaveLength(17);
     expect(calls.find(({ sql }) => sql.includes("FROM concerns"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_attempts a"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM reflection_memory_batches b"))?.values).toEqual(["ao"]);
@@ -53,6 +58,9 @@ describe("Agent Debug UI", () => {
     expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.sql).toContain('AS "eventKind"');
     expect(calls.find(({ sql }) => sql.includes("FROM concern_activities"))?.sql).toContain('AS "sourceConcernDescription"');
+    expect(calls.find(({ sql }) => sql.includes("lifecycle activity totals"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("dormant active Concerns"))?.values).toEqual(["ao"]);
+    expect(calls.find(({ sql }) => sql.includes("embedding-neighbor Concern candidates"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM conversations c"))?.values).toEqual(["ao"]);
     expect(calls.find(({ sql }) => sql.includes("FROM conversations c"))?.sql).toContain('ended_reason AS "endedReason"');
     expect(calls.find(({ sql }) => sql.includes("FROM scheduled_tasks"))?.values).toEqual(["ao"]);
