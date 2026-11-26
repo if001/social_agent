@@ -12,7 +12,7 @@ const contentOf = (value: unknown): string => typeof value === "string" ? value 
 export function createOllamaPeerInitiationGateModel(config: OllamaChatConfig, logger: Logger = noopLogger): PeerInitiationModel {
   const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(PeerInitiationDecisionSchema) });
   return { async decide(input: AgentCoreInput, peers, signal): Promise<PeerInitiationDecision> {
-    const payload = JSON.stringify({ event: input.observation.summary.slice(0, 800), self: { disposition: input.currentSelf.disposition.slice(0, 320), story: input.currentSelf.selfStory.slice(0, 320) }, mood: input.state.mood?.slice(0, 120), concerns: input.state.concerns.slice(0, 3).map(({ description }) => description.slice(0, 240)), peers });
+    const payload = JSON.stringify({ event: input.observation.summary.slice(0, 800), self: { disposition: input.currentSelf.disposition.slice(0, 320), story: input.currentSelf.selfStory.slice(0, 320) }, mood: input.state.mood, concerns: input.state.concerns.slice(0, 3).map(({ description }) => description.slice(0, 240)), peers });
     const startedAt = Date.now();
     try {
       const result = await model.invoke([{ role: "system", content: peerInitiationGateSystemPrompt }, { role: "user", content: payload }], { signal });

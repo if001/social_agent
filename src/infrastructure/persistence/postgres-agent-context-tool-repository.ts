@@ -30,7 +30,7 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
   async loadState(agentId: string): Promise<AgentContextState | undefined> {
     const state = (await this.database.db.select({
       relationships: agentStates.relationships,
-      mood: agentStates.mood
+      mood: agentStates.moodVector
     }).from(agentStates).where(eq(agentStates.agentId, agentId)).limit(1))[0];
     return state === undefined ? undefined : { ...state, concerns: await new ConcernRepository(this.database.db).list(agentId) };
   }
@@ -115,7 +115,7 @@ export class PostgresAgentContextToolRepository implements AgentContextToolRepos
     const row = (await this.database.db.select({
       identity: agents.identity, disposition: agentStates.disposition,
       selfStory: agentStates.selfStory, commitments: agentStates.commitments,
-      mood: agentStates.mood
+      mood: agentStates.moodVector
     }).from(agents).innerJoin(agentStates, eq(agentStates.agentId, agents.id))
       .where(eq(agents.id, agentId)).limit(1))[0];
     return row;

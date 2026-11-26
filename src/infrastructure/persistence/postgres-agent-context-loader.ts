@@ -15,7 +15,7 @@ import { conversationKey } from "./conversation-key.js";
 type AgentRow = {
   id: string; family_id: string; identity: string; initial_disposition: string; active: boolean;
   disposition: string; self_story: string; commitments: unknown; relationships: unknown;
-  mood: string; version: number; state_updated_at: Date;
+  mood: unknown; version: number; state_updated_at: Date;
   shared_disposition: string; base_instruction: string;
 };
 type RecentExperienceRow = { event_id: string; agent_id: string; event_kind: DomainEvent["kind"]; observation: unknown; occurred_at: Date; run_id: string | null; result: unknown; failure_reason: string | null; tools: unknown; progress_changed: boolean };
@@ -140,7 +140,7 @@ export class PostgresAgentContextLoader {
       initial_disposition: agents.initialDisposition, active: agents.active,
       disposition: agentStates.disposition, self_story: agentStates.selfStory,
       commitments: agentStates.commitments,
-      relationships: agentStates.relationships, mood: agentStates.mood,
+      relationships: agentStates.relationships, mood: agentStates.moodVector,
       version: agentStates.version, state_updated_at: agentStates.updatedAt,
       shared_disposition: agentFamilies.sharedDisposition, base_instruction: agentFamilies.baseInstruction
     }).from(agents).innerJoin(agentStates, eq(agentStates.agentId, agents.id))

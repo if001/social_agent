@@ -33,7 +33,7 @@ describe("live Ollama G3", () => {
         version: 1,
         family: { id: "live-g3-family", name: "Live G3", sharedDisposition: "観察を言語化する", baseInstruction: "会話を続ける" },
         agent: { id: "live-g3-agent", identity: "Live G3 Agent", initialDisposition: "観察を確かめる", raisonDetre: "経験を意味づける", selfNarrative: "検証中", selfContinuity: "経験を次へつなぐ" },
-        initialState: { mood: "落ち着いている", concerns: [], relationships: [] }
+        initialState: { mood: {}, concerns: [], relationships: [] }
       });
       const occurredAt = new Date().toISOString();
       await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('live-g3-event','live-g3-agent','user-message','{}','live-test','completed',$1)", [occurredAt]);

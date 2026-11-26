@@ -11,7 +11,7 @@ describe("live Ollama Reflection", () => {
       agentId: "live-agent",
       expectedVersion: 1,
       self: { identity: "検証用Agent", disposition: "事実を慎重に扱う", selfStory: "対話を始めたばかり", commitments: ["約束を守る"] },
-      state: { mood: "落ち着いている", concerns: [], relationships: [] },
+      state: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], relationships: [] },
       events: [{ id: "live-event", occurredAt: "2026-10-13T00:00:00.000Z", summary: "短い挨拶に丁寧に返答した" }],
       memories: []
     };

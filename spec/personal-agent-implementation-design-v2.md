@@ -60,7 +60,7 @@ Agent Coreへ渡すContextを構築する薄い層。Self、State、Recent Exper
 
 ### Agent Core
 
-LLMを中心とする意味解釈・意思決定層。Meaning、Feeling、Desire、Actionを一つの構造化出力として返す。Memory、Mood、Relationshipの持続更新判断は応答commit後のExperience Integrationへ分離する。
+LLMを中心とする意味解釈・意思決定層。Meaning、構造化Feeling、Desire、Actionを一つの構造化出力として返す。Memory、Relationshipの持続更新判断は応答commit後のExperience Integrationへ分離し、MoodはRuntimeがFeelingから決定論的に更新する。
 
 ### Agent State
 
@@ -85,7 +85,7 @@ flowchart TD
 
 - Agent Coreは、Event、Previous Assessment、Recent Experiences、必要に応じてToolで取得したContextを使い、Event終了時のMeaningとFeeling、Desire、最終Actionを同じ構造化出力で確定する。
 - RuntimeはMeaningとFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。
-- Action、Concern Proposal、Outboxを一つの初回transactionで確定する。Experience Integrationはその後にMemory、Mood、Relationshipだけを判断・適用し、失敗しても初回commitを巻き戻さない。
+- Action、Concern Proposal、Outboxを一つの初回transactionで確定する。Runtimeはその後にFeelingからMoodを更新し、Experience IntegrationはMemory、Relationshipだけを判断・適用する。後続失敗は初回commitを巻き戻さない。
 - Memoryの圧縮、Self更新、Concern / Relationshipの長期整理は、別EventのReflectionで行う。
 - 応答配送はcommit後のOutboxから行い、配送障害とAgentの判断確定を分離する。
 
@@ -318,13 +318,13 @@ Final Meaning / Feeling
 
 MeaningとFeelingは、Actionを正当化するために作らない。Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。
 
-Meaningは1〜2文、Feelingは感情語を中心とした1文とし、出来事の説明、理由、願望、計画、Actionを混ぜない。
+Meaningは1〜2文、Feelingは固定された感情カテゴリから異なる1〜3件と各強度1〜5で返し、出来事の説明、理由、願望、計画、Actionを混ぜない。
 
 ## 11. Feeling / Mood
 
-Feelingは特定のEventへの短期的な感情反応である。感情語を中心とする短い1文で表し、固定カテゴリやenumを必須としない。原則としてTransientであり、独立した長期状態として保存しない。
+Feelingは特定のEventへの短期的な感情反応である。`joy`、`sadness`、`anger`、`surprise`、`anxiety`、`vigilance`、`boredom`、`relief`、`pride`、`curiosity`から異なる1〜3件を選び、各々の強度を1〜5で表す。原則としてTransientであり、独立した長期状態として保存しない。
 
-MoodはFeelingより持続し、次の複数Eventへ影響する背景的な気分である。現在のEventだけへの反応、返答待ち、理由、願望、計画は含めず、持続する変化がない場合は更新しない。
+MoodはFeelingより持続し、次の複数Eventへ影響する背景的な気分である。Runtimeが現在のMoodと今回Feelingに、Agentごと・感情ごとの半減期、加算係数、上限値を適用して構造化ベクトルとして更新する。LLMはMoodを直接出力・更新しない。設定変更は以後の更新だけに反映し、Feeling履歴の再計算は行わない。
 
 ```text
 穏やかで、好奇心が強まっている。
@@ -594,7 +594,7 @@ type AgentRunResult = {
 
 最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。ただしidleでは`no-external-action`を選択できない。peer/directではDesireで表した会話目的が満たされていれば、peer/observedではGateが`engage`した後にも具体的な問い、判断を変える差分、次行為又は自発表現がなければ、`no-external-action`を具体的Actionとして選べる。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。Interactionでは、発話又は根拠付きの`no-external-action`を必須とする。
 
-持続状態、Memory、Concernは最終出力へ混在させない。Memory、Mood、RelationshipはExperience Integrationが判断し、ConcernはToolによるrun-localな提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
+持続状態、Memory、Concernは最終出力へ混在させない。Memory、RelationshipはExperience Integrationが判断し、MoodはRuntimeがFeelingから算出する。ConcernはToolによるrun-localな提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
 
 ## 20. State Patch と Concern Proposal
 

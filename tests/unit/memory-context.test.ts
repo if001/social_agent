@@ -61,16 +61,16 @@ describe("embedding and context", () => {
 
   it("FR-9: keeps only the explicit previous Assessment as minimal affective context", () => {
     const input = agentCoreInputFixture();
-    input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", meaning: "検索結果が期待と違った", feeling: "少し苛立っている" };
+    input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", meaning: "検索結果が期待と違った", feeling: [{ emotion: "anger", intensity: 2 }] };
     const result = new ContextBuilder().build(input, { maxTokens: 4_000, maxMemories: 1, maxSocialContexts: 1 });
     expect(result.previousAssessment).toEqual(input.previousAssessment);
   });
 
   it("NFR-3: builds a bounded deterministic query from observation and canonical state", () => {
     const input = agentCoreInputFixture();
-    input.state = { ...input.state, mood: "発表を慎重に支援したい", relationships: [{ subjectId: "user", description: "発表準備を率直に相談する関係" }] };
+    input.state = { ...input.state, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: { curiosity: 8 } }, relationships: [{ subjectId: "user", description: "発表準備を率直に相談する関係" }] };
     const query = buildRelevantMemoryQuery({ observation: input.observation, state: input.state });
-    expect(query.text).toContain("発表を慎重に支援したい");
+    expect(query.text).toContain("好奇心");
     expect(query.subjectIds).toEqual(["user"]);
     expect(query.keywords.length).toBeGreaterThan(0);
     expect(buildRelevantMemoryQuery({ observation: input.observation, state: input.state })).toEqual(query);

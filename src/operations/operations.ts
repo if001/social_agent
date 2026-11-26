@@ -18,10 +18,11 @@ export async function initializeAgent(pool: Pool, config: InitialSelfConfig, tim
   const { family, agent, initialState } = config;
   const initialSelf = initialSelfFromConfig(config);
   const database = createRuntimeDatabase(pool);
+  const initializedAt = new Date();
   await database.transaction(async (tx) => {
     await tx.insert(agentFamilies).values({ id: family.id, name: family.name, sharedDisposition: family.sharedDisposition, baseInstruction: family.baseInstruction }).onConflictDoNothing({ target: agentFamilies.id });
     await tx.insert(agents).values({ id: agent.id, familyId: family.id, identity: agent.identity, initialDisposition: agent.initialDisposition }).onConflictDoNothing({ target: agents.id });
-    const insertedState = await tx.insert(agentStates).values({ agentId: agent.id, disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, relationships: initialState.relationships, mood: initialState.mood }).onConflictDoNothing({ target: agentStates.agentId }).returning({ agentId: agentStates.agentId });
+    const insertedState = await tx.insert(agentStates).values({ agentId: agent.id, disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, relationships: initialState.relationships, moodVector: { updatedAt: initializedAt.toISOString(), levels: initialState.mood } }).onConflictDoNothing({ target: agentStates.agentId }).returning({ agentId: agentStates.agentId });
     if (insertedState.length === 1) await new ConcernRepository(tx).replace(agent.id, initialState.concerns);
     if (options.overwriteConfiguredSelf === true) {
       const now = new Date();

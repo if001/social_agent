@@ -58,7 +58,7 @@ flowchart TD
 | `memory-update` | 決定済みの MemoryIntent と RAG 候補 | Conversation Memory の create / update / no-op | LLM を呼ばず記憶だけを安全に適用する |
 | `prediction-g3` | G1/G2 が示した要調査の仮説 | 仮説の支持・反証・判断不能、MainAgent 向け調査結果 | 意図・信念・関係など深い層を調べる |
 | `prediction-g3-result` | G3 の調査結果 | MainAgent による再判断、必要なら Action・経験統合 | 調査結果を主体的な判断へ戻す |
-| `reflection` | 複数の Event、Memory、現在の長期状態 | Memory の整理、Self / Concern / Relationship / Mood の長期更新 | 経験をまとまりとして個体化へ反映する |
+| `reflection` | 複数の Event、Memory、現在の長期状態 | Memory の整理、Self / Concern / Relationship の長期更新 | 経験をまとまりとして個体化へ反映する |
 
 ### 発話するEvent／しないEvent
 
@@ -102,7 +102,7 @@ flowchart LR
 
 - Session開始時に根拠となるEvent範囲を固定する。Memory Formationは最大16件のEvent Experienceから、今後も再利用すべき経験を形成する。
 - Reconciliationは形成結果・利用履歴・未再検討のMemoryなどから候補を取得し、関連するMemoryを補強・更新・分割・維持する。全Memoryを一括で書き換えない。
-- Memoryの整理後に、根拠Memoryを用いてConcern、Relationship、Self、Moodを順に見直す。Selfは通常Eventでは変更せず、Reflectionだけが更新できる。
+- Memoryの整理後に、根拠Memoryを用いてConcern、Relationship、Selfを順に見直す。MoodはReflectionでは更新せず、各EventのFeelingをRuntimeが減衰・累積する。Selfは通常Eventでは変更せず、Reflectionだけが更新できる。
 - Concernは既存Concernの横断的な統合・具体化・遅延した満足・放棄を扱う。新規作成・派生は行わない。Event直後にFocus Concernが実質的に満足したかを判断するのはExperience Integrationであり、長く扱われず、Reflectionでも進展しないConcernはRuntimeが決定論的に`abandoned`へ移す。
 - 各対象は独立したstatusと監査を持つ。失敗した対象だけを次回Sessionで再試行し、完了済みのbatchや対象は重複実行しない。Memoryが失敗した場合は後続の長期状態更新を`blocked`にする。
 
@@ -126,10 +126,10 @@ sequenceDiagram
     M-->>R: Meaning + Feeling + Desire + Action
     R->>O: Action・監査・配送を初回 commit
     R->>X: commit 済み結果と同じ Context
-    X-->>R: MemoryIntent、Mood / Relationship、Focus Concern の候補
+    X-->>R: MemoryIntent、Relationship、Focus Concern の候補
 ```
 
-入力はすべてを prompt に詰め込むのではなく、Event と直近の継続情報を起点に必要なものだけを取得する。MainAgent は Event の終了時点で Meaning / Feeling / Desire / Action を一貫して決める。初回 commit 後の Experience Integration は次の Action を決めず、経験を残す価値があるときだけ持続状態の候補を作る。Event Experience、Memory候補、Relationship、Mood、Focus Concernは一つの巨大な出力へまとめず、EventのObservation・確定したAssessment / Action・事実根拠となるTool結果だけを使う小さな判断として扱える。Event Experienceは必須だが、他の候補は不要又は失敗時にno-opとなっても、既にcommit済みのActionを巻き戻さない。
+入力はすべてを prompt に詰め込むのではなく、Event と直近の継続情報を起点に必要なものだけを取得する。MainAgent は Event の終了時点で Meaning / Feeling / Desire / Action を一貫して決める。Runtimeは構造化Feelingを減衰・累積してMoodへ反映する。初回 commit 後の Experience Integration は次の Action を決めず、経験を残す価値があるときだけMemory、Relationship、Focus Concernの候補を作る。Event Experienceは必須だが、他の候補は不要又は失敗時にno-opとなっても、既にcommit済みのActionを巻き戻さない。
 
 ### どの状態がいつ変わるか
 
@@ -137,7 +137,8 @@ sequenceDiagram
 |---|---|---|---|
 | Meaning / Feeling / Desire / Action | 今回だけ確定する | 変更しない | 直接の Action は決めない |
 | Conversation Memory | Experience Integration が候補を判断する | MemoryWriteService が適用する | Formation / Reconciliation で整理する |
-| Mood / Relationship | Experience Integration が候補を反映できる | 変更しない | 複数経験を根拠に長期的に更新できる |
+| Mood | Runtime が今回Feelingを減衰・累積して更新する | 変更しない | 変更しない |
+| Relationship | Experience Integration が候補を反映できる | 変更しない | 複数経験を根拠に長期的に更新できる |
 | Concern | Event種別のcreate / derive / focus。Experience IntegrationはFocus 1件だけを即時更新できる | 変更しない | 既存Concernを横断的に統合・具体化・遅延closeする。create / deriveはしない |
 | Self（Disposition / Self Story / Commitments） | 直接変更しない | 変更しない | 複数経験と Memory 根拠に基づいて更新できる |
 

@@ -3,7 +3,7 @@ import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryR
 const input: ReflectionInput = {
   reflectionId: "reflection-1", agentId: "agent-a", expectedVersion: 2,
   self: { identity: "Agent A", disposition: "丁寧に確かめる", selfStory: "対話から学んでいる", commitments: ["約束を守る"] },
-  state: { concerns: [], relationships: [] },
+  state: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], relationships: [] },
   events: [{ id: "event-1", occurredAt: "2026-01-01T00:00:00Z", summary: "約束を果たした" }],
   memories: [{ id: "memory-1", summary: "約束を果たした", significance: "信頼が深まった", subjects: ["user"], occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-01T00:01:00Z" }]
 };
@@ -143,10 +143,10 @@ describe("Reflection", () => {
       beginTarget: (_input, target) => Promise.resolve(target === "memory" || target === "relationship" ? "completed" : "pending"),
       memoryBatches: (value) => Promise.resolve([{ batchIndex: 0, events: value.events }]), beginMemoryBatch: () => Promise.resolve("pending"), commitMemoryBatch: () => Promise.resolve(), failMemoryBatch: () => Promise.resolve(), completeMemoryTarget: () => Promise.resolve(),
       commitTarget: () => Promise.resolve(), failTarget: () => Promise.resolve(), blockTarget: () => Promise.resolve(), complete: () => Promise.resolve(), fail: () => Promise.resolve()
-    }, { reflect: (target) => { calls.push(target); return Promise.resolve({ output: target === "concern" ? { concernChanges: [] } : { mood: "落ち着いている" }, toolExecutions: [] }); } });
+    }, { reflect: (target) => { calls.push(target); return Promise.resolve({ output: target === "concern" ? { concernChanges: [] } : { evidenceMemoryIds: [] }, toolExecutions: [] }); } });
     await reflection.process("reflection-1", "agent-a", new AbortController().signal);
     expect(calls).toEqual(["concern", "self-mood"]);
-    expect(refreshed).toEqual(["reflection-1", "reflection-1", "reflection-1", "reflection-1"]);
+    expect(refreshed).toEqual(["reflection-1", "reflection-1", "reflection-1"]);
   });
 
   it("FR-41, FR-79: completes Reconciliation only after every Runtime-bound anchor is committed", async () => {

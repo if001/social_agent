@@ -1,4 +1,5 @@
 import type { CurrentAgentState, Memory, Observation } from "../domain/contracts.js";
+import { describeMood } from "./affect-dynamics.js";
 
 export type RelevantMemoryQuery = {
   readonly text: string;
@@ -34,7 +35,7 @@ export function buildRelevantMemoryQuery(input: RelevantMemoryQueryInput): Relev
   const parts = [
     bounded(input.observation.summary),
     ...input.observation.facts.slice(0, 8).map((value) => bounded(value, 240)),
-    ...(input.state.mood === undefined ? [] : [bounded(input.state.mood, 240)]),
+    bounded(describeMood(input.state.mood), 240),
     ...input.state.concerns.map(({ description, whyItMatters }) => `${bounded(description, 240)} ${bounded(whyItMatters, 240)}`),
     ...relationships.map(({ description }) => bounded(description, 240))
   ].filter((value) => value.length > 0);

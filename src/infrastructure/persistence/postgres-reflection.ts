@@ -76,7 +76,7 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   private get pool(): Pool { return this.database.native; }
 
   async #state(agentId: string) {
-    const row = await this.database.db.select({ identity: agents.identity, disposition: agentStates.disposition, selfStory: agentStates.selfStory, commitments: agentStates.commitments, mood: agentStates.mood, relationships: agentStates.relationships, version: agentStates.version })
+    const row = await this.database.db.select({ identity: agents.identity, disposition: agentStates.disposition, selfStory: agentStates.selfStory, commitments: agentStates.commitments, mood: agentStates.moodVector, relationships: agentStates.relationships, version: agentStates.version })
       .from(agents).innerJoin(agentStates, eq(agentStates.agentId, agents.id)).where(and(eq(agents.id, agentId), eq(agents.active, true))).limit(1).then((rows) => rows[0]);
     return row === undefined ? undefined : { ...row, concerns: await new ConcernRepository(this.database.db).list(agentId) };
   }
@@ -236,9 +236,9 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
       const occurredAt = this.now();
       for (const [index, concern] of input.state.concerns.filter(({ status }) => status === "active").entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:presented:${String(index)}:${concern.id}`, concernId: concern.id, kind: "presented", reflectionId: input.reflectionId, evidenceMemoryIds: [], occurredAt }).onConflictDoNothing({ target: concernActivities.id });
       const closedConcerns = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, appliedConcerns.concerns, new Set(appliedConcerns.activities.map(({ concernId }) => concernId)), occurredAt);
-      const state = AgentStateSchema.parse({ ...input.state, ...(output.mood === undefined ? {} : { mood: output.mood }), concerns: closedConcerns, relationships: applyRelationships(input.state.relationships, output.relationshipChanges) });
+      const state = AgentStateSchema.parse({ ...input.state, concerns: closedConcerns, relationships: applyRelationships(input.state.relationships, output.relationshipChanges) });
       const self = output.self ?? input.self;
-      const updated = await client.update(agentStates).set({ disposition: self.disposition, selfStory: self.selfStory, commitments: self.commitments, relationships: state.relationships, mood: state.mood, version: sql`${agentStates.version}+1`, updatedAt: occurredAt }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, input.expectedVersion))).returning({ version: agentStates.version });
+      const updated = await client.update(agentStates).set({ disposition: self.disposition, selfStory: self.selfStory, commitments: self.commitments, relationships: state.relationships, moodVector: state.mood, version: sql`${agentStates.version}+1`, updatedAt: occurredAt }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, input.expectedVersion))).returning({ version: agentStates.version });
       if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection state version conflict");
       await new ConcernRepository(client).replace(input.agentId, state.concerns, occurredAt);
       for (const [index, activity] of appliedConcerns.activities.entries()) await client.insert(concernActivities).values({ id: `reflection:${input.reflectionId}:change:${String(index)}:${activity.kind}:${activity.concernId}`, concernId: activity.concernId, kind: activity.kind, reflectionId: input.reflectionId, evidenceMemoryIds: output.evidenceMemoryIds, occurredAt }).onConflictDoNothing({ target: concernActivities.id });
@@ -349,11 +349,11 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
     const retryable = rows.some((row) => row.status === "failed" || row.status === "blocked");
     try {
       if (attempts.get("concern")?.status === "completed") {
-        const state = await this.database.db.select({ relationships: agentStates.relationships, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
+        const state = await this.database.db.select({ mood: agentStates.moodVector, relationships: agentStates.relationships, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
         const current = state[0];
         if (current !== undefined) {
           const activity = await this.database.db.selectDistinct({ concernId: concernActivities.concernId }).from(concernActivities).innerJoin(concernRecords, eq(concernRecords.id, concernActivities.concernId)).where(and(eq(concernRecords.agentId, input.agentId), eq(concernActivities.reflectionId, input.reflectionId), ne(concernActivities.kind, "presented")));
-          const parsed = AgentStateSchema.parse({ concerns: await new ConcernRepository(this.database.db).list(input.agentId), relationships: current.relationships });
+          const parsed = AgentStateSchema.parse({ mood: current.mood, concerns: await new ConcernRepository(this.database.db).list(input.agentId), relationships: current.relationships });
           await this.database.transaction(async (client) => {
             const closed = await this.#closeStaleConcerns(client, input.agentId, input.reflectionId, parsed.concerns, new Set(activity.map(({ concernId }) => concernId)), this.now());
             if (JSON.stringify(closed) !== JSON.stringify(parsed.concerns)) {
@@ -521,10 +521,10 @@ export class PostgresReflectionRepository implements ReflectionRepository, Targe
   }
 
   async #commitSelfMoodTarget(input: ReflectionInput, output: z.infer<typeof SelfMoodReflectorOutputSchema>): Promise<void> {
-    const state = await this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, commitments: agentStates.commitments, mood: agentStates.mood, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
+    const state = await this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, commitments: agentStates.commitments, mood: agentStates.moodVector, version: agentStates.version }).from(agentStates).where(eq(agentStates.agentId, input.agentId)).limit(1);
     const row = state[0]; if (row === undefined) throw new DomainError("NOT_FOUND", "Agent State was not found");
     const self = output.self;
-    const updated = await this.database.db.update(agentStates).set({ disposition: self?.disposition ?? row.disposition, selfStory: self?.selfStory ?? row.selfStory, commitments: self?.commitments ?? row.commitments, mood: output.mood ?? row.mood, version: sql`${agentStates.version}+1`, updatedAt: this.now() }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
+    const updated = await this.database.db.update(agentStates).set({ disposition: self?.disposition ?? row.disposition, selfStory: self?.selfStory ?? row.selfStory, commitments: self?.commitments ?? row.commitments, version: sql`${agentStates.version}+1`, updatedAt: this.now() }).where(and(eq(agentStates.agentId, input.agentId), eq(agentStates.version, row.version))).returning({ version: agentStates.version });
     if (updated.length !== 1) throw new DomainError("CONFLICT", "Reflection Self/Mood state version conflict");
     if (self !== undefined) await this.database.db.update(agents).set({ identity: self.identity, updatedAt: this.now() }).where(eq(agents.id, input.agentId));
   }

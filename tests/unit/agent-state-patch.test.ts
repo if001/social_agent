@@ -1,12 +1,19 @@
 import { AgentStatePatchService } from "../../src/application/agent-state-patch.js";
 import type { CurrentAgentState } from "../../src/domain/contracts.js";
 
-const state: CurrentAgentState = { agentId: "a", mood: "calm", concerns: [], relationships: [], updatedAt: "2026-01-01T00:00:00Z" };
+const state: CurrentAgentState = { agentId: "a", mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], relationships: [], updatedAt: "2026-01-01T00:00:00Z" };
 
 describe("AgentStatePatchService", () => {
   it("FR-23: keeps ordinary persistent fields untouched until Experience Integration", () => {
     const result = new AgentStatePatchService().initial("a", state);
     expect(result).toEqual({ state, changes: [], concernActivities: [] });
+  });
+
+  it("FR-9: applies only structured Feeling to the Runtime-owned Mood vector", () => {
+    const initial = new AgentStatePatchService().initial("a", state);
+    const updated = new AgentStatePatchService().applyFeeling(initial, [{ emotion: "anger", intensity: 3 }], new Date("2026-01-01T00:00:00.000Z"), { default: { halfLifeMs: 60_000, gain: 2, maxLevel: 20 }, emotions: {} }, "event-feeling");
+    expect(updated.state.mood).toEqual({ updatedAt: "2026-01-01T00:00:00.000Z", levels: { anger: 6 } });
+    expect(updated.changes).toEqual([expect.objectContaining({ target: "mood", operation: "set", eventId: "event-feeling" })]);
   });
 
   it("FR-23, NFR-1: removes owned relationships and rejects another agent", () => {

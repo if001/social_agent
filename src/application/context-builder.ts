@@ -33,7 +33,7 @@ export class ContextBuilder {
     const currentSelf = { ...source.currentSelf, identity: text(source.currentSelf.identity, 300), disposition: text(source.currentSelf.disposition, 1_200), selfStory: text(source.currentSelf.selfStory, 1_000), commitments: texts(source.currentSelf.commitments, 12, 400) };
     // Persistent State is carried separately by the Runtime. Concerns remain
     // available through concern_list / concern_get, not initial model Context.
-    const state = { ...source.state, ...(source.state.mood === undefined ? {} : { mood: text(source.state.mood, 500) }), concerns: [], relationships: source.state.relationships.slice(0, 12).map((relationship) => ({ ...relationship, description: text(relationship.description, 600) })) };
+    const state = { ...source.state, concerns: [], relationships: source.state.relationships.slice(0, 12).map((relationship) => ({ ...relationship, description: text(relationship.description, 600) })) };
     const boundedPersona = persona(source.persona);
     const predictionContext: PredictionContext | undefined = source.predictionContext === undefined ? undefined : {
       ...source.predictionContext,

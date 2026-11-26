@@ -16,7 +16,7 @@ describe("peer observed Observation Gate", () => {
     const run = vi.fn<(input: AgentCoreInput) => Promise<{ output: { desire: string; action: { type: "no-external-action"; reason: string } }; toolExecutions: [] }>>().mockResolvedValue({ output: { desire: "二重タグ案は採用済みで、今は新しい問いを作らない", action: { type: "no-external-action", reason: "採用と同意だけで、具体的な問い・訂正・次行為の変更・自発表現がない" } }, toolExecutions: [] });
     const enqueued: Omit<ExperienceIntegrationInput, "integrationId">[] = [];
     const enqueue = (input: Omit<ExperienceIntegrationInput, "integrationId">): Promise<void> => { enqueued.push(input); return Promise.resolve(); };
-    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "二重タグ案を採用したい。23日は比べるだけですね", peerName: "aka", self: { disposition: "気まま", story: "自分の寄り道を優先する" }, mood: "落ち着いている", concerns: [], memories: [], recentSelfSpeech: "二重タグを付ければ23日は比べるだけになる" }) }, { decide: () => Promise.resolve({ decision: "engage" as const, reason: "共有した案の採用には認知価値がある" }) });
+    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "二重タグ案を採用したい。23日は比べるだけですね", peerName: "aka", self: { disposition: "気まま", story: "自分の寄り道を優先する" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: { relief: 4 } }, concerns: [], memories: [], recentSelfSpeech: "二重タグを付ければ23日は比べるだけになる" }) }, { decide: () => Promise.resolve({ decision: "engage" as const, reason: "共有した案の採用には認知価値がある" }) });
     let consume: ((message: MessageEnvelope) => Promise<void>) | undefined;
     const oneShotQueue = { publish: () => Promise.resolve(), subscribe: (_destination: string, next: (message: MessageEnvelope) => Promise<void>) => { consume = next; return Promise.resolve(); } };
     const runtime = new AgentRuntime({ destination: "shiro", defaultOutputDestination: "discord", queue: oneShotQueue, harness: { run }, persistence, experienceIntegration: { enqueue }, observationGate: gate, ids: new SequenceIdGenerator(["event-peer-observed"]), now: () => new Date("2026-11-21T00:00:00.000Z") });
@@ -85,7 +85,7 @@ describe("peer observed Observation Gate", () => {
   it("FR-91: ignores an observed peer post without invoking Agent Core or producing an outbox record", async () => {
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.currentSelf.agentId = event.agentId; input.state.agentId = event.agentId; return input; });
     const run = vi.fn(() => Promise.resolve({ output: { desire: "respond", action: { type: "respond" as const, content: "should not run" } }, toolExecutions: [] }));
-    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "今日はこの話、もう飽きた", peerName: "aka", self: { disposition: "気まま", story: "自分の寄り道を優先する" }, mood: "退屈している", concerns: [], memories: [] }) }, { decide: () => Promise.resolve({ decision: "ignore" as const, reason: "今の関心と接続しない" }) });
+    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "今日はこの話、もう飽きた", peerName: "aka", self: { disposition: "気まま", story: "自分の寄り道を優先する" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: { boredom: 8 } }, concerns: [], memories: [] }) }, { decide: () => Promise.resolve({ decision: "ignore" as const, reason: "今の関心と接続しない" }) });
     // Use the public queue contract with a one-shot subscriber.
     let consume: ((message: MessageEnvelope) => Promise<void>) | undefined;
     const oneShotQueue = { publish: () => Promise.resolve(), subscribe: (_destination: string, next: (message: MessageEnvelope) => Promise<void>) => { consume = next; return Promise.resolve(); } };
@@ -114,7 +114,7 @@ describe("peer observed Observation Gate", () => {
   it("FR-91: engages observed posts once and bypasses the Gate for peer/direct", async () => {
     const persistence = new InMemoryRuntimePersistence((event) => { const input = agentCoreInputFixture(); input.run.eventId = event.id; input.run.agentId = event.agentId; input.currentSelf.agentId = event.agentId; input.state.agentId = event.agentId; return input; });
     const gateDecide = vi.fn(() => Promise.resolve({ decision: "engage" as const, reason: "反論したい" }));
-    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "投稿", peerName: "aka", self: { disposition: "気まま", story: "自分の寄り道を優先する" }, mood: "少し高揚している", concerns: [], memories: [] }) }, { decide: gateDecide });
+    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "投稿", peerName: "aka", self: { disposition: "気まま", story: "自分の寄り道を優先する" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: { joy: 4 } }, concerns: [], memories: [] }) }, { decide: gateDecide });
     const run = vi.fn(() => Promise.resolve({ output: { desire: "反論する", action: { type: "no-external-action" as const, reason: "test" } }, toolExecutions: [] }));
     let consume: ((message: MessageEnvelope) => Promise<void>) | undefined;
     const oneShotQueue = { publish: () => Promise.resolve(), subscribe: (_destination: string, next: (message: MessageEnvelope) => Promise<void>) => { consume = next; return Promise.resolve(); } };

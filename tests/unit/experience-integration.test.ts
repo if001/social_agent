@@ -1,7 +1,6 @@
 import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubjectsForIntegration, type ExperienceIntegrationOutput } from "../../src/application/experience-integration.js";
 import { createCanonicalSubjectResolver } from "../../src/application/canonical-subject.js";
 import { z } from "zod";
-import { PersistentMoodSchema } from "../../src/domain/contracts.js";
 import { eventExperienceRepairInput, eventExperienceSystemPrompt, experienceIntegrationMaxModelCalls, experienceIntegrationModelInput, experienceIntegrationRepairInstruction, experienceIntegrationSystemPrompt, focusConcernIntegrationSystemPrompt, memoryIntegrationSystemPrompt, relationshipIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { projectExperienceEvidenceForModel } from "../../src/infrastructure/agent/tool-result-model-view.js";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
@@ -199,10 +198,9 @@ describe("ExperienceIntegration", () => {
     for (const phrase of ["許可されていないfield", "memories", "JSON object"]) expect(experienceIntegrationRepairInstruction).toContain(phrase);
   });
 
-  it("FR-9, FR-82: accepts only a short enduring emotional stance as Mood", () => {
-    expect(PersistentMoodSchema.safeParse("少しせっかちで、期待が強まっている。").success).toBe(true);
-    expect(PersistentMoodSchema.safeParse("あ".repeat(121)).success).toBe(false);
-    for (const phrase of ["感情的構え", "固有名詞", "返答待ち", "Concern", "行動計画", "理由"]) expect(experienceIntegrationSystemPrompt).toContain(phrase);
+  it("FR-9, FR-82: leaves Mood to Runtime and rejects a Mood candidate", () => {
+    expect(ExperienceIntegrationOutputSchema.safeParse({ experience: { summary: "展示の予定を確認した", facts: [] }, memories: [], mood: { levels: { joy: 5 } } }).success).toBe(false);
+    expect(experienceIntegrationSystemPrompt).not.toContain("Mood候補");
   });
 
   it("AC-017-1: uses the committed Core context and saves user memory with only the current actor as subject", async () => {

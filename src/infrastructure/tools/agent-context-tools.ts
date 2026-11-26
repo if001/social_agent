@@ -4,11 +4,12 @@ import type { EventRetrievalInput, RetrievedEvent, RetrievalInput } from "../../
 import { userMainSubjectId, type CanonicalSubjectResolver } from "../../application/canonical-subject.js";
 import type { RegisteredTool } from "../../application/tool-registry.js";
 import { ConcernProposalSchema, ConcernSchema, PersistedSelfSchema, RelationshipSchema, type Observation, type RetrievedItem } from "../../domain/contracts.js";
-export type AgentContextState = { readonly concerns: unknown; readonly relationships: unknown; readonly mood: string };
+import { MoodSchema } from "../../domain/contracts.js";
+export type AgentContextState = { readonly concerns: unknown; readonly relationships: unknown; readonly mood: unknown };
 export type ConcernActivity = { readonly id: string; readonly kind: string; readonly occurredAt: Date; readonly eventId: string | null; readonly runId: string | null; readonly reflectionId: string | null; readonly sourceConcernId: string | null; readonly reason: string | null; readonly evidenceMemoryIds: unknown };
 export type EvidenceMemory = { readonly id: string; readonly content: string; readonly importance: string; readonly occurredAt: Date };
 export type ToolExecutionObservation = { readonly tool: string; readonly result: unknown; readonly error: string | null; readonly finishedAt: Date };
-export type AgentSelfState = { readonly identity: string; readonly disposition: string; readonly selfStory: string; readonly commitments: unknown; readonly mood: string };
+export type AgentSelfState = { readonly identity: string; readonly disposition: string; readonly selfStory: string; readonly commitments: unknown; readonly mood: unknown };
 export type ConcernDueFocus = { readonly description: string; readonly whyItMatters: string; readonly sourceMemories: readonly { readonly content: string; readonly importance: string; readonly occurredAt: Date }[] };
 
 const compact = (value: string, limit: number): string => value.length <= limit ? value : `${value.slice(0, limit)}…`;
@@ -198,7 +199,7 @@ export function createAgentContextTools(repository: AgentContextToolRepository, 
         if (row === undefined) return { ok: false, error: "Agent not found" };
         const self = PersistedSelfSchema.parse({ identity: row.identity, disposition: row.disposition, selfStory: row.selfStory, commitments: row.commitments });
         const value: Record<string, unknown> = {};
-        for (const field of fields) value[field] = field === "mood" ? compact(row.mood, 300) : field === "commitments" ? self.commitments.slice(0, 8).map((item) => compact(item, 240)) : compact(self[field], 800);
+        for (const field of fields) value[field] = field === "mood" ? MoodSchema.parse(row.mood) : field === "commitments" ? self.commitments.slice(0, 8).map((item) => compact(item, 240)) : compact(self[field], 800);
         return success(value);
       }
     }

@@ -4,10 +4,11 @@ import { resolve } from "node:path";
 import { parse } from "dotenv";
 import { z } from "zod";
 
-import type { BotPersona } from "../domain/contracts.js";
+import { DefaultAffectDynamics, type AffectDynamics, type BotPersona } from "../domain/contracts.js";
 import { loadPersonaFile } from "./persona.js";
 import { loadExplorationDomainCatalog } from "./exploration-domains.js";
 import { loadAgentPeersFile, type AgentPeers } from "./agent-peers.js";
+import { loadInitialSelfFile } from "./initial-self.js";
 
 const HttpUrl = z.url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "must use HTTP(S)");
 const OptionalText = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().min(1).optional());
@@ -90,6 +91,7 @@ const ConfigSchema = z.object({
 export type AppConfig = {
   readonly botId: string;
   readonly persona?: BotPersona;
+  readonly affectDynamics: AffectDynamics;
   readonly explorationDomains: readonly string[];
   readonly peers: AgentPeers;
   readonly database: { readonly url: string; readonly adminUrl: string };
@@ -140,11 +142,15 @@ export async function loadConfig(options: { readonly cwd?: string; readonly envi
   let peers: AgentPeers = { version: 1, agentId: value.BOT_ID, peers: [] };
   try { peers = await loadAgentPeersFile(resolve(cwd, "config", "agent-peers", `${value.BOT_ID}.yaml`), value.BOT_ID); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  let affectDynamics: AffectDynamics = DefaultAffectDynamics;
+  try { affectDynamics = (await loadInitialSelfFile(resolve(cwd, "config", "initial-self", `${value.BOT_ID}.yaml`))).affectDynamics ?? DefaultAffectDynamics; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const channelIds = list(value.DISCORD_CHANNEL_IDS || value.DISCORD_CHANNEL_ID || "");
   const ownerIds = list(value.DISCORD_OWNER_IDS); const guildIds = list(value.DISCORD_GUILD_IDS);
   return {
     botId: value.BOT_ID,
     ...(persona === undefined ? {} : { persona }),
+    affectDynamics,
     explorationDomains,
     peers,
     database: { url: value.POSTGRES_URL, adminUrl: value.ADMIN_POSTGRES_URL },

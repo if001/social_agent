@@ -49,7 +49,7 @@ export function classifyBehaviors(result: { readonly assessment?: AgentRunResult
   else labels.push("share");
   const content = "content" in action ? action.content : "";
   if (/[?？]|(?:教えて|聞かせて|どう思|いかが|でしょうか)/u.test(content)) labels.push("question");
-  if (result.assessment?.feeling !== undefined && result.assessment.feeling.trim() !== "") labels.push("emotion-expression");
+  if ((result.assessment?.feeling?.length ?? 0) > 0) labels.push("emotion-expression");
   if (/(?:代わりに|別の|違う|変化をつけ|工夫|別案|他の方法|方向を変)/u.test(content)) labels.push("digression");
   if (result.toolExecutions.some(({ ok }) => ok)) labels.push("tool");
   return [...new Set(labels)];

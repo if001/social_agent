@@ -7,7 +7,7 @@ describe("live Ollama Observation Gate", () => {
     const base = {
       peerName: "aka",
       self: { disposition: "気になる食い違いを放っておけない", story: "議論の差分を調べるのが好きだが、礼儀だけで会話を続けない" },
-      mood: "落ち着いている",
+      mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} },
       relationship: "意見が食い違うと議論は面白いが、合意した話を蒸し返す必要はない",
       concerns: ["出典が変わる過程に実際の差分があるか確かめたい"],
       memories: ["akaとは二重タグ案を採用し、次は23日に比較するだけと確認した"],
