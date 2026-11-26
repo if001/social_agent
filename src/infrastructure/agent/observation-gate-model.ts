@@ -3,11 +3,20 @@ import { ObservationGateDecisionSchema, type ObservationGateDecision } from "../
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
+import { parseModelJson } from "./model-json-parser.js";
 
-export const observationGateSystemPrompt = `あなたはAgentの軽量 Observation Gateです。allowlist peerの、あなた宛てではない投稿だけを読む。\n\nengage は、投稿が自分の好奇心、現在のMood、Selfの構え、Concern又は関係を今動かす具体的な理由を一つ持つ時だけ選ぶ。理由は、(1) 自分に具体的な未解決の問いがあり投稿がそれを変える、(2) 自分の理解・判断を変える実質的な反論・訂正・新事実がある、(3) 特定のConcern又は約束の次の行為を実際に変える、(4) Self・Mood・関係から今言いたい具体的な遊び・感情・表現がある、のいずれかである。\n\nengageでは、なぜ今動いたかをreasonへ、話しかけることで何を知りたい・確かめたい・伝えたい・変えたいかをconversationGoalへ分ける。返信すること、礼儀、協力の継続そのものをGoalにしない。直近自己発話があれば、採用、感謝、同意、言い換え、予定の再確認、同じ結論の細分化だけを新論点にしない。退屈や高揚、苛立ちも動機になれるが、得たいものが具体的でなければignoreを選ぶ。\n\nこれは応答生成でも会話でもない。Toolを呼ばず、Memoryや状態を更新しない。入力にない事実、ID、配送情報を作らない。`;
+export const observationGateSystemPrompt = `あなたはAgentの軽量 Observation Gateです。allowlist peerの、あなた宛てではない投稿だけを読む。\n\nengage は、投稿が自分の好奇心、現在のMood、Selfの構え、Concern又は関係を今動かす具体的な理由を一つ持つ時だけ選ぶ。理由は、(1) 自分に具体的な未解決の問いがあり投稿がそれを変える、(2) 自分の理解・判断を変える実質的な反論・訂正・新事実がある、(3) 特定のConcern又は約束の次の行為を実際に変える、(4) Self・Mood・関係から今言いたい具体的な遊び・感情・表現がある、のいずれかである。\n\n出力はJSON objectだけにする。ignoreではdecisionとreasonを必ず返し、conversationGoalは出さない。engageではdecision、reason、conversationGoalをすべて返す。engageのreasonはなぜ今動いたか、conversationGoalは話しかけて何を知りたい・確かめたい・伝えたい・変えたいかを分ける。返信すること、礼儀、協力の継続そのものをGoalにしない。直近自己発話があれば、採用、感謝、同意、言い換え、予定の再確認、同じ結論の細分化だけを新論点にしない。退屈や高揚、苛立ちも動機になれるが、得たいものが具体的でなければignoreを選ぶ。\n\nこれは応答生成でも会話でもない。Toolを呼ばず、Memoryや状態を更新しない。入力にない事実、ID、配送情報を作らない。`;
 
 const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.map((part) => typeof part === "object" && part !== null && typeof (part as Record<string, unknown>).text === "string" ? (part as Record<string, unknown>).text : "").join("") : "";
-const parseJson = (content: string): unknown => JSON.parse(content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""));
+
+/** `ignore` is fail-closed already. Preserve that model choice even when a
+ * compact provider response omitted only its audit explanation. */
+export function normalizeObservationGateDecision(raw: unknown): ObservationGateDecision {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return ObservationGateDecisionSchema.parse(raw);
+  const value = raw as Record<string, unknown>;
+  if (value.decision !== "ignore" || Object.prototype.hasOwnProperty.call(value, "reason")) return ObservationGateDecisionSchema.parse(raw);
+  return ObservationGateDecisionSchema.parse({ ...value, reason: "具体的な発話動機を見出さないと判断した" });
+}
 
 export function createOllamaObservationGateModel(config: OllamaChatConfig, logger: Logger = noopLogger): ObservationGateModel {
   const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(ObservationGateDecisionSchema) });
@@ -19,7 +28,7 @@ export function createOllamaObservationGateModel(config: OllamaChatConfig, logge
         const result = await model.invoke([{ role: "system", content: observationGateSystemPrompt }, { role: "user", content: payload }], { signal });
         const content = contentOf(result.content);
         if (content.trim() === "") throw new Error("Observation Gate returned empty content");
-        const decision = ObservationGateDecisionSchema.parse(parseJson(content));
+        const decision = normalizeObservationGateDecision(parseModelJson(content));
         logger.log("info", "observation_gate.model_completed", { elapsedMs: Date.now() - startedAt, inputChars: payload.length, outputChars: content.length, decision: decision.decision });
         return decision;
       } catch (error) {

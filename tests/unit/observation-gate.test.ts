@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ObservationGate, type ObservationGateDecision, type ObservationGateModel } from "../../src/application/observation-gate.js";
-import { observationGateSystemPrompt } from "../../src/infrastructure/agent/observation-gate-model.js";
+import { normalizeObservationGateDecision, observationGateSystemPrompt } from "../../src/infrastructure/agent/observation-gate-model.js";
 import type { DomainEvent } from "../../src/domain/contracts.js";
 
 const event: DomainEvent = { id: "observed-1", agentId: "shiro", kind: "message-received", occurredAt: "2026-11-21T00:00:00.000Z", payload: { text: "噂の変質まわりを読んでいる", senderKind: "peer", addressing: "observed", peerName: "aka", subjectId: "agent:aka" } };
@@ -14,6 +14,13 @@ describe("ObservationGate", () => {
     expect(observationGateSystemPrompt).toContain("conversationGoal");
     expect(observationGateSystemPrompt).toContain("具体的な未解決の問い");
     expect(observationGateSystemPrompt).toContain("協力の継続そのものをGoalにしない");
+    expect(observationGateSystemPrompt).toContain("ignoreではdecisionとreasonを必ず返し");
+  });
+
+  it("FR-91, NFR-21: retains an ignore decision when only its audit reason is omitted", () => {
+    expect(normalizeObservationGateDecision({ decision: "ignore" })).toEqual({ decision: "ignore", reason: "具体的な発話動機を見出さないと判断した" });
+    expect(() => normalizeObservationGateDecision({ decision: "engage", reason: "気になる" })).toThrow("conversationGoal");
+    expect(() => normalizeObservationGateDecision({ decision: "ignore", arbitrary: true })).toThrow("arbitrary");
   });
 
   it("FR-91, NFR-21: passes only bounded ID-free social context to the one-shot model", async () => {
