@@ -248,7 +248,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-62：predictionContextは前回予測、誤差評価、G3要約とmemoryIntents、RecentExperienceのeffect、memoryCandidatesを持つ。（C-51, C-62, C-66）
 - FR-63：G1/G2の追加LLM callはNFRの例外とし、deadlineとcall予算を持つ。（C-70）
 - FR-64：予測Loopは旧continuity / memory分割後処理ではなく、Memory書込みはMemoryWriteServiceに集約する。（C-70）
-- FR-65：通常Ollamaの構造化出力はJSON Schemaのfield descriptionを`format`または`withStructuredOutput`で渡し、DeepAgentは`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。descriptionはRuntime検証を置き換えない。（C-71）
+- FR-65：通常Ollamaの構造化出力はJSON Schemaのfield descriptionを`format`または`withStructuredOutput`で渡し、DeepAgentは`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。構造化出力のpayloadはJSONだけを返す契約とし、通常OllamaのpromptはJSON object又はJSON arrayだけを返すことを明示する。JSON code fenceで包まれたpayloadは共通parserが外してから読む。DeepAgentは構造化出力ToolのJSON argumentsだけを最終出力として扱う。descriptionはRuntime検証を置き換えない。（C-71、更新）
 - NFR-14：predictionContextと背景経験はAgent所有権とContext budgetの対象にする。（C-51）
 - NFR-15：MemoryWriteServiceはAgent単位で直列化し、Memory versionの楽観ロックと冪等性を保証する。（C-67）
 - NFR-16：G1/G2の追加callはdeadline、最大試行回数、call予算を持ち、失敗しても通常会話を継続する。（C-52, C-70）
@@ -258,6 +258,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-86：Background Experience YAMLは`background:load <path>`で対象AgentのBackground Experience Storeへ単独で置換投入できる。YAMLのagentIdと対象を一致させ、会話Memory、Self、Stateを変更しない。Embedding設定が有効なら投入後にBackground ExperienceのEmbeddingを作成する。（C-45, C-46）
 - FR-87：予測誤差に加え、自律EventのTool成功・失敗、探索で得た事実、進展のなさを、Self、Commitment、Concern、Relationship、Background Experienceに照らしてappraisalする。喜びだけでなく、驚き、失望、苛立ち、怒り、警戒などを正当なFeelingとして扱い、相手へ共有しやすい前向きな結論へ丸めない。持続する影響はMood、Concern、Relationship、次のActionへ反映する。（C-03, C-07, C-09, C-14, C-17, C-48）
 - NFR-20：G1/G2、G3、MainAgentの構造化出力Schemaは主要fieldのdescriptionを保持し、通常OllamaとDeepAgentの両経路でdescription付きJSON Schemaをモデルへ渡す。descriptionの有無をtestで検証する。（C-71）
+- NFR-23：LLMがobject又はarrayの構造を返す全経路は、JSON payloadだけを出力・受理する。JSON code fenceは共通parserが一律に外してからJSONとして検証してよいが、YAML、`key: value`形式、自由文、独自の構造復元を構造化出力として解釈しない。通常Ollamaはprompt・JSON Schema・repairでJSON object又はJSON arrayだけを要求し、RuntimeはJSON構文不正を別形式へ変換又は推測補完せずrepair又は失敗として扱う。DeepAgentは構造化出力ToolのJSON argumentsを同じ契約として扱う。単なる外部発話、Web本文、要約本文など、構造を要求しないテキスト出力には適用しない。（追加：構造化出力の形式を一貫させ、YAML等の曖昧な復元を防ぐため）
 
 ## 完了判定
 
@@ -284,6 +285,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - AC-17：MemoryIntentのtargetにRelationshipとConcernが含まれず、既存PatchまたはConcern Proposalへ渡ることをContract testで確認する。（FR-56）
 - AC-18：predictionContextの所有権とContext budget、予測Loopが旧後処理ではないこと、G1/G2のcall予算をContract/System testで確認する。（FR-62, FR-63, FR-64, NFR-14, NFR-16）
 - AC-19：通常OllamaとDeepAgentの構造化出力がdescription付きJSON Schemaを渡し、G1/G2、G3、MainAgentの主要fieldにdescriptionがあることをContract testで確認する。（FR-65, NFR-20）
+- AC-24：全ての構造化LLM出力経路について、通常Ollamaの初回・repair promptがJSONのみを要求し、JSON Schemaを渡すこと、JSON code fenceを共通parserで一律に外すこと、YAML、`key: value`、自由文を受理しないこと、DeepAgentが構造化出力ToolのJSON argumentsだけを最終出力として扱うことをContract testで確認する。（FR-65, NFR-23）
 
 ### 方針の完了条件との対応
 

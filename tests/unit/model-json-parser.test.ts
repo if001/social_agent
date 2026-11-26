@@ -4,13 +4,16 @@ import { DomainError } from "../../src/domain/contracts.js";
 import { hasModelJsonSyntaxError, parseModelJson, retryMalformedModelJson } from "../../src/infrastructure/agent/model-json-parser.js";
 
 describe("parseModelJson", () => {
-  it("NFR-8: accepts a fenced object and escapes only literal controls inside strings", () => {
-    expect(parseModelJson("```json\n{\"summary\":\"一行目\n二行目\",\"facts\":[\"確認済み\"]}\n```"))
+  it("NFR-23: accepts a JSON payload in a json code fence", () => {
+    expect(parseModelJson("```json\n{\"summary\":\"一行目\\n二行目\",\"facts\":[\"確認済み\"]}\n```"))
       .toEqual({ summary: "一行目\n二行目", facts: ["確認済み"] });
   });
 
-  it("NFR-8: does not invent a JSON object from prose", () => {
+  it("NFR-23: rejects YAML-like output, prose, and invalid JSON", () => {
+    expect(() => parseModelJson("decision: none\nreason: no new evidence")).toThrow(SyntaxError);
     expect(() => parseModelJson("ignore\n\nnot JSON")).toThrow(SyntaxError);
+    expect(() => parseModelJson("```\n{\"decision\":\"none\"}\n```")).toThrow(SyntaxError);
+    expect(() => parseModelJson("{\"summary\":\"一行目\n二行目\"}")).toThrow(SyntaxError);
   });
 
   it("NFR-8: detects a syntax failure retained as a provider cause", () => {
