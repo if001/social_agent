@@ -167,6 +167,18 @@ describe("ExperienceIntegration", () => {
     expect(applied).toEqual([expect.objectContaining({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, relationship: { operation: "upsert", description: "展示の話題を共有する相手", reason: "今後も展示の話題を共有する前提が生じた" } })]);
   });
 
+  it("FR-82, NFR-8: keeps the Event Experience when repeated repair cannot shorten an optional Relationship", async () => {
+    const request = input(); const applied: unknown[] = [];
+    const tooLong = "関係の説明".repeat(101);
+    const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, {
+      integrate: () => Promise.resolve({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, memories: [], relationship: { operation: "upsert", description: tooLong, reason: "関係が変化した" } } as never),
+      repair: () => Promise.resolve({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, memories: [], relationship: { operation: "upsert", description: tooLong, reason: "関係が変化した" } } as never)
+    }, createCanonicalSubjectResolver(["user-1"]));
+    await integration.process(request, new AbortController().signal);
+    expect(applied).toEqual([expect.objectContaining({ experience: expect.objectContaining({ summary: "ユーザーが展示の予定を話した" }) })]);
+    expect((applied[0] as { relationship?: unknown }).relationship).toBeUndefined();
+  });
+
   it("FR-82, FR-95: states the Relationship and Focus Concern output boundary explicitly", () => {
     for (const phrase of ["summaryとfactsだけ", "occurredAt", "kind", "upsert または remove", "reason は必須", "target", "subjectId", "concernStatus", "focusConcern"] ) expect(experienceIntegrationSystemPrompt).toContain(phrase);
     for (const phrase of ["summaryとfactsだけ", "occurredAt", "kind", "upsert又はremove", "reasonは必須", "target", "subjectId", "concernStatus", "focusConcern"]) expect(experienceIntegrationRepairInstruction).toContain(phrase);

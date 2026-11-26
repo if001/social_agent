@@ -4,6 +4,7 @@ import { errorLogContext, noopLogger, type Logger } from "../../observability/lo
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { toModelRecordView } from "./model-record-view.js";
+import { parseModelJson } from "./model-json-parser.js";
 
 export const predictionSystemPrompt = `あなたはAgentのG1/G2予測担当です。現在のユーザー発話とAgentの応答を観測し、次のユーザー発話を予測し、前回の予測を評価します。
 
@@ -74,7 +75,6 @@ const contentOf = (value: unknown): string => {
   if (Array.isArray(value)) return value.map((item: unknown) => { const part = objectOf(item); return typeof part.text === "string" ? part.text : ""; }).join("");
   return "";
 };
-const parseJson = (content: string): unknown => JSON.parse(content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""));
 
 export function createOllamaPredictionModel(config: OllamaChatConfig, logger: Logger = noopLogger): PredictionModel {
   const model = createOllamaChatModel({ ...config, think: "low" });
@@ -93,7 +93,7 @@ export function createOllamaPredictionModel(config: OllamaChatConfig, logger: Lo
         const usage = objectOf(result.usage_metadata); const responseMeta = objectOf(result.response_metadata);
         logger.log("info", "prediction.model_completed", { agentId: input.agentId, elapsedMs: Date.now() - startedAt, systemPromptChars: predictionSystemPrompt.length, inputChars: inputJson.length, outputChars: content.length, ...(typeof usage.input_tokens === "number" ? { inputTokens: usage.input_tokens } : {}), ...(typeof usage.output_tokens === "number" ? { outputTokens: usage.output_tokens } : {}), ...(typeof responseMeta.finish_reason === "string" ? { finishReason: responseMeta.finish_reason } : {}) });
         if (content.trim().length === 0) throw providerFailure("G1/G2 prediction", new Error("Prediction returned empty content"), signal);
-        return normalizePrediction(parseJson(content));
+        return normalizePrediction(parseModelJson(content));
       } catch (error) {
         const failure = providerFailure("G1/G2 prediction", error, signal);
         logger.log("warn", "prediction.failed", { agentId: input.agentId, ...errorLogContext(failure), aborted: signal.aborted });
