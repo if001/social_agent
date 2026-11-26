@@ -160,6 +160,25 @@ describe("autonomous response outbox", () => {
     expect(await new OutboxDispatcher(persistence, queue).dispatch()).toBe(0);
   });
 
+  it("delivers a scheduled task response to the configured Discord channel when the task has no reply context", async () => {
+    const input = agentCoreInputFixture();
+    const persistence = new InMemoryRuntimePersistence(() => input);
+    const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
+    const runtime = new AgentRuntime({
+      destination: "agent-a", defaultOutputDestination: "discord:agent-a", ownerDiscordUserId: "owner", defaultOutputChannelId: "channel",
+      queue, persistence, ids: new SequenceIdGenerator(["scheduled-task-output"]), now: () => new Date("2026-01-01T00:00:00Z"),
+      harness: new ScriptedAgentHarness([{ desire: "約束した報告を届ける", action: { type: "respond", recipient: "user", content: "報告です" } }])
+    });
+
+    await runtime.process({ id: "scheduled-task-event", agentId: "agent-a", kind: "system", occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind: "scheduled-task", instruction: "報告する" } }, new AbortController().signal);
+
+    const [pending] = await persistence.pendingOutbox(10);
+    expect(pending?.envelope).toMatchObject({
+      destination: "discord:agent-a",
+      payload: { text: "報告です", user: { discordUserId: "owner" }, replyContext: { channelId: "channel" } }
+    });
+  });
+
   it.each([
     ["autonomy-review", "internal"],
     ["scheduled-task", "system"]
