@@ -10,23 +10,21 @@ describe("ObservationGate", () => {
   it("FR-91: frames engagement as the Agent's own curiosity and feeling, not a reply obligation", () => {
     expect(observationGateSystemPrompt).toContain("自分の好奇心");
     expect(observationGateSystemPrompt).toContain("現在のMood");
-    expect(observationGateSystemPrompt).toContain("返信すること");
-    expect(observationGateSystemPrompt).toContain("conversationGoal");
+    expect(observationGateSystemPrompt).toContain("会話Goal");
     expect(observationGateSystemPrompt).toContain("具体的な未解決の問い");
-    expect(observationGateSystemPrompt).toContain("協力の継続そのものをGoalにしない");
-    expect(observationGateSystemPrompt).toContain("ignoreではdecisionとreasonを必ず返し");
+    expect(observationGateSystemPrompt).toContain("decisionとreasonだけを必ず返す");
   });
 
   it("FR-91, NFR-21: retains an ignore decision when only its audit reason is omitted", () => {
     expect(normalizeObservationGateDecision({ decision: "ignore" })).toEqual({ decision: "ignore", reason: "具体的な発話動機を見出さないと判断した" });
-    expect(() => normalizeObservationGateDecision({ decision: "engage", reason: "気になる" })).toThrow("conversationGoal");
+    expect(normalizeObservationGateDecision({ decision: "engage", reason: "気になる" })).toEqual({ decision: "engage", reason: "気になる" });
     expect(() => normalizeObservationGateDecision({ decision: "ignore", arbitrary: true })).toThrow("arbitrary");
   });
 
   it("FR-91, NFR-21: passes only bounded ID-free social context to the one-shot model", async () => {
     let received: unknown;
-    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: "少し高揚している", relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }) }, { decide: (input) => { received = input; return Promise.resolve({ decision: "engage", reason: "前の議論に接続する", conversationGoal: "噂の変質条件を確かめる" }); } });
-    await expect(gate.decide(event, new AbortController().signal)).resolves.toEqual({ decision: "engage", reason: "前の議論に接続する", conversationGoal: "噂の変質条件を確かめる", input: { text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: "少し高揚している", relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }, modelCalls: 1, retrievalCount: 1 });
+    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: "少し高揚している", relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }) }, { decide: (input) => { received = input; return Promise.resolve({ decision: "engage", reason: "前の議論に接続する" }); } });
+    await expect(gate.decide(event, new AbortController().signal)).resolves.toEqual({ decision: "engage", reason: "前の議論に接続する", input: { text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: "少し高揚している", relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }, modelCalls: 1, retrievalCount: 1 });
     expect(received).toEqual(expect.objectContaining({ peerName: "aka", mood: "少し高揚している", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, relationship: "議論すると面白い相手" }));
     expect(JSON.stringify(received)).not.toContain("observed-1");
     expect(JSON.stringify(received)).not.toContain("agent:aka");

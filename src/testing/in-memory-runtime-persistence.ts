@@ -2,6 +2,7 @@ import type { RuntimePersistence, PendingOutput } from "../application/agent-run
 import type { AgentStatePatchResult } from "../application/agent-state-patch.js";
 import type { AgentCoreInput, AgentRunResult, DomainEvent, MessageEnvelope, ToolExecutionRecord } from "../domain/contracts.js";
 import type { ObservationGateAudit } from "../application/observation-gate.js";
+import type { ConversationGoalCompositionAudit } from "../application/conversation-goal.js";
 
 export class InMemoryRuntimePersistence implements RuntimePersistence {
   readonly receipts = new Set<string>();
@@ -10,6 +11,7 @@ export class InMemoryRuntimePersistence implements RuntimePersistence {
   readonly updates: AgentStatePatchResult[] = [];
   readonly failures: { readonly event: DomainEvent; readonly error: unknown; readonly toolExecutions: readonly ToolExecutionRecord[] }[] = [];
   readonly ignoredObservations: { readonly event: DomainEvent; readonly gate: ObservationGateAudit }[] = [];
+  readonly conversationGoalCompositions: ConversationGoalCompositionAudit[] = [];
   readonly correlations = new Map<string, string>();
   readonly #outbox = new Map<string, { envelope: MessageEnvelope; sent: boolean }>();
   constructor(private readonly inputFactory: (event: DomainEvent) => AgentCoreInput | Promise<AgentCoreInput>) {}
@@ -19,10 +21,11 @@ export class InMemoryRuntimePersistence implements RuntimePersistence {
   loadInput(event: DomainEvent): Promise<AgentCoreInput> { return Promise.resolve(this.inputFactory(event)); }
   activateTriggers(): Promise<void> { return Promise.resolve(); }
   authorizeInbound(event: DomainEvent, messageId: string): Promise<void> { const key = `${event.agentId}:${event.correlationId ?? event.id}`; const existing = this.correlations.get(key); if (existing !== undefined && existing !== messageId) return Promise.reject(new Error("Correlation loop detected")); this.correlations.set(key, messageId); return Promise.resolve(); }
-  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], _subjectIds?: readonly string[], _gate?: ObservationGateAudit, receiptPreclaimed = false): Promise<"committed" | "duplicate"> {
+  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], _subjectIds?: readonly string[], _gate?: ObservationGateAudit, receiptPreclaimed = false, composition?: ConversationGoalCompositionAudit): Promise<"committed" | "duplicate"> {
     const key = `${message.destination}:${message.id}`;
     if (this.receipts.has(key) || (receiptPreclaimed && !this.#gateClaims.delete(key))) return Promise.resolve("duplicate");
     this.receipts.add(key); this.events.push(event); this.updates.push(update);
+    if (composition !== undefined) this.conversationGoalCompositions.push(composition);
     for (const envelope of outgoing) this.#outbox.set(envelope.id, { envelope, sent: false });
     return Promise.resolve("committed");
   }

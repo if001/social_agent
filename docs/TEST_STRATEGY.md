@@ -279,6 +279,8 @@ pnpm test:live
 
 ## Release conditions
 
+Conversation Goal変更では、Observation GateがGoalを出力しないこと、開始AgentごとのComposer監査が成功・失敗ともEventに保存されること、継続replyでComposerを再実行せず保存済みGoalを渡すこと、`user` / `channel`配送がConversationを置換しないことをunit / integrationで確認する。
+
 - 変更範囲に対応する自動suiteがすべて成功する。
 - schema、migration、repository、prompt、文書の用語と不変条件が一致する。
 - 不正出力、provider失敗、DB失敗の経路が部分commitを残さない。

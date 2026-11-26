@@ -53,7 +53,7 @@ export class ContextBuilder {
         }
       })
     };
-    const required = { run: source.run, observation: observation(source.observation), ...(predictionContext === undefined ? {} : { predictionContext }), ...(source.previousAssessment === undefined ? {} : { previousAssessment: source.previousAssessment }), ...(source.previousDesire === undefined ? {} : { previousDesire: { ...source.previousDesire, desire: text(source.previousDesire.desire, 800) } }), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), currentSelf, state, runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
+    const required = { run: source.run, observation: observation(source.observation), ...(predictionContext === undefined ? {} : { predictionContext }), ...(source.previousAssessment === undefined ? {} : { previousAssessment: source.previousAssessment }), ...(source.previousDesire === undefined ? {} : { previousDesire: { ...source.previousDesire, desire: text(source.previousDesire.desire, 800) } }), ...(boundedPersona === undefined ? {} : { persona: boundedPersona }), ...(source.conversation === undefined ? {} : { conversation: source.conversation }), currentSelf, state, runtimeConstraints: texts(source.runtimeConstraints, 16, 1_000), limits: source.limits };
     // DeepAgentHarness does not serialize `state` into the model prompt.
     const requiredForModelBudget = { ...required, state: undefined };
     let used = estimateTokens(requiredForModelBudget);

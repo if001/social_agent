@@ -4,7 +4,7 @@ import { MemoryWriteService, recordMemoryMutationFailure, type MemoryCandidate, 
 import { AgentStateRepository } from "./postgres.js";
 import type { PostgresUnitOfWork } from "./postgres.js";
 import { and, eq, isNull } from "drizzle-orm";
-import { agentRuns, concernActivities, conversationMessages, conversations, events, eventSubjects, memoryWebEvidence, messageReceipts, observationGateDecisions, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
+import { agentRuns, concernActivities, conversationGoalCompositions, conversationMessages, conversations, events, eventSubjects, memoryWebEvidence, messageReceipts, observationGateDecisions, outboxMessages, stateChanges, toolExecutions, webSnapshots } from "./schema.js";
 
 export type CommitEventInput = {
   readonly destination: string;
@@ -12,7 +12,8 @@ export type CommitEventInput = {
   readonly event: { readonly id: string; readonly agentId: string; readonly kind: string; readonly observation: unknown; readonly source: string; readonly occurredAt: Date; readonly causationId?: string; readonly correlationId?: string };
   readonly eventSubjectIds?: readonly string[];
   readonly receiptPreclaimed?: boolean;
-  readonly observationGate?: { readonly decision: "ignore" | "engage"; readonly reason: string; readonly conversationGoal?: string; readonly input?: unknown; readonly modelCalls: number; readonly retrievalCount: number; readonly failureReason?: string };
+  readonly observationGate?: { readonly decision: "ignore" | "engage"; readonly reason: string; readonly input?: unknown; readonly modelCalls: number; readonly retrievalCount: number; readonly failureReason?: string };
+  readonly conversationGoal?: { readonly source: "observed" | "direct" | "peer-initiation"; readonly input?: unknown; readonly reason: string; readonly goal?: string; readonly modelCalls: number; readonly retrievalCount: number; readonly failureReason?: string };
   readonly run: { readonly id: string; readonly inputStateVersion: number; readonly inputSnapshot?: unknown; readonly startedAt: Date; readonly result: unknown };
   readonly stateValues: Readonly<Record<string, unknown>>;
   readonly changes: readonly { readonly id: string; readonly target: string; readonly operation: string; readonly before: unknown; readonly after: unknown; readonly reason: string; readonly evidenceIds: readonly string[] }[];
@@ -42,6 +43,7 @@ export class PostgresEventTransaction {
       const eventSubjectIds = input.eventSubjectIds ?? [];
       if (eventSubjectIds.length > 0) await client.insert(eventSubjects).values(eventSubjectIds.map((subjectId) => ({ eventId: input.event.id, subjectId }))).onConflictDoNothing();
       if (input.observationGate !== undefined) await client.insert(observationGateDecisions).values({ eventId: input.event.id, ...input.observationGate }).onConflictDoNothing();
+      if (input.conversationGoal !== undefined) await client.insert(conversationGoalCompositions).values({ eventId: input.event.id, agentId: input.event.agentId, ...input.conversationGoal }).onConflictDoNothing();
       await client.insert(agentRuns).values({ id: input.run.id, agentId: input.event.agentId, eventId: input.event.id, inputStateVersion: input.run.inputStateVersion, inputSnapshot: input.run.inputSnapshot ?? null, startedAt: input.run.startedAt });
       if (input.conversation !== undefined) {
         const completedAt = input.conversation.status === "completed" ? new Date() : null;

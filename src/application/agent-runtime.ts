@@ -9,6 +9,10 @@ import { focusedConcernForIntegration } from "./focus-concern.js";
 import { errorLogContext, noopLogger, type Logger } from "../observability/logger.js";
 import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 import type { ObservationGate, ObservationGateAudit } from "./observation-gate.js";
+import type { ConversationGoalComposer } from "./conversation-goal.js";
+import type { ConversationGoalCompositionAudit } from "./conversation-goal.js";
+import type { ObservationGateInput } from "./observation-gate.js";
+import type { PeerCandidate, PeerInitiationGate } from "./peer-initiation-gate.js";
 
 const IncomingPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("message-received"), text: z.string().min(1), senderKind: z.enum(["human", "peer"]), addressing: z.enum(["direct", "observed"]), actorId: z.string().min(1).optional(), peerName: z.string().min(1).max(120).optional(), sourceType: z.enum(["terminal", "discord"]).optional(), sourceId: z.string().min(1).optional(), replyContext: z.record(z.string(), z.unknown()).optional() }),
@@ -27,7 +31,7 @@ export interface RuntimePersistence {
   loadInput(event: DomainEvent): Promise<AgentCoreInput | RuntimeExecutionInput>;
   claimObservationGate(destination: string, messageId: string): Promise<boolean>;
   releaseObservationGate(destination: string, messageId: string): Promise<void>;
-  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], subjectIds?: readonly string[], observationGate?: ObservationGateAudit, receiptPreclaimed?: boolean): Promise<"committed" | "duplicate">;
+  commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], subjectIds?: readonly string[], observationGate?: ObservationGateAudit, receiptPreclaimed?: boolean, conversationGoal?: ConversationGoalCompositionAudit): Promise<"committed" | "duplicate">;
   recordIgnoredObservation(message: MessageEnvelope, event: DomainEvent, gate: ObservationGateAudit, subjectIds?: readonly string[], receiptPreclaimed?: boolean): Promise<"committed" | "duplicate">;
   recordFailure(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, error: unknown, toolExecutions: readonly ToolExecutionRecord[], observationGate?: ObservationGateAudit): Promise<void>;
   pendingOutbox(limit: number): Promise<readonly PendingOutput[]>;
@@ -35,7 +39,7 @@ export interface RuntimePersistence {
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly ownerDiscordUserId?: string; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly subjects?: CanonicalSubjectResolver };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly ownerDiscordUserId?: string; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly conversationGoalComposer?: ConversationGoalComposer; readonly peerInitiationGate?: PeerInitiationGate; readonly peers?: readonly PeerCandidate[]; readonly subjects?: CanonicalSubjectResolver };
 
 const externalSpeech = (action: AgentAction): string | undefined => (action.type === "respond" ? action.content : action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined);
 const channelContext = (value: unknown): { readonly channelId: string } | undefined => {
@@ -43,6 +47,15 @@ const channelContext = (value: unknown): { readonly channelId: string } | undefi
   const channelId: unknown = (value as Record<string, unknown>).channelId;
   return typeof channelId === "string" ? { channelId } : undefined;
 };
+const goalInputFromCore = (input: AgentCoreInput, peerName: string): ObservationGateInput => ({
+  text: input.observation.summary,
+  peerName,
+  self: { disposition: input.currentSelf.disposition.slice(0, 240), story: input.currentSelf.selfStory.slice(0, 320) },
+  mood: input.state.mood?.slice(0, 120) ?? "",
+  concerns: input.state.concerns.slice(0, 3).map(({ description }) => description.slice(0, 240)),
+  memories: input.memories.slice(0, 3).map(({ content }) => content.slice(0, 320))
+});
+type OutgoingBuilder = (action: AgentAction, input: AgentCoreInput, peerTarget?: PeerCandidate) => readonly MessageEnvelope[];
 
 export class AgentRuntime {
   readonly #updates = new AgentStatePatchService();
@@ -60,12 +73,14 @@ export class AgentRuntime {
       const configuredDestination = typeof event.payload.destination === "string" ? event.payload.destination : this.options.defaultOutputDestination;
       const destination = configuredDestination.trim() !== "" ? configuredDestination : undefined;
       if (destination === undefined) throw new DomainError("VALIDATION", "Autonomous Event requires an owner or default destination");
-      const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
+      const outgoing: OutgoingBuilder = (action, input, peerTarget) => {
         const text = externalSpeech(action);
-        const replyContext = action.type === "respond" && action.recipient === "channel" ? channelContext(event.payload.replyContext) : event.payload.replyContext;
+        const selectedPeer = action.type === "respond" && action.recipient === "peer" ? peerTarget : undefined;
+        const replyContext = action.type === "respond" && action.recipient === "channel" ? channelContext(event.payload.replyContext) : selectedPeer === undefined ? event.payload.replyContext : { channelId: selectedPeer.channelId };
         return text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
         type: "agent-response", text, agentId: event.agentId, autonomous: true,
         ...(action.type === "respond" && action.recipient === "user" && this.options.ownerDiscordUserId !== undefined ? { user: { discordUserId: this.options.ownerDiscordUserId } } : {}),
+        ...(action.type === "respond" && action.recipient === "peer" && selectedPeer !== undefined ? { peer: { discordUserId: selectedPeer.discordUserId } } : {}),
         ...(replyContext === undefined ? {} : { replyContext }),
         action: { id: input.run.runId, type: action.type }
       })] : [];
@@ -120,7 +135,7 @@ export class AgentRuntime {
     const direct = event.payload.addressing !== "observed";
     const outgoingDestination = direct ? message.replyTo ?? this.options.defaultOutputDestination : this.options.defaultOutputDestination;
     const peerReply = event.payload.senderKind === "peer" && event.payload.addressing === "direct";
-    const outgoing = (action: AgentAction, input: AgentCoreInput): MessageEnvelope[] => {
+    const outgoing: OutgoingBuilder = (action, input) => {
       const content = externalSpeech(action);
       if (content === undefined) return [];
       const eventDerivedRecipient = action.type !== "respond" || action.recipient === undefined;
@@ -137,7 +152,7 @@ export class AgentRuntime {
       throw error;
     }
   }
-  async #execute(message: MessageEnvelope, event: DomainEvent, signal: AbortSignal, outgoingFor: readonly MessageEnvelope[] | ((action: AgentAction, input: AgentCoreInput) => readonly MessageEnvelope[]), observationGate?: ObservationGateAudit, receiptPreclaimed = false): Promise<AgentAction> {
+  async #execute(message: MessageEnvelope, event: DomainEvent, signal: AbortSignal, outgoingFor: readonly MessageEnvelope[] | OutgoingBuilder, observationGate?: ObservationGateAudit, receiptPreclaimed = false): Promise<AgentAction> {
     const startedAt = Date.now(); const eventLogger = (this.options.logger ?? noopLogger).child({ agentId: event.agentId, messageId: message.id, eventId: event.id, eventKind: event.kind, correlationId: event.correlationId });
     if (event.payload.targetKind === "memory-update") {
       if (this.options.memoryUpdateHandler === undefined) throw new DomainError("VALIDATION", "MemoryUpdateHandler is not configured");
@@ -153,7 +168,37 @@ export class AgentRuntime {
     let input: AgentCoreInput = "persistentState" in loaded
       ? (() => { const coreInput = { ...loaded }; Reflect.deleteProperty(coreInput, "persistentState"); return coreInput; })()
       : loaded;
-    if (input.conversation === undefined && observationGate?.decision === "engage") input = { ...input, conversation: { goal: observationGate.conversationGoal, status: "candidate" } };
+    let conversationGoalAudit: ConversationGoalCompositionAudit | undefined;
+    const socialStart = event.kind === "message-received" && (observationGate?.decision === "engage" || event.payload.addressing === "direct");
+    if (input.conversation === undefined && socialStart && this.options.conversationGoalComposer !== undefined) {
+      const reason = observationGate?.decision === "engage" ? observationGate.reason : "相手から直接話しかけられたため、自分がこの会話で得たいことを定める";
+      try {
+        const composed = await this.options.conversationGoalComposer.composeAudited(event, observationGate?.decision === "engage" ? "observed" : "direct", reason, signal);
+        conversationGoalAudit = composed.audit;
+        if (composed.goal !== undefined) input = { ...input, conversation: { goal: composed.goal.goal, status: "candidate" } };
+        else throw new Error(composed.audit.failureReason ?? "Conversation Goal was not composed");
+        eventLogger.log("info", "conversation_goal.composed", { eventId: event.id, source: observationGate?.decision === "engage" ? "observation-gate" : "direct" });
+      } catch (error) {
+        eventLogger.log("warn", "conversation_goal.failed", { ...errorLogContext(error) });
+      }
+    }
+    let peerTarget: PeerCandidate | undefined;
+    if (event.kind !== "message-received" && input.conversation === undefined && this.options.peerInitiationGate !== undefined && this.options.conversationGoalComposer !== undefined && (this.options.peers?.length ?? 0) > 0) {
+      try {
+        const initiated = await this.options.peerInitiationGate.decide(input, this.options.peers ?? [], signal);
+        if (initiated.peer !== undefined) {
+          const composerInput = goalInputFromCore(input, initiated.peer.displayName);
+          const conversation = await this.options.conversationGoalComposer.composeInput(composerInput, initiated.decision.reason, signal);
+          conversationGoalAudit = { source: "peer-initiation", input: composerInput, reason: initiated.decision.reason, goal: conversation.goal, modelCalls: 1, retrievalCount: 0 };
+          input = { ...input, conversation: { goal: conversation.goal, status: "candidate", counterpart: initiated.peer.displayName } };
+          peerTarget = initiated.peer;
+          eventLogger.log("info", "peer_initiation_gate.initiated", { peerName: initiated.peer.displayName });
+        }
+      } catch (error) {
+        conversationGoalAudit = { source: "peer-initiation", reason: "自律peer開始の会話目的を定める", modelCalls: 1, retrievalCount: 0, failureReason: error instanceof Error ? error.message.slice(0, 1_000) : String(error).slice(0, 1_000) };
+        eventLogger.log("warn", "peer_initiation_gate.failed", { ...errorLogContext(error) });
+      }
+    }
     const persistentState = "persistentState" in loaded ? loaded.persistentState : input.state;
     const logger = eventLogger.child({ runId: input.run.runId });
     logger.log("info", "context.loaded", { memoryCount: input.memories.length, recentExperienceCount: input.recentExperiences.length, relationshipCount: input.state.relationships.length, availableToolCount: input.availableTools.length });
@@ -172,9 +217,9 @@ export class AgentRuntime {
     logger.log("info", "agent_core.completed", { actionType: output.action.type, elapsedMs: Date.now() - startedAt, toolExecutionCount: result.toolExecutions.length, stateProposalCount: result.concernProposals?.length ?? 0 });
     const patched = this.#updates.initial(event.agentId, persistentState);
     const update = this.#updates.applyConcernProposals(patched, result.concernProposals ?? [], event.id, () => this.options.ids.next());
-    const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input) : outgoingFor;
+    const outgoing = typeof outgoingFor === "function" ? outgoingFor(output.action, input, peerTarget) : outgoingFor;
     const subject = typeof event.payload.subjectId === "string" ? event.payload.subjectId : undefined;
-    const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing, subject === undefined ? [] : [subject], observationGate, receiptPreclaimed);
+    const committed = await this.options.persistence.commit(message, event, input, result, update, outgoing, subject === undefined ? [] : [subject], observationGate, receiptPreclaimed, conversationGoalAudit);
     logger.log("info", "event.committed", { commitResult: committed, stateChangeCount: update.changes.length, outgoingCount: outgoing.length, elapsedMs: Date.now() - startedAt });
     if (committed === "committed" && this.options.experienceIntegration !== undefined) {
       const focus = focusedConcernForIntegration(result, persistentState.concerns);

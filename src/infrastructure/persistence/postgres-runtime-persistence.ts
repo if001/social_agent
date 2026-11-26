@@ -10,6 +10,7 @@ import { PostgresUnitOfWork } from "./postgres.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { messageReceipts, outboxMessages, runtimeCorrelations, runtimeRateWindows } from "./schema.js";
 import type { ObservationGateAudit } from "../../application/observation-gate.js";
+import type { ConversationGoalCompositionAudit } from "../../application/conversation-goal.js";
 import { observationFromEvent } from "./postgres-agent-context-loader.js";
 import { conversationKey } from "./conversation-key.js";
 import { PostgresConcernEmbeddingLifecycle } from "./postgres-concern-embedding.js";
@@ -74,7 +75,7 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
       return { correlations: correlations.length, rateWindows: rateWindows.length };
     });
   }
-  async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], eventSubjectIds: readonly string[] = [], observationGate?: ObservationGateAudit, receiptPreclaimed = false): Promise<"committed" | "duplicate"> {
+  async commit(message: MessageEnvelope, event: DomainEvent, input: AgentCoreInput, result: AgentRunResult, update: AgentStatePatchResult, outgoing: readonly MessageEnvelope[], eventSubjectIds: readonly string[] = [], observationGate?: ObservationGateAudit, receiptPreclaimed = false, conversationGoalAudit?: ConversationGoalCompositionAudit): Promise<"committed" | "duplicate"> {
     const validatedTools = this.#validateTools(input, result.toolExecutions).map((execution) => ({ ...execution, id: this.ids.next() }));
     const validatedResult = { ...result, toolExecutions: validatedTools };
     const selectedFocusId = focusConcernId(validatedResult);
@@ -84,24 +85,24 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const correlationId = event.correlationId ?? event.id;
     const conversationId = conversationKey(event.agentId, correlationId);
     const isSocial = event.kind === "message-received";
-    // A Conversation starts only when the Agent actually replies to a source
-    // Discord message.  A channel monologue is external speech, but it does
-    // not by itself establish a conversational turn.
-    const response = outgoing.some(({ payload }) => {
-      const context = payload.replyContext;
-      return typeof context === "object" && context !== null && typeof (context as Record<string, unknown>).messageId === "string";
-    });
+    const response = outgoing.some(({ payload }) => payload.type === "agent-response" && typeof payload.text === "string" && payload.text.trim() !== "");
+    const peerInitiatedCandidate = event.kind !== "message-received" && input.conversation?.status === "candidate";
+    const peerDelivery = outgoing.some(({ payload }) => typeof payload.peer === "object" && payload.peer !== null);
     const close = result.output.action.type === "no-external-action";
-    const conversationGoal = input.conversation?.goal ?? (observationGate?.decision === "engage" ? observationGate.conversationGoal : result.output.desire);
+    const conversationGoal = input.conversation?.goal;
     const replyContext = typeof event.payload.replyContext === "object" && event.payload.replyContext !== null ? event.payload.replyContext as Record<string, unknown> : undefined;
     const externalMessageId = typeof replyContext?.messageId === "string" ? replyContext.messageId : undefined;
     const endedReason = result.output.action.type === "no-external-action" ? result.output.action.reason : undefined;
-    const conversation = isSocial && (response || (close && input.conversation?.status === "active")) ? { id: conversationId, correlationId, goal: conversationGoal, status: response ? "active" as const : "completed" as const, ...(endedReason === undefined ? {} : { endedReason }), ...(externalMessageId === undefined ? {} : { externalMessageId }) } : undefined;
+    // A recipient change (for example a peer conversation that also mentions
+    // the owner) never replaces its existing goal. Only a pre-composed
+    // candidate or active Conversation can be persisted.
+    const conversation = conversationGoal !== undefined && (isSocial || peerInitiatedCandidate) && (!peerInitiatedCandidate || peerDelivery) && (response || (close && input.conversation?.status === "active")) ? { id: conversationId, correlationId, goal: conversationGoal, status: response ? "active" as const : "completed" as const, ...(endedReason === undefined ? {} : { endedReason }), ...(externalMessageId === undefined ? {} : { externalMessageId }) } : undefined;
     const committed = await this.#transaction.commit({
       destination: message.destination, messageId: message.id,
       event: { id: event.id, agentId: event.agentId, kind: event.kind, observation: auditObservation(input, event), source: message.source, occurredAt: new Date(event.occurredAt), ...(event.causationId === undefined ? {} : { causationId: event.causationId }), ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }) }, eventSubjectIds,
       receiptPreclaimed,
       ...(observationGate === undefined ? {} : { observationGate }),
+      ...(conversationGoalAudit === undefined ? {} : { conversationGoal: conversationGoalAudit }),
       run: { id: input.run.runId, inputStateVersion: input.currentSelf.version, inputSnapshot: decisionInputSnapshot(input), startedAt: new Date(input.run.occurredAt), result: { ...result, memoryRetrievalTrace: input.memoryRetrievalTrace } },
       stateValues: { mood: update.state.mood, concerns: update.state.concerns, relationships: update.state.relationships },
       changes: update.changes.map((change) => ({ ...change, id: this.ids.next(), reason: "AgentTurn patch", evidenceIds: [change.eventId] })),
