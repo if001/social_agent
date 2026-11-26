@@ -39,7 +39,7 @@ export interface RuntimePersistence {
   authorizeInbound(event: DomainEvent, messageId: string, maxEventsPerMinute: number): Promise<void>;
 }
 
-export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly ownerDiscordUserId?: string; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly conversationGoalComposer?: ConversationGoalComposer; readonly peerInitiationGate?: PeerInitiationGate; readonly peers?: readonly PeerCandidate[]; readonly subjects?: CanonicalSubjectResolver };
+export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly ownerDiscordUserId?: string; readonly defaultOutputChannelId?: string; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly conversationGoalComposer?: ConversationGoalComposer; readonly peerInitiationGate?: PeerInitiationGate; readonly peers?: readonly PeerCandidate[]; readonly subjects?: CanonicalSubjectResolver };
 
 const externalSpeech = (action: AgentAction): string | undefined => (action.type === "respond" ? action.content : action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined);
 const channelContext = (value: unknown): { readonly channelId: string } | undefined => {
@@ -76,7 +76,8 @@ export class AgentRuntime {
       const outgoing: OutgoingBuilder = (action, input, peerTarget) => {
         const text = externalSpeech(action);
         const selectedPeer = action.type === "respond" && action.recipient === "peer" ? peerTarget : undefined;
-        const replyContext = action.type === "respond" && action.recipient === "channel" ? channelContext(event.payload.replyContext) : selectedPeer === undefined ? event.payload.replyContext : { channelId: selectedPeer.channelId };
+        const inheritedContext = action.type === "respond" && action.recipient === "channel" ? channelContext(event.payload.replyContext) : event.payload.replyContext;
+        const replyContext = selectedPeer === undefined ? inheritedContext ?? (this.options.defaultOutputChannelId === undefined ? undefined : { channelId: this.options.defaultOutputChannelId }) : { channelId: selectedPeer.channelId };
         return text !== undefined ? [this.#responseEnvelope(message, event, input, destination, 0, event.correlationId ?? event.id, {
         type: "agent-response", text, agentId: event.agentId, autonomous: true,
         ...(action.type === "respond" && action.recipient === "user" && this.options.ownerDiscordUserId !== undefined ? { user: { discordUserId: this.options.ownerDiscordUserId } } : {}),
