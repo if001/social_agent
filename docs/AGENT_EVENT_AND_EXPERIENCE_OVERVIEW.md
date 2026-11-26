@@ -9,7 +9,7 @@
 ```mermaid
 flowchart LR
     E[Event<br/>出来事・時刻・内部処理] --> I[必要最小限の入力を集める]
-    I --> A[MainAgent が appraisal<br/>Meaning / Feeling / Desire / Action]
+    I --> A[MainAgent が appraisal<br/>Feeling / Desire / Action]
     A --> C[初回 commit<br/>Action・監査・Outbox]
     C --> X[Experience Integration<br/>小さな経験保存判断]
     X --> S[短中期の更新候補<br/>Memory / Mood / Relationship / Focus Concern]
@@ -69,7 +69,7 @@ flowchart TD
 | 発話を返せる通常Loop | `message-received`、`idle`、`concern-due`、配送先を持つ`scheduled-task`、`prediction-g3-result` |
 | 発話を返さないmaintenance | `concern-formation`、`memory-update`、`reflection` |
 
-`idle`は発話またはrefuseを必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
+`idle`は`respond`を必須とする。その他の発話可能Eventは、Agent自身に話す動機があるときだけ発話する。特に`prediction-g3-result`は調査結果の再判断を行う経路であり、調査が完了したことだけを理由に通知するものではない。
 
 `idle`の探索はユーザーへの報告をゴールにしない。Agent自身の知りたい欲、驚き、不満、仮説、遊びから行動し、発話は独り言、途中経過、反論、または自分が知りたい具体的な事実への問いになり得る。退屈や面倒で先送り・中断・脱線してもよいが、完了・予約・確認済みの事実は偽らない。明示的な`scheduled-task`は、自由な探索ではなく約束・役割の実行である。
 
@@ -123,19 +123,19 @@ sequenceDiagram
     R->>M: Event + 最小 Context + previousAssessment
     M->>T: 必要な Self / Memory / Relationship 等だけ取得
     T-->>M: 根拠となる Context / Tool 結果
-    M-->>R: Meaning + Feeling + Desire + Action
+    M-->>R: Feeling + Desire + Action
     R->>O: Action・監査・配送を初回 commit
     R->>X: commit 済み結果と同じ Context
     X-->>R: MemoryIntent、Relationship、Focus Concern の候補
 ```
 
-入力はすべてを prompt に詰め込むのではなく、Event と直近の継続情報を起点に必要なものだけを取得する。MainAgent は Event の終了時点で Meaning / Feeling / Desire / Action を一貫して決める。Runtimeは構造化Feelingを減衰・累積してMoodへ反映する。初回 commit 後の Experience Integration は次の Action を決めず、経験を残す価値があるときだけMemory、Relationship、Focus Concernの候補を作る。Event Experienceは必須だが、他の候補は不要又は失敗時にno-opとなっても、既にcommit済みのActionを巻き戻さない。
+入力はすべてを prompt に詰め込むのではなく、Event と直近の継続情報を起点に必要なものだけを取得する。MainAgent は Event の終了時点で Feeling / Desire / Action を一貫して決める。Runtimeは構造化Feelingを減衰・累積してMoodへ反映する。初回 commit 後の Experience Integration は次の Action を決めず、経験を残す価値があるときだけMemory、Relationship、Focus Concernの候補を作る。Event Experienceは必須だが、他の候補は不要又は失敗時にno-opとなっても、既にcommit済みのActionを巻き戻さない。
 
 ### どの状態がいつ変わるか
 
 | 状態 | 通常 Event | Memory Update | Reflection |
 |---|---|---|---|
-| Meaning / Feeling / Desire / Action | 今回だけ確定する | 変更しない | 直接の Action は決めない |
+| Feeling / Desire / Action | 今回だけ確定する | 変更しない | 直接の Action は決めない |
 | Conversation Memory | Experience Integration が候補を判断する | MemoryWriteService が適用する | Formation / Reconciliation で整理する |
 | Mood | Runtime が今回Feelingを減衰・累積して更新する | 変更しない | 変更しない |
 | Relationship | Experience Integration が候補を反映できる | 変更しない | 複数経験を根拠に長期的に更新できる |
@@ -153,7 +153,7 @@ flowchart LR
     E --> CTX[次回の Prediction Context]
     CTX --> APP[MainAgent の appraisal]
     SELF[Self / Concern / Relationship<br/>Memory / 背景経験] --> APP
-    APP --> MF[Meaning / Feeling]
+    APP --> MF[Feeling]
     APP --> D[Desire]
     D --> ACT[Action]
 ```

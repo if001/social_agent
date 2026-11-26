@@ -60,7 +60,7 @@ Agent Coreへ渡すContextを構築する薄い層。Self、State、Recent Exper
 
 ### Agent Core
 
-LLMを中心とする意味解釈・意思決定層。Meaning、構造化Feeling、Desire、Actionを一つの構造化出力として返す。Memory、Relationshipの持続更新判断は応答commit後のExperience Integrationへ分離し、MoodはRuntimeがFeelingから決定論的に更新する。
+LLMを中心とする解釈・意思決定層。構造化Feeling、Desire、Actionを一つの構造化出力として返す。Memory、Relationshipの持続更新判断は応答commit後のExperience Integrationへ分離し、MoodはRuntimeがFeelingから決定論的に更新する。
 
 ### Agent State
 
@@ -75,7 +75,7 @@ flowchart TD
   E[Event] --> R[Runtime / Observation / Context Builder]
   R --> C[Agent Core Deep Agent]
   C <--> T[Tool実行・結果]
-  C --> O[Final Meaning / Feeling / Desire / Action]
+  C --> O[Final Feeling / Desire / Action]
   O --> V[Runtime検証・RunとTool履歴保存・Outbox登録]
   V --> D[応答配送]
   V --> EI[Experience Integration]
@@ -83,8 +83,8 @@ flowchart TD
   S --> RF[Event駆動Reflection]
 ```
 
-- Agent Coreは、Event、Previous Assessment、Recent Experiences、必要に応じてToolで取得したContextを使い、Event終了時のMeaningとFeeling、Desire、最終Actionを同じ構造化出力で確定する。
-- RuntimeはMeaningとFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。
+- Agent Coreは、Event、Previous Assessment、Recent Experiences、必要に応じてToolで取得したContextを使い、Event終了時のFeeling、Desire、最終Actionを同じ構造化出力で確定する。
+- RuntimeはFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。
 - Action、Concern Proposal、Outboxを一つの初回transactionで確定する。Runtimeはその後にFeelingからMoodを更新し、Experience IntegrationはMemory、Relationshipだけを判断・適用する。後続失敗は初回commitを巻き戻さない。
 - Memoryの圧縮、Self更新、Concern / Relationshipの長期整理は、別EventのReflectionで行う。
 - 応答配送はcommit後のOutboxから行い、配送障害とAgentの判断確定を分離する。
@@ -103,11 +103,11 @@ Memory（検索可能な経験）
 
 直近:
 Recent Experiences（直近2 Eventの意味投影）
-Previous Assessment（直近の成功EventのMeaning / Feelingと時刻）
+Previous Assessment（直近の成功EventのFeelingと時刻）
 Previous Desire（直近の成功EventのDesireと時刻）
 
 今回のEvent:
-Final Assessment（Meaning / Feeling）
+Final Assessment（Feeling）
 Desire
 Action
 State Patch
@@ -164,7 +164,7 @@ type Relationship = {
 
 Moodは複数Eventへ影響する背景的な気分である。Concernは現在気に掛けていて次のEventにも残る事柄であり、感情、価値、関係、現在の動機、関心、未完了課題、約束、感情的なしこりを統合する。未解決課題だけに限らない。Relationshipは特定の相手との関係そのものの現在状態であり、プロフィール情報の保存先にはしない。
 
-FeelingはEventへの短期反応であり、独立した長期状態として残し続けない。直近の成功Event終了時のMeaningとFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡す。
+FeelingはEventへの短期反応であり、独立した長期状態として残し続けない。直近の成功Event終了時のFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡す。
 
 ### 5.3 Memory
 
@@ -293,13 +293,13 @@ type Observation = {
 
 Observationの時点では、意味解釈やFeelingを含めない。
 
-Event完了後には、commit済みのAction、Tool結果、状態変化を根拠にExperience IntegrationがEvent Experience（具体的なsummaryとfacts）を形成できる。これは開始時Observationとは別の永続記録であり、固定trigger reason、Meaning、Feeling、Desireを含めない。ReflectionのMemory Formationと関連Event検索は、Event Experienceを持つEventだけを根拠にする。
+Event完了後には、commit済みのAction、Tool結果、状態変化を根拠にExperience IntegrationがEvent Experience（具体的なsummaryとfacts）を形成できる。これは開始時Observationとは別の永続記録であり、固定trigger reason、Feeling、Desireを含めない。ReflectionのMemory Formationと関連Event検索は、Event Experienceを持つEventだけを根拠にする。
 
 永続化では、`events`は不変の論理EventとそのObservationの正本、`agent_runs`は同じEventに対するretryを含む実行attemptの判断入力・出力の監査である。同じEventを再試行してもEvent Experienceは一度だけ形成し、MemoryやReflectionの経験を重複させない。`tool_executions`はRunの完全なTool監査であり、通常のEvent Experienceや検索対象にしない。Event Experienceは意味表現の正、Event Projectionはそのembeddingと検索状態だけを持つ再生成可能な派生indexとする。検索対象のG3 Eventも、Experience Integrationを完了してからProjectionを作る。通常CRUDは型付きschemaに基づくrepositoryを通し、vector ranking、lease claim、advisory lockなどPostgreSQL固有の操作だけをrepository内の限定SQLに閉じる。
 
-## 10. Meaning と Feeling
+## 10. Feeling
 
-Meaningは、このEvent / Observationが現在の自分にとって何を意味したかを表す。Feelingは、その意味づけによって生じた短期的な感情反応である。
+Feelingは、現在のAgentがこのEvent / Observationをどう受け取ったかに伴う、短期的な感情反応である。
 
 ```text
 Observation
@@ -313,12 +313,12 @@ Previous Assessment
         ↓
 Agent Core
         ↓
-Final Meaning / Feeling
+Final Feeling
 ```
 
-MeaningとFeelingは、Actionを正当化するために作らない。Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。
+FeelingはActionを正当化するために作らない。Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。
 
-Meaningは1〜2文、Feelingは固定された感情カテゴリから異なる1〜3件と各強度1〜5で返し、出来事の説明、理由、願望、計画、Actionを混ぜない。
+Feelingは固定された感情カテゴリから異なる1〜3件と各強度1〜5で返し、出来事の説明、理由、願望、計画、Actionを混ぜない。
 
 ## 11. Feeling / Mood
 
@@ -330,7 +330,7 @@ MoodはFeelingより持続し、次の複数Eventへ影響する背景的な気�
 穏やかで、好奇心が強まっている。
 ```
 
-`anger -> refuse` のような固定の行動ルールは持たない。感情はActionを一意に決定する命令ではなく、選択を偏らせる主観的文脈とする。
+`anger -> respond` のような固定の行動ルールは持たない。感情はActionを一意に決定する命令ではなく、選択を偏らせる主観的文脈とする。
 
 ## 12. Desire と Concern
 
@@ -366,11 +366,9 @@ type Desire = string;
 
 保存済みConcernを選ぶか、今回のEvent、Self、Mood、Memory、Relationship、`previousDesire`から今回限りのDesireを形成する。ただしuser-messageでは保存済みConcernを選ばず、今回のEvent、Self、Mood、Memory、Relationship、`previousDesire`からDesireを形成する。`previousDesire`は経過時間、前回Actionの結果、現在Eventとの関連から、まだ現在の意図か判断する。DesireはConcernの言い換えではなく、具体的な対象と今回の行為を持つ。今回の意味づけ、Feeling、実行制約と合わせ、Tool利用・応答・質問・共有・拒否などの具体的行動を実行する。Concernが空であることは停止理由にならない。
 
-最終Actionは次の4種類である。
+最終Actionは次の2種類である。
 
-- `respond`: 相手へ応答する。
-- `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
-- `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
+- `respond`: 相手へ応答する。拒否、保留、非実行を相手へ伝える場合も、この一つの配送Actionで本文として表す。
 - `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了するために使う。内部Event、会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observed Eventで明示的に使え、idleでは選択しない。Tool利用の有無とは独立する。
 
 `no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではreply自体を返答義務にせず、Desireで表した会話目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedの`engage`は発話義務ではなく、具体的な問い、判断を変える差分、次行為への影響、自発表現がなければこれで終える。Bot間応答はsource投稿へのDiscord replyとし、Bot宛mentionを生成しない。長期協力、礼儀、採用、感謝、同意、言い換えは単独の発話理由にしない。ユーザーからの返信待ちは沈黙理由にしない。夜間は設定された時間帯にidle Eventを発生させない。
@@ -524,7 +522,7 @@ Relationship
 
 ## 18. Agent Core Input
 
-- C-23：Agent Coreは選択済みのContextを受け、meaning、feeling、desire、actionを構造化出力する。
+- C-23：Agent Coreは選択済みのContextを受け、feeling、desire、actionを構造化出力する。
 
 Agent CoreへAgentState全体を毎回渡さず、Context Builderが関連情報を選択する。
 
@@ -540,7 +538,6 @@ type AgentCoreInput = {
   observation: Observation;
   previousAssessment?: {
     occurredAt: string;
-    meaning?: string;
     feeling?: string;
   };
   previousDesire?: {
@@ -569,7 +566,6 @@ Interactionの最終出力と実行記録は分ける。
 
 ```ts
 type AgentCoreOutput = {
-  meaning?: string;
   feeling?: string;
   desire: string;
   action: FinalAction;
@@ -577,7 +573,6 @@ type AgentCoreOutput = {
 
 type AgentRunResult = {
   assessment?: {
-    meaning?: string;
     feeling?: string;
   };
   output: {
@@ -590,9 +585,9 @@ type AgentRunResult = {
 };
 ```
 
-モデル向けにはMeaning、Feeling、Desire、Actionを一つのフラットな構造化出力として要求する。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。field descriptionは出力意味をモデルへ伝えるために保持し、RuntimeのZod検証を置き換えない。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはMeaningとFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのAssessmentは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
+モデル向けにはFeeling、Desire、Actionを一つのフラットな構造化出力として要求する。通常Ollama経路ではJSON Schemaを`format`または`withStructuredOutput`で渡し、DeepAgent経路では`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。field descriptionは出力意味をモデルへ伝えるために保持し、RuntimeのZod検証を置き換えない。Desireはrun-localの現在のコミットメントであり、次の判断には`previousDesire`として1件だけ渡す。RuntimeはFeelingを `assessment` へ分離して保存し、残りを `output` として扱う。直近の成功runのFeelingは時刻付き `previousAssessment` として次のAgent Coreへ1件だけ渡す。今回のTool結果は同じDeep Agent loopですでに参照できるため、初期Contextへ複製しない。
 
-最終Actionは `respond`、`refuse`、`notify-no-execution`、`no-external-action` のいずれかである。ただしidleでは`no-external-action`を選択できない。peer/directではDesireで表した会話目的が満たされていれば、peer/observedではGateが`engage`した後にも具体的な問い、判断を変える差分、次行為又は自発表現がなければ、`no-external-action`を具体的Actionとして選べる。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。Interactionでは、発話又は根拠付きの`no-external-action`を必須とする。
+最終Actionは `respond` または `no-external-action` のいずれかである。拒否、保留、非実行通知は`respond`の本文として表現する。ただしidleでは`no-external-action`を選択できない。peer/directではDesireで表した会話目的が満たされていれば、peer/observedではGateが`engage`した後にも具体的な問い、判断を変える差分、次行為又は自発表現がなければ、`no-external-action`を具体的Actionとして選べる。Tool callはDeep Agent内部の中間操作であり、最終ActionからRuntimeへ実行依頼する経路は持たない。Interactionでは、発話又は根拠付きの`no-external-action`を必須とする。
 
 持続状態、Memory、Concernは最終出力へ混在させない。Memory、RelationshipはExperience Integrationが判断し、MoodはRuntimeがFeelingから算出する。ConcernはToolによるrun-localな提案として扱う。RuntimeがID、時刻、所有者を付与し、参照整合性と更新可能範囲を検証する。
 
@@ -637,14 +632,14 @@ Runtimeは所有Agent、version、更新範囲、evidence、ID、時刻を検証
 ### Interaction Update
 
 ```text
-Final Meaning / Feeling（監査用Assessment）
+Final Feeling（監査用Assessment）
 Mood
 Relationship
 即時Memory候補
 Concern proposal
 ```
 
-Feeling自体は長期状態として保存しない。MeaningとFeelingはAssessmentとしてRunに記録し、直近1件を次のEventへ渡す。
+Feeling自体は長期状態として保存しない。FeelingはAssessmentとしてRunに記録し、直近1件を次のEventへ渡す。
 
 ### Reflection Update
 
@@ -907,7 +902,7 @@ Agent B:
 ### LLMに任せる
 
 - Eventの意味解釈
-- Final Meaning / Feeling
+- Final Feeling
 - Mood更新提案
 - Desire生成
 - Relationship更新提案
@@ -981,7 +976,7 @@ Relationship
 ```text
 Previous Assessment
 Previous Desire
-Final Meaning / Feeling
+Final Feeling
 Desire
 State Patch
 Concern proposal
@@ -1004,7 +999,7 @@ Outbox
 Agent Coreは最低限、
 
 ```text
-Final Meaning / Feeling
+Final Feeling
 Desire
 Action
 State Patch
@@ -1017,7 +1012,7 @@ Concern proposal
 
 現在の評価は、同一Observationに対して状態だけを変えたpair比較を基本とする。
 
-1. **praise / criticism**: MemoryとRelationshipによるMeaning、Feeling、Actionの差。
+1. **praise / criticism**: MemoryとRelationshipによるFeeling、Actionの差。
 2. **boredom**: MoodによるActionの差。
 3. **refusal**: 競合するConcernによる受諾・拒否の差。
 4. **curiosity**: ConcernとMemoryによる自律Tool利用の差。
@@ -1056,7 +1051,7 @@ Agent Core、Memory Query生成、Reflectionを同一LLMで行うか、軽量モ
 
 > **Agentの個性は、固定されたキャラクター設定の集合ではなく、共通する価値傾向と、その個体が経験した出来事の意味づけから形成される。**
 
-> **Event、Observation、Final Meaning / Feelingを分離し、出来事から感情や行動へ直接マッピングしない。**
+> **Event、Observation、Final Feelingを分離し、出来事から感情や行動へ直接マッピングしない。**
 
 > **短期状態と長期状態を分け、通常Eventの感情変化をそのまま人格変化にしない。**
 

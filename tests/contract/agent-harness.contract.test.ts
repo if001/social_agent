@@ -141,13 +141,13 @@ describe("AgentHarness contract", () => {
   it("FR-3, FR-9: passes the previous Assessment into Agent Core and returns its final Assessment in one call", async () => {
     let decisionInput = "";
     const invoker: DeepAgentInvoker = {
-      invoke: (input) => { decisionInput = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: { ...output, meaning: "改善点を確かめる機会になった", feeling: [{ emotion: "anger", intensity: 2 }, { emotion: "relief", intensity: 1 }] }, modelCalls: 1 }); }
+      invoke: (input) => { decisionInput = input.messages[0]?.content ?? ""; return Promise.resolve({ structuredResponse: { ...output, feeling: [{ emotion: "anger", intensity: 2 }, { emotion: "relief", intensity: 1 }] }, modelCalls: 1 }); }
     };
-    const input = agentCoreInputFixture(); input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", meaning: "批判された", feeling: [{ emotion: "anger", intensity: 3 }] };
+    const input = agentCoreInputFixture(); input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", feeling: [{ emotion: "anger", intensity: 3 }] };
     const result = await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);
     expect(decisionInput).toContain("previousAssessment");
     expect(decisionInput).toContain("anger");
-    expect(result.assessment).toEqual({ meaning: "改善点を確かめる機会になった", feeling: [{ emotion: "anger", intensity: 2 }, { emotion: "relief", intensity: 1 }] });
+    expect(result.assessment).toEqual({ feeling: [{ emotion: "anger", intensity: 2 }, { emotion: "relief", intensity: 1 }] });
     expect(result.budget?.consumed.modelCalls).toBe(1);
   });
 
@@ -264,20 +264,20 @@ describe("AgentHarness contract", () => {
 
   it("FR-11, FR-12, FR-33, FR-34: registers operational Tools and the structured response format with one Deep Agent", async () => {
     const registry = new ToolRegistry([{ name: "lookup", description: "Lookup", schema: z.object({ query: z.string().min(1) }), resultPolicy: { kind: "standard" }, execute: () => Promise.resolve({ ok: true, value: {} }) }]);
-    const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { meaning: "応答が必要", feeling: [{ emotion: "curiosity", intensity: 2 }] } }] }) }) };
+    const assessmentModel = { bindTools: () => ({ invoke: () => Promise.resolve({ tool_calls: [{ id: "assessment", name: "submit_event_assessment", args: { feeling: [{ emotion: "curiosity", intensity: 2 }] } }] }) }) };
     let created = 0;
     const invoker = createOllamaDeepAgentInvoker({ baseUrl: "https://ollama.example", apiKey: "secret", model: "model", toolRegistry: registry, modelFactory: () => assessmentModel as unknown as ReturnType<NonNullable<Parameters<typeof createOllamaDeepAgentInvoker>[0]["modelFactory"]>>, agentFactory: (options) => {
       created += 1; expect(options.tools).toHaveLength(1); expect(options.responseFormat).toBeDefined();
-      return { invoke: (input) => Promise.resolve({ structuredResponse: { meaning: "挨拶を受け取った", feeling: [{ emotion: "joy", intensity: 2 }], desire: output.desire, actionType: "respond", content: "Hello" }, messages: input.messages }) };
+      return { invoke: (input) => Promise.resolve({ structuredResponse: { feeling: [{ emotion: "joy", intensity: 2 }], desire: output.desire, actionType: "respond", content: "Hello" }, messages: input.messages }) };
     } });
     const input = agentCoreInputFixture(); input.availableTools = [...registry.definitions()];
-    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ assessment: { meaning: "挨拶を受け取った", feeling: [{ emotion: "joy", intensity: 2 }] }, output, toolExecutions: [] });
+    await expect(new DeepAgentHarness({ invoker, registeredToolNames: new Set(["lookup"]), maxRepairs: 1 }).run(input, new AbortController().signal)).resolves.toMatchObject({ assessment: { feeling: [{ emotion: "joy", intensity: 2 }] }, output, toolExecutions: [] });
     expect(created).toBe(1);
     expect(JSON.stringify(AgentCoreModelOutputJsonSchema)).not.toContain('"pattern"');
     const modelProperties = AgentCoreModelOutputJsonSchema.properties as Record<string, Record<string, unknown>>;
-    expect(Object.keys(modelProperties)).toHaveLength(8);
+    expect(Object.keys(modelProperties)).toHaveLength(6);
     expect(Object.values(modelProperties).every(({ description }) => typeof description === "string" && description.length > 0)).toBe(true);
-    expect(modelProperties).toMatchObject({ meaning: { maxLength: 800 }, feeling: { minItems: 1, maxItems: 3 }, desire: { maxLength: 800 }, content: { maxLength: 6_000 }, recipient: { enum: ["user", "channel", "peer"] }, reason: { maxLength: 800 } });
+    expect(modelProperties).toMatchObject({ feeling: { minItems: 1, maxItems: 3 }, desire: { maxLength: 800 }, content: { maxLength: 6_000 }, recipient: { enum: ["user", "channel", "peer"] }, reason: { maxLength: 800 } });
     expect(modelProperties).not.toHaveProperty("mood"); expect(modelProperties).not.toHaveProperty("rememberContent");
     expect(modelProperties).not.toHaveProperty("concernOperation");
   });

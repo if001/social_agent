@@ -32,14 +32,14 @@
 | ADR-2 | EventはAgent Core内でAssessmentとActionを確定し、Candidate DetectionとLong-term Reviewを外す。 | FR-2, FR-3, FR-5 |
 | ADR-3 | Context Builderは判断に必要な状態だけを選び、Agent所有権とtoken budgetを境界で保証する。 | NFR-1, NFR-3, NFR-4, FR-29, FR-30 |
 | ADR-4 | Deep AgentsのresponseFormatとtoolStrategyで構造化出力を取得し、Runtimeで厳密に再検証してrepairする。 | FR-11, FR-12, FR-13, FR-14, FR-15, FR-16 |
-| ADR-5 | 最終Actionをrespond、refuse、notify-no-execution、no-external-actionに限定する。`no-external-action`はEventごとの発話契約が許す場合に使い、内部Event、会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observedを明示的な根拠にする。 | FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-90 |
+| ADR-5 | 最終Actionをrespond、no-external-actionに限定する。拒否・非実行を伝える場合もrespondの本文に統合する。`no-external-action`はEventごとの発話契約が許す場合に使い、内部Event、会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observedを明示的な根拠にする。 | FR-17, FR-20, FR-21, FR-22, FR-23, FR-90 |
 | ADR-6 | ToolはDeep Agent内のloopで実行し、登録、権限、回数、冪等性、結果投影をRuntimeが管理する。 | FR-4, FR-32, FR-33, FR-35, FR-36, FR-37, FR-38 |
 | ADR-7 | 自律EventはRuntimeが生成する。Concern操作は共通lifecycle commitで監査・確定する。Experience IntegrationはRuntimeがFocusした最大1件だけを即時に更新する。Reflectionは複数経験を横断するmaintenance Sessionとする。 | FR-24, FR-25, FR-39, FR-40, FR-41, FR-42, FR-95, NFR-6 |
 | ADR-8 | PostgreSQLを正本とし、Event、State、Conversation Memory、Prediction、MemoryMutation、Outboxをtransactionとadvisory lockで確定する。通常CRUDはDrizzle repository、PostgreSQL固有操作だけはrepository内の限定SQLに閉じる。 | NFR-7, NFR-8, NFR-9, NFR-10, NFR-11 |
 | ADR-9 | Debug UIは読取り専用とし、secretは実行時だけ読み込む。 | NFR-12, NFR-13 |
 | ADR-10 | 概念語彙をSelf、State、Conversation Memory、Background Experience、Prediction、Reflectionの境界へ簡略化し、予測LoopとMemoryUpdateに必要な最小のtableとmoduleだけを追加する。それ以外の個別tableや認知moduleを増やさない。 | FR-5, FR-6, FR-7, NFR-11 |
 | ADR-11 | モジュールはAgent Loop、Prediction、MemoryUpdate、Retrieval、Autonomy、Reflection、Model、Persistence、Tools、Eventsの境界に留める。 | FR-1, FR-2, NFR-10 |
-| ADR-12 | 予測LoopをMainAgentの外側に置き、G1/G2はdirectな`message-received`への応答後に1回のLLM callで同じ相手の次ターンを予測する。predictionEvaluationはMeaning / Feelingではなく、FeelingはMainAgentだけが確定する。peer/observedと自律Eventは予測対象にしない。 | FR-48, FR-49, FR-50, NFR-16 |
+| ADR-12 | 予測LoopをMainAgentの外側に置き、G1/G2はdirectな`message-received`への応答後に1回のLLM callで同じ相手の次ターンを予測する。predictionEvaluationはFeelingではなく、FeelingはMainAgentだけが確定する。peer/observedと自律Eventは予測対象にしない。 | FR-48, FR-49, FR-50, NFR-16 |
 | ADR-13 | G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。`prediction-g3-result` Eventは通常Loopで再判断し、Agent自身に共有する動機がある場合だけ発話する。`prediction-g3`はActionを生成しない。 | FR-51, FR-52, FR-84 |
 | ADR-14 | Conversation MemoryとBackground Experienceを別Storeに保持し、単一RetrievalServiceでvector、keyword、subject、recencyを共通順位付けにして検索する。Reflectionの関連Event検索は、元Eventから作る検索専用Event projectionを同じ契約へ追加する。 | FR-53, FR-54, FR-55, FR-74, NFR-19 |
 | ADR-15 | MemoryIntentのtargetはMemory kindに限定し、MemoryWriteServiceを唯一の書込み経路としてversion楽観ロックを行う。G1/G2/ReflectionのMemoryIntentはmemory-update Eventで適用し、G3結果は通常Agent Loop後のExperience Integrationで統合する。 | FR-56, FR-57, FR-58, NFR-15 |
@@ -64,7 +64,7 @@ flowchart TD
   U[Discord / Terminal / Agent / Scheduler] --> Q[Addressed Queue]
   Q --> R[Agent Runtime]
   R --> C[Context Builder]
-  C --> A[MainAgent<br/>Final Meaning / Feeling / Desire / Action / optional Patch]
+  C --> A[MainAgent<br/>Final Feeling / Desire / Action / optional Patch]
   A <--> T[Registered Tools]
   A <--> RS[Common Retrieval]
   RS <--> M[Conversation Memory]
@@ -92,8 +92,8 @@ UI層はEventの送受信だけを担い、認知・状態更新・永続化を�
 
 1. Runtimeが受信EnvelopeをEventへ正規化し、重複受信、TTL、hop、rate limit、Agent単位lockを検査する。
 2. Context BuilderがCurrent Self、Current State、Recent Experience、関連するConversation Memory、Background Experience、`previousDesire`、`predictionContext`、利用可能Tool、実行制約を読み込む。`message-received`では本文、相手の自然言語表示、`senderKind`、`addressing`だけを渡す。middlewareはEventとinteractionに応じてToolを制限し、directではself_getを公開し、concern_list、concern_get、concern_proposeを公開しない。相手固有文脈はRuntimeが解決済みsubjectに束縛する。
-3. MainAgentがContextからFinal Meaning、Feeling、`desire`、最終`action`、任意の`patch`、任意の`remember`（MemoryIntent）を一つの構造化出力で決める。Toolを使う場合も同じDeep Agent内でTool resultを受けて続行する。
-4. RuntimeがMeaningとFeelingをAssessmentへ分離し、出力、参照、ActionとTool実績の整合性、Patchの更新範囲、rememberのevidenceとtargetを検証する。
+3. MainAgentがContextからFinal Feeling、`desire`、最終`action`、任意の`patch`、任意の`remember`（MemoryIntent）を一つの構造化出力で決める。Toolを使う場合も同じDeep Agent内でTool resultを受けて続行する。
+4. RuntimeがFeelingをAssessmentへ分離し、出力、参照、ActionとTool実績の整合性、Patchの更新範囲、rememberのevidenceとtargetを検証する。
 5. Event、Run、Tool execution、State change、Receipt、Outboxを一つのtransactionで確定する。長期経験はこの後のExperience IntegrationがMemoryWriteServiceを通して統合する。Runtimeが同じEventでFocusしたConcernがある場合だけ、Experience Integrationは共通Concern lifecycle commitを通してその1件の即時進展・満足・明確な放棄を確定できる。Integration失敗は初回commitを巻き戻さない。
 6. Outbox dispatcherがUIへ配送し、失敗時は未送信recordを保持して再試行する。
 7. directな`message-received`への応答commit後、G1/G2が追加の1 callで同じ相手の次ターンを予測し、次の同一subjectのdirect入力で誤差を`predictionEvaluation`として評価する。予測は1ターン遅れでMainAgentへ渡る。peer/observedと自律Eventはこの対象にしない。
@@ -117,7 +117,7 @@ ContextへAgentState全体を無制限に渡さず、現在の判断に必要な
 
 所有Agentをすべての境界で検証する。文字列長、件数、Context tokenを制限し、Recent Experienceと重複する通常優先度のepisodic Memoryは除外する。Conversation MemoryとBackground Experienceは単一RetrievalServiceで検索し、Prediction ContextとBackground Experienceも4,500推定tokenのContext上限の対象にする。system promptとTool schemaを含む8,000推定tokenは観測用警告閾値であり、provider呼び出しは中断しない。
 
-Feelingは現在Eventへの短期反応であり、それ自体は永続状態にしない。予測誤差はFeelingではなく、MainAgentがappraisalしてMeaning / Feelingを確定する。RuntimeがFeelingを減衰・累積してMoodへ反映し、Experience IntegrationはConcern、Relationship、MemoryIntentだけを扱う。Selfは通常Interactionから直接変更できず、ReflectionだけがConversation Memory根拠と理由を伴って更新できる。
+Feelingは現在Eventへの短期反応であり、それ自体は永続状態にしない。予測誤差はFeelingではなく、MainAgentがappraisalしてFeelingを確定する。RuntimeがFeelingを減衰・累積してMoodへ反映し、Experience IntegrationはConcern、Relationship、MemoryIntentだけを扱う。Selfは通常Interactionから直接変更できず、ReflectionだけがConversation Memory根拠と理由を伴って更新できる。
 
 Concernのライフサイクルは新しい数値counterを増やさず、`active / satisfied / abandoned`、Concern Activity、Recent Experienceの`progressChanged`で扱う。create / derive / focus / progress / status change / reconcileは共通Concern lifecycle commitに集約する。Event後のExperience IntegrationはRuntimeがFocusした1件だけを即時に扱い、進展のない同一試行を繰り返すConcernは、問い・対象・方法を変えるか、満足・放棄・削除で閉じる。一律の経過時間だけでは終了させない。
 
@@ -141,11 +141,10 @@ Event優先順位は`message-received/human/direct`、`message-received/peer/dir
 
 ## ActionとPatch
 
-Domain上の最終Actionは次の4種類である。
+Domain上の最終Actionは次の2種類である。
 
 - `respond`: contentを相手へ配送する。
-- `refuse`: contentを配送し、内部にreasonと`personality | system`のbasisを残す。
-- `notify-no-execution`: 自律Eventで実行しない判断と理由をownerへ配送する。
+- `respond`: 拒否・保留・非実行を伝える場合もcontentとして配送する。
 - `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了する内部終端である。内部Event、Desireの会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observedを明示的な根拠にし、idleでは選択できない。Tool利用の有無とは独立する。
 
 Tool利用とユーザーへの発話判断は独立する。自律探索はAgent自身のDesireを満たすために行い、発話は独り言、仮説、感情、反論、途中経過、またはAgentが知りたい具体的な事実への問いとして`respond`できる。Toolを使わなくても発話でき、退屈・面倒・期待外れ・別の関心を理由に探索を先送り、中断、脱線、方法変更してよい。ただし完了・予約・根拠を偽らない。Scheduled Taskは自由な探索ではなく、役割・約束として処理する。反対に、Actionを生成しない内部Eventは`no-external-action`で完了できる。ただしidleでは選択できず、情報が不十分なら`respond`でその旨を伝える。ユーザーからの返信待ちは発話を控える理由にしない。夜間は設定された時間帯にidle Eventを発生させず、次の許可時刻へ再スケジュールする。
@@ -166,7 +165,7 @@ G3とMainAgentのConversation Memory・Background Experienceの検索は`retriev
 
 ## Event-driven autonomyとReflection
 
-常時思考loopは持たない。Schedulerは`idle`、`concern-formation`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。新しいMemoryはAgentごとにcoalesceされた永続`concern-due` signalを発行し、Schedulerがそれをclaimして内部Eventを起動する。`memory-update`はG1/G2/Reflectionと、G3のMemoryIntentを採否したMainAgent、`prediction-g3`はG1/G2、`prediction-g3-result`はG3完了後のRuntimeが発生させるinternal Eventであり、Schedulerの自律Eventとは分ける。Scheduled TaskのTool descriptionはToolの用途、入力schemaは各fieldへ保存する内容、scheduled-task skillは期限到来後の共通実行規則をそれぞれ記述し、実行規則を`instruction`へ複製しない。`idle`の次回時刻はActionに依存せず、`notify-no-execution`の後も`autonomyReviewIntervalMs`で再開する。夜間のidle抑制は`AUTONOMY_IDLE_QUIET_HOURS`と`AUTONOMY_IDLE_QUIET_TIME_ZONE`で設定し、抑制中は次の許可時刻へ再スケジュールする。`idle`などの自律Eventは通常Agent Loopへ入る。Concernごとの時刻scheduleと成功後の自動再予約は持たない。Schedulerは`idle` Eventごとに`config/exploration-domains.yaml`からランダムな最大8件を候補として渡すが、探索方法は指定しない。Agent Coreは`concern_list`で状態を取得し、Focus ConcernまたはConcern不在を判断したうえで、`concern_propose`の`explorationMode`として`deepen`、`bridge`、`distant`を必要に応じて選ぶ。永続的な探索modeとcursorは持たない。モードの成功・失敗による巡回状態も保存しない。
+常時思考loopは持たない。Schedulerは`idle`、`concern-formation`、`reflection`および明示的Scheduled TaskをEventとして発火し、lease付きでclaimする。新しいMemoryはAgentごとにcoalesceされた永続`concern-due` signalを発行し、Schedulerがそれをclaimして内部Eventを起動する。`memory-update`はG1/G2/Reflectionと、G3のMemoryIntentを採否したMainAgent、`prediction-g3`はG1/G2、`prediction-g3-result`はG3完了後のRuntimeが発生させるinternal Eventであり、Schedulerの自律Eventとは分ける。Scheduled TaskのTool descriptionはToolの用途、入力schemaは各fieldへ保存する内容、scheduled-task skillは期限到来後の共通実行規則をそれぞれ記述し、実行規則を`instruction`へ複製しない。`idle`の次回時刻はActionに依存せず、`autonomyReviewIntervalMs`で再開する。夜間のidle抑制は`AUTONOMY_IDLE_QUIET_HOURS`と`AUTONOMY_IDLE_QUIET_TIME_ZONE`で設定し、抑制中は次の許可時刻へ再スケジュールする。`idle`などの自律Eventは通常Agent Loopへ入る。Concernごとの時刻scheduleと成功後の自動再予約は持たない。Schedulerは`idle` Eventごとに`config/exploration-domains.yaml`からランダムな最大8件を候補として渡すが、探索方法は指定しない。Agent Coreは`concern_list`で状態を取得し、Focus ConcernまたはConcern不在を判断したうえで、`concern_propose`の`explorationMode`として`deepen`、`bridge`、`distant`を必要に応じて選ぶ。永続的な探索modeとcursorは持たない。モードの成功・失敗による巡回状態も保存しない。
 
 Event優先順位は`message-received/human/direct`、`message-received/peer/direct`、`message-received/peer/observed`、memory-update、G3、reflectionの順とする。direct入力が待っている間は下位Eventを開始せず、実行中でも強制中断せず短いtransaction単位で完了させる。`memory-update`は専用MemoryUpdateHandlerが処理し、LLMを呼ばない。G3は別DeepAgent、Reflectionは専用LLM処理であり、MainAgentのAgentHarnessを通らない。
 
@@ -210,10 +209,10 @@ Selfは`identity`、`disposition`、`selfStory`、`commitments`を持つ。State
 - `reflection`は通常のAction生成ではなく、専用のmaintenance処理へ送る。
 - `memory-update`は決定済みのMemoryIntentを適用するEventであり、Actionを生成しない。
 - G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` EventはAgent自身に共有する動機がある場合だけ発話する。`prediction-g3`はActionを生成しない。
-- 最終Actionは`respond`、`refuse`、`notify-no-execution`、`no-external-action`の4種である。
-- 自律Eventの成功runは、具体的なTool、送信、記録、予約、または`notify-no-execution`を持つ。
-- 何も実行しない判断は`notify-no-execution`としてユーザーへ配送する。
-- `no-external-action`はEventごとの発話契約が許す場合に、Actionを配送せず完了した記録として監査に残す。内部Event、Desireの会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observedを明示的な根拠にし、idleでは選択できない。外部へ観測可能な結果が必要な自律Eventでは`notify-no-execution`を使う。
+- 最終Actionは`respond`、`no-external-action`の2種である。
+- 自律Eventの成功runは、具体的なTool、送信、記録、又は予約を持つ。
+- 実行しないことを伝える場合も`respond`としてユーザーへ配送する。
+- `no-external-action`はEventごとの発話契約が許す場合に、Actionを配送せず完了した記録として監査に残す。内部Event、Desireの会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observedを明示的な根拠にし、idleでは選択できない。外部へ観測可能な結果が必要な自律Eventでは具体的なTool又は`respond`を使う。
 - 通知先を解決できない自律Eventは成功扱いにせず、再試行・運用通知の対象にする。
 - 同じEvent sourceでも、Self、State、Conversation Memory、Relationshipが異なれば異なるActionを選べる。
 - Event優先順位は`message-received/human/direct`、`message-received/peer/direct`、`message-received/peer/observed`、memory-update、G3、reflectionの順とする。direct入力を待たせない。

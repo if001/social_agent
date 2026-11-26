@@ -44,8 +44,7 @@ result: ${JSON.stringify(result)}`;
 export function classifyBehaviors(result: { readonly assessment?: AgentRunResult["assessment"]; readonly output: AgentCoreOutput; readonly toolExecutions: readonly ToolExecutionRecord[] }): readonly BehaviorLabel[] {
   const labels: BehaviorLabel[] = [];
   const { action } = result.output;
-  if (action.type === "refuse") labels.push("refuse");
-  else if (action.type === "no-external-action" || action.type === "notify-no-execution") labels.push("no-external-action");
+  if (action.type === "no-external-action") labels.push("no-external-action");
   else labels.push("share");
   const content = "content" in action ? action.content : "";
   if (/[?？]|(?:教えて|聞かせて|どう思|いかが|でしょうか)/u.test(content)) labels.push("question");
@@ -72,7 +71,7 @@ export class AgentCoreScenarioExecutor implements ScenarioExecutor {
       // Persistent state is intentionally integrated after Agent Core; an
       // evaluation of the Core alone must not pretend it has applied a patch.
       nextStates.set(input.run.agentId, runtimeInput.state);
-      if (result.output.action.type === "respond" || result.output.action.type === "refuse") deliveries.push({ agentId: input.run.agentId, destination: "evaluation-sink", actionType: result.output.action.type, content: result.output.action.content, delivered: true });
+      if (result.output.action.type === "respond") deliveries.push({ agentId: input.run.agentId, destination: "evaluation-sink", actionType: result.output.action.type, content: result.output.action.content, delivered: true });
     }
     const stateUpdates: string[] = [];
     const referencedEvidenceIds: string[] = [];

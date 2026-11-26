@@ -7,7 +7,7 @@ import { CurrentRelationshipDescriptionSchema, MemoryIntentTargetSchema, MemoryP
 import type { ConcernReevaluation, ConcernReevaluationSource } from "./concern-reevaluation.js";
 
 export const EventExperienceSchema = z.object({
-  summary: z.string().trim().min(1).max(800).describe("確定した今回のEventで起きたこと・選択・結果を1〜2文で要約する。起動理由、Meaning、Feeling、Desire、未確認の推測は書かない"),
+  summary: z.string().trim().min(1).max(800).describe("確定した今回のEventで起きたこと・選択・結果を1〜2文で要約する。起動理由、Feeling、Desire、未確認の推測は書かない"),
   facts: z.array(z.string().trim().min(1).max(240)).max(4).describe("summaryと重複しない、今回のEventで確認できた具体的事実。固定のtrigger reasonやTool失敗そのものは書かない")
 }).strict().describe("commit後に形成する、Reflectionと検索のためのEvent固有経験");
 

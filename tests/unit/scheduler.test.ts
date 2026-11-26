@@ -6,7 +6,7 @@ import type { DomainEvent } from "../../src/domain/contracts.js";
 describe("Scheduler", () => {
   const target: ScheduledTarget = { id: "idle:agent-a", agentId: "agent-a", kind: "idle", reason: "Due" };
   const timings = { autonomyReviewIntervalMs: 60_000, stateReviewIntervalMs: 86_400_000 };
-  const setup = (action: { type: "no-external-action"; reason: string } | { type: "notify-no-execution"; content: string; reason: string } | { type: "respond"; content: string }, replyContext?: Readonly<Record<string, unknown>>) => {
+  const setup = (action: { type: "no-external-action"; reason: string } | { type: "respond"; content: string }, replyContext?: Readonly<Record<string, unknown>>) => {
     const lifecycle = new ProcessLifecycle(); lifecycle.transition("ready"); const events: DomainEvent[] = []; let claimed = false; const completions: (Date | null)[] = [];
     const repository = { claimDue: () => { if (claimed) return Promise.resolve([]); claimed = true; return Promise.resolve([target]); }, complete: (_target: ScheduledTarget, next: Date | null) => { completions.push(next); return Promise.resolve(); }, release: () => Promise.resolve() };
     const scheduler = new Scheduler({ repository, runtime: { process: (event) => { events.push(event); return Promise.resolve(action); } }, clock: new FixedClock(new Date("2026-01-01T00:00:00Z")), ids: new SequenceIdGenerator(["event", "output"]), lifecycle, defaultDestination: () => "terminal", ...(replyContext === undefined ? {} : { defaultReplyContext: () => replyContext }), ...timings });
@@ -18,10 +18,10 @@ describe("Scheduler", () => {
     await expect(value.scheduler.tick(new AbortController().signal)).resolves.toBe(1); await expect(value.scheduler.tick(new AbortController().signal)).resolves.toBe(0);
     expect(value.completions[0]?.toISOString()).toBe("2026-01-01T00:01:00.000Z");
   });
-  it("FR-45, AC-7: reschedules idle at the autonomy interval after silence or a notification", async () => {
+  it("FR-45, AC-7: reschedules idle at the autonomy interval after either Action", async () => {
     for (const action of [
       { type: "no-external-action" as const, reason: "今は発話しない" },
-      { type: "notify-no-execution" as const, content: "実行対象を選ばなかった", reason: "今は具体的な実行がない" }
+      { type: "respond" as const, content: "今は具体的な実行がない" }
     ]) {
       const value = setup(action);
       await expect(value.scheduler.tick(new AbortController().signal)).resolves.toBe(1);
