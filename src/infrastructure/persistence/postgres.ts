@@ -35,7 +35,7 @@ export class AgentStateRepository {
     const allowed = ["disposition", "self_story", "commitments", "concerns", "relationships", "mood"];
     const entries = Object.entries(values).filter(([key]) => allowed.includes(key));
     if (entries.length !== Object.keys(values).length || entries.length === 0) throw new DomainError("VALIDATION", "Invalid state fields");
-    const columnMap = { disposition: "disposition", self_story: "selfStory", commitments: "commitments", relationships: "relationships", mood: "mood" } as const;
+    const columnMap = { disposition: "disposition", self_story: "selfStory", commitments: "commitments", relationships: "relationships", mood: "moodVector" } as const;
     const update: Record<string, unknown> = { version: sql`${schema.agentStates.version}+1`, updatedAt: new Date() };
     for (const [key, value] of entries) if (key !== "concerns") update[columnMap[key as keyof typeof columnMap]] = value;
     const result = await this.client.update(schema.agentStates).set(update).where(and(eq(schema.agentStates.agentId, agentId), eq(schema.agentStates.version, expectedVersion))).returning({ version: schema.agentStates.version });

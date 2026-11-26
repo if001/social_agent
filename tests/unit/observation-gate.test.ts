@@ -23,9 +23,9 @@ describe("ObservationGate", () => {
 
   it("FR-91, NFR-21: passes only bounded ID-free social context to the one-shot model", async () => {
     let received: unknown;
-    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: "少し高揚している", relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }) }, { decide: (input) => { received = input; return Promise.resolve({ decision: "engage", reason: "前の議論に接続する" }); } });
-    await expect(gate.decide(event, new AbortController().signal)).resolves.toEqual({ decision: "engage", reason: "前の議論に接続する", input: { text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: "少し高揚している", relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }, modelCalls: 1, retrievalCount: 1 });
-    expect(received).toEqual(expect.objectContaining({ peerName: "aka", mood: "少し高揚している", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, relationship: "議論すると面白い相手" }));
+    const gate = new ObservationGate({ load: () => Promise.resolve({ text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }) }, { decide: (input) => { received = input; return Promise.resolve({ decision: "engage", reason: "前の議論に接続する" }); } });
+    await expect(gate.decide(event, new AbortController().signal)).resolves.toEqual({ decision: "engage", reason: "前の議論に接続する", input: { text: "噂の変質まわりを読んでいる", peerName: "aka", self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, relationship: "議論すると面白い相手", concerns: ["出典の変質が気になる"], memories: ["akaとの前の話で実験を参照した"] }, modelCalls: 1, retrievalCount: 1 });
+    expect(received).toEqual(expect.objectContaining({ peerName: "aka", mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, self: { disposition: "好奇心が強い", story: "議論の食い違いを面白がる" }, relationship: "議論すると面白い相手" }));
     expect(JSON.stringify(received)).not.toContain("observed-1");
     expect(JSON.stringify(received)).not.toContain("agent:aka");
   });
@@ -36,7 +36,7 @@ describe("ObservationGate", () => {
   });
 
   it("FR-91, NFR-21: fails closed when the Gate provider rejects or returns schema-invalid output", async () => {
-    const input = { text: "案を採用する", peerName: "aka", self: { disposition: "気まま", story: "気になる差分を追う" }, mood: "落ち着いている", concerns: [], memories: [] };
+    const input = { text: "案を採用する", peerName: "aka", self: { disposition: "気まま", story: "気になる差分を追う" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], memories: [] };
     const models: readonly ObservationGateModel[] = [
       { decide: () => Promise.reject(new Error("provider unavailable")) },
       { decide: () => Promise.resolve({ decision: "engage" } as unknown as ObservationGateDecision) }

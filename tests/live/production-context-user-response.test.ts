@@ -42,7 +42,7 @@ describe("production-like text UI user response", () => {
         version: 1,
         family: { id: "live-family", name: "Live E2E", sharedDisposition: "事実を確認し、簡潔に応答する", baseInstruction: "ユーザー入力へ日本語で回答する" },
         agent: { id: "live-e2e-agent", identity: "Live E2E Agent", initialDisposition: "正確で簡潔な対話が好きで、根拠のない断定は嫌い", raisonDetre: "誠実な対話を続ける", selfNarrative: "対話を始めた", selfContinuity: "経験を次の応答へつなぐ" },
-        initialState: { mood: "落ち着いている", concerns: [], relationships: [] }
+        initialState: { mood: {}, concerns: [], relationships: [] }
       });
       await pool.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ('legacy-prediction','live-e2e-agent','legacy-event','legacy-run',$1,now())", [JSON.stringify({
         predictions: { g1: { candidates: [] }, g2: { candidates: [] } }, predictionEvaluations: [],

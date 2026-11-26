@@ -108,7 +108,7 @@ Shared Dispositionは、そのAgent群に共通する「種類としての性質
 次回も自発探索を選びやすくなる
 ```
 
-このように、経験はMemory、Mood、Relationship、Self Story、Dispositionへ反映され、将来の意味解釈と行動を変える。各Eventの小さな持続的反映は応答commit後のExperience Integrationが担う。今回FocusしたConcernについては、そのEventで得た結果により進展・明確な満足・明確な価値喪失があった場合だけ同じ境界で更新できる。複数の経験をまとめたSelf・Concernと、反復・蓄積によって形成されるMoodの長期反映はReflectionが担う。
+このように、経験はMemory、Mood、Relationship、Self Story、Dispositionへ反映され、将来の意味解釈と行動を変える。各EventのMemory・Relationship反映は応答commit後のExperience Integrationが担う。MoodはRuntimeがそのEventのFeelingを減衰・累積して更新する。今回FocusしたConcernについては、そのEventで得た結果により進展・明確な満足・明確な価値喪失があった場合だけ同じ境界で更新できる。複数の経験をまとめたSelf・Concernの長期反映はReflectionが担う。
 
 ## 4. Disposition
 
@@ -270,7 +270,7 @@ Feelingは、出来事がAgent自身にとってどのような意味を持っ�
 少し腹が立ち、悔しい。
 ```
 
-Feelingは原則としてTransientであり、独立した長期状態として保存しない。直近の成功Event終了時のMeaningとFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡し、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響を判断する。
+Feelingは原則としてTransientであり、独立した長期状態として保存しない。Feelingは喜び・悲しみ・怒り・驚き・不安・警戒・退屈・安堵・誇り・好奇心から異なる1〜3件を選び、各々を強度1〜5で表す。直近の成功Event終了時のMeaningとFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡し、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響を判断する。
 
 MoodはFeelingより持続的で、次の複数Eventの意味づけや行動へ影響する背景的な気分である。
 
@@ -280,7 +280,7 @@ MoodはFeelingより持続的で、次の複数Eventの意味づけや行動へ�
 少し沈んでいるが、落ち着いている。
 ```
 
-Moodは現在のEventだけへの反応、返答待ち、理由、願望、計画を含めない。持続する変化がない場合は更新しない。
+MoodはRuntimeだけが、現在のMoodと今回のFeelingにAgentごと・感情ごとの半減期、加算係数、上限値を適用して更新する構造化ベクトルである。LLMはMoodを直接更新・提案・自由文で記述しない。設定変更は以後の更新だけへ反映し、Feeling履歴を保持しての再計算は行わない。
 
 ## 10. Scheduled Task
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { DomainEvent } from "../domain/contracts.js";
+import type { DomainEvent, Mood } from "../domain/contracts.js";
 
 export const ObservationGateDecisionSchema = z.discriminatedUnion("decision", [
   z.object({
@@ -20,7 +20,7 @@ export type ObservationGateInput = {
   /** Compact current self-view; it is not a biography or a persistent identifier. */
   readonly self: { readonly disposition: string; readonly story: string };
   /** Current durable affective stance, not a requested response or plan. */
-  readonly mood: string;
+  readonly mood: Mood;
   readonly relationship?: string;
   readonly concerns: readonly string[];
   readonly memories: readonly string[];

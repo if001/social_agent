@@ -117,7 +117,7 @@ ContextへAgentState全体を無制限に渡さず、現在の判断に必要な
 
 所有Agentをすべての境界で検証する。文字列長、件数、Context tokenを制限し、Recent Experienceと重複する通常優先度のepisodic Memoryは除外する。Conversation MemoryとBackground Experienceは単一RetrievalServiceで検索し、Prediction ContextとBackground Experienceも4,500推定tokenのContext上限の対象にする。system promptとTool schemaを含む8,000推定tokenは観測用警告閾値であり、provider呼び出しは中断しない。
 
-Feelingは現在Eventへの短期反応であり、それ自体は永続状態にしない。予測誤差はFeelingではなく、MainAgentがappraisalしてMeaning / Feelingを確定する。次のEventにも影響する変化だけをMood、Concern、Relationship、MemoryIntentとしてPatchする。Selfは通常Interactionから直接変更できず、ReflectionだけがConversation Memory根拠と理由を伴って更新できる。
+Feelingは現在Eventへの短期反応であり、それ自体は永続状態にしない。予測誤差はFeelingではなく、MainAgentがappraisalしてMeaning / Feelingを確定する。RuntimeがFeelingを減衰・累積してMoodへ反映し、Experience IntegrationはConcern、Relationship、MemoryIntentだけを扱う。Selfは通常Interactionから直接変更できず、ReflectionだけがConversation Memory根拠と理由を伴って更新できる。
 
 Concernのライフサイクルは新しい数値counterを増やさず、`active / satisfied / abandoned`、Concern Activity、Recent Experienceの`progressChanged`で扱う。create / derive / focus / progress / status change / reconcileは共通Concern lifecycle commitに集約する。Event後のExperience IntegrationはRuntimeがFocusした1件だけを即時に扱い、進展のない同一試行を繰り返すConcernは、問い・対象・方法を変えるか、満足・放棄・削除で閉じる。一律の経過時間だけでは終了させない。
 

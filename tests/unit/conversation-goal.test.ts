@@ -8,7 +8,7 @@ const event: DomainEvent = { id: "message-1", agentId: "shiro", kind: "message-r
 
 describe("ConversationGoalComposer", () => {
   it("creates a goal before Agent Core from an agent-owned reason, not an answer", async () => {
-    const composer = new ConversationGoalComposer({ load: async () => ({ text: "その資料の結論は逆かもしれない", peerName: "aka", self: { disposition: "食い違いを放っておけない", story: "検証の穴を拾う" }, mood: "少し気になる", concerns: [], memories: [] }) }, { compose: async (_input, reason) => {
+    const composer = new ConversationGoalComposer({ load: async () => ({ text: "その資料の結論は逆かもしれない", peerName: "aka", self: { disposition: "食い違いを放っておけない", story: "検証の穴を拾う" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], memories: [] }) }, { compose: async (_input, reason) => {
       expect(reason).toContain("直接話しかけられた");
       return { goal: "資料の結論を分けた根拠を確かめる" };
     } });

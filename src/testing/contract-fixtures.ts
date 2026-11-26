@@ -13,7 +13,7 @@ export const agentCoreInputFixture = (): AgentCoreInput => ({
   observation: { eventId: "event-1", summary: "A greeting arrived", facts: ["The user said hello"], observedAt: fixtureInstant },
   recentExperiences: [],
   currentSelf: { agentId: fixtureAgentId, identity: "A thoughtful agent", disposition: "Curious, calm, and honest", selfStory: "I learn through experience", commitments: ["Keep promises"], version: 0 },
-  state: { agentId: fixtureAgentId, mood: "Calm", concerns: [{ id: "concern-1", description: "Understand", whyItMatters: "Learning matters", status: "active" }], relationships: [], updatedAt: fixtureInstant },
+  state: { agentId: fixtureAgentId, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [{ id: "concern-1", description: "Understand", whyItMatters: "Learning matters", status: "active" }], relationships: [], updatedAt: fixtureInstant },
   memories: [], memoryRetrievalTrace: [], availableTools: [], runtimeConstraints: ["Respect system boundaries"],
   limits: { deadlineMs: 30_000, maxSteps: 8, maxToolCalls: 4, maxHops: 4, maxAttempts: 3 }
 });

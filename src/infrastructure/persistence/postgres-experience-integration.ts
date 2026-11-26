@@ -125,15 +125,14 @@ export class PostgresExperienceIntegrationRepository implements ExperienceIntegr
     let failedIntent: MemoryIntent | undefined; let failedOptions: MemoryWriteOptions | undefined;
     try { await this.database.transaction(async (client) => {
       const stateRepository = new AgentStateRepository(client);
-      const row = await stateRepository.find<{ version: number; mood: string; relationships: unknown }>(input.agentId);
+      const row = await stateRepository.find<{ version: number; relationships: unknown }>(input.agentId);
       if (row === undefined) throw new Error("Agent state is unavailable for Experience Integration");
       const relationships = Array.isArray(row.relationships) ? row.relationships as { subjectId: string; description: string }[] : [];
-      let nextRelationships = relationships; let nextMood = row.mood;
+      let nextRelationships = relationships;
       const concernRepository = new ConcernRepository(client);
       const currentConcerns = await concernRepository.list(input.agentId);
       let focusActivity: { readonly concernId: string; readonly kind: "progressed" | "status-changed"; readonly reason: string } | undefined;
       const changes: { target: string; operation: string; before: unknown; after: unknown }[] = [];
-      if (output.mood !== undefined && output.mood !== row.mood) { nextMood = output.mood; changes.push({ target: "mood", operation: "set", before: row.mood, after: nextMood }); }
       const actor = sourceActor(input.sourceEvent);
       const subjectId = this.subjects?.resolve(actor);
       if (output.relationship !== undefined && subjectId !== undefined) {

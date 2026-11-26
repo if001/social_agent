@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { IdGenerator } from "./ports.js";
 import type { CanonicalSubjectResolver } from "./canonical-subject.js";
 import type { AgentCoreInput, AgentRunResult, DomainEvent, MemoryIntent } from "../domain/contracts.js";
-import { CurrentRelationshipDescriptionSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistentMoodSchema } from "../domain/contracts.js";
+import { CurrentRelationshipDescriptionSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema } from "../domain/contracts.js";
 import type { ConcernReevaluation, ConcernReevaluationSource } from "./concern-reevaluation.js";
 
 export const EventExperienceSchema = z.object({
@@ -35,7 +35,6 @@ export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
   memories: z.array(ExperienceIntegrationMemoryCandidateSchema).max(3).default([]).describe("長期に再利用する経験候補。model向けのMemory契約は候補なしでも空配列を返す。Runtimeは旧record又は部分結果で欠落した値だけを空配列へ正規化する。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
   relationship: RelationshipCandidateSchema.optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
-  mood: PersistentMoodSchema.optional(),
   focusConcern: FocusConcernOutcomeSchema.optional().describe("入力にfocusConcernがある時だけ、その一件への変化を判断する。入力にない時は出さない")
 }).strict().describe("応答commit後のExperience Integration出力。Selfと、Runtimeが束縛していないConcernは扱わない");
 export type ExperienceIntegrationOutput = z.infer<typeof ExperienceIntegrationOutputSchema>;

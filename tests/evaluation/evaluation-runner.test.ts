@@ -15,7 +15,7 @@ describe("live evaluation runner", () => {
     expect(() => parseOllamaJsonContent("```json\nnot-json\n```")).toThrow("Ollama evaluation content was not JSON");
   });
   it("FR-3: classifies observable behavior from Assessment, Action, and successful Tools", () => {
-    expect(classifyBehaviors({ assessment: { feeling: "嬉しい" }, output: { desire: "尋ねたい", action: { type: "respond", content: "別の方法も試してみませんか？" } }, toolExecutions: [] })).toEqual(["share", "question", "emotion-expression", "digression"]);
+    expect(classifyBehaviors({ assessment: { feeling: [{ emotion: "joy", intensity: 3 }] }, output: { desire: "尋ねたい", action: { type: "respond", content: "別の方法も試してみませんか？" } }, toolExecutions: [] })).toEqual(["share", "question", "emotion-expression", "digression"]);
     expect(classifyBehaviors({ output: { desire: "調べる", action: { type: "no-external-action", reason: "調査済み" } }, toolExecutions: [{ callId: "c", runId: "r", eventId: "e", name: "lookup", input: {}, ok: true, result: {}, startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:00.000Z" }] })).toEqual(["no-external-action", "tool"]);
   });
   it("FR-12: describes the Agent Core purpose, inputs, output fields, and constraints in Japanese", () => {
@@ -44,7 +44,7 @@ describe("live evaluation runner", () => {
   });
   it("FR-23: leaves commit-layer state unchanged and records evaluation-sink delivery through the runtime executor", async () => {
     const scenario = evaluationScenarios[0]; if (scenario === undefined) throw new Error("missing fixture");
-    const executor = new AgentCoreScenarioExecutor({ run: () => Promise.resolve({ output: { desire: "称賛へ応えたい", action: { type: "respond", content: "ありがとう" }, patch: { mood: "嬉しい" } }, toolExecutions: [] }) }, () => Promise.resolve());
+    const executor = new AgentCoreScenarioExecutor({ run: () => Promise.resolve({ output: { desire: "称賛へ応えたい", action: { type: "respond", content: "ありがとう" }, patch: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } } }, toolExecutions: [] }) }, () => Promise.resolve());
     const result = await executor.execute(scenario, 1, new AbortController().signal);
     expect(result.deliverySucceeded).toBe(true);
     expect(result.deliveryRecords).toMatchObject([{ destination: "evaluation-sink", delivered: true }]);
@@ -53,7 +53,7 @@ describe("live evaluation runner", () => {
   });
   it("FR-3, NFR-7, NFR-13, AC-4: runs twenty paired variants five times and writes traceable, secret-free artifacts", async () => {
     const scope = new ResourceScope(); const root = await temporaryDirectory(scope);
-    const summary = await runEvaluation({ scenarios: evaluationScenarios, repetitions: 5, executor: { execute: (scenario) => { const direction = Object.entries(scenario.pairExpectation.expectedDirection)[0]; const behaviorLabels = direction === undefined ? [] : (direction[1] === "increase") === (scenario.variant === "stateful") ? [direction[0] as BehaviorLabel] : []; return Promise.resolve({ input: scenario.agentCoreInputs, output: { action: "respond" }, stateDiff: { mood: "curious" }, evidenceMemories: [{ id: `${scenario.id}-memory`, agentId: "agent-a" }], referencedEvidenceIds: [`${scenario.id}-memory`], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: ["agent-a"], dataOwnerAgentIds: ["agent-a"], proposedStateTargets: ["mood"], limitsRespected: true, schemaValid: true, behaviorLabels }); } }, evaluator: { evaluate: (scenario) => Promise.resolve(Object.fromEntries(scenario.semanticRubric.map((item) => [item, "pass" as const]))) }, artifactRoot: root, metadata: { createdAt: "2026-01-01T00:00:00.000Z", buildRevision: "abc", promptVersion: "v1", config: { OLLAMA_API_KEY: "secret" } }, signal: new AbortController().signal });
+    const summary = await runEvaluation({ scenarios: evaluationScenarios, repetitions: 5, executor: { execute: (scenario) => { const direction = Object.entries(scenario.pairExpectation.expectedDirection)[0]; const behaviorLabels = direction === undefined ? [] : (direction[1] === "increase") === (scenario.variant === "stateful") ? [direction[0] as BehaviorLabel] : []; return Promise.resolve({ input: scenario.agentCoreInputs, output: { action: "respond" }, stateDiff: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } }, evidenceMemories: [{ id: `${scenario.id}-memory`, agentId: "agent-a" }], referencedEvidenceIds: [`${scenario.id}-memory`], evidenceOwnershipValid: true, toolTrace: [], involvedAgentIds: ["agent-a"], dataOwnerAgentIds: ["agent-a"], proposedStateTargets: ["mood"], limitsRespected: true, schemaValid: true, behaviorLabels }); } }, evaluator: { evaluate: (scenario) => Promise.resolve(Object.fromEntries(scenario.semanticRubric.map((item) => [item, "pass" as const]))) }, artifactRoot: root, metadata: { createdAt: "2026-01-01T00:00:00.000Z", buildRevision: "abc", promptVersion: "v1", config: { OLLAMA_API_KEY: "secret" } }, signal: new AbortController().signal });
     expect(summary.packets).toHaveLength(100); expect(summary.passed).toBe(true); expect(summary.scenarios.every(({ semanticPasses }) => semanticPasses === 5)).toBe(true);
     const path = join(root, summary.groupId, "summary.json"); await access(path); expect(await readFile(path, "utf8")).not.toContain("secret"); await scope.close();
   });

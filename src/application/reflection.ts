@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AgentStateSchema, ConcernChangeSchema, CurrentConcernDescriptionSchema, CurrentConcernImportanceSchema, CurrentRelationshipDescriptionSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistedSelfSchema, PersistentMoodSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
+import { AgentStateSchema, ConcernChangeSchema, CurrentConcernDescriptionSchema, CurrentConcernImportanceSchema, CurrentRelationshipDescriptionSchema, EpisodicMemorySchema, MemoryIntentSchema, MemoryIntentTargetSchema, MemoryPerspectiveSchema, PersistedSelfSchema, RelationshipChangeSchema, SelfSchema, DomainError, type ToolExecutionRecord } from "../domain/contracts.js";
 
 const Id = z.string().trim().min(1);
 const Text = z.string().trim().min(1).max(16_000);
@@ -41,7 +41,6 @@ export const ReflectionOutputSchema = z.object({
   memories: z.array(EpisodicMemorySchema.omit({ id: true, createdAt: true })),
   concernChanges: z.array(ConcernChangeSchema),
   relationshipChanges: z.array(RelationshipChangeSchema),
-  mood: PersistentMoodSchema.optional(),
   self: SelfSchema.optional(),
   selfChangeReason: Text.optional(),
   evidenceMemoryIds: z.array(Id).default([])
@@ -154,7 +153,6 @@ export const RelationshipReflectorOutputSchema = z.object({
   ])).max(4).describe("持続的なRelationship差分。Runtimeが本文から対象を解決する。新規の対象IDは作らない")
 }).strict();
 export const SelfMoodReflectorOutputSchema = z.object({
-  mood: PersistentMoodSchema.optional(),
   self: SelfSchema.optional().describe("十分なMemory根拠がある場合だけの完全なSelf"),
   selfChangeReason: Text.optional().describe("Selfを変える複数経験の内容と理由。Memory IDや局所参照は出力しない")
 }).strict().superRefine((value, context) => {

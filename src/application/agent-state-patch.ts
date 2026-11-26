@@ -1,5 +1,6 @@
-import { DomainError, type ConcernActivityIntent, type CurrentAgentState, type ResolvedConcernProposal } from "../domain/contracts.js";
+import { DomainError, type AffectDynamics, type ConcernActivityIntent, type CurrentAgentState, type Feeling, type ResolvedConcernProposal } from "../domain/contracts.js";
 import { ConcernLifecycleService } from "./concern-lifecycle.js";
+import { evolveMood } from "./affect-dynamics.js";
 
 export type AgentStatePatchChange = {
   readonly target: "mood" | "concerns" | "relationships";
@@ -37,5 +38,11 @@ export class AgentStatePatchService {
       changes: [...result.changes, { target: "concerns", operation: "upsert", before, after: concerns, eventId }],
       concernActivities: [...result.concernActivities, ...activities]
     };
+  }
+
+  applyFeeling(result: AgentStatePatchResult, feeling: Feeling | undefined, occurredAt: Date, dynamics: AffectDynamics, eventId: string): AgentStatePatchResult {
+    const mood = evolveMood(result.state.mood, occurredAt, feeling, dynamics);
+    if (JSON.stringify(mood) === JSON.stringify(result.state.mood)) return result;
+    return { ...result, state: { ...result.state, mood }, changes: [...result.changes, { target: "mood", operation: "set", before: result.state.mood, after: mood, eventId }] };
   }
 }

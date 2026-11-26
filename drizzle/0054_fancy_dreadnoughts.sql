@@ -1,0 +1,2 @@
+ALTER TABLE "app"."agent_states" ALTER COLUMN "mood" SET DEFAULT '';--> statement-breakpoint
+ALTER TABLE "app"."agent_states" ADD COLUMN "mood_vector" jsonb DEFAULT '{"updatedAt":"1970-01-01T00:00:00.000Z","levels":{}}'::jsonb NOT NULL;

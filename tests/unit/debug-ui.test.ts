@@ -37,7 +37,7 @@ describe("Agent Debug UI", () => {
     const query: SqlQuery = <T>(sql: string, values: readonly unknown[] = []) => {
       calls.push({ sql, values });
       if (sql.includes("FROM agents a JOIN")) return Promise.resolve([{ id: "ao" }] as T[]);
-      if (sql.includes("FROM agent_states WHERE")) return Promise.resolve([{ mood: "calm" }] as T[]);
+      if (sql.includes("FROM agent_states WHERE")) return Promise.resolve([{ mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } }] as T[]);
       if (sql.includes("FROM concern_activities")) return Promise.resolve([{
         concernId: "child-1", kind: "derived", description: "子の関心", sourceConcernId: "parent-1", sourceConcernDescription: "親の関心",
         reason: "対象が独立して残った", evidenceMemoryIds: ["memory-1"], eventKind: "concern-due", eventSummary: "新しい経験を受け取った"
@@ -69,7 +69,7 @@ describe("Agent Debug UI", () => {
     expect(calls.find(({ sql }) => sql.includes("FROM autonomous_schedules"))?.sql).not.toContain("exploration_cursor");
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.values).toEqual(["ao", 100]);
     expect(calls.find(({ sql, values }) => sql.includes("FROM agent_runs") && values.length === 2)?.sql).toContain("e.observation#>>'{content,targetKind}'");
-    expect(overview?.state).toEqual({ mood: "calm", concerns: [] });
+    expect(overview?.state).toEqual({ mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [] });
     expect(overview?.concernActivities).toEqual([expect.objectContaining({
       kind: "derived", description: "子の関心", sourceConcernDescription: "親の関心", eventKind: "concern-due", evidenceMemoryIds: ["memory-1"]
     })]);

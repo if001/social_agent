@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { ExperienceIntegrationInput, ExperienceIntegrationModel } from "../../application/experience-integration.js";
 import { EventExperienceSchema, ExperienceIntegrationMemoryCandidateSchema, ExperienceIntegrationOutputSchema, FocusConcernOutcomeSchema, RelationshipCandidateSchema } from "../../application/experience-integration.js";
-import { PersistentMoodDescription, PersistentMoodSchema } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
@@ -17,17 +16,15 @@ export const ExperienceIntegrationMemoryOutputSchema = z.object({
   memories: z.array(ExperienceIntegrationMemoryCandidateSchema).max(3).default([])
 }).strict();
 export const ExperienceIntegrationRelationshipOutputSchema = z.object({ relationship: RelationshipCandidateSchema.optional() }).strict();
-export const ExperienceIntegrationMoodOutputSchema = z.object({ mood: PersistentMoodSchema.optional() }).strict();
 export const ExperienceIntegrationFocusConcernOutputSchema = z.object({ focusConcern: FocusConcernOutcomeSchema.optional() }).strict();
 
 export const eventExperienceSystemPrompt = "完了済みEventから、今回確定した出来事・選択・結果だけをJSON objectで返す。許可fieldはsummaryとfactsだけ。factsは具体的事実を最大4件にする。起動理由、時刻、kind、ID、Meaning、Feeling、Desire、未確認推測、Tool失敗、Memory、Mood、Relationship、Concernは書かない。";
 export const memoryIntegrationSystemPrompt = "完了済みEventから、将来の判断に再利用する経験候補だけをJSON objectで返す。rootはmemoriesだけ。候補がなければ必ず {\"memories\":[]} を返す。各候補はcontent、reason、target、perspectiveだけで、targetはepisodic|semantic|self-related|self-change|common-ground、perspectiveはself|userだけ。ID、根拠一覧、subject、Tool本文、応答文、未確認推測、実行手順は書かない。";
 export const relationshipIntegrationSystemPrompt = "今回のEventでactorとの持続的な関係が変わった時だけJSON objectでrelationshipを返す。変化がなければ {}。relationshipの許可fieldはoperation、currentDescription、description、reasonだけ。operationはupsert|remove、reasonは必須。descriptionは現在の関係の型・安定した前提・未解決の約束だけを400文字以内で書く。相手名、ID、個別Event、人物プロフィール、Concern、Feeling、次の行動は書かない。";
-export const moodIntegrationSystemPrompt = `今回のEventが複数Eventに続く感情的構えを変える時だけJSON objectでmoodを返す。変化がなければ {}。${PersistentMoodDescription} Event、探索テーマ、相手、計画、理由の説明は書かない。`;
 export const focusConcernIntegrationSystemPrompt = "Runtimeが束縛した一件のConcernへの変化だけをJSON objectで返す。rootはfocusConcernだけ。変化がなければ {}。focusConcernはoutcomeとreasonだけで、outcomeはunchanged|progress|satisfied|abandoned。Concern ID、Event ID、status操作、実行手順、次の計画は書かない。satisfiedは核が実質的に満たされた時だけ、abandonedは現在のSelfにとって価値を明確に失った時だけ。検索失敗・情報不足・一時的Feelingだけではabandonedにしない。";
 
 /** Compatibility export for existing callers and structured-output checks. */
-export const experienceIntegrationSystemPrompt = [eventExperienceSystemPrompt, memoryIntegrationSystemPrompt, relationshipIntegrationSystemPrompt, moodIntegrationSystemPrompt, focusConcernIntegrationSystemPrompt].join("\n");
+export const experienceIntegrationSystemPrompt = [eventExperienceSystemPrompt, memoryIntegrationSystemPrompt, relationshipIntegrationSystemPrompt, focusConcernIntegrationSystemPrompt].join("\n");
 export const experienceIntegrationRepairInstruction = "直前の出力を同じ入力事実だけでschemaに直し、有効なJSON objectだけを返す。許可されていないfieldを削除し、factsは最大4件、候補がないoptional rootは省略する。Memory候補がない時だけは {\"memories\":[]} を返す。文字列値の改行は\\nとしてescapeする。";
 export const eventExperienceRepairSystemPrompt = eventExperienceSystemPrompt;
 
@@ -121,14 +118,12 @@ export function createOllamaExperienceIntegrationModel({ toolRegistry, ...config
   const eventExperience = createJsonInvoker("event-experience", EventExperienceSchema, eventExperienceSystemPrompt, config, logger);
   const memories = createJsonInvoker("memory", ExperienceIntegrationMemoryOutputSchema, memoryIntegrationSystemPrompt, config, logger);
   const relationship = createJsonInvoker("relationship", ExperienceIntegrationRelationshipOutputSchema, relationshipIntegrationSystemPrompt, config, logger);
-  const mood = createJsonInvoker("mood", ExperienceIntegrationMoodOutputSchema, moodIntegrationSystemPrompt, config, logger);
   const focusConcern = createJsonInvoker("focus-concern", ExperienceIntegrationFocusConcernOutputSchema, focusConcernIntegrationSystemPrompt, config, logger);
   const integrate = async (input: ExperienceIntegrationInput, signal: AbortSignal): Promise<unknown> => {
     const views = experienceIntegrationModelInput(input, toolRegistry);
     const experience = await eventExperience(views.eventExperience, input, signal);
     const memory = await optionalTarget("memory", () => memories(views.memory, input, signal), logger, input);
     const relation = views.relationship === undefined ? undefined : await optionalTarget("relationship", () => relationship(views.relationship, input, signal), logger, input);
-    const durableMood = await optionalTarget("mood", () => mood(views.mood, input, signal), logger, input);
     const focusView = views.focusConcern === undefined ? undefined : toModelRecordView({
       ...views.focusConcern,
       createdMemories: memory?.memories ?? []
@@ -138,7 +133,6 @@ export function createOllamaExperienceIntegrationModel({ toolRegistry, ...config
       experience,
       memories: memory?.memories ?? [],
       ...(relation?.relationship === undefined ? {} : { relationship: relation.relationship }),
-      ...(durableMood?.mood === undefined ? {} : { mood: durableMood.mood }),
       ...(focus?.focusConcern === undefined ? {} : { focusConcern: focus.focusConcern })
     });
   };

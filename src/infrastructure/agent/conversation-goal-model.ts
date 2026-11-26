@@ -13,7 +13,7 @@ const contentOf = (value: unknown): string => typeof value === "string" ? value 
 export function createOllamaConversationGoalModel(config: OllamaChatConfig, logger: Logger = noopLogger): ConversationGoalModel {
   const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(ConversationGoalSchema) });
   return { async compose(input: ObservationGateInput, reason: string, signal: AbortSignal): Promise<ConversationGoal> {
-    const payload = JSON.stringify({ post: input.text.slice(0, 1_200), counterpart: input.peerName, reason: reason.slice(0, 240), self: input.self, mood: input.mood.slice(0, 120), ...(input.relationship === undefined ? {} : { relationship: input.relationship.slice(0, 400) }), concerns: input.concerns.slice(0, 3), memories: input.memories.slice(0, 3), ...(input.recentSelfSpeech === undefined ? {} : { recentSelfSpeech: input.recentSelfSpeech.slice(0, 320) }) });
+    const payload = JSON.stringify({ post: input.text.slice(0, 1_200), counterpart: input.peerName, reason: reason.slice(0, 240), self: input.self, mood: input.mood, ...(input.relationship === undefined ? {} : { relationship: input.relationship.slice(0, 400) }), concerns: input.concerns.slice(0, 3), memories: input.memories.slice(0, 3), ...(input.recentSelfSpeech === undefined ? {} : { recentSelfSpeech: input.recentSelfSpeech.slice(0, 320) }) });
     const startedAt = Date.now();
     try {
       const result = await model.invoke([{ role: "system", content: conversationGoalSystemPrompt }, { role: "user", content: payload }], { signal });

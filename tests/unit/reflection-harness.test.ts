@@ -29,7 +29,7 @@ const input: ReflectionInput = {
   agentId: "agent-a",
   expectedVersion: 2,
   self: { identity: "Agent A", disposition: "丁寧に確かめる", selfStory: "対話から学んでいる", commitments: ["約束を守る"] },
-  state: { mood: "落ち着いている", concerns: [], relationships: [{ subjectId: "user", description: "率直に話せる" }] },
+  state: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], relationships: [{ subjectId: "user", description: "率直に話せる" }] },
   events: [{ id: "event-1", occurredAt: "2026-01-01T00:00:00Z", summary: "約束を果たした" }],
   memories: [{ id: "memory-1", summary: "約束を果たした", significance: "信頼が深まった", subjects: ["user"], occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-01T00:01:00Z" }]
 };
@@ -70,13 +70,10 @@ describe("structured Reflection model", () => {
     expect(message).not.toContain("concernChanges");
   });
 
-  it("FR-9, FR-41: keeps Self/Mood Reflector output to an enduring emotional stance", () => {
-    expect(SelfMoodReflectorOutputSchema.safeParse({ mood: "少しせっかちで、期待が強まっている。" }).success).toBe(true);
-    expect(SelfMoodReflectorOutputSchema.safeParse({ mood: "あ".repeat(121) }).success).toBe(false);
-    for (const phrase of ["感情的構え", "固有名詞", "返答待ち", "Concern", "行動計画", "理由"]) {
-      expect(targetedReflectionSystemPrompt("self-mood")).toContain(phrase);
-    }
-    for (const phrase of ["感情的構え", "一時的なFeeling", "計画", "待機"]) expect(skill("reflection-self-mood")).toContain(phrase);
+  it("FR-9, FR-41: keeps the Self Reflector from writing Mood", () => {
+    expect(SelfMoodReflectorOutputSchema.safeParse({ mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } }).success).toBe(false);
+    expect(targetedReflectionSystemPrompt("self-mood")).toContain("reflection-self-mood");
+    expect(skill("reflection-self-mood")).toContain("MoodはRuntime");
   });
 
   it("FR-6, FR-41, FR-42: describes the complete Self and keeps its skill focused", () => {
@@ -119,7 +116,7 @@ describe("structured Reflection model", () => {
     expect(skill("reflection-memory")).toContain("Memoryだけを扱う");
     expect(skill("reflection-concern")).toContain("局所参照は出力しない");
     expect(skill("reflection-relationship")).toContain("Relationship");
-    expect(skill("reflection-self-mood")).toContain("SelfとMood");
+    expect(skill("reflection-self-mood")).toContain("MoodはRuntime");
     expect(skill("reflection-memory")).toContain("構造化出力Toolを必ず1回");
     expect(skill("reflection-memory")).toContain('{"memories":[]}');
     expect(skill("reflection-memory")).toContain("既存Memoryを更新しない");
@@ -190,7 +187,6 @@ describe("structured Reflection model", () => {
         memories: [],
         concernChanges: [{ operation: "upsert", id: "concern-1", description: "約束を続ける", whyItMatters: "信頼に関わる", status: "active" }],
         relationshipChanges: [{ operation: "upsert", currentDescription: "率直に話せる", description: "約束を守り合う関係" }],
-        mood: "静かな達成感がある",
         evidenceMemoryIds: []
       }
     ];
@@ -209,7 +205,6 @@ describe("structured Reflection model", () => {
     expect(result).toMatchObject({
       concernChanges: [{ operation: "upsert", concern: { id: "concern-1", status: "active" } }],
       relationshipChanges: [{ operation: "upsert", relationship: { subjectId: "user" } }],
-      mood: "静かな達成感がある"
     });
   });
 
@@ -268,9 +263,7 @@ describe("structured Reflection model", () => {
     expect(properties.memories?.description).toContain("Context検索");
     expect(properties.concernChanges?.description).toContain("気に掛けていること");
     expect(properties.relationshipChanges?.description).toContain("関係が変わらなければ");
-    expect(properties.mood?.description).toContain("次の複数Event");
-    expect(properties.mood).toMatchObject({ maxLength: 120 });
-    expect(properties.mood?.description).toContain("行動計画");
+    expect(properties.mood).toBeUndefined();
     expect(properties.selfDisposition?.description).toContain("意味づけの傾向");
     expect(properties.evidenceMemoryIds?.description).toContain("Runtimeが検証");
     expect(reflectionSystemPrompt).toContain("空のmaintenance結果は正しい");

@@ -289,3 +289,8 @@ Conversation Goal変更では、Observation GateがGoalを出力しないこと�
 - predictionEvaluation、memory-update Event、Background Experience、Reflectionの部分成功が対応するsuiteで検証されている。
 - 実model対応を変更した場合はLive Ollamaとproduction-like E2Eを実行する。
 - 行動差を主張する場合は、反復paired live evaluation artifactと集計を保存する。
+# Affect dynamics
+
+- Feelingのカテゴリ、重複禁止、強度1〜5をcontract testで検証する。
+- Runtime Moodは半減期による減衰、Feeling加算、上限、Agent別設定をunit testで検証する。
+- Experience IntegrationとReflectionの出力schemaがMoodを受け付けないことをcontract testで検証する。

@@ -75,8 +75,8 @@ describeDatabase("PostgreSQL persistence", () => {
     const repository = new AgentStateRepository(createRuntimeDatabase(pool).db);
     expect((await repository.find<{ agentId: string }>("a"))?.agentId).toBe("a");
     expect(await repository.find("missing")).toBeUndefined();
-    await expect(repository.update("a", 0, { mood: "Focused" })).resolves.toBe(1);
-    await expect(repository.update("a", 0, { mood: "Stale" })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(repository.update("a", 0, { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } })).resolves.toBe(1);
+    await expect(repository.update("a", 0, { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repository.find<{ mood: string }>("b"))?.mood).toBe("Calm");
     expect((await repository.find<{ commitments: string[] }>("a"))).toMatchObject({ commitments: ["Care"] });
   });
@@ -119,23 +119,23 @@ describeDatabase("PostgreSQL persistence", () => {
       version: 1 as const,
       family: { id: "configured-family", name: "Configured", sharedDisposition: "共通傾向", baseInstruction: "根拠を区別する" },
       agent: { id: "configured-agent", identity: "Configured Agent", initialDisposition: "具体的な対象を調べることが好きで、根拠のない断定は嫌い", raisonDetre: "対話相手との約束を守る", selfNarrative: "始まったばかり", selfContinuity: "経験をつなぐ" },
-      initialState: { mood: "中立", concerns: [], relationships: [] }
+      initialState: { mood: {}, concerns: [], relationships: [] }
     };
     const initialTimings = { autonomyReviewIntervalMs: 2_000, stateReviewIntervalMs: 3_000 };
     await initializeAgent(pool, config, initialTimings);
     expect((await pool.query<{ kind: string }>("SELECT kind FROM autonomous_schedules WHERE agent_id=$1 AND kind='idle'", [config.agent.id])).rows).toEqual([{ kind: "idle" }]);
     expect((await pool.query<{ kind: string; delay_ms: number }>("SELECT kind,round(extract(epoch FROM (next_due_at-updated_at))*1000)::int AS delay_ms FROM autonomous_schedules WHERE agent_id=$1 ORDER BY kind", [config.agent.id])).rows).toEqual([{ kind: "concern-formation", delay_ms: 2_000 }, { kind: "idle", delay_ms: 2_000 }, { kind: "reflection", delay_ms: 3_000 }]);
-    await pool.query("UPDATE agent_states SET disposition='経験で得た傾向',mood='持続する気分',relationships=$2 WHERE agent_id=$1", [config.agent.id, JSON.stringify([{ subjectId: "owner", description: "継続する関係" }])]);
+    await pool.query("UPDATE agent_states SET disposition='経験で得た傾向',mood_vector=$2,relationships=$3 WHERE agent_id=$1", [config.agent.id, { updatedAt: "2026-01-01T00:00:00.000Z", levels: { curiosity: 4 } }, JSON.stringify([{ subjectId: "owner", description: "継続する関係" }])]);
     await setConcerns(config.agent.id, [{ id: "concern-existing", description: "継続中の関心", whyItMatters: "大切", status: "active" }]);
     await initializeAgent(pool, { ...config, agent: { ...config.agent, initialDisposition: "再適用された初期傾向" } }, initialTimings);
-    const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; disposition: string; mood: string; relationships: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.disposition,s.mood,s.relationships FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
-    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: config.agent.initialDisposition, disposition: "経験で得た傾向", mood: "持続する気分", relationships: [{ subjectId: "owner" }] });
+    const loaded = await pool.query<{ shared_disposition: string; initial_disposition: string; disposition: string; mood: unknown; relationships: unknown }>("SELECT f.shared_disposition,a.initial_disposition,s.disposition,s.mood_vector AS mood,s.relationships FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(loaded.rows[0]).toMatchObject({ shared_disposition: "共通傾向", initial_disposition: config.agent.initialDisposition, disposition: "経験で得た傾向", mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: { curiosity: 4 } }, relationships: [{ subjectId: "owner" }] });
     expect(await getConcerns(config.agent.id)).toMatchObject([{ description: "継続中の関心" }]);
     const redesigned = await pool.query<{ disposition: string; self_story: string; commitments: string[]; relationships: unknown[] }>("SELECT disposition,self_story,commitments,relationships FROM agent_states WHERE agent_id=$1", [config.agent.id]);
     expect(redesigned.rows[0]?.disposition).toBe("経験で得た傾向"); expect(redesigned.rows[0]?.self_story).toContain("始まったばかり"); expect(redesigned.rows[0]?.commitments).toContain("対話相手との約束を守る"); expect(await getConcerns(config.agent.id)).toMatchObject([{ id: "concern-existing" }]); expect(redesigned.rows[0]?.relationships).toMatchObject([{ subjectId: "owner" }]);
     await initializeAgent(pool, { ...config, family: { ...config.family, sharedDisposition: "更新した共通傾向" }, agent: { ...config.agent, initialDisposition: "映像史とAI技術が好きで、誇張は嫌い" } }, initialTimings, { overwriteConfiguredSelf: true });
-    const overwritten = await pool.query<{ shared_disposition: string; disposition: string; commitments: string[]; mood: string; relationships: unknown; version: number }>("SELECT f.shared_disposition,s.disposition,s.commitments,s.mood,s.relationships,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
-    expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", mood: "持続する気分", relationships: [{ subjectId: "owner" }], version: 1 });
+    const overwritten = await pool.query<{ shared_disposition: string; disposition: string; commitments: string[]; mood: unknown; relationships: unknown; version: number }>("SELECT f.shared_disposition,s.disposition,s.commitments,s.mood_vector AS mood,s.relationships,s.version FROM agents a JOIN agent_families f ON f.id=a.family_id JOIN agent_states s ON s.agent_id=a.id WHERE a.id=$1", [config.agent.id]);
+    expect(overwritten.rows[0]).toMatchObject({ shared_disposition: "更新した共通傾向", mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: { curiosity: 4 } }, relationships: [{ subjectId: "owner" }], version: 1 });
     expect(await getConcerns(config.agent.id)).toMatchObject([{ description: "継続中の関心" }]);
     expect(overwritten.rows[0]?.disposition).toContain("更新した共通傾向");
     expect(overwritten.rows[0]?.disposition).toContain("映像史とAI技術が好き");
@@ -168,7 +168,7 @@ describeDatabase("PostgreSQL persistence", () => {
       destination: "agent:a", messageId: "incoming-1",
       event: { id: "event-1", agentId: "a", kind: "user-message", observation: { summary: "hello" }, source: "terminal", occurredAt: new Date() },
       run: { id: "run-1", inputStateVersion: 1, startedAt: new Date(), result: { action: "respond" } },
-      stateValues: { mood: "Attentive" },
+      stateValues: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } },
       changes: [{ id: "change-1", target: "mood", operation: "set" as const, before: "Focused", after: "Attentive", reason: "Greeting", evidenceIds: ["event-1"] }],
       outbox: [messageFixture({ id: "outbox-1", destination: "terminal" })]
     };
@@ -207,7 +207,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await expect(transaction.commit({
       destination: "agent:a", messageId: "incoming-conflict",
       event: { id: "event-conflict", agentId: "a", kind: "internal", observation: {}, source: "test", occurredAt: new Date() },
-      run: { id: "run-conflict", inputStateVersion: 0, startedAt: new Date(), result: {} }, stateValues: { mood: "Wrong" }, changes: [], outbox: []
+      run: { id: "run-conflict", inputStateVersion: 0, startedAt: new Date(), result: {} }, stateValues: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} } }, changes: [], outbox: []
     })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await pool.query("SELECT 1 FROM message_receipts WHERE message_id='incoming-conflict'")).rowCount).toBe(0);
     expect((await pool.query("SELECT 1 FROM events WHERE id='event-conflict'")).rowCount).toBe(0);
@@ -311,7 +311,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('recent-a','a','user-message',$1,'test','completed','2026-01-01'),('recent-b','b','user-message',$2,'test','completed','2026-01-01')", [JSON.stringify({ eventId: "recent-a", summary: "previous exchange", facts: ["prior context"], observedAt: fixtureInstant, actor: { id: "owner", type: "human" } }), JSON.stringify({ eventId: "recent-b", summary: "private exchange", facts: ["other agent"], observedAt: fixtureInstant, actor: { id: "other-owner", type: "human" } })]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('large-tool-result','a','tool-result',$1,'web_page','completed',now())", [JSON.stringify({ eventId: "large-tool-result", summary: "web_page result", facts: ["tool result"], observedAt: fixtureInstant, content: { markdown: "x".repeat(100_000) } })]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('attempt-event-a','a','internal',$1,'scheduler','completed',now()),('attempt-event-b','b','internal',$2,'scheduler','completed',now())", [JSON.stringify({ eventId: "attempt-event-a", summary: "recent attempt", facts: [], observedAt: new Date().toISOString(), actor: { id: "owner", type: "human" } }), JSON.stringify({ eventId: "attempt-event-b", summary: "foreign attempt", facts: [], observedAt: new Date().toISOString(), actor: { id: "other-owner", type: "human" } })]);
-    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('attempt-run-a','a','attempt-event-a',0,$1,now(),now()),('attempt-run-b','b','attempt-event-b',0,$2,now(),now())", [JSON.stringify({ assessment: { meaning: "探索方法を変える機会になった", feeling: "少し悔しい" }, output: { desire: "探索方法を変えたい", action: { type: "respond", content: "最近、何に関心がありますか？" } } }), JSON.stringify({ assessment: { meaning: "他Agentだけの経験", feeling: "嬉しい" }, output: { action: { type: "respond", content: "private" } } })]);
+    await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,started_at,finished_at) VALUES ('attempt-run-a','a','attempt-event-a',0,$1,now(),now()),('attempt-run-b','b','attempt-event-b',0,$2,now(),now())", [JSON.stringify({ assessment: { meaning: "探索方法を変える機会になった", feeling: [{ emotion: "anger", intensity: 2 }] }, output: { desire: "探索方法を変えたい", action: { type: "respond", content: "最近、何に関心がありますか？" } } }), JSON.stringify({ assessment: { meaning: "他Agentだけの経験", feeling: [{ emotion: "joy", intensity: 2 }] }, output: { action: { type: "respond", content: "private" } } })]);
     await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('failed-experience-a','a','internal',$1,'scheduler','failed',now())", [JSON.stringify({ eventId: "failed-experience-a", summary: "failed exploration", facts: [], observedAt: new Date().toISOString(), kind: "internal" })]);
     await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,result,failure_reason,started_at,finished_at) VALUES ('failed-run-a','a','failed-experience-a',0,NULL,'provider timeout',now(),now())");
     await pool.query("INSERT INTO tool_executions(id,run_id,event_id,tool_call_id,tool,input,result,error,started_at,finished_at) VALUES ('failed-tool-a','failed-run-a','failed-experience-a','call-1','web_list',$1,$2,NULL,now(),now())", [JSON.stringify({ q: "agent memory" }), JSON.stringify({ results: [] })]);
@@ -773,7 +773,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const core = agentCoreInputFixture();
     const input = { ...core, run: { ...core.run, agentId, eventId: "experience-requeue-event", runId: "experience-requeue-run", occurredAt: fixtureInstant }, observation: { ...core.observation, eventId: "experience-requeue-event" }, currentSelf: { ...core.currentSelf, agentId }, state: { ...core.state, agentId } };
     await repository.repairEventExperience({ integrationId: "experience-requeue-integration", agentId, sourceEvent: { id: "experience-requeue-event", agentId, kind: "internal", occurredAt: fixtureInstant, payload: {} }, sourceRunId: "experience-requeue-run", input, result: { output: { desire: "整理する", action: { type: "no-external-action", reason: "maintenance" } }, toolExecutions: [] } }, { summary: "補完対象のEventを整理した", facts: ["Event Experienceを補完した"] });
-    expect((await pool.query<{ status: string; mood: string; output: { memories: unknown[]; experience: { summary: string } } }>("SELECT i.status,i.output,s.mood FROM experience_integrations i JOIN agent_runs r ON r.id=i.source_run_id JOIN agent_states s ON s.agent_id=r.agent_id WHERE i.id='experience-requeue-integration' ")).rows[0]).toMatchObject({ status: "completed", mood: "Calm", output: { memories: [], experience: { summary: "補完対象のEventを整理した" } } });
+    expect((await pool.query<{ status: string; mood: unknown; output: { memories: unknown[]; experience: { summary: string } } }>("SELECT i.status,i.output,s.mood_vector AS mood FROM experience_integrations i JOIN agent_runs r ON r.id=i.source_run_id JOIN agent_states s ON s.agent_id=r.agent_id WHERE i.id='experience-requeue-integration' ")).rows[0]).toMatchObject({ status: "completed", mood: { updatedAt: "1970-01-01T00:00:00.000Z", levels: {} }, output: { memories: [], experience: { summary: "補完対象のEventを整理した" } } });
     expect((await pool.query("SELECT 1 FROM event_experiences WHERE event_id='experience-requeue-event'")).rowCount).toBe(1);
   });
 
@@ -784,7 +784,7 @@ describeDatabase("PostgreSQL persistence", () => {
     await pool.query("INSERT INTO memories(id,agent_id,kind,content,importance,occurred_at,embedding_status) VALUES ('reflection-evidence','a','episodic','約束を果たした経験','信頼が深まった',now(),'pending') ON CONFLICT DO NOTHING");
     const repository = new PostgresReflectionRepository(createRuntimeDatabase(pool), new SequenceIdGenerator(["reflection-memory"]), () => new Date("2026-01-02T00:00:00Z"));
     const input = await repository.load("reflection-1", "a"); if (input === undefined) throw new Error("Reflection input was not created");
-    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: "穏やかな達成感", evidenceMemoryIds: ["reflection-evidence"] };
+    const output = { memories: [{ summary: "約束を果たした", significance: "信頼が深まった", subjects: ["owner"], occurredAt: fixtureInstant }], concernChanges: [{ operation: "upsert" as const, concern: { id: "concern-1", description: "信頼を守る", whyItMatters: "約束を重視している", status: "active" as const } }], relationshipChanges: [{ operation: "upsert" as const, relationship: { subjectId: "owner", description: "約束を守り合える相手" } }], mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, evidenceMemoryIds: ["reflection-evidence"] };
     await expect(repository.commit(input, output)).resolves.toBe("committed");
     await expect(repository.commit(input, output)).resolves.toBe("duplicate");
     expect(await getConcerns("a")).toMatchObject([{ id: "concern-1" }]);
@@ -808,7 +808,7 @@ describeDatabase("PostgreSQL persistence", () => {
       budget: { maxTokens: 6_000, maxMemories: 1, maxSocialContexts: 1 },
       limits: { deadlineMs: 1_000, maxSteps: 4, maxToolCalls: 0, maxHops: 4, maxAttempts: 3 }
     });
-    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), (event) => loader.load(event), new SequenceIdGenerator(["context-boundary-state-change"]), () => new Date(fixtureInstant));
+    const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), (event) => loader.load(event), new SequenceIdGenerator(["context-boundary-mood-change", "context-boundary-state-change"]), () => new Date(fixtureInstant));
     const runtime = new AgentRuntime({
       destination: "a", defaultOutputDestination: "terminal", persistence,
       queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
@@ -1081,7 +1081,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const session: ReflectionInput = {
       reflectionId, agentId, expectedVersion: 0,
       self: { identity: "Reconciliation Agent", disposition: "Careful", selfStory: "Story", commitments: [] },
-      state: { mood: "Calm", concerns: [], relationships: [] },
+      state: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], relationships: [] },
       eventWindowEnd: "2026-01-03T00:00:00Z",
       events: [{ id: "reconciliation-event", occurredAt: "2026-01-03T00:00:00Z", summary: "現在のEvent" }],
       memories: []
@@ -1172,7 +1172,7 @@ describeDatabase("PostgreSQL persistence", () => {
     const persistence = new PostgresRuntimePersistence(createRuntimeDatabase(pool), () => Promise.resolve(agentCoreInputFixture()), new SequenceIdGenerator([]), () => new Date(fixtureInstant));
     const message = messageFixture({ id: "gate-ignore-message", destination: "agent:a" });
     const event = { id: "gate-ignore-event", agentId: "a", kind: "message-received" as const, occurredAt: fixtureInstant, payload: { text: "独り言", senderKind: "peer", addressing: "observed", peerName: "aka", subjectId: "agent:aka" } };
-    await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "関心と接続しない", input: { text: "独り言", peerName: "aka", self: { disposition: "気まま", story: "寄り道を好む" }, mood: "退屈している", concerns: [], memories: [] }, modelCalls: 1, retrievalCount: 1 }, ["agent:aka"])).resolves.toBe("committed");
+    await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "関心と接続しない", input: { text: "独り言", peerName: "aka", self: { disposition: "気まま", story: "寄り道を好む" }, mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], memories: [] }, modelCalls: 1, retrievalCount: 1 }, ["agent:aka"])).resolves.toBe("committed");
     await expect(persistence.recordIgnoredObservation(message, event, { decision: "ignore", reason: "duplicate", modelCalls: 1, retrievalCount: 0 }, ["agent:aka"])).resolves.toBe("duplicate");
     expect((await pool.query<{ status: string }>("SELECT status FROM events WHERE id='gate-ignore-event'")).rows).toEqual([{ status: "completed" }]);
     expect((await pool.query("SELECT 1 FROM agent_runs WHERE event_id='gate-ignore-event'")).rowCount).toBe(0);

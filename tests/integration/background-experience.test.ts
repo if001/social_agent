@@ -77,7 +77,7 @@ describeDatabase("Background Experience persistence and retrieval", () => {
       version: 1 as const,
       family: { id: "family", name: "Family", sharedDisposition: "Curious", baseInstruction: "Help" },
       agent: { id: "a", identity: "Agent A", initialDisposition: "Calm", selfNarrative: "Growing", selfContinuity: "Continuous" },
-      initialState: { mood: "Calm", concerns: [], relationships: [] }
+      initialState: { mood: {}, concerns: [], relationships: [] }
     };
     const timings = { autonomyReviewIntervalMs: 86_400_000, stateReviewIntervalMs: 86_400_000 };
     const before = (await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM memories WHERE agent_id='a'")).rows[0];

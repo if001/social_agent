@@ -22,15 +22,32 @@ const AgentContent = z.string().trim().min(1).max(6_000);
 const AgentReason = z.string().trim().min(1).max(800);
 const AgentStateDescription = z.string().trim().min(1).max(800);
 const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない。未返信・返答待ち・連投回避を待機や抑制の意味として書かない");
-const EventFeeling = z.string().trim().min(1).max(160).describe("今回のEventで今生じた短期的な感情を、感情語中心の1文で書く。例: 喜び、期待、不安、落胆、苛立ち、怒り、驚き、警戒、安堵、退屈。例から選ぶ必要はない。Toolの失敗・探索結果・予測誤差への反応も書ける。Eventの説明、理由、願望、計画、Action、持続するMoodは書かない。未返信・返答待ち・連投回避を待機や抑制の感情として書かない");
+export const EmotionSchema = z.enum(["joy", "sadness", "anger", "surprise", "anxiety", "vigilance", "boredom", "relief", "pride", "curiosity"]);
+export type Emotion = z.infer<typeof EmotionSchema>;
+export const AffectSchema = z.object({
+  emotion: EmotionSchema.describe("今回の経験で生じた感情カテゴリ"),
+  intensity: z.number().int().min(1).max(5).describe("今回の短期Feelingの強さ。1は弱く、5は非常に強い")
+}).strict();
+export type Affect = z.infer<typeof AffectSchema>;
+export const EventFeeling = z.array(AffectSchema).min(1).max(3).superRefine((affects, context) => {
+  if (new Set(affects.map(({ emotion }) => emotion)).size !== affects.length) context.addIssue({ code: "custom", message: "Feeling must not repeat an emotion" });
+}).describe("今回のEventで今生じた短期Feeling。1〜3件の感情カテゴリと強度だけを返す。出来事、理由、願望、計画、Action、Moodは含めない");
+export type Feeling = z.infer<typeof EventFeeling>;
 
-/**
- * Mood is a compact, durable affective stance.  Its semantic boundary is an
- * LLM judgement; the schema intentionally enforces only the mechanical
- * shape and length limit shared by every writer.
- */
-export const PersistentMoodDescription = "次の複数Eventの意味づけと行動の調子を変える、Agent自身の持続的な感情的構えを短い一文で書く。期待、苛立ち、警戒、退屈、安心など感情と傾きを中心にする。出来事、探索テーマ、固有名詞、ユーザー、返答待ち、約束、Concern、行動計画、願望、理由は書かない。持続する変化がなければ省略する。";
-export const PersistentMoodSchema = z.string().trim().min(1).max(120).describe(PersistentMoodDescription);
+export const AffectLevelSchema = z.number().finite().min(0).max(100);
+export const MoodSchema = z.object({
+  updatedAt: Instant.describe("Moodを最後に減衰・加算した時刻"),
+  levels: z.partialRecord(EmotionSchema, AffectLevelSchema).default({}).describe("感情カテゴリごとの減衰累積値。LLMは更新しない")
+}).strict().describe("RuntimeがFeelingの減衰累積から決定論的に保つ持続的Mood");
+export type Mood = z.infer<typeof MoodSchema>;
+export const AffectDynamicsEntrySchema = z.object({ halfLifeMs: z.number().finite().positive(), gain: z.number().finite().nonnegative(), maxLevel: z.number().finite().positive().max(100) }).strict();
+export type AffectDynamicsEntry = z.infer<typeof AffectDynamicsEntrySchema>;
+export const AffectDynamicsSchema = z.object({
+  default: AffectDynamicsEntrySchema,
+  emotions: z.partialRecord(EmotionSchema, AffectDynamicsEntrySchema.partial()).default({})
+}).strict();
+export type AffectDynamics = z.infer<typeof AffectDynamicsSchema>;
+export const DefaultAffectDynamics: AffectDynamics = { default: { halfLifeMs: 21_600_000, gain: 1, maxLevel: 20 }, emotions: {} };
 
 export const PersistedSelfSchema = z.object({
   identity: CurrentSelfIdentitySchema,
@@ -120,9 +137,7 @@ export const RelationshipSchema = z.object({ subjectId: Id.describe("関係す�
 export type Relationship = z.infer<typeof RelationshipSchema>;
 
 export const AgentStateSchema = z.object({
-  // Keep legacy stored State readable. Every model-facing writer uses
-  // PersistentMoodSchema above, so newly persisted Mood values are bounded.
-  mood: NaturalLanguage.optional(),
+  mood: MoodSchema,
   concerns: z.array(ConcernSchema),
   relationships: z.array(RelationshipSchema)
 });
@@ -208,10 +223,11 @@ export const InitialSelfConfigSchema = z.object({
     selfContinuity: NaturalLanguage
   }).strict(),
   initialState: z.object({
-    mood: PersistentMoodSchema.default("静かな好奇心を保っている"),
+    mood: z.partialRecord(EmotionSchema, AffectLevelSchema).default({}),
     concerns: z.array(ConcernSchema).default([]),
     relationships: z.array(RelationshipSchema).default([])
-  }).default({ mood: "静かな好奇心を保っている", concerns: [], relationships: [] })
+  }).default({ mood: {}, concerns: [], relationships: [] }),
+  affectDynamics: AffectDynamicsSchema.optional()
 });
 export type InitialSelfConfig = z.infer<typeof InitialSelfConfigSchema>;
 

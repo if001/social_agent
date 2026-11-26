@@ -34,7 +34,7 @@ describeDatabase("reset runtime", () => {
     await lock.query("SELECT pg_advisory_unlock_all()");
     const result = await resetRuntime(pool, [config], [root]);
     archived = result.archivedDirectories;
-    expect((await pool.query("SELECT version,mood FROM agent_states")).rows[0]).toEqual({ version: 0, mood: config.initialState.mood });
+    expect((await pool.query("SELECT version,mood_vector AS mood FROM agent_states")).rows[0]).toEqual({ version: 0, mood: { updatedAt: expect.any(String), levels: config.initialState.mood } });
     expect((await pool.query<{ config: unknown }>("SELECT config FROM agents")).rows[0]?.config).toEqual({ persona: "keep" });
     expect((await pool.query<{ count: string }>("SELECT count(*) FROM autonomous_schedules")).rows[0]?.count).toBe("3");
     expect((await pool.query<{ count: string }>("SELECT count(*) FROM reflection_runs")).rows[0]?.count).toBe("0");

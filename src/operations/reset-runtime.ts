@@ -56,7 +56,7 @@ export async function resetRuntime(pool: Pool, configs: readonly InitialSelfConf
       ]);
       const initialSelf = initialSelfFromConfig(config);
       const updatedAt = new Date();
-      await tx.update(agentStates).set({ disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, relationships: initialState.relationships, mood: initialState.mood, version: 0, updatedAt }).where(eq(agentStates.agentId, id));
+      await tx.update(agentStates).set({ disposition: initialSelf.disposition, selfStory: initialSelf.selfStory, commitments: initialSelf.commitments, relationships: initialState.relationships, moodVector: { updatedAt: updatedAt.toISOString(), levels: initialState.mood }, version: 0, updatedAt }).where(eq(agentStates.agentId, id));
       await new ConcernRepository(tx).replace(id, initialState.concerns, updatedAt);
       }
     const suffix = `.before-reset-${randomUUID()}`;

@@ -32,9 +32,9 @@ describe("domain contracts", () => {
 
   it("FR-6, FR-7, FR-10: defines the redesigned natural-language Self, State, Memory, Assessment and Turn", () => {
     expect(SelfSchema.parse({ identity: "探究する個体", disposition: "曖昧さを急いで埋めない", selfStory: "対話から学んできた", commitments: ["約束を守る"] })).toBeDefined();
-    expect(AgentStateSchema.parse({ mood: "静かに警戒している", concerns: [{ id: "c1", description: "関係を修復する", whyItMatters: "信頼を大切にしている", status: "active" }], relationships: [{ subjectId: "user", description: "率直に話せる相手" }] })).toBeDefined();
+    expect(AgentStateSchema.parse({ mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [{ id: "c1", description: "関係を修復する", whyItMatters: "信頼を大切にしている", status: "active" }], relationships: [{ subjectId: "user", description: "率直に話せる相手" }] })).toBeDefined();
     expect(EpisodicMemorySchema.parse({ id: "m1", summary: "約束が破られた", significance: "信頼への懸念が生じた", subjects: ["user"], occurredAt: "2026-01-01T00:00:00Z", createdAt: "2026-01-01T00:00:01Z" })).toBeDefined();
-    expect(EventAssessmentSchema.parse({ meaning: "大切な約束が軽視された", feeling: "怒りと失望" })).toBeDefined();
+    expect(EventAssessmentSchema.parse({ meaning: "大切な約束が軽視された", feeling: [{ emotion: "anger", intensity: 4 }, { emotion: "sadness", intensity: 2 }] })).toBeDefined();
     expect(AgentTurnSchema.safeParse({ desire: "境界を伝えたい", action: { type: "notify-no-execution", content: "今回は待つ", reason: "材料不足" } }).success).toBe(true);
     expect(AgentTurnSchema.safeParse({ desire: "待つ", action: { type: "wait" } }).success).toBe(false);
   });
@@ -96,25 +96,24 @@ describe("domain contracts", () => {
     expect(AgentTurnSchema.safeParse({ ...base, desire: "d".repeat(801) }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, action: { type: "respond", content: "c".repeat(6_001) } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, action: { type: "no-external-action", reason: "r".repeat(801) } }).success).toBe(false);
-    expect(AgentTurnSchema.safeParse({ ...base, patch: { mood: "m".repeat(161) } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { concern: { operation: "upsert", concern: { id: "c", description: "d".repeat(801), whyItMatters: "理由", status: "active" } } } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { relationship: { operation: "upsert", relationship: { subjectId: "user", description: "d".repeat(801) } } } }).success).toBe(false);
     expect(AgentTurnSchema.safeParse({ ...base, patch: { remember: { content: "m".repeat(801), perspective: "user", purpose: "user-context" } } }).success).toBe(false);
   });
 
-  it("FR-3, FR-9: bounds Event Meaning and Feeling without restricting Feeling to an enum", () => {
-    expect(EventAssessmentSchema.safeParse({ meaning: "m".repeat(801), feeling: "嬉しい" }).success).toBe(false);
-    expect(EventAssessmentSchema.safeParse({ meaning: "会話を再開する呼び掛け", feeling: "名付けにくいが心が少し弾む" }).success).toBe(true);
-    expect(EventAssessmentSchema.safeParse({ feeling: "f".repeat(161) }).success).toBe(false);
+  it("FR-3, FR-9: bounds Event Meaning and Feeling to named affects with intensity", () => {
+    expect(EventAssessmentSchema.safeParse({ meaning: "m".repeat(801), feeling: [{ emotion: "joy", intensity: 3 }] }).success).toBe(false);
+    expect(EventAssessmentSchema.safeParse({ meaning: "会話を再開する呼び掛け", feeling: [{ emotion: "joy", intensity: 2 }] }).success).toBe(true);
+    expect(EventAssessmentSchema.safeParse({ feeling: [{ emotion: "joy", intensity: 6 }] }).success).toBe(false);
+    expect(EventAssessmentSchema.safeParse({ feeling: [{ emotion: "joy", intensity: 2 }, { emotion: "joy", intensity: 3 }] }).success).toBe(false);
     const properties = z.toJSONSchema(EventAssessmentSchema).properties as Record<string, Record<string, unknown>>;
     expect(properties.meaning).toMatchObject({ maxLength: 800 });
-    expect(properties.feeling).toMatchObject({ maxLength: 160 });
-    expect(properties.feeling?.description).toContain("例から選ぶ必要はない");
-    expect(properties.feeling).not.toHaveProperty("enum");
+    expect(properties.feeling).toMatchObject({ minItems: 1, maxItems: 3, type: "array" });
+    expect(properties.feeling?.description).toContain("感情カテゴリ");
   });
 
-  it("FR-9: gives new Agents a compact emotional Mood rather than a Mood-absence marker", () => {
-    expect(InitialSelfConfigSchema.shape.initialState.parse({}).mood).toBe("静かな好奇心を保っている");
+  it("FR-9: gives new Agents an empty affect vector", () => {
+    expect(InitialSelfConfigSchema.shape.initialState.parse({}).mood).toEqual({});
   });
 
   it("FR-1, FR-3: maps every Event kind to an objective, provenance-aware Observation", () => {

@@ -15,7 +15,7 @@ describe("live Ollama targeted Reflection", () => {
       agentId: "live-agent",
       expectedVersion: 1,
       self: { identity: "検証用Agent", disposition: "経験を慎重に選別する", selfStory: "対話から学んでいる", commitments: ["根拠を確かめる"] },
-      state: { mood: "落ち着いている", concerns: [], relationships: [] },
+      state: { mood: { updatedAt: "2026-01-01T00:00:00.000Z", levels: {} }, concerns: [], relationships: [] },
       events: Array.from({ length: 16 }, (_, index) => ({ id: `live-event-${String(index + 1)}`, occurredAt: `2026-10-13T${String(index).padStart(2, "0")}:00:00.000Z`, summary: `将来の判断に影響する別々の経験 ${String(index + 1)}` })),
       memories: []
     };

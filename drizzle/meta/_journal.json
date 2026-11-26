@@ -372,6 +372,20 @@
       "when": 1795619737197,
       "tag": "0052_steep_chimera",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1795695683534,
+      "tag": "0053_narrow_butterfly",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1795707493306,
+      "tag": "0054_fancy_dreadnoughts",
+      "breakpoints": true
     }
   ]
 }

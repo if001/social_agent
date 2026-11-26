@@ -5,7 +5,7 @@ import { z } from "zod";
 import { estimateTokens } from "../../application/context-builder.js";
 import { reflectionConcernContext } from "../../application/reflection-concern-context.js";
 import { ConcernReflectorOutputSchema, MemoryReconciliationOutputSchema, MemoryReflectorOutputSchema, ReflectionInputSchema, ReflectionOutputSchema, RelationshipReflectorOutputSchema, SelfMoodReflectorOutputSchema, type ReflectionInput, type ReflectionModel, type ReflectionOutput, type ReflectionTarget, type TargetedReflectionModel, type ReflectorResult } from "../../application/reflection.js";
-import { CurrentCommitmentsSchema, CurrentConcernDescriptionSchema, CurrentConcernImportanceSchema, CurrentDispositionSchema, CurrentRelationshipDescriptionSchema, CurrentSelfIdentitySchema, CurrentSelfStorySchema, DomainError, PersistentMoodDescription, PersistentMoodSchema, type ToolExecutionRecord } from "../../domain/contracts.js";
+import { CurrentCommitmentsSchema, CurrentConcernDescriptionSchema, CurrentConcernImportanceSchema, CurrentDispositionSchema, CurrentRelationshipDescriptionSchema, CurrentSelfIdentitySchema, CurrentSelfStorySchema, DomainError, type ToolExecutionRecord } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { ToolRegistry } from "../../application/tool-registry.js";
@@ -46,7 +46,6 @@ export const ReflectionModelOutputSchema = z.object({
   memories: z.array(ReflectionMemorySchema).max(4).describe("Memory DBへ新規保存し、今後のContext検索に使う経験。保存価値がなければ空配列"),
   concernChanges: z.array(ReflectionConcernChangeSchema).max(4).describe("既存Concernだけを整理する変更。新規作成・派生はconcern-formation / concern-dueの責務であり、このReflectionでは出力しない。気に掛けていることが変わらなければ空配列"),
   relationshipChanges: z.array(ReflectionRelationshipChangeSchema).max(4).describe("現在Stateのrelationshipsへ適用する変更。関係が変わらなければ空配列"),
-  mood: PersistentMoodSchema.optional(),
   selfIdentity: CurrentSelfIdentitySchema.optional().describe("全Eventで使う『自分は誰か』の現在表現。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfDisposition: CurrentDispositionSchema.optional().describe("全Eventで使う、価値を感じやすい対象と意味づけの傾向。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
   selfStory: CurrentSelfStorySchema.optional().describe("全Eventで使う、経験から形成された現在の自己理解。十分なMemory根拠で変化した場合だけ、完全な新しい値を指定する"),
@@ -77,7 +76,6 @@ export const reflectionSystemPrompt = `あなたはAgentの経験を、次回以
 - Memory: 何が起き、どうなり、なぜ今後の判断に重要かを具体的に書く
 - Concern: 入力にある既存Concernの重複整理、具体化、終了判定だけを行う。一件には一つの持続する関心または動機の核だけを残す。未返信や件数を理由に終了しない。既存Concernが長大でも関心が続くなら、その核を短くupsertする。新規Concernの作成はconcern-formation、派生はconcern-dueの責務であり、Reflectionではcreateしない
 - Relationship: 特定の相手との関係が実際に変化した場合だけ書く
-- Mood: ${PersistentMoodDescription}
 - Self: 全EventのContextを変える長期変化。変更する場合は全field、理由、入力Memory IDを揃える
 
 制約:
@@ -108,7 +106,6 @@ function domainOutputFromModel(raw: unknown, input: ReflectionInput): unknown {
     memories: value.memories,
     concernChanges,
     relationshipChanges,
-    ...(value.mood === undefined ? {} : { mood: value.mood }),
     ...(hasSelf ? { self: { identity: value.selfIdentity, disposition: value.selfDisposition, selfStory: value.selfStory, commitments: value.selfCommitments } } : {}),
     ...(value.selfChangeReason === undefined ? {} : { selfChangeReason: value.selfChangeReason }),
     evidenceMemoryIds: value.evidenceMemoryIds
@@ -175,7 +172,7 @@ export function reflectionStructuredOutputRepairMessageFor(target?: ReflectionTa
   if (target === "reconciliation") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は changes 配列だけです。変更根拠Eventはanchorより後のものだけを指定し、変更不要なら keep を返してください。";
   if (target === "concern") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は concernChanges と evidenceMemoryIds だけです。変更不要なら両方を空配列にしてください。";
   if (target === "relationship") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は relationshipChanges 配列だけです。変更不要なら空配列にしてください。";
-  if (target === "self-mood") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は mood、self、selfChangeReason、evidenceMemoryIds だけです。変更不要なら evidenceMemoryIds を空配列にし、他の任意fieldは省略してください。";
+  if (target === "self-mood") return "最終出力がSchema不一致です。本文、Markdown、Action、入力metadataは返さず、構造化出力専用Toolを1回だけ呼んでください。出力は self、selfChangeReason、evidenceMemoryIds だけです。変更不要なら evidenceMemoryIds を空配列にし、他の任意fieldは省略してください。Moodは出力しません。";
   return reflectionStructuredOutputRepairMessage;
 }
 
@@ -272,11 +269,11 @@ function toolExecutionsFrom(error: unknown): readonly ToolExecutionRecord[] {
   return Array.isArray(records) ? records as readonly ToolExecutionRecord[] : [];
 }
 
-/** Target-specific instructions stay small; the durable Mood boundary is
- * repeated here because the self-mood Reflector is invoked independently. */
+/** Target-specific instructions stay small; the Self boundary is repeated
+ * here because this Reflector is invoked independently. */
 export function targetedReflectionSystemPrompt(target: ReflectionTarget): string {
   const concernBoundary = target === "concern" ? "Concernは疑問文である必要はない。一件には一つの持続する関心または動機の核だけを書く。関心を生んだ出来事、発見、根拠、会話の経緯はMemoryまたはEvent Experienceへ置き、今回だけの行為はDesire、実行日時や詳細手順はScheduled Taskへ置く。既存Concernが長大でも関心が続くなら、その核を短くupsertする。新規Concernの作成・派生はconcern-formation / concern-dueの責務であり、このReflectorは既存Concernだけを整理する。" : "";
-  return `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。${target === "self-mood" ? `Moodは${PersistentMoodDescription}` : ""}${concernBoundary}通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
+  return `あなたはReflection Sessionの${target} Reflectorです。最初に skill_read name=reflection-${target} を読み、その指示だけに従います。${concernBoundary}通常Action、ユーザーへの発話、Web検索、外部副作用は行いません。必要な根拠を読んだら探索を終え、必ず指定された構造化出力Toolを一度呼んで完了してください。保存・変更不要なときも空配列を含む有効な構造化出力を返します。`;
 }
 
 /**
@@ -306,7 +303,7 @@ export class OllamaTargetedReflectionModel implements TargetedReflectionModel {
         ? (() => { const context = reflectionConcernContext(input); return { memories: context.memories, concerns: context.concerns, concernContext: context.stats }; })()
         : target === "relationship"
           ? { events: input.events.slice(-32).map(({ occurredAt, summary }) => ({ occurredAt, summary })), memories, relationships: input.state.relationships.map(({ description }) => ({ description })) }
-          : { self: input.self, mood: input.state.mood, memories };
+          : { self: input.self, memories };
     // Tool call counters restart for each Reflector.  Scope the tool-run key by
     // target and, for each Memory formation batch, by its stable first Event.
     // Otherwise `tool-1` in two different batches would reuse the same

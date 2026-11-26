@@ -2,7 +2,7 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 
 import type { ObservationGateContextLoader, ObservationGateInput } from "../../application/observation-gate.js";
 import type { RetrievalService } from "../../application/ports.js";
-import { DomainError, type DomainEvent } from "../../domain/contracts.js";
+import { DomainError, MoodSchema, type DomainEvent } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { agentRuns, agentStates, events, eventSubjects } from "./schema.js";
 import { ConcernRepository } from "./concern-repository.js";
@@ -33,7 +33,7 @@ export class PostgresObservationGateContext implements ObservationGateContextLoa
     const peerName = typeof event.payload.peerName === "string" ? event.payload.peerName : event.payload.senderKind === "human" ? "ユーザー" : undefined;
     if (text === undefined || peerName === undefined) throw new DomainError("VALIDATION", "Observed peer Event requires text and peerName");
     const [state, currentConcerns, retrievedMemories, priorRuns] = await Promise.all([
-      this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, mood: agentStates.mood, relationships: agentStates.relationships }).from(agentStates).where(eq(agentStates.agentId, event.agentId)).limit(1),
+      this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, mood: agentStates.moodVector, relationships: agentStates.relationships }).from(agentStates).where(eq(agentStates.agentId, event.agentId)).limit(1),
       new ConcernRepository(this.database.db).list(event.agentId),
       this.retrieval.retrieve({ agentId: event.agentId, query: text, scope: "conversation", ...(typeof event.payload.subjectId === "string" ? { subjectIds: [event.payload.subjectId], subjectFilter: true } : {}), limit: 3 }),
       typeof event.payload.subjectId !== "string" ? Promise.resolve([]) : this.database.db.select({ result: agentRuns.result }).from(agentRuns)
@@ -59,6 +59,6 @@ export class PostgresObservationGateContext implements ObservationGateContextLoa
     const concerns = Array.isArray(rawConcerns) ? rawConcerns.filter((item: unknown): item is { status: "active"; description: string } => typeof item === "object" && item !== null && "status" in item && item.status === "active" && "description" in item && typeof item.description === "string").slice(0, 3).map((item) => bounded(item.description, 240)) : [];
     const memories = retrievedMemories.map((item) => bounded(item.content, 320));
     const recentSelfSpeech = priorRuns.map(({ result }) => responseText(result)).find((value): value is string => value !== undefined && value.trim() !== "");
-    return { text: bounded(text, 1_200), peerName: bounded(peerName, 120), self: { disposition: bounded(currentState.disposition, 240), story: bounded(currentState.selfStory, 320) }, mood: bounded(currentState.mood, 120), ...(relationship === undefined ? {} : { relationship: bounded(relationship, 400) }), concerns: strings(concerns, 3), memories, ...(recentSelfSpeech === undefined ? {} : { recentSelfSpeech: bounded(recentSelfSpeech, 320) }) };
+    return { text: bounded(text, 1_200), peerName: bounded(peerName, 120), self: { disposition: bounded(currentState.disposition, 240), story: bounded(currentState.selfStory, 320) }, mood: MoodSchema.parse(currentState.mood), ...(relationship === undefined ? {} : { relationship: bounded(relationship, 400) }), concerns: strings(concerns, 3), memories, ...(recentSelfSpeech === undefined ? {} : { recentSelfSpeech: bounded(recentSelfSpeech, 320) }) };
   }
 }

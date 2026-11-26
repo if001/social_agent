@@ -80,7 +80,7 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("相手に共有しやすい前向きな感情へ丸めません");
     expect(idleSkill).toContain("喜びだけでなく失望、がっかり、苛立ち、驚き、警戒、怒りを正当なFeelingとして評価");
     expect(idleSkill).toContain("一度のTool失敗だけで怒りを捏造せず");
-    expect(idleSkill).toContain("Mood patch、Concern、Relationship、次の探索方法や発話へ具体的に反映");
+    expect(idleSkill).toContain("Runtimeがその強度を減衰・累積してMoodへ反映");
   });
 
   it("FR-17: keeps user-facing content concise, concrete, and separate from internal state", () => {
