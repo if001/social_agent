@@ -28,9 +28,9 @@ export class PostgresObservationGateContext implements ObservationGateContextLoa
 
   async load(event: DomainEvent, signal: AbortSignal): Promise<ObservationGateInput> {
     signal.throwIfAborted();
-    if (event.kind !== "message-received" || event.payload.senderKind !== "peer" || event.payload.addressing !== "observed") throw new DomainError("VALIDATION", "Observation Gate accepts peer/observed only");
+    if (event.kind !== "message-received" || (event.payload.senderKind !== "peer" && event.payload.senderKind !== "human")) throw new DomainError("VALIDATION", "Conversation context accepts social messages only");
     const text = typeof event.payload.text === "string" ? event.payload.text : undefined;
-    const peerName = typeof event.payload.peerName === "string" ? event.payload.peerName : undefined;
+    const peerName = typeof event.payload.peerName === "string" ? event.payload.peerName : event.payload.senderKind === "human" ? "ユーザー" : undefined;
     if (text === undefined || peerName === undefined) throw new DomainError("VALIDATION", "Observed peer Event requires text and peerName");
     const [state, currentConcerns, retrievedMemories, priorRuns] = await Promise.all([
       this.database.db.select({ disposition: agentStates.disposition, selfStory: agentStates.selfStory, mood: agentStates.mood, relationships: agentStates.relationships }).from(agentStates).where(eq(agentStates.agentId, event.agentId)).limit(1),

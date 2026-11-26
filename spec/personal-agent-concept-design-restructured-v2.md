@@ -239,7 +239,7 @@ Desireは、今回のEventを受けて「今、何をしたいか」を表す今
 
 Concernは、現在気に掛けていて、次のEventにも影響する事柄である。感情、価値、関係、未完了課題、約束、継続中の関心を統合して表す。未解決課題だけに限らない。
 
-Conversation Goalは、そのAgentが一つのreply chainで何を知りたい、確かめたい、伝えたい、又は変えたいかを表す。通常peer投稿へ話しかける場合は軽量Observation Gateが候補を作り、自Bot発話への初回replyではAgent CoreのDesireから形成する。Bot間の発話は通常投稿へのreplyで開始・継続し、Bot宛mentionを生成しない。実際のreplyがcommitされた時だけ開始し、継続replyでは再生成しない。会話の局所履歴は当該Conversationだけを使い、別Conversationの内容はMemory化され検索できた場合だけ利用する。
+Conversation Goalは、そのAgentが一つのreply chainで何を知りたい、確かめたい、伝えたい、又は変えたいかを表す。これはDesireでもAgent Core出力でもなく、会話を開始するAgentが専用の軽量Goal Composerで作る。通常peer投稿ではObservation Gateが`engage`と理由だけを決めた後にComposerを呼び、対応のないhuman / peer directでも受信Agent自身がComposerを呼ぶ。継続replyでは保存済みの同一Agent所有Goalだけを渡し、再生成しない。同じreply chainでも相手Agentは別のGoalを持つ。Bot間の発話は既存投稿があればreplyで続け、自律的に開始する場合だけRuntimeがallowlist peerへmentionする。実際の外部発話がcommitされた時だけ開始する。会話の局所履歴は当該Conversationだけを使い、別Conversationの内容はMemory化され検索できた場合だけ利用する。
 
 ```ts
 type Concern = {

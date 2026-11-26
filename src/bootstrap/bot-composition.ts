@@ -38,6 +38,10 @@ import { PostgresMemoryUpdateRepository } from "../infrastructure/persistence/po
 import { ObservationGate } from "../application/observation-gate.js";
 import { createOllamaObservationGateModel } from "../infrastructure/agent/observation-gate-model.js";
 import { PostgresObservationGateContext } from "../infrastructure/persistence/postgres-observation-gate-context.js";
+import { ConversationGoalComposer } from "../application/conversation-goal.js";
+import { createOllamaConversationGoalModel } from "../infrastructure/agent/conversation-goal-model.js";
+import { PeerInitiationGate } from "../application/peer-initiation-gate.js";
+import { createOllamaPeerInitiationGateModel } from "../infrastructure/agent/peer-initiation-gate-model.js";
 import { PostgresConversationRepository } from "../infrastructure/persistence/postgres-conversation-repository.js";
 import { createRuntimeDatabase } from "../infrastructure/persistence/runtime-database.js";
 import { AddressedFileQueue } from "../infrastructure/queue/addressed-file-queue.js";
@@ -103,14 +107,17 @@ export function createBotComposition(options: BotCompositionOptions) {
     ...(config.persona === undefined ? {} : { persona: config.persona })
   });
   const persistence = new PostgresRuntimePersistence(database, (event) => contextLoader.load(event), ids, () => clock.now(), config.botId, config.runtimeCorrelationTtlMs, config.runtimeRateWindowRetentionMs, memoryEmbedding);
-  const observationGate = new ObservationGate(new PostgresObservationGateContext(database, retrievalService), createOllamaObservationGateModel(config.chat, logger));
+  const socialContext = new PostgresObservationGateContext(database, retrievalService);
+  const observationGate = new ObservationGate(socialContext, createOllamaObservationGateModel(config.chat, logger));
+  const conversationGoalComposer = new ConversationGoalComposer(socialContext, createOllamaConversationGoalModel(config.chat, logger));
+  const peerInitiationGate = new PeerInitiationGate(createOllamaPeerInitiationGateModel(config.chat, logger));
   const conversationRepository = new PostgresConversationRepository(database);
   const harness = new DeepAgentHarness({
     invoker: createOllamaDeepAgentInvoker({ ...config.chat, toolRegistry, logger, now: () => clock.now() }), logger,
     registeredToolNames: new Set(toolRegistry.definitions().map(({ name }) => name)),
     maxRepairs: 2, graphRecursionLimit: config.agentGraphRecursionLimit
   });
-  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, ...(config.discord?.ownerIds[0] === undefined ? {} : { ownerDiscordUserId: config.discord.ownerIds[0] }), logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler, experienceIntegration, observationGate, subjects });
+  const runtime = new AgentRuntime({ destination: config.botId, defaultOutputDestination: config.defaultOutputDestination, queue, harness, persistence, ids, ...(config.discord?.ownerIds[0] === undefined ? {} : { ownerDiscordUserId: config.discord.ownerIds[0] }), logger, now: () => clock.now(), maxHops: limits.maxHops, maxAttempts: limits.maxAttempts, prediction, memoryUpdateHandler, experienceIntegration, observationGate, conversationGoalComposer, peerInitiationGate, peers: config.peers.peers, subjects });
   runtimeRef.current = runtime;
   const reflection = new TargetedReflection(new PostgresReflectionRepository(database, ids, () => clock.now(), memoryUpdateSink, memoryEmbedding, { staleAfterMs: config.schedulerTimings.concernStaleAfterMs, minReflectionSessions: config.schedulerTimings.concernStaleMinReflectionSessions }), new OllamaTargetedReflectionModel(config.chat, logger, toolRegistry));
   const router = new AgentEventRouter(runtime);

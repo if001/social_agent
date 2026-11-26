@@ -338,7 +338,7 @@ Desireは、今回のEventを受けて「今、何をしたいか」を表す今
 
 Concernは、現在気に掛けていて、次のEventにも残る事柄である。感情、価値、関係、未完了課題、約束、継続中の関心を含む。
 
-Conversation Goalは一つのDiscord reply chainでAgentが得たいものを表す。`conversations`をAgent所有のGoal・状態・開始／最終Event・終了理由の正本、`conversation_messages`を外部messageとの対応とする。進捗・未解決点はEvent、Desire、Memoryから導出し重複保存しない。通常peer投稿のObservation Gateが候補を作り、replyをcommitした時だけ開始する。継続replyでは既存GoalをAgent Coreへ渡し、再生成しない。別Conversationの内容はMemoryとして取得できた場合だけ使う。
+Conversation Goalは一つのDiscord reply chainでAgentが得たいものを表す。`conversations`をAgent所有のGoal・状態・開始／最終Event・終了理由の正本、`conversation_messages`を外部messageとの対応とする。進捗・未解決点はEvent、Desire、Memoryから導出し重複保存しない。Observation Gateは通常peer投稿を扱うかと理由だけを決め、専用Goal Composerが開始AgentごとのGoalを短いJSONで作る。未対応directもComposerから開始し、継続replyでは既存GoalをContext Builder経由でAgent Coreへ渡して再生成しない。recipientは配送先だけであり、会話中の`user`又は`channel`配送は既存Goalを置換・closeしない。別Conversationの内容はMemoryとして取得できた場合だけ使う。
 
 ```ts
 type Concern = {

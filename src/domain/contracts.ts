@@ -385,7 +385,7 @@ export const RecentExperienceSchema = z.object({
 export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 
 
-const ResponseRecipient = z.enum(["user", "channel"]).describe("省略時はEventの発話元へreplyする。userはowner user、channelは非mention通常投稿。Bot表示名やIDを指定してBotへmentionしない");
+const ResponseRecipient = z.enum(["user", "channel", "peer"]).describe("省略時はEventの発話元へreplyする。userはowner userへのmention、channelは非mention通常投稿、peerは現在のpeerへreplyする。自律Eventのpeer開始先はRuntimeがallowlistから決め、LLMはBot表示名やIDを指定しない");
 export const FinalActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond").describe("現在の会話相手へのreply、owner user向け発話、又は共有channelへの通常投稿として本文を一度だけ返す場合に選ぶ"), content: AgentContent.describe("唯一の外部発話本文。内部判断や管理情報を含めず、personaの発話表現を適用する"), recipient: ResponseRecipient.optional() }).strict().describe("本文一つと配送先一つだけを持つ応答。recipient省略時はEvent発話元へreplyし、同時に複数配送しない"),
   z.object({
@@ -552,7 +552,8 @@ export const AgentCoreInputSchema = z.object({
   predictionContext: PredictionContextSchema.optional(),
   conversation: z.object({
     goal: z.string().trim().min(1).max(400).describe("このreply chainで自分が得たい、確かめたい、伝えたい、又は変えたい安定した目的"),
-    status: z.enum(["candidate", "active"]).describe("candidateは今回replyした時だけ開始し、activeは既存Conversationの継続")
+    status: z.enum(["candidate", "active"]).describe("candidateは今回replyした時だけ開始し、activeは既存Conversationの継続"),
+    counterpart: z.string().trim().min(1).max(120).optional().describe("自律的なpeer開始だけで使う自然言語の相手表示。IDや配送先ではない")
   }).strict().optional().describe("現在のreply chainに限るConversation Goal。別Conversationの履歴はMemory化されない限り含めない"),
   availableTools: z.array(z.object({ name: Id, description: NaturalLanguage, inputSchema: z.record(z.string(), z.unknown()) })),
   runtimeConstraints: z.array(NaturalLanguage),

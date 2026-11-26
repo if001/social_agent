@@ -81,10 +81,10 @@ export class DiscordAdapter {
       const user = typeof payload.user === "object" && payload.user !== null ? payload.user as Record<string, unknown> : undefined;
       const ownerId = typeof user?.discordUserId === "string" ? user.discordUserId : undefined;
       if (ownerId !== undefined && !this.options.ownerIds.has(ownerId)) throw new Error("Invalid Discord owner output envelope");
-      // Legacy envelopes may still carry peer metadata, but Bot-to-Bot
-      // delivery is always a Discord reply or an unmentioned channel post.
-      // Never turn peer metadata into a mention.
-      const outbound = ownerId === undefined ? payload.text : `<@${ownerId}> ${payload.text}`;
+      // A peer target with a reply anchor is a normal Discord reply. Only an
+      // autonomous peer initiation (no messageId) becomes a peer mention.
+      const peerMention = peerId !== undefined && typeof record.messageId !== "string" ? `<@${peerId}> ` : "";
+      const outbound = ownerId === undefined ? `${peerMention}${payload.text}` : `<@${ownerId}> ${payload.text}`;
       const discordMessageId = await this.options.gateway.send({ channelId: context.channelId, ...(typeof record.threadId === "string" ? { threadId: record.threadId } : {}), ...(typeof record.messageId === "string" ? { messageId: record.messageId } : {}) }, outbound, envelope.id, signal);
       this.#pruneOutboundTraces(this.options.clock.now());
       const action = typeof payload.action === "object" && payload.action !== null ? payload.action as Record<string, unknown> : undefined;
