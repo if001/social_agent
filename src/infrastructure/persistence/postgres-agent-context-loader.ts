@@ -51,8 +51,6 @@ function recentObservation(value: Observation): RecentObservation {
 }
 function recentAction(value: ReturnType<typeof FinalActionSchema.parse>): ReturnType<typeof FinalActionSchema.parse> {
   if (value.type === "respond") return { ...value, content: boundedText(value.content, 1_000) };
-  if (value.type === "refuse") return { ...value, content: boundedText(value.content, 1_000), reason: boundedText(value.reason, 400) };
-  if (value.type === "notify-no-execution") return { ...value, content: boundedText(value.content, 800), reason: boundedText(value.reason, 400) };
   return { ...value, reason: boundedText(value.reason, 400) };
 }
 function readableAction(value: unknown): unknown {

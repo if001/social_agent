@@ -61,7 +61,7 @@ describe("embedding and context", () => {
 
   it("FR-9: keeps only the explicit previous Assessment as minimal affective context", () => {
     const input = agentCoreInputFixture();
-    input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", meaning: "検索結果が期待と違った", feeling: [{ emotion: "anger", intensity: 2 }] };
+    input.previousAssessment = { occurredAt: "2026-01-02T02:54:05.000Z", feeling: [{ emotion: "anger", intensity: 2 }] };
     const result = new ContextBuilder().build(input, { maxTokens: 4_000, maxMemories: 1, maxSocialContexts: 1 });
     expect(result.previousAssessment).toEqual(input.previousAssessment);
   });

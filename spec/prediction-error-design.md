@@ -7,7 +7,7 @@
 - C-30：既存のAgent Loopに、G1〜G3の予測、予測誤差、背景経験、感情・動機、記憶更新の循環を追加する。
 - C-31：MainAgentは既存のAgent Coreとし、予測・誤差評価をMainAgentの外側の責務として置く。
 
-予測・誤差評価はMainAgentの行動を直接決めない。MainAgentは予測結果、誤差評価、背景経験、Memoryを材料として、従来どおりMeaning、Feeling、Desire、Actionを決める。予測結果に従う義務はない。
+予測・誤差評価はMainAgentの行動を直接決めない。MainAgentは予測結果、誤差評価、背景経験、Memoryを材料として、Feeling、Desire、Actionを決める。予測結果に従う義務はない。
 
 本ドキュメントが予測・背景経験について既存設計と異なる定めをした場合、その範囲では本ドキュメントを優先する。Self、State、Concern、Relationship、Memory、Action、Reflectionの既存の意味は変更しない。
 
@@ -34,7 +34,7 @@
 - C-50：予測、誤差評価、G3仮説、G3 Taskは専用の永続化領域に保存し、後から集計できるようにする。
 - C-51：予測Contextと背景経験は、Agent所有権と既存のContext budgetの対象にする。
 - C-52：G1/G2/G3の失敗は記録してスキップし、通常会話を継続する。G3は再試行し、期限切れは破棄する。
-- C-53：評価は、予測誤差がMeaning、Feeling、Desire、Action、Memoryへ影響する循環を主対象とし、Event、Run、グループ、candidateIndexごとのdesireの期待とRecentExperienceのeffectを照合する。的中率と期待度校正は診断指標として扱う。
+- C-53：評価は、予測誤差がFeeling、Desire、Action、Memoryへ影響する循環を主対象とし、Event、Run、グループ、candidateIndexごとのdesireの期待とRecentExperienceのeffectを照合する。的中率と期待度校正は診断指標として扱う。
 - C-54：予測結果はDebug UIで観測でき、ユーザーへ予測を直接開示しない。
 - C-55：すべての会話由来Memoryの書込みは単一のMemoryWriteServiceを通す。AgentCore、G1/G2、G3、Reflectionは候補または意図だけを渡す。
 - C-56：会話由来Memoryと背景経験の検索は、単一のRetrievalServiceでvector、keyword、subject、recencyを共通の順位付けで扱う。
@@ -46,7 +46,7 @@
 - C-62：Actionの期待はdesireに、Actionの結果はRecentExperienceに、Memory更新意図はrememberとMemoryIntentに統合する。actionExpectation、actionEffects、memoryUpdatesという専用fieldを持たない。
 - C-63：MainAgentのMemory更新はそのEventのtransactionで行う。G1/G2/G3とReflectionのMemory更新はmemory-update Eventで行う。Event種別ごとにMemory更新の可否を持つ。
 - C-64：ReflectionのMemory更新とSelf、Relationship、Concernの更新は同一DB transactionを必須としない。対象ごとの状態、冪等性、再試行、順序を持つ。
-- C-65：G1/G2のpredictionEvaluationは予測シグナルであり、MeaningとFeelingはMainAgentだけが確定する。G1/G2はFeelingを出力しない。
+- C-65：G1/G2のpredictionEvaluationは予測シグナルであり、FeelingはMainAgentだけが確定する。G1/G2はFeelingを出力しない。
 - C-66：MemoryIntentのtargetはMemory kindに限定する。RelationshipとConcernは既存のPatchまたはConcern Proposalへ渡し、G3のMemoryIntentはpredictionContextに含める。
 - C-67：MemoryWriteServiceはDB gatewayとしてtransaction clientを受け取り、Memory versionの楽観ロックとAgent単位の直列処理を行う。旧INSERT経路を残さない。
 - C-68：Reflectionはplanと対象別statusで更新し、Memory更新後にSelf、Relationship、Concernを更新する。失敗した対象だけを再試行する。
@@ -58,7 +58,7 @@
 
 | 用語 | 定義 |
 |---|---|
-| MainAgent | 既存のAgent Core。予測結果を材料にMeaning、Feeling、Desire、Actionを決める主体 |
+| MainAgent | 既存のAgent Core。予測結果を材料にFeeling、Desire、Actionを決める主体 |
 | G1 | 言語形式の予測グループ。語彙、文法、表記、口調、言い回しを扱う |
 | G2 | 意味・会話行為の予測グループ。命題、質問、依頼、同意、拒否、話題転換を扱う |
 | G3 | 認知・対人モデルの予測グループ。L4〜L6の意図、知識、信念、関係を扱う |
@@ -73,7 +73,7 @@
 | candidateIndex | 出力内の予測候補、またはRAG候補の位置。意味分類やタグではない |
 | MemoryIntent | Memoryの作成・更新の意図。content、reason、evidence、confidence、targetを持つ |
 | memoryCandidates | RAGで取得したMemoryIntentの候補。candidateIndex、content、source、similarityを持つ |
-| predictionEvaluation | G1/G2が返す予測誤差の評価。Meaning / Feelingとは別の予測シグナル |
+| predictionEvaluation | G1/G2が返す予測誤差の評価。Feelingとは別の予測シグナル |
 | reflection plan | Reflectionが適用する対象と順序を持つ更新計画。対象別statusで管理する |
 | Memory version | Memoryの楽観ロックに使う版番号。update時に照合する |
 | prediction-linked memory | 予測誤差の後に作成または更新されたMemory。意味IDではなく、内容、Event、evidenceでたどる |
@@ -90,7 +90,7 @@ flowchart TD
   M <--> R1[共通Retrieval Tool]
   R1 <--> MEM[会話由来Memory]
   R1 <--> BG[背景経験Store]
-  M --> A1[Meaning / Feeling / Desire / Action]
+  M --> A1[Feeling / Desire / Action]
   A1 --> R[応答]
   R --> G12[G1/G2<br/>追加の1 call]
   G12 --> E[予測誤差の保存]
@@ -208,7 +208,7 @@ reflection Event（時差式）
 ### 6.1 基本循環
 
 - 設計原則C-48に従い、予測誤差は感情・動機の入力として扱う。
-- 予測誤差は、それ自体が感情ではない。MainAgentがSelf、Disposition、Concern、Relationship、背景経験を用いて appraisal し、MeaningとFeelingを生む。
+- 予測誤差は、それ自体が感情ではない。MainAgentがSelf、Disposition、Concern、Relationship、背景経験を用いて appraisal し、Feelingを生む。
 - 誤差は、誤差を減らすためのDesireを生み得る。Desireは、確認、質問、検索、試行、記憶更新、信念維持、無視、拒否などのActionへつながる。
 - Actionの結果は、Memory、Common Ground、Relationship、Concern、Selfの更新候補になる。更新はMemoryWriteServiceまたは既存のReflectionを通す。
 - 更新されたMemoryと背景経験は、次の予測のpriorを変える。同じ状況が再び起これば、予測誤差が減る可能性がある。
@@ -219,7 +219,7 @@ reflection Event（時差式）
   → 観測 M_{t+1}
   → 誤差 E_{t+1}（一致 / 意外性 / 差異 / 不確実性 / 原因帰属）
   → appraisal（Self / Disposition / Concern / Relationship / 背景経験）
-  → Meaning / Feeling
+  → Feeling
   → 誤差低減のDesire（確認 / 質問 / 検索 / 試行 / 記憶更新 / 信念維持 / 無視）
   → Action
   → Memory / Common Ground / Relationship / Concern の更新
@@ -243,14 +243,14 @@ reflection Event（時差式）
 
 ### 6.3 既存のAgent Core出力との関係
 
-- 設計原則C-65に従い、G1/G2の `predictionEvaluation` は予測シグナルであり、MeaningとFeelingではない。G1/G2はFeelingを出力しない。
+- 設計原則C-65に従い、G1/G2の `predictionEvaluation` は予測シグナルであり、Feelingではない。G1/G2はFeelingを出力しない。
 - 予測誤差は、`predictionContext` としてMainAgentへ渡す。
-- MainAgentだけが `meaning` と `feeling` を確定する。G1/G2の `interpretation` は観測の読み取りであり、最終的なMeaningではない。
-- MainAgentは、既存の `meaning`、`feeling`、`desire`、`action`、`concern_propose` を使って循環を表現する。Memory、Mood、Relationshipの持続更新はExperience Integrationが扱う。新しい感情moduleやMotivation tableは追加しない。
+- MainAgentだけが `feeling` を確定する。G1/G2の `interpretation` は観測の読み取りであり、Feelingを決めない。
+- MainAgentは、`feeling`、`desire`、`action`、`concern_propose` を使って循環を表現する。Memory、Mood、Relationshipの持続更新はExperience Integrationが扱う。新しい感情moduleやMotivation tableは追加しない。
 - `feeling` には、驚き、戸惑い、好奇、警戒、不安、疑念、苛立ち、安堵、退屈などを、今回のEventの短期反応として書ける。
 - `desire` には、誤差を減らすために今回何をしたいかを書ける。例：理由を確かめたい、記憶を検索したい、相手の状態を確認したい、今の信念を維持したい。
 - MoodとRelationshipはExperience IntegrationまたはReflectionが扱う。Selfの変更はReflectionだけが行う。
-- 予測誤差の appraisal は、Actionの正当化のために作らない。Event終了時のMeaning / Feelingとして確定する。
+- 予測誤差の appraisal は、Actionの正当化のために作らない。Event終了時のFeelingとして確定する。
 
 ### 6.4 非迎合の制約
 
@@ -504,9 +504,9 @@ remember:
 ### 8.5 再判断
 
 - 設計原則C-41に従い、G3の結果は通常のAgent Loopへ渡し、MainAgentが追加発話、記憶更新、何もしないを決める。
-- 追加発話は既存の `respond` または `refuse` を使う。
+- 追加発話は既存の `respond` を使う。
 - 発話しない場合は `no-external-action` を使える。
-- G3 Eventは通知必須の例外とし、`notify-no-execution` を必須にしない。
+- G3 Eventは通知必須の例外とし、`respond` を必須にしない。
 - G3 Eventの成功条件は、具体的なTool実行、記憶更新、追加発話、または明示的な `no-external-action` のいずれかとする。
 - G3の結果が古い場合は、MainAgentが現在の会話状態を確認して追加発話の可否を決める。
 - G3が追加発話した後の次ターン予測の扱いは未決とする。
@@ -890,7 +890,7 @@ memory-update Event:
 
 ### 15.1 主指標
 
-- 設計原則C-53に従い、予測誤差がMeaning、Feeling、Desire、Action、Memoryへ影響する循環を主対象とする。
+- 設計原則C-53に従い、予測誤差がFeeling、Desire、Action、Memoryへ影響する循環を主対象とする。
 - 次の変化を評価する。
   - G1/G2のpredictionEvaluationがFeelingを直接生成せず、MainAgentのFeeling / Meaningが変わるか。
   - 予測誤差の有無で、Feeling、Desire、Actionが変わるか。
@@ -984,9 +984,9 @@ memory-update Event:
 
 - 概念設計のC-01からC-19、実装設計のC-20からC-29を既存の原則とする。
 - 本ドキュメントはC-30からC-71を追加する。
-- Agent Coreの構造化出力（C-23）はMeaning、Feeling、Desire、Actionに限定する。予測Contextは入力として維持し、Memory更新意図はExperience IntegrationとMemoryIntentへ分離する。
+- Agent Coreの構造化出力（C-23）はFeeling、Desire、Actionに限定する。予測Contextは入力として維持し、Memory更新意図はExperience IntegrationとMemoryIntentへ分離する。
 - Actionの期待はdesire、Actionの結果はRecentExperience、Memory更新意図はExperience IntegrationのMemoryIntentへ統合する。
-- G1/G2のpredictionEvaluationは予測シグナルであり、Meaning / FeelingはMainAgentだけが確定する。
+- G1/G2のpredictionEvaluationは予測シグナルであり、FeelingはMainAgentだけが確定する。
 - MemoryWriteServiceはDB gatewayとしてtransaction client、Memory version、楽観ロック、Agent単位の直列処理を持つ。
 - 予測Loopは旧continuity / memory分割後処理ではない。G1/G2の追加callはNFRの例外とし、call予算とdeadlineを持つ。
 - Experience IntegrationとConcern Proposalの境界を維持する。Experience IntegrationはMemory、Mood、Relationshipだけを扱う。

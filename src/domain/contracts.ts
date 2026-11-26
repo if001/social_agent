@@ -21,7 +21,6 @@ const AgentDesire = z.string().trim().min(1).max(800);
 const AgentContent = z.string().trim().min(1).max(6_000);
 const AgentReason = z.string().trim().min(1).max(800);
 const AgentStateDescription = z.string().trim().min(1).max(800);
-const EventMeaning = z.string().trim().min(1).max(800).describe("今回のEventが自分にとって何を意味するかを、確認できる事実に基づき1〜2文で書く。感情、願望、計画、Actionは書かない。未返信・返答待ち・連投回避を待機や抑制の意味として書かない");
 export const EmotionSchema = z.enum(["joy", "sadness", "anger", "surprise", "anxiety", "vigilance", "boredom", "relief", "pride", "curiosity"]);
 export type Emotion = z.infer<typeof EmotionSchema>;
 export const AffectSchema = z.object({
@@ -163,13 +162,12 @@ export const EpisodicMemorySchema = z.object({
 export type EpisodicMemory = z.infer<typeof EpisodicMemorySchema>;
 
 export const EventAssessmentSchema = z.object({
-  meaning: EventMeaning.optional(),
   feeling: EventFeeling.optional()
-}).strict().describe("今回のEvent処理終了時の主観的評価。Meaningと短期的なFeelingだけを扱う");
+}).strict().describe("今回のEvent処理終了時に残る短期的なFeeling。持続するMoodはRuntimeが算出する");
 export type EventAssessment = z.infer<typeof EventAssessmentSchema>;
 export const PreviousAssessmentSchema = EventAssessmentSchema.extend({
   occurredAt: Instant.describe("このAssessmentが確定したEventの発生時刻")
-}).strict().describe("直近の成功Event終了時のAssessment。経過時間と現在Eventとの関連を踏まえ、残っている影響だけを使う");
+}).strict().describe("直近の成功Event終了時のFeeling。経過時間と現在Eventとの関連を踏まえ、残っている影響だけを使う");
 export type PreviousAssessment = z.infer<typeof PreviousAssessmentSchema>;
 
 export const PreviousDesireSchema = z.object({
@@ -404,17 +402,6 @@ export type RecentExperience = z.infer<typeof RecentExperienceSchema>;
 const ResponseRecipient = z.enum(["user", "channel", "peer"]).describe("省略時はEventの発話元へreplyする。userはowner userへのmention、channelは非mention通常投稿、peerは現在のpeerへreplyする。自律Eventのpeer開始先はRuntimeがallowlistから決め、LLMはBot表示名やIDを指定しない");
 export const FinalActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond").describe("現在の会話相手へのreply、owner user向け発話、又は共有channelへの通常投稿として本文を一度だけ返す場合に選ぶ"), content: AgentContent.describe("唯一の外部発話本文。内部判断や管理情報を含めず、personaの発話表現を適用する"), recipient: ResponseRecipient.optional() }).strict().describe("本文一つと配送先一つだけを持つ応答。recipient省略時はEvent発話元へreplyし、同時に複数配送しない"),
-  z.object({
-    type: z.literal("refuse").describe("依頼を拒否し、その旨を相手へ返す場合に選ぶ"),
-    content: AgentContent.describe("相手へ配送する拒否の本文。personaの発話表現を適用し、内部の判断根拠は含めない"),
-    reason: AgentReason.describe("依頼を断る内部の判断根拠。外部へそのまま配送しない"),
-    basis: z.enum(["personality", "system"]).describe("拒否の根拠。personalityは自身の価値観、systemは実行制約")
-  }).describe("依頼を拒否して説明を配送するAction"),
-  z.object({
-    type: z.literal("notify-no-execution").describe("自律Eventで具体的な実行を選ばずownerへ理由を通知する場合に選ぶ。発話を避けるための代替にしない"),
-    content: AgentContent.describe("具体的な実行対象を選ばなかった判断と理由をownerへ通知する本文"),
-    reason: AgentReason.describe("実行しないと判断した内部理由")
-  }).describe("実行しない判断をownerへ通知するAction"),
   z.object({ type: z.literal("no-external-action").describe("今回は外部へ発話しないと判断した場合に選ぶ。idleの既定Actionにしない。peer/directでは会話目的が満たされ、新しい問い・事実・反論・依頼又は自分の動機がない時にも選べる。peer/observedではengage後にも、具体的な問い・実質的な差分・Concern又は約束の次行為・自発表現がなければ選べる"), reason: AgentReason.describe("今回は発話しない具体的理由。ユーザーからの返信待ちは理由にしてはならない。peer/direct又はpeer/observedでは、会話目的が満たされたこと又は具体的な発話動機がないことを示す") }).describe("外部発話を行わないAction")
 ]).describe("今回の動機に基づく最終行動");
 export type FinalAction = z.infer<typeof FinalActionSchema>;
@@ -581,7 +568,7 @@ export const AgentCoreInputSchema = z.object({
 });
 export type AgentCoreInput = z.infer<typeof AgentCoreInputSchema>;
 
-export const AgentCoreOutputSchema = AgentTurnSchema.describe("前回Assessmentと今回の経験を踏まえて決めたDesireと最終Action。Memory、Relationship、Moodの持続的更新は応答commit後のExperience Integrationが判断する");
+export const AgentCoreOutputSchema = AgentTurnSchema.describe("前回Feelingと今回の経験を踏まえて決めたDesireと最終Action。Memory、Relationship、Moodの持続的更新は応答commit後のExperience Integrationが判断する");
 export type AgentCoreOutput = z.infer<typeof AgentCoreOutputSchema>;
 
 

@@ -42,7 +42,7 @@ export interface RuntimePersistence {
 
 export type AgentRuntimeOptions = { readonly destination: string; readonly defaultOutputDestination: string; readonly queue: MessageQueue; readonly harness: AgentHarness; readonly persistence: RuntimePersistence; readonly ids: IdGenerator; readonly now: () => Date; readonly affectDynamics?: AffectDynamics; readonly ownerDiscordUserId?: string; readonly defaultOutputChannelId?: string; readonly logger?: Logger; readonly maxHops?: number; readonly maxAttempts?: number; readonly maxEventsPerMinute?: number; readonly prediction?: PredictionService; readonly memoryUpdateHandler?: MemoryUpdateHandler; readonly experienceIntegration?: ExperienceIntegrationSink; readonly observationGate?: ObservationGate; readonly conversationGoalComposer?: ConversationGoalComposer; readonly peerInitiationGate?: PeerInitiationGate; readonly peers?: readonly PeerCandidate[]; readonly subjects?: CanonicalSubjectResolver };
 
-const externalSpeech = (action: AgentAction): string | undefined => (action.type === "respond" ? action.content : action.type === "refuse" || action.type === "notify-no-execution" ? action.content : undefined);
+const externalSpeech = (action: AgentAction): string | undefined => action.type === "respond" ? action.content : undefined;
 const channelContext = (value: unknown): { readonly channelId: string } | undefined => {
   if (typeof value !== "object" || value === null) return undefined;
   const channelId: unknown = (value as Record<string, unknown>).channelId;

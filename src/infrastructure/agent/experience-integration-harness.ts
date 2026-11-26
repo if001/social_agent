@@ -18,7 +18,7 @@ export const ExperienceIntegrationMemoryOutputSchema = z.object({
 export const ExperienceIntegrationRelationshipOutputSchema = z.object({ relationship: RelationshipCandidateSchema.optional() }).strict();
 export const ExperienceIntegrationFocusConcernOutputSchema = z.object({ focusConcern: FocusConcernOutcomeSchema.optional() }).strict();
 
-export const eventExperienceSystemPrompt = "完了済みEventから、今回確定した出来事・選択・結果だけをJSON objectで返す。許可fieldはsummaryとfactsだけ。factsは具体的事実を最大4件にする。起動理由、時刻、kind、ID、Meaning、Feeling、Desire、未確認推測、Tool失敗、Memory、Mood、Relationship、Concernは書かない。";
+export const eventExperienceSystemPrompt = "完了済みEventから、今回確定した出来事・選択・結果だけをJSON objectで返す。許可fieldはsummaryとfactsだけ。factsは具体的事実を最大4件にする。起動理由、時刻、kind、ID、Feeling、Desire、未確認推測、Tool失敗、Memory、Mood、Relationship、Concernは書かない。";
 export const memoryIntegrationSystemPrompt = "完了済みEventから、将来の判断に再利用する経験候補だけをJSON objectで返す。rootはmemoriesだけ。候補がなければ必ず {\"memories\":[]} を返す。各候補はcontent、reason、target、perspectiveだけで、targetはepisodic|semantic|self-related|self-change|common-ground、perspectiveはself|userだけ。ID、根拠一覧、subject、Tool本文、応答文、未確認推測、実行手順は書かない。";
 export const relationshipIntegrationSystemPrompt = "今回のEventでactorとの持続的な関係が変わった時だけJSON objectでrelationshipを返す。変化がなければ {}。relationshipの許可fieldはoperation、currentDescription、description、reasonだけ。operationはupsert|remove、reasonは必須。descriptionは現在の関係の型・安定した前提・未解決の約束だけを400文字以内で書く。相手名、ID、個別Event、人物プロフィール、Concern、Feeling、次の行動は書かない。";
 export const focusConcernIntegrationSystemPrompt = "Runtimeが束縛した一件のConcernへの変化だけをJSON objectで返す。rootはfocusConcernだけ。変化がなければ {}。focusConcernはoutcomeとreasonだけで、outcomeはunchanged|progress|satisfied|abandoned。Concern ID、Event ID、status操作、実行手順、次の計画は書かない。satisfiedは核が実質的に満たされた時だけ、abandonedは現在のSelfにとって価値を明確に失った時だけ。検索失敗・情報不足・一時的Feelingだけではabandonedにしない。";

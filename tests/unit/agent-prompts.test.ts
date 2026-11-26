@@ -167,10 +167,9 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("既存Concernの言い換えにしません");
   });
 
-  it("FR-45: treats respond/refuse as the normal idle path and notification as operational", () => {
-    expect(idleSkill).toContain("respondまたはrefuseを必ず選びます");
-    expect(idleSkill).toContain("notify-no-executionを発話の代替にしません");
-    expect(idleSkill).toContain("no-external-actionは使いません");
+  it("FR-45: treats respond as the required idle path", () => {
+    expect(idleSkill).toContain("idleでは必ずrespondを選びます");
+    expect(idleSkill).toContain("concern-dueは具体的な現在のDesireがなければno-external-actionを選べます");
   });
 
   it("FR-25, FR-44, FR-67: keeps multiple grounded concerns without a mechanical count threshold", () => {

@@ -8,7 +8,7 @@
 
 ### Unit / contract
 
-- Self、State、Concern、Relationship、Memory、Final Meaning / Feeling、Agent Core outputのZod契約
+- Self、State、Concern、Relationship、Memory、Final Feeling、Agent Core outputのZod契約
 - モデル向けflat schemaのfield説明、provider不要制約の除去、strict Domain outputへの変換
 - ContextのAgent所有権、件数・文字列・推定token budget、Memory重複排除
 - State Patchのupsert/remove、evidence、別Agent更新拒否
@@ -42,7 +42,7 @@
 - Agent Core出力からFinal Assessment、Desire、Action、Patchへの分離
 - Tool continuation、複数Tool実績、Tool利用と発話判断が独立していること
 - 未登録Tool callを失敗実績としてcontinuationへ返し、run全体をprovider障害にしないこと
-- `respond` / `refuse` / `notify-no-execution`のOutbox保存と配送再試行
+- `respond`のOutbox保存と配送再試行
 - peer/directの定型終話が通常Event・Experience Integrationを通りつつOutboxを作らないこと
 - 自律Eventが具体的Tool実行も配送可能Actionもなく成功しない
 - 初回不正・repair成功時は1回だけcommitする
@@ -51,7 +51,7 @@
 - crash recovery、重複受信、複数Agent分離、Runtime制限
 - Reflection連続失敗時の指数backoff
 - G1/G2が応答後に予測し、1ターン遅れでpredictionEvaluationをMainAgentへ渡すこと
-- predictionEvaluationがFeelingを出力せず、MainAgentだけがMeaning / Feelingを確定すること
+- predictionEvaluationがFeelingを出力せず、MainAgentだけがFeelingを確定すること
 - memory-update EventがLLMを呼ばず、MemoryUpdateHandlerで処理されること
 - user-message、memory-update、G3、reflectionの優先順位と強制中断なしの協調制御
 - memory-update Eventの冪等性、部分commit禁止、失敗時の応答非巻き戻し
@@ -71,7 +71,7 @@
 
 `tests/live/ollama-user-response.test.ts`は実Ollamaを呼び、次を確認する。
 
-- 入力「こんにちは。今日は少し話したいです。」に対し、Final Meaning / FeelingとDesire / Actionを確定し、空でない応答をOutboxへ保存・配送する。
+- 入力「こんにちは。今日は少し話したいです。」に対し、Final FeelingとDesire / Actionを確定し、空でない応答をOutboxへ保存・配送する。
 - 初回に意図的な`action: string`不正出力を与え、実Ollamaによるrepair後にEvent、Receipt、Outboxを一度だけcommitする。
 
 `tests/live/ollama-reflection.test.ts`は、実OllamaがReflectionのproduction構造化出力経路から有効なmaintenance結果を返すことを確認する。
@@ -136,8 +136,8 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-15 | Contract, System, Integration | `tests/system/invalid-output.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/integration/persistence.test.ts` | repair 失敗時の非 commit |
 | FR-16 | System, Contract | `tests/system/invalid-output.test.ts`, `tests/contract/agent-harness.contract.test.ts` | user-message の限定的 fallbackと自律Eventでの不適用 |
 | FR-17 | System, Contract, Live | `tests/system/runtime-terminal.test.ts`, `tests/contract/discord-adapter.contract.test.ts`, `tests/live/ollama-user-response.test.ts` | respond の配送 |
-| FR-18 | System, Unit | `tests/system/runtime-terminal.test.ts`, `tests/unit/domain-contracts.test.ts` | refuse の内容と basis |
-| FR-19 | System, Contract, Unit | `tests/system/runtime-terminal.test.ts`, `tests/contract/discord-adapter.contract.test.ts` | notify-no-execution の配送 |
+| FR-18 | System, Unit | `tests/system/runtime-terminal.test.ts`, `tests/unit/domain-contracts.test.ts` | 拒否内容も respond として配送する |
+| FR-19 | Unit, Contract | `tests/unit/domain-contracts.test.ts`, `tests/contract/agent-harness.contract.test.ts` | Action 集合を二種に限定し、旧Action専用fieldを受理しない |
 | FR-20 | Contract, System | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts` | Tool 利用と発話判断の独立 |
 | FR-21 | Contract, System, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/system/observation-gate.test.ts`, `tests/unit/domain-contracts.test.ts` | no-external-action の理由とpeer会話終了 |
 | FR-76, FR-90 | Unit, System | `tests/unit/agent-prompts.test.ts`, `tests/system/observation-gate.test.ts` | peer/directとpeer/observedが具体的動機を再評価し、終話を無応答で監査すること |

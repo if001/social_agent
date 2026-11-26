@@ -270,7 +270,7 @@ Feelingは、出来事がAgent自身にとってどのような意味を持っ�
 少し腹が立ち、悔しい。
 ```
 
-Feelingは原則としてTransientであり、独立した長期状態として保存しない。Feelingは喜び・悲しみ・怒り・驚き・不安・警戒・退屈・安堵・誇り・好奇心から異なる1〜3件を選び、各々を強度1〜5で表す。直近の成功Event終了時のMeaningとFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡し、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響を判断する。
+Feelingは原則としてTransientであり、独立した長期状態として保存しない。Feelingは喜び・悲しみ・怒り・驚き・不安・警戒・退屈・安堵・誇り・好奇心から異なる1〜3件を選び、各々を強度1〜5で表す。直近の成功Event終了時のFeelingを `previousAssessment` として次のAgent Coreへ1件だけ渡し、経過時間、重要性、未解決性、現在Eventとの関連から残っている影響を判断する。
 
 MoodはFeelingより持続的で、次の複数Eventの意味づけや行動へ影響する背景的な気分である。
 
@@ -405,7 +405,7 @@ Previous Assessment
         ↓
 Agent Coreによる意味解釈
         ↓
-Final Meaning / Feeling
+Final Feeling
 Desire / Action
 ```
 
@@ -420,9 +420,6 @@ Disposition:
 Self Story:
   自分は技術的な探索役だと思っている
 
-Meaning:
-  自分が実際にこのプロジェクトへ貢献できた
-
 Feeling:
   嬉しい / 誇らしい
 
@@ -432,7 +429,7 @@ Self Story:
 
 という変化があり得る。
 
-MeaningとFeelingはActionを正当化するために作らず、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。
+FeelingはActionを正当化するために作らず、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の短期的な感情評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。
 
 ## 15. 好奇心
 
@@ -446,9 +443,6 @@ Shared Disposition:
 
 Observation:
   予想していた結果と違う
-
-Meaning:
-  理由が分からない
 
 Desire:
   理由を理解したい
@@ -575,12 +569,10 @@ Agent Core
         └── Relevant Memory
         │
         ↓
-Final Meaning / Feeling
+Final Feeling
 Desire / Action
         │
         ├── Respond
-        ├── Refuse
-        ├── Notify-no-execution
         └── No-external-action
         ↓
 Result / New Experience
@@ -590,9 +582,9 @@ Experience Integration（Memory / Mood / Relationship / Focus Concern） / Refle
 loop
 ```
 
-Agent CoreはLLMを中心とする。Observationの解釈、Final Meaningの形成、Desireの生成、Feeling、必要なMemoryの検索判断、Tool選択、Action生成を行う。単一EventからのMood・Relationship・Memoryの持続更新の判断は、commit済みのEvent、確定したAssessment / Desire / Action、Tool結果、同じ初期Contextを受けるExperience Integrationが行う。RuntimeがそのEventでFocusした最大1件のConcernも、ここで進展・明確な満足・明確な価値喪失だけを更新できる。複数経験をまたぐSelf Story、Concern、Moodの長期更新はReflectionとConcern Eventの責務である。
+Agent CoreはLLMを中心とする。Observationの解釈、Desireの生成、Feeling、必要なMemoryの検索判断、Tool選択、Action生成を行う。単一EventからのMood・Relationship・Memoryの持続更新の判断は、commit済みのEvent、確定したAssessment / Desire / Action、Tool結果、同じ初期Contextを受けるExperience Integrationが行う。RuntimeがそのEventでFocusした最大1件のConcernも、ここで進展・明確な満足・明確な価値喪失だけを更新できる。複数経験をまたぐSelf Story、Concern、Moodの長期更新はReflectionとConcern Eventの責務である。
 
-MeaningとFeelingは、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。Event Assessmentを独立した別のLLM callとして必須にしない。Runtimeは出力のうちMeaningとFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。Experience Integrationのschema・provider・保存失敗は、既にcommitしたActionやoutboxを失敗にしない。
+Feelingは、Event、再解釈、取得したContext、Tool結果を踏まえたEvent終了時の評価として、Agent Coreが最終Actionと同じ構造化出力で確定する。Event Assessmentを独立した別のLLM callとして必須にしない。Runtimeは出力のうちFeelingを `assessment` として分離し、DesireとActionを `output` として扱う。Experience Integrationのschema・provider・保存失敗は、既にcommitしたActionやoutboxを失敗にしない。
 
 これらの認知処理を必ず別々のLLM呼び出しや独立ブロックとして実装することは前提としない。
 
@@ -624,22 +616,21 @@ Action:
 
 - C-17：自律性は定期実行ではなくRuntime発のEventで起動し、Tool利用と外部発話を独立に判断する。
 
-Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否、非実行通知、または今回は発話しない選択ができる。`idle` は対話製品として各Eventで必ず `respond` または `refuse` を配送する。`concern-due` はexperience batchの意味的impactが`reconsider`となった時だけ、Runtime束縛済みの一件のConcernから派生可否を見直す内部Eventであり、外部発話を必要としない。未返信や連投回避は、idleの発話やConcernの減衰・終了を正当化しない。
+Agentはユーザー入力がなくても、Event sourceを契機にDesireを活性化し、Tool利用と外部発話をそれぞれ独立して判断する。Tool利用の有無にかかわらず、応答、質問、共有、拒否や非実行の表明、または今回は発話しない選択ができる。`idle` は対話製品として各Eventで必ず `respond` を配送する。`concern-due` はexperience batchの意味的impactが`reconsider`となった時だけ、Runtime束縛済みの一件のConcernから派生可否を見直す内部Eventであり、外部発話を必要としない。未返信や連投回避は、idleの発話やConcernの減衰・終了を正当化しない。
 
 代表的なEvent sourceは、ユーザーまたは他AgentからのMessage、一定期間の無活動、再検討が必要と判断されたexperience batch、ToolやScheduled Taskの結果、定期Reflectionの完了、起動・停止・権限変更などのSystem Eventである。Concernそのものの時刻到来はEvent sourceにしない。
 
 現在のScheduler targetKindは、`idle`、`concern-formation`、`concern-due`、`reflection`、`scheduled-task` である。`reflection` は通常のAction生成ではなく専用のmaintenance処理へ送る。`scheduled-task` はSystem Eventとして通常のAgent Loopへ入れる。
 
-最終Actionは次の4種類である。
+最終Actionは次の2種類である。
 
 - `respond`: 相手へ応答する。
-- `refuse`: 人格上またはSystem制約上の根拠を区別して拒否を届ける。
-- `notify-no-execution`: 自律Eventで実行対象を選ばなかった判断と理由をownerへ届ける。
+- `respond`: 拒否、保留、非実行を相手へ伝える場合も、この一つの配送Actionで本文として表す。
 - `no-external-action`: Eventごとの発話契約が許す場合に、Actionを配送せず完了するために使う。内部Event、会話目的が満たされたpeer/direct、認知後も具体的な発話動機がないpeer/observed Eventで明示的に使え、idleでは選択しない。Tool利用の有無とは独立する。
 
 自律EventではTool利用と発話判断を独立させる。自律探索の主目的は、Agent自身の知りたい欲、考えたい欲、不満、驚き、遊びを満たすことであり、ユーザーへの報告や有用性を目的にしない。外部発話は、その探索が近くにいる相手へ漏れる独り言、仮説、反論、途中経過、または自分の不確かさを埋める問いになり得る。ユーザーの予定・状態・好みを尋ねるのは、Agent自身が知りたい具体的な不確かさがあり、Memory・Relationship・現在Eventに根拠がある場合だけにする。ユーザーからの返信待ちは沈黙理由にしない。夜間はRuntimeによる禁止ではなく、緊急性と合わせてAgentが発話を控える判断材料にできる。
 
-`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではreply自体を返答義務にせず、Desireで表した問い、反論、共有、依頼、約束、遊び又は協力の目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedのGate `engage`は認知価値であり発話義務ではない。具体的な未解決の問い、判断を変える反論・訂正・新事実、Concern又は約束の次行為への影響、又は今言いたい自発表現がなければこれで終える。長期的な協力関係、礼儀、採用、感謝、同意、言い換えだけを発話理由にしない。外部へ観測可能な結果を残す必要がある自律Eventでは、`notify-no-execution` または具体的なTool / 送信Actionを選ぶ。
+`no-external-action` は外部への配送を行わないが、理由付きのActionとして監査ログに残す。idleでは選択できず、情報が不十分なら`respond`で不十分な旨を伝える。peer/directではreply自体を返答義務にせず、Desireで表した問い、反論、共有、依頼、約束、遊び又は協力の目的が満たされ、新しい対象がなければこれで会話を終える。peer/observedのGate `engage`は認知価値であり発話義務ではない。具体的な未解決の問い、判断を変える反論・訂正・新事実、Concern又は約束の次行為への影響、又は今言いたい自発表現がなければこれで終える。長期的な協力関係、礼儀、採用、感謝、同意、言い換えだけを発話理由にしない。外部へ観測可能な結果を残す必要がある自律Eventでは、具体的なToolまたは`respond`を選ぶ。
 
 ### 23.1 自由な探索と役割の区別
 
@@ -682,7 +673,7 @@ AgentはすべてのConcern、依頼、探索を等しく勤勉に処理しな�
                             │
                             ▼
                        AGENT CORE
-          LLM: Meaning / Feeling / Desire / Action
+          LLM: Feeling / Desire / Action
                  │                    │
                  ▼                    ▼
             TOOL LOOP            STATE PATCH

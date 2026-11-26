@@ -13,7 +13,7 @@ import { createStdoutLogger } from "../../src/observability/logger.js";
 const eventually = async (assertion: () => void): Promise<void> => { for (let attempt = 0; attempt < 200; attempt += 1) { try { assertion(); return; } catch (error) { if (attempt === 199) throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } } };
 
 describe("ST-01 Terminal round trip", () => {
-  it("FR-19, FR-39: routes time and memory review through the normal autonomous decision", async () => {
+  it("FR-17, FR-39: routes time and memory review through the normal autonomous decision", async () => {
     const clock = new FixedClock(new Date("2026-01-02T03:04:05Z"));
     const persistence = new InMemoryRuntimePersistence((event) => {
       const input = agentCoreInputFixture();
@@ -26,13 +26,13 @@ describe("ST-01 Terminal round trip", () => {
       destination: "agent-a",
       defaultOutputDestination: "terminal",
       queue: { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() },
-      harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { desire: "状態を再評価する", action: { type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" } }, toolExecutions: [] }); } },
+      harness: { run: () => { harnessCalls += 1; return Promise.resolve({ output: { desire: "状態を再評価する", action: { type: "respond", content: "今は別の手掛かりが増えるまで保留する" } }, toolExecutions: [] }); } },
       persistence,
       ids: new SequenceIdGenerator(["autonomous-notification"]),
       now: () => clock.now()
     });
     const action = await runtime.process({ id: "state-review-event", agentId: "agent-a", kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "state-review", schedulerGenerated: true, reason: "Review persistent state", destination: "terminal" } }, new AbortController().signal);
-    expect(action).toEqual({ type: "notify-no-execution", content: "今は別の手掛かりが増えるまで保留する", reason: "今は外部行動が不要" });
+    expect(action).toEqual({ type: "respond", content: "今は別の手掛かりが増えるまで保留する" });
     expect(harnessCalls).toBe(1);
     expect(persistence.events).toHaveLength(1);
   });
@@ -182,15 +182,14 @@ describe("autonomous response outbox", () => {
   it.each([
     ["autonomy-review", "internal"],
     ["scheduled-task", "system"]
-  ] as const)("FR-18: delivers a refusal for %s without exposing its internal reason", async (targetKind, kind) => {
+  ] as const)("FR-17: delivers a refusal-shaped response for %s", async (targetKind, kind) => {
     const input = agentCoreInputFixture();
     const persistence = new InMemoryRuntimePersistence(() => input);
     const queue = { publish: () => Promise.resolve(), subscribe: () => Promise.resolve() };
-    const refusal = { desire: "decline", action: { type: "refuse" as const, content: "今回は引き受けられません。", reason: "価値観に反する", basis: "personality" as const } };
+    const refusal = { desire: "decline", action: { type: "respond" as const, content: "今回は引き受けられません。" } };
     const runtime = new AgentRuntime({ destination: "agent-a", defaultOutputDestination: "terminal", queue, persistence, ids: new SequenceIdGenerator([`${targetKind}-output`]), now: () => new Date("2026-01-01T00:00:00Z"), harness: new ScriptedAgentHarness([refusal]) });
     await runtime.process({ id: `${targetKind}-event`, agentId: "agent-a", kind, occurredAt: "2026-01-01T00:00:00Z", payload: { targetKind, destination: "terminal" } }, new AbortController().signal);
     const [pending] = await persistence.pendingOutbox(10);
-    expect(pending?.envelope.payload).toMatchObject({ text: "今回は引き受けられません。", action: { type: "refuse" } });
-    expect(JSON.stringify(pending?.envelope.payload)).not.toContain("価値観に反する");
+    expect(pending?.envelope.payload).toMatchObject({ text: "今回は引き受けられません。", action: { type: "respond" } });
   });
 });
