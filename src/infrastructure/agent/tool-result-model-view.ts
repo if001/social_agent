@@ -35,3 +35,13 @@ export function projectToolExecutionForModel(execution: StoredToolExecution, reg
       : { error: projectToolResultForModel(execution.name, { error: execution.error ?? "Tool failed" }, registry, destination) })
   };
 }
+
+/** Post-commit integration receives facts, not the lookup and instruction
+ * context the Agent Core already used to decide the Event. */
+export function projectExperienceEvidenceForModel(executions: readonly StoredToolExecution[], registry: ToolRegistry | undefined): readonly Record<string, unknown>[] {
+  if (registry === undefined) return [];
+  return executions
+    .filter((execution) => execution.ok && registry.isExperienceEvidence(execution.name))
+    .slice(0, 6)
+    .map((execution) => projectToolExecutionForModel(execution, registry, "recent-experience"));
+}

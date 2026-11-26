@@ -159,7 +159,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-34 | Contract, Unit | `tests/contract/agent-harness.contract.test.ts`, `tests/unit/tools.test.ts` | Tool 説明と入力 schema |
 | FR-35 | Unit, System | `tests/unit/tools.test.ts`, `tests/system/tool-loop.test.ts` | 入力・権限・回数・冪等性・記録 |
 | FR-36 | System | `tests/system/tool-loop.test.ts` | Tool Result の同一 loop 返却 |
-| FR-37 | Unit, System | `tests/unit/tools.test.ts`, `tests/unit/text-extraction.test.ts`, `tests/system/invalid-output.test.ts` | 監査保存と Recent Experience 投影 |
+| FR-37 | Unit, System | `tests/unit/tools.test.ts`, `tests/unit/text-extraction.test.ts`, `tests/unit/experience-integration.test.ts`, `tests/system/invalid-output.test.ts` | 監査保存、Recent Experience投影、Integrationへ渡す経験根拠だけの共通投影 |
 | FR-38 | Contract | `tests/contract/agent-harness.contract.test.ts` | Tool 成否と通知判断の非結合 |
 | FR-39 | Unit, System | `tests/unit/scheduler.test.ts`, `tests/system/internal-event.test.ts`, `tests/system/self-drive-autonomy.test.ts` | Event-driven な自律起動 |
 | FR-40 | Unit, Integration | `tests/unit/scheduled-task-tools.test.ts`, `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | Scheduled Task の分離 |
@@ -170,6 +170,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | FR-91 | Unit, System, Integration, Live | `tests/unit/observation-gate.test.ts`, `tests/system/observation-gate.test.ts`, `tests/integration/persistence.test.ts`, `tests/live/ollama-observation-gate.test.ts` | GateのSelf・Mood・直近自己発話を含む小さいID-free入力、具体的動機、同意だけのignoreと新しい具体質問のengage、ignoreの監査のみ保存、direct bypass、fail-closed |
 | FR-94 | Unit, Contract, System, Integration | `tests/unit/observation-gate.test.ts`, `tests/contract/discord-adapter.contract.test.ts`, `tests/system/observation-gate.test.ts`, `tests/integration/persistence.test.ts` | GateのGoal候補、reply commit時だけのConversation開始、永続message対応による再起動後のdirect解決、Agent所有Goal、会話間の局所履歴分離 |
 | FR-78 | Unit, Integration, System | `tests/unit/reflection-evidence-resolver.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/reflection-partial.test.ts` | Formationの固定batch制約、Hybrid Retrieval根拠、未支持no-op、技術失敗だけのbatch再試行 |
+| FR-82 | Unit, Live | `tests/unit/experience-integration.test.ts`, `tests/live/ollama-experience-integration-replay.test.ts` | Event Experience必須、Memory no-op、対象別の最小viewとJSON schema、shiro保存Runのread-only replay |
 | FR-79 | Unit, Integration, System | `tests/unit/memory-reconciliation.test.ts`, `tests/unit/reflection-evidence-resolver.test.ts`, `tests/system/reflection-partial.test.ts` | cluster化されたanchor単位の更新、後続Event制約、種別別の変更制限、split |
 | FR-80 | Unit, Contract | `tests/unit/reflection-tools.test.ts`, `tests/contract/agent-harness.contract.test.ts` | Reflection ToolのID非露出、非公開handle、非ID入力だけによる検索 |
 | FR-81 | Unit, Integration, System | `tests/unit/reflection-evidence-resolver.test.ts`, `tests/integration/persistence.test.ts`, `tests/system/reflection-partial.test.ts` | 分類、cursor進行、競合再評価、call予算、resolver監査 |
@@ -208,7 +209,7 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | NFR-22 | Unit, Contract, System | `tests/unit/runtime-decision-boundary.test.ts`, `tests/contract/agent-harness.contract.test.ts`, `tests/system/reflection-partial.test.ts` | 自然言語判断のLLM委譲、ID・時刻・範囲・閾値・RAG・cluster化のRuntime処理 |
 | NFR-6 | Unit, Integration | `tests/unit/scheduler.test.ts`, `tests/integration/persistence.test.ts` | claim・lease・retry |
 | NFR-7 | Integration, Evaluation, Unit | `tests/integration/persistence.test.ts`, `tests/evaluation/evaluation-runner.test.ts`, `tests/unit/operations.test.ts` | 監査記録と artifact |
-| NFR-8 | Integration, Live | `tests/integration/persistence.test.ts`, `tests/live/production-context-user-response.test.ts` | MainAgentの一括commitとmemory-updateの分離 |
+| NFR-8 | Integration, Live | `tests/integration/persistence.test.ts`, `tests/unit/experience-integration.test.ts`, `tests/live/production-context-user-response.test.ts`, `tests/live/ollama-experience-integration-replay.test.ts` | MainAgentの一括commitとmemory-updateの分離、Integration対象別の部分成功 |
 | NFR-9 | Contract, System | `tests/contract/message-queue.contract.test.ts`, `tests/system/runtime-terminal.test.ts`, `tests/system/recovery.test.ts` | retry・冪等性・Outbox |
 | NFR-10 | Unit, Contract, Integration | `tests/unit/agent-send.test.ts`, `tests/contract/message-queue.contract.test.ts`, `tests/integration/persistence.test.ts` | lock・version・TTL・hop・rate limit |
 | NFR-11 | Integration | `tests/integration/persistence.test.ts`, `tests/integration/reset-runtime.test.ts` | 現行 schema のみの保持 |

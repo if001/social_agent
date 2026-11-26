@@ -1,9 +1,9 @@
-import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubjectsForIntegration } from "../../src/application/experience-integration.js";
+import { ExperienceIntegration, ExperienceIntegrationOutputSchema, memorySubjectsForIntegration, type ExperienceIntegrationOutput } from "../../src/application/experience-integration.js";
 import { createCanonicalSubjectResolver } from "../../src/application/canonical-subject.js";
 import { z } from "zod";
 import { PersistentMoodSchema } from "../../src/domain/contracts.js";
-import { eventExperienceRepairInput, experienceIntegrationModelInput, experienceIntegrationRepairInstruction, experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
-import { projectToolExecutionForModel } from "../../src/infrastructure/agent/tool-result-model-view.js";
+import { eventExperienceRepairInput, eventExperienceSystemPrompt, experienceIntegrationMaxModelCalls, experienceIntegrationModelInput, experienceIntegrationRepairInstruction, experienceIntegrationSystemPrompt, focusConcernIntegrationSystemPrompt, memoryIntegrationSystemPrompt, relationshipIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
+import { projectExperienceEvidenceForModel } from "../../src/infrastructure/agent/tool-result-model-view.js";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
 import { agentCoreInputFixture } from "../../src/testing/contract-fixtures.js";
 import { parseDecisionInput } from "../../src/infrastructure/persistence/postgres-experience-integration.js";
@@ -48,6 +48,13 @@ describe("ExperienceIntegration", () => {
   it("FR-82: requires an Event-specific Experience even when no long-term Memory is retained", () => {
     expect(ExperienceIntegrationOutputSchema.safeParse({ experience: null, memories: [] }).success).toBe(false);
     expect(ExperienceIntegrationOutputSchema.parse({ experience: { summary: "展示の予定を確認した", facts: ["ユーザーは週末に展示へ行く予定だと話した"] }, memories: [] })).toMatchObject({ experience: { summary: "展示の予定を確認した" }, memories: [] });
+    expect(ExperienceIntegrationOutputSchema.parse({ experience: { summary: "展示の予定を確認した", facts: [] } }).memories).toEqual([]);
+    expect(ExperienceIntegrationOutputSchema.safeParse({ experience: { summary: "展示の予定を確認した", facts: [] }, memory: [] }).success).toBe(false);
+  });
+
+  it("FR-82: tells Event Experience repair that facts are limited to four", () => {
+    expect(eventExperienceSystemPrompt).toContain("最大4件");
+    expect(experienceIntegrationRepairInstruction).toContain("factsは最大4件");
   });
 
   it("FR-82, NFR-8: keeps Experience Integration Memory candidates short", () => {
@@ -57,11 +64,11 @@ describe("ExperienceIntegration", () => {
     expect(ExperienceIntegrationOutputSchema.safeParse({ ...base, memories: [{ ...base.memories[0], reason: "あ".repeat(401) }] }).success).toBe(false);
   });
 
-  it("FR-37: shares the Agent Core Tool projection with Integration and Event Experience repair", () => {
+  it("FR-37: shares the ToolRegistry projection but gives Integration only explicit evidence", () => {
     const request = input();
     const body = "本文-".repeat(1_000);
     const tools = new ToolRegistry([
-      { name: "reader", description: "read", schema: z.object({ path: z.string() }), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, execute: () => Promise.resolve({ ok: true }) },
+      { name: "reader", description: "read", schema: z.object({ path: z.string() }), resultPolicy: { kind: "content-read" as const, defaultRequestCharacters: 2_000, runCharacterBudget: 6_000 }, experienceEvidence: true, execute: () => Promise.resolve({ ok: true }) },
       { name: "lookup", description: "lookup", schema: z.object({ query: z.string() }), resultPolicy: { kind: "standard" as const }, execute: () => Promise.resolve({ ok: true }) }
     ]);
     const executions = [
@@ -69,28 +76,40 @@ describe("ExperienceIntegration", () => {
       { callId: "tool-2", runId: request.sourceRunId, eventId: request.sourceEvent.id, name: "lookup", input: { query: body }, ok: true, result: { items: body }, startedAt: request.sourceEvent.occurredAt, finishedAt: request.sourceEvent.occurredAt }
     ];
     const withTools = { ...request, result: { ...request.result, toolExecutions: executions } };
-    const expected = executions.map((execution) => projectToolExecutionForModel(execution, tools));
-    const integrationView = experienceIntegrationModelInput(withTools, tools) as { toolExecutions: unknown[] };
-    const repairView = eventExperienceRepairInput(withTools, tools) as { toolExecutions: unknown[] };
-    expect(integrationView.toolExecutions).toEqual(expected);
-    expect(repairView.toolExecutions).toEqual(expected);
+    const expected = projectExperienceEvidenceForModel(executions, tools);
+    const integrationView = experienceIntegrationModelInput(withTools, tools);
+    const repairView = eventExperienceRepairInput(withTools, tools);
+    expect((integrationView.eventExperience as { evidence: unknown[] }).evidence).toEqual(expected);
+    expect((repairView as { evidence: unknown[] }).evidence).toEqual(expected);
     expect(JSON.stringify(integrationView)).not.toContain(body);
     expect(JSON.stringify(repairView)).not.toContain(body);
+    expect(JSON.stringify(integrationView)).not.toContain("currentSelf");
+    expect(JSON.stringify(integrationView)).not.toContain("relationships");
+  });
+
+  it("NFR-21: bounds Experience Integration to five small decisions and one syntax retry each", () => {
+    expect(experienceIntegrationMaxModelCalls).toBe(10);
+  });
+
+  it("NFR-21: bounds Integration evidence to six shared compact Tool projections", () => {
+    const tools = new ToolRegistry([{ name: "reader", description: "read", schema: z.object({ path: z.string() }), resultPolicy: { kind: "standard" as const }, experienceEvidence: true, execute: () => Promise.resolve({ ok: true }) }]);
+    const request = input();
+    const executions = Array.from({ length: 7 }, (_, index) => ({ callId: `tool-${index}`, runId: request.sourceRunId, eventId: request.sourceEvent.id, name: "reader", input: { path: `notes/${index}.md` }, ok: true as const, result: { fact: index }, startedAt: request.sourceEvent.occurredAt, finishedAt: request.sourceEvent.occurredAt }));
+    expect(projectExperienceEvidenceForModel(executions, tools)).toHaveLength(6);
   });
 
   it("FR-82: states the ID-free Memory candidate contract and the empty-memory form", () => {
-    for (const field of ["content", "reason", "target", "perspective", '{"memories":[]}']) expect(experienceIntegrationSystemPrompt).toContain(field);
-    expect(experienceIntegrationSystemPrompt).not.toContain("evidenceEventIds");
-    expect(experienceIntegrationSystemPrompt).toContain("必ず形成する");
-    expect(experienceIntegrationSystemPrompt).toContain("変化がなければ省略します");
-    expect(experienceIntegrationSystemPrompt).not.toContain("省略または空配列");
+    for (const field of ["content", "reason", "target", "perspective", '{"memories":[]}']) expect(memoryIntegrationSystemPrompt).toContain(field);
+    expect(memoryIntegrationSystemPrompt).not.toContain("evidenceEventIds");
+    expect(memoryIntegrationSystemPrompt).toContain("必ず");
+    expect(memoryIntegrationSystemPrompt).not.toContain("省略");
   });
 
   it("FR-95: permits only an ID-free Focus Concern outcome when Runtime supplied a Focus", () => {
     const output = ExperienceIntegrationOutputSchema.parse({ experience: { summary: "展示の記録を比較した", facts: ["二つの記録方式を確認した"] }, memories: [], focusConcern: { outcome: "progress", reason: "比較できる観察が増えた" } });
     expect(output.focusConcern).toEqual({ outcome: "progress", reason: "比較できる観察が増えた" });
     expect(ExperienceIntegrationOutputSchema.safeParse({ experience: { summary: "展示の記録を比較した", facts: [] }, memories: [], focusConcern: { outcome: "satisfied", reason: "満たされた", concernId: "foreign-id" } }).success).toBe(false);
-    for (const phrase of ["focusConcern", "IDは見えず", "検索失敗", "unchanged"]) expect(experienceIntegrationSystemPrompt).toContain(phrase);
+    for (const phrase of ["focusConcern", "ID", "検索失敗", "unchanged"]) expect(focusConcernIntegrationSystemPrompt).toContain(phrase);
   });
 
   it("FR-95: discards a Focus Concern judgement when Runtime did not bind a Focus", async () => {
@@ -116,11 +135,9 @@ describe("ExperienceIntegration", () => {
     const invalid = ExperienceIntegrationOutputSchema.safeParse({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, memories: [], relationship: { operation: "update", description: "展示の話題を共有する相手" }, concernStatus: "satisfied" });
     expect(invalid.success).toBe(false);
     if (invalid.success) return;
-    expect(invalid.error.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: ["relationship", "operation"] }),
-      expect.objectContaining({ path: ["relationship", "reason"] }),
-      expect.objectContaining({ path: [], message: expect.stringContaining("concernStatus") })
-    ]));
+    expect(invalid.error.issues.some((issue) => issue.path.join(".") === "relationship.operation")).toBe(true);
+    expect(invalid.error.issues.some((issue) => issue.path.join(".") === "relationship.reason")).toBe(true);
+    expect(invalid.error.issues.some((issue) => issue.path.length === 0 && issue.message.includes("concernStatus"))).toBe(true);
   });
 
   it("FR-82, NFR-8: rejects Event audit fields and a Relationship target supplied by the model", () => {
@@ -131,11 +148,9 @@ describe("ExperienceIntegration", () => {
     });
     expect(invalid.success).toBe(false);
     if (invalid.success) return;
-    expect(invalid.error.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: ["experience"], message: expect.stringContaining("occurredAt") }),
-      expect.objectContaining({ path: ["experience"], message: expect.stringContaining("kind") }),
-      expect.objectContaining({ path: ["relationship"], message: expect.stringContaining("target") })
-    ]));
+    expect(invalid.error.issues.some((issue) => issue.path.join(".") === "experience" && issue.message.includes("occurredAt"))).toBe(true);
+    expect(invalid.error.issues.some((issue) => issue.path.join(".") === "experience" && issue.message.includes("kind"))).toBe(true);
+    expect(invalid.error.issues.some((issue) => issue.path.join(".") === "relationship" && issue.message.includes("target"))).toBe(true);
   });
 
   it("FR-82, NFR-8: repairs an invalid Relationship and legacy Concern status before applying", async () => {
@@ -168,20 +183,20 @@ describe("ExperienceIntegration", () => {
   });
 
   it("FR-82, NFR-8: keeps the Event Experience when repeated repair cannot shorten an optional Relationship", async () => {
-    const request = input(); const applied: unknown[] = [];
+    const request = input(); const applied: ExperienceIntegrationOutput[] = [];
     const tooLong = "関係の説明".repeat(101);
     const integration = new ExperienceIntegration({ begin: () => Promise.resolve("created" as const), apply: (_input, output) => { applied.push(output); return Promise.resolve(); }, fail: () => Promise.resolve() }, {
       integrate: () => Promise.resolve({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, memories: [], relationship: { operation: "upsert", description: tooLong, reason: "関係が変化した" } } as never),
       repair: () => Promise.resolve({ experience: { summary: "ユーザーが展示の予定を話した", facts: ["週末に展示へ行く予定がある"] }, memories: [], relationship: { operation: "upsert", description: tooLong, reason: "関係が変化した" } } as never)
     }, createCanonicalSubjectResolver(["user-1"]));
     await integration.process(request, new AbortController().signal);
-    expect(applied).toEqual([expect.objectContaining({ experience: expect.objectContaining({ summary: "ユーザーが展示の予定を話した" }) })]);
-    expect((applied[0] as { relationship?: unknown }).relationship).toBeUndefined();
+    expect(applied[0]?.experience.summary).toBe("ユーザーが展示の予定を話した");
+    expect(applied[0]?.relationship).toBeUndefined();
   });
 
   it("FR-82, FR-95: states the Relationship and Focus Concern output boundary explicitly", () => {
-    for (const phrase of ["summaryとfactsだけ", "occurredAt", "kind", "upsert または remove", "reason は必須", "target", "subjectId", "concernStatus", "focusConcern"] ) expect(experienceIntegrationSystemPrompt).toContain(phrase);
-    for (const phrase of ["summaryとfactsだけ", "occurredAt", "kind", "upsert又はremove", "reasonは必須", "target", "subjectId", "concernStatus", "focusConcern"]) expect(experienceIntegrationRepairInstruction).toContain(phrase);
+    for (const phrase of ["upsert|remove", "reasonは必須", "ID", "Concern"]) expect(relationshipIntegrationSystemPrompt).toContain(phrase);
+    for (const phrase of ["許可されていないfield", "memories", "JSON object"]) expect(experienceIntegrationRepairInstruction).toContain(phrase);
   });
 
   it("FR-9, FR-82: accepts only a short enduring emotional stance as Mood", () => {
