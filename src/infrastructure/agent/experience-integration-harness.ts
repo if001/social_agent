@@ -1,26 +1,67 @@
+import { z } from "zod";
+
 import type { ExperienceIntegrationInput, ExperienceIntegrationModel } from "../../application/experience-integration.js";
-import { EventExperienceSchema, ExperienceIntegrationOutputSchema } from "../../application/experience-integration.js";
-import { PersistentMoodDescription } from "../../domain/contracts.js";
+import { EventExperienceSchema, ExperienceIntegrationMemoryCandidateSchema, ExperienceIntegrationOutputSchema, FocusConcernOutcomeSchema, RelationshipCandidateSchema } from "../../application/experience-integration.js";
+import { PersistentMoodDescription, PersistentMoodSchema } from "../../domain/contracts.js";
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
 import { toModelRecordView } from "./model-record-view.js";
 import type { ToolRegistry } from "../../application/tool-registry.js";
-import { projectToolExecutionForModel } from "./tool-result-model-view.js";
-import { parseModelJson, retryMalformedModelJson } from "./model-json-parser.js";
+import { projectExperienceEvidenceForModel } from "./tool-result-model-view.js";
+import { hasModelJsonSyntaxError, parseModelJson } from "./model-json-parser.js";
 
-export const experienceIntegrationSystemPrompt = `あなたはExperience Integration担当です。応答は既にcommit済みであり、次のActionは選ばない。今回の確定Event、Core結果、投影済みTool結果から、将来へ残す持続的な経験だけを構造化出力する。
+/** Each sub-decision uses one small JSON object. The mandatory Event Experience
+ * remains the audit anchor; other persistence candidates may be absent. */
+export const ExperienceIntegrationMemoryOutputSchema = z.object({
+  memories: z.array(ExperienceIntegrationMemoryCandidateSchema).max(3).default([])
+}).strict();
+export const ExperienceIntegrationRelationshipOutputSchema = z.object({ relationship: RelationshipCandidateSchema.optional() }).strict();
+export const ExperienceIntegrationMoodOutputSchema = z.object({ mood: PersistentMoodSchema.optional() }).strict();
+export const ExperienceIntegrationFocusConcernOutputSchema = z.object({ focusConcern: FocusConcernOutcomeSchema.optional() }).strict();
 
-experienceは必ず形成する。今回の確定した出来事・選択・結果だけをsummaryとfactsで短く残す。許可fieldはsummaryとfactsだけで、occurredAt、kind、eventId、時刻、source、Meaning、Feeling、Desire、起動理由、未確認推測、Tool失敗は書かない。
-Memoryは必要な時だけ最大3件。各要素はcontent、reason、target、perspectiveだけ。contentは要点、reasonは保存理由を短く書く。根拠Event、subject、confidence、purpose、ID、Tool本文、応答文、未確認推測は書かない。変化がなければ省略します。不要なら {"memories":[]}。
-Relationshipは今回のactorとの持続的変化だけ。許可fieldはoperation、currentDescription、description、reasonだけで、operationはupsert または remove、reason は必須。currentDescriptionとdescriptionは各一文・240文字以内で、本文は現在の関係の型だけを表す。target、subjectId、agentId、相手名、ID、個別Event、人物プロフィール、Concern、Feeling、応答方針は書かない。変化がなければrelationship全体を省略します。Moodは${PersistentMoodDescription}だけを必要時に出す。
-focusConcernは入力にある一件だけにoutcomeとreasonで答える。IDは見えず出力しない。核が満たされた時だけsatisfied、価値を明確に失った時だけabandoned、検索失敗・情報不足・一時的Feelingならunchanged。rootのconcernStatusは返さない。JSON objectだけを返す。`;
-export const experienceIntegrationRepairInstruction = "直前の出力を、同じ入力事実だけでschemaに直す。experienceは必須でsummaryとfactsだけ。occurredAt、kind、eventId、時刻、sourceは削除する。Memoryを残さないならmemoriesは空配列。Relationshipはoperation、currentDescription、description、reasonだけで、operationはupsert又はremove、reasonは必須。currentDescriptionとdescriptionは各一文・240文字以内にし、関係の変化を短く言えないならrelationship全体を省略する。target、subjectId、agentId、相手名、IDは削除する。rootのconcernStatusは返さず、focusConcernはRuntimeが束縛した一件だけを判断する。JSON objectだけを返し、文字列値の改行は\\nとしてescapeする。";
-export const eventExperienceRepairSystemPrompt = "完了済みEventのEvent Experienceだけを補完する。今回実際に起きたこと・選択・確認済み結果をsummaryとfactsで短く返す。Memory、Mood、Relationship、Self、Concernを判断・変更しない。定期起動理由、Meaning、Feeling、Desire、未確認の推測、Tool失敗だけを書かない。JSON objectだけを返す。";
+export const eventExperienceSystemPrompt = "完了済みEventから、今回確定した出来事・選択・結果だけをJSON objectで返す。許可fieldはsummaryとfactsだけ。factsは具体的事実を最大4件にする。起動理由、時刻、kind、ID、Meaning、Feeling、Desire、未確認推測、Tool失敗、Memory、Mood、Relationship、Concernは書かない。";
+export const memoryIntegrationSystemPrompt = "完了済みEventから、将来の判断に再利用する経験候補だけをJSON objectで返す。rootはmemoriesだけ。候補がなければ必ず {\"memories\":[]} を返す。各候補はcontent、reason、target、perspectiveだけで、targetはepisodic|semantic|self-related|self-change|common-ground、perspectiveはself|userだけ。ID、根拠一覧、subject、Tool本文、応答文、未確認推測、実行手順は書かない。";
+export const relationshipIntegrationSystemPrompt = "今回のEventでactorとの持続的な関係が変わった時だけJSON objectでrelationshipを返す。変化がなければ {}。relationshipの許可fieldはoperation、currentDescription、description、reasonだけ。operationはupsert|remove、reasonは必須。descriptionは現在の関係の型・安定した前提・未解決の約束だけを400文字以内で書く。相手名、ID、個別Event、人物プロフィール、Concern、Feeling、次の行動は書かない。";
+export const moodIntegrationSystemPrompt = `今回のEventが複数Eventに続く感情的構えを変える時だけJSON objectでmoodを返す。変化がなければ {}。${PersistentMoodDescription} Event、探索テーマ、相手、計画、理由の説明は書かない。`;
+export const focusConcernIntegrationSystemPrompt = "Runtimeが束縛した一件のConcernへの変化だけをJSON objectで返す。rootはfocusConcernだけ。変化がなければ {}。focusConcernはoutcomeとreasonだけで、outcomeはunchanged|progress|satisfied|abandoned。Concern ID、Event ID、status操作、実行手順、次の計画は書かない。satisfiedは核が実質的に満たされた時だけ、abandonedは現在のSelfにとって価値を明確に失った時だけ。検索失敗・情報不足・一時的Feelingだけではabandonedにしない。";
+
+/** Compatibility export for existing callers and structured-output checks. */
+export const experienceIntegrationSystemPrompt = [eventExperienceSystemPrompt, memoryIntegrationSystemPrompt, relationshipIntegrationSystemPrompt, moodIntegrationSystemPrompt, focusConcernIntegrationSystemPrompt].join("\n");
+export const experienceIntegrationRepairInstruction = "直前の出力を同じ入力事実だけでschemaに直し、有効なJSON objectだけを返す。許可されていないfieldを削除し、factsは最大4件、候補がないoptional rootは省略する。Memory候補がない時だけは {\"memories\":[]} を返す。文字列値の改行は\\nとしてescapeする。";
+export const eventExperienceRepairSystemPrompt = eventExperienceSystemPrompt;
 
 const contentOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value) ? value.map((part) => { if (typeof part !== "object" || part === null || !("text" in part)) return ""; const text = (part as Record<string, unknown>).text; return typeof text === "string" ? text : ""; }).join("") : "";
 type ExperienceIntegrationHarnessConfig = OllamaChatConfig & { readonly toolRegistry?: ToolRegistry };
-export const eventExperienceRepairInput = (input: ExperienceIntegrationInput, tools?: ToolRegistry) => toModelRecordView({ event: { kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, content: input.input.observation }, result: { assessment: input.result.assessment, output: input.result.output }, toolExecutions: input.result.toolExecutions.map((execution) => projectToolExecutionForModel(execution, tools)) });
+
+function eventView(input: ExperienceIntegrationInput, tools?: ToolRegistry) {
+  return toModelRecordView({
+    observation: input.input.observation,
+    assessment: input.result.assessment,
+    action: input.result.output.action,
+    evidence: projectExperienceEvidenceForModel(input.result.toolExecutions, tools)
+  });
+}
+
+function hasSourceActor(input: ExperienceIntegrationInput): boolean {
+  const payload = input.sourceEvent.payload;
+  return typeof payload.actorId === "string" || typeof payload.senderAgentId === "string" || input.input.observation.actor !== undefined;
+}
+
+/** Minimal model-facing views. Current State, identifiers and context lookup
+ * results intentionally never cross this boundary. */
+export const experienceIntegrationModelInput = (input: ExperienceIntegrationInput, tools?: ToolRegistry) => {
+  const event = eventView(input, tools);
+  return {
+    eventExperience: event,
+    memory: event,
+    ...(hasSourceActor(input) ? { relationship: toModelRecordView({ event }) } : {}),
+    mood: toModelRecordView({ event, currentMood: input.input.state.mood }),
+    ...(input.focusConcern === undefined ? {} : { focusConcern: toModelRecordView({ event, concern: { description: input.focusConcern.description, whyItMatters: input.focusConcern.whyItMatters } }) })
+  };
+};
+
+export const eventExperienceRepairInput = (input: ExperienceIntegrationInput, tools?: ToolRegistry) => experienceIntegrationModelInput(input, tools).eventExperience;
 
 export type EventExperienceRepairModel = { integrate(input: ExperienceIntegrationInput, signal: AbortSignal): Promise<unknown> };
 export function createOllamaEventExperienceRepairModel({ toolRegistry, ...config }: ExperienceIntegrationHarnessConfig, logger: Logger = noopLogger): EventExperienceRepairModel {
@@ -36,31 +77,70 @@ export function createOllamaEventExperienceRepairModel({ toolRegistry, ...config
   } };
 }
 
-export function createOllamaExperienceIntegrationModel({ toolRegistry, ...config }: ExperienceIntegrationHarnessConfig, logger: Logger = noopLogger): ExperienceIntegrationModel {
-  const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(ExperienceIntegrationOutputSchema) });
-  const modelInput = (input: ExperienceIntegrationInput) => experienceIntegrationModelInput(input, toolRegistry);
-  const payload = (input: ExperienceIntegrationInput) => JSON.stringify(modelInput(input));
-  const invoke = async (content: string, input: ExperienceIntegrationInput, signal: AbortSignal): Promise<unknown> => {
-    const startedAt = Date.now();
+function createJsonInvoker<T extends z.ZodType>(name: string, schema: T, system: string, config: OllamaChatConfig, logger: Logger) {
+  const model = createOllamaChatModel({ ...config, think: "low" }).withConfig({ format: modelJsonSchema(schema) });
+  return async (view: unknown, input: ExperienceIntegrationInput, signal: AbortSignal): Promise<z.infer<T>> => {
+    const invoke = async (instruction?: string): Promise<unknown> => {
+      const content = JSON.stringify(instruction === undefined ? view : { instruction, input: view });
+      const startedAt = Date.now();
+      try {
+        const result = await model.invoke([{ role: "system", content: system }, { role: "user", content }], { signal });
+        const output = contentOf(result.content);
+        if (output.trim().length === 0) throw new Error(`${name} returned empty content`);
+        logger.log("info", "experience_integration.model_completed", { agentId: input.agentId, sourceRunId: input.sourceRunId, target: name, elapsedMs: Date.now() - startedAt, inputChars: content.length, outputChars: output.length });
+        return parseModelJson(output);
+      } catch (error) {
+        const failure = providerFailure(`Experience Integration ${name}`, error, signal);
+        logger.log("warn", "experience_integration.target_failed", { agentId: input.agentId, sourceRunId: input.sourceRunId, target: name, ...errorLogContext(failure) });
+        throw failure;
+      }
+    };
     try {
-      const result = await model.invoke([{ role: "system", content: experienceIntegrationSystemPrompt }, { role: "user", content }], { signal });
-      const output = contentOf(result.content);
-      if (output.trim().length === 0) throw new Error("Experience Integration returned empty content");
-      logger.log("info", "experience_integration.model_completed", { agentId: input.agentId, sourceRunId: input.sourceRunId, elapsedMs: Date.now() - startedAt, inputChars: content.length, outputChars: output.length });
-      return parseModelJson(output);
+      const first = schema.safeParse(await invoke());
+      if (first.success) return first.data;
+      return schema.parse(await invoke(`${experienceIntegrationRepairInstruction} validationIssues: ${JSON.stringify(first.error.issues)}`));
     } catch (error) {
-      const failure = providerFailure("Experience Integration", error, signal);
-      logger.log("warn", "experience_integration.failed", { agentId: input.agentId, sourceRunId: input.sourceRunId, ...errorLogContext(failure) });
-      throw failure;
+      if (!hasModelJsonSyntaxError(error)) throw error;
+      return schema.parse(await invoke(experienceIntegrationRepairInstruction));
     }
-  };
-  return {
-    integrate: (input, signal) => retryMalformedModelJson(
-      () => invoke(payload(input), input, signal),
-      () => invoke(JSON.stringify({ instruction: `${experienceIntegrationRepairInstruction} 前回の出力はJSON構文として読めなかったため、必ず有効なJSON objectだけを再生成する。`, input: modelInput(input) }), input, signal)
-    ),
-    repair: (input, validationIssues, signal) => invoke(JSON.stringify({ instruction: experienceIntegrationRepairInstruction, input: modelInput(input), validationIssues }), input, signal)
   };
 }
 
-export const experienceIntegrationModelInput = (input: ExperienceIntegrationInput, tools?: ToolRegistry) => toModelRecordView({ event: { kind: input.sourceEvent.kind, occurredAt: input.sourceEvent.occurredAt, content: input.input.observation }, input: { observation: input.input.observation, currentSelf: input.input.currentSelf, state: input.input.state, ...(input.focusConcern === undefined ? {} : { focusConcern: { description: input.focusConcern.description, whyItMatters: input.focusConcern.whyItMatters } }) }, result: { assessment: input.result.assessment, output: input.result.output }, toolExecutions: input.result.toolExecutions.map((execution) => projectToolExecutionForModel(execution, tools)) });
+async function optionalTarget<T>(target: string, invoke: () => Promise<T>, logger: Logger, input: ExperienceIntegrationInput): Promise<T | undefined> {
+  try { return await invoke(); }
+  catch (error) {
+    logger.log("warn", "experience_integration.optional_target_ignored", { agentId: input.agentId, sourceRunId: input.sourceRunId, target, ...errorLogContext(error) });
+    return undefined;
+  }
+}
+
+/** At most five decisions, with one JSON-only syntax retry each. */
+export const experienceIntegrationMaxModelCalls = 10;
+
+export function createOllamaExperienceIntegrationModel({ toolRegistry, ...config }: ExperienceIntegrationHarnessConfig, logger: Logger = noopLogger): ExperienceIntegrationModel {
+  const eventExperience = createJsonInvoker("event-experience", EventExperienceSchema, eventExperienceSystemPrompt, config, logger);
+  const memories = createJsonInvoker("memory", ExperienceIntegrationMemoryOutputSchema, memoryIntegrationSystemPrompt, config, logger);
+  const relationship = createJsonInvoker("relationship", ExperienceIntegrationRelationshipOutputSchema, relationshipIntegrationSystemPrompt, config, logger);
+  const mood = createJsonInvoker("mood", ExperienceIntegrationMoodOutputSchema, moodIntegrationSystemPrompt, config, logger);
+  const focusConcern = createJsonInvoker("focus-concern", ExperienceIntegrationFocusConcernOutputSchema, focusConcernIntegrationSystemPrompt, config, logger);
+  const integrate = async (input: ExperienceIntegrationInput, signal: AbortSignal): Promise<unknown> => {
+    const views = experienceIntegrationModelInput(input, toolRegistry);
+    const experience = await eventExperience(views.eventExperience, input, signal);
+    const memory = await optionalTarget("memory", () => memories(views.memory, input, signal), logger, input);
+    const relation = views.relationship === undefined ? undefined : await optionalTarget("relationship", () => relationship(views.relationship, input, signal), logger, input);
+    const durableMood = await optionalTarget("mood", () => mood(views.mood, input, signal), logger, input);
+    const focusView = views.focusConcern === undefined ? undefined : toModelRecordView({
+      ...views.focusConcern,
+      createdMemories: memory?.memories ?? []
+    });
+    const focus = focusView === undefined ? undefined : await optionalTarget("focus-concern", () => focusConcern(focusView, input, signal), logger, input);
+    return ExperienceIntegrationOutputSchema.parse({
+      experience,
+      memories: memory?.memories ?? [],
+      ...(relation?.relationship === undefined ? {} : { relationship: relation.relationship }),
+      ...(durableMood?.mood === undefined ? {} : { mood: durableMood.mood }),
+      ...(focus?.focusConcern === undefined ? {} : { focusConcern: focus.focusConcern })
+    });
+  };
+  return { integrate, repair: (input, _issues, signal) => integrate(input, signal) };
+}

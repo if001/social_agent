@@ -11,14 +11,14 @@ export const EventExperienceSchema = z.object({
   facts: z.array(z.string().trim().min(1).max(240)).max(4).describe("summaryと重複しない、今回のEventで確認できた具体的事実。固定のtrigger reasonやTool失敗そのものは書かない")
 }).strict().describe("commit後に形成する、Reflectionと検索のためのEvent固有経験");
 
-const RelationshipCandidateSchema = z.object({
+export const RelationshipCandidateSchema = z.object({
   operation: z.enum(["upsert", "remove"]).describe("今回のactorとの持続的な関係を現在状態として更新するならupsert、根拠を失った既存Relationshipを消すならremove"),
   currentDescription: CurrentRelationshipDescriptionSchema.optional().describe("更新または削除の対象を示す現在のRelationship本文。ID、出来事の履歴、人物プロフィールは書かない"),
   description: CurrentRelationshipDescriptionSchema.optional().describe("upsert後の現在の関係の型、安定した会話前提、未解決の約束だけを表す本文。個別Event、Concern、Feeling、応答方針は書かない"),
   reason: z.string().trim().min(1).max(800).describe("今回の確定Eventが、なぜ関係の持続的な変化を示すかを短く書く。人物プロフィールや次の行動計画は書かない")
 }).strict();
 
-const ExperienceIntegrationMemoryCandidateSchema = z.object({
+export const ExperienceIntegrationMemoryCandidateSchema = z.object({
   content: z.string().trim().min(1).max(800).describe("将来の判断で再利用できる、今回の経験の具体的な要点を1〜2文で書く。会話やTool本文の複写、未確認の推測、実行手順は書かない"),
   reason: z.string().trim().min(1).max(400).describe("この要点を今後も残す理由を短く書く。保存先、ID、根拠一覧、次の行動計画は書かない"),
   target: MemoryIntentTargetSchema,
@@ -33,7 +33,7 @@ export const FocusConcernOutcomeSchema = z.object({
 
 export const ExperienceIntegrationOutputSchema = z.object({
   experience: EventExperienceSchema.describe("今回のEventで確定した出来事・選択・結果。長期Memoryを作らない場合でも必ず形成する"),
-  memories: z.array(ExperienceIntegrationMemoryCandidateSchema).max(3).describe("長期に再利用する経験候補。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
+  memories: z.array(ExperienceIntegrationMemoryCandidateSchema).max(3).default([]).describe("長期に再利用する経験候補。model向けのMemory契約は候補なしでも空配列を返す。Runtimeは旧record又は部分結果で欠落した値だけを空配列へ正規化する。根拠Event、subject、更新対象はRuntimeがsource Eventから解決する"),
   relationship: RelationshipCandidateSchema.optional().describe("今回のactorとの関係候補。現在の関係だけを短く書き、個別出来事・履歴・IDは出さない。Runtimeがactorと現在本文から対象を解決する"),
   mood: PersistentMoodSchema.optional(),
   focusConcern: FocusConcernOutcomeSchema.optional().describe("入力にfocusConcernがある時だけ、その一件への変化を判断する。入力にない時は出さない")
@@ -115,7 +115,8 @@ export class ExperienceIntegration {
 function withoutInvalidRelationship(raw: unknown, issues: readonly z.core.$ZodIssue[]): ExperienceIntegrationOutput | undefined {
   if (typeof raw !== "object" || raw === null || !Object.prototype.hasOwnProperty.call(raw, "relationship")) return undefined;
   if (issues.some((issue) => issue.path[0] !== "relationship")) return undefined;
-  const { relationship: _relationship, ...rest } = raw as Record<string, unknown>;
+  const rest = { ...(raw as Record<string, unknown>) };
+  delete rest.relationship;
   const parsed = ExperienceIntegrationOutputSchema.safeParse(rest);
   return parsed.success ? parsed.data : undefined;
 }

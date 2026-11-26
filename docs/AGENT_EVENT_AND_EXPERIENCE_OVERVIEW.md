@@ -11,7 +11,7 @@ flowchart LR
     E[Event<br/>出来事・時刻・内部処理] --> I[必要最小限の入力を集める]
     I --> A[MainAgent が appraisal<br/>Meaning / Feeling / Desire / Action]
     A --> C[初回 commit<br/>Action・監査・Outbox]
-    C --> X[Experience Integration<br/>Memory / Mood / Relationship / Focus Concern]
+    C --> X[Experience Integration<br/>小さな経験保存判断]
     X --> S[短中期の更新候補<br/>Memory / Mood / Relationship / Focus Concern]
     C --> P[G1/G2<br/>次の発話を予測]
     P --> PE[次の direct message-received で<br/>予測誤差を評価]
@@ -129,7 +129,7 @@ sequenceDiagram
     X-->>R: MemoryIntent、Mood / Relationship、Focus Concern の候補
 ```
 
-入力はすべてを prompt に詰め込むのではなく、Event と直近の継続情報を起点に必要なものだけを取得する。MainAgent は Event の終了時点で Meaning / Feeling / Desire / Action を一貫して決める。初回 commit 後の Experience Integration は次の Action を決めず、経験を残す価値があるときだけ持続状態の候補を作る。
+入力はすべてを prompt に詰め込むのではなく、Event と直近の継続情報を起点に必要なものだけを取得する。MainAgent は Event の終了時点で Meaning / Feeling / Desire / Action を一貫して決める。初回 commit 後の Experience Integration は次の Action を決めず、経験を残す価値があるときだけ持続状態の候補を作る。Event Experience、Memory候補、Relationship、Mood、Focus Concernは一つの巨大な出力へまとめず、EventのObservation・確定したAssessment / Action・事実根拠となるTool結果だけを使う小さな判断として扱える。Event Experienceは必須だが、他の候補は不要又は失敗時にno-opとなっても、既にcommit済みのActionを巻き戻さない。
 
 ### どの状態がいつ変わるか
 

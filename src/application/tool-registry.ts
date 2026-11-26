@@ -18,7 +18,7 @@ export type ToolResultPolicy =
   | { readonly kind: "standard"; readonly project?: (result: unknown) => unknown }
   | { readonly kind: "content-read"; readonly defaultRequestCharacters: number; readonly runCharacterBudget: number };
 export type ToolResultDestination = "immediate" | "conversation-history" | "recent-experience" | "post-process" | "observation" | "audit";
-export type RegisteredTool<T = unknown> = { readonly name: string; readonly description: string; readonly schema: z.ZodType<T>; readonly resultPolicy: ToolResultPolicy; execute(input: T, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> };
+export type RegisteredTool<T = unknown> = { readonly name: string; readonly description: string; readonly schema: z.ZodType<T>; readonly resultPolicy: ToolResultPolicy; /** A successful result can establish facts for post-commit Experience Integration. */ readonly experienceEvidence?: boolean; execute(input: T, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> };
 
 const bodyKeys = new Set(["content", "text", "markdown", "snippet"]);
 function metadataOnly(value: unknown): unknown {
@@ -96,6 +96,7 @@ export class ToolRegistry {
   definitions(): readonly { name: string; description: string; inputSchema: Record<string, unknown> }[] { return [...this.#tools.values()].map(({ name, description, schema }) => ({ name, description, inputSchema: z.toJSONSchema(schema) })); }
   registered(): readonly RegisteredTool[] { return [...this.#tools.values()]; }
   resultPolicy(name: string): ToolResultPolicy | undefined { return this.#tools.get(name)?.resultPolicy; }
+  isExperienceEvidence(name: string): boolean { return this.#tools.get(name)?.experienceEvidence === true; }
   projectResult(name: string, result: unknown, destination: ToolResultDestination): unknown { return projectToolResult(this.resultPolicy(name), result, destination); }
   projectInput(input: unknown): unknown { return projectToolInput(input); }
   async execute(name: string, input: unknown, context: ToolExecutionContext, signal: AbortSignal): Promise<ToolResult> {
