@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-26
-status: doing
+status: done
 type: fix
 plan: []
 requirements: [NFR-6, NFR-22]
@@ -38,10 +38,10 @@ requires: human
 
 ## Acceptance criteria
 
-- [ ] AC-095-1：`PostgresScheduleRepository`はraw SQL CTEを使わず、Drizzle ORMのselect/updateでdue targetをclaimする。
-- [ ] AC-095-2：同時Repository workerが同じScheduled Task又はexperience batchを二重claimしない。
-- [ ] AC-095-3：`0052_steep_chimera.sql`を`pnpm db:migrate`で適用すれば、concern reevaluation batch tableが存在しSchedulerがclaimできる。
-- [ ] AC-095-4：typecheck、lint、unit/integration testが通る。
+- [x] AC-095-1：`PostgresScheduleRepository`はraw SQL CTEを使わず、Drizzle ORMのselect/updateでdue targetをclaimする。
+- [x] AC-095-2：同時Repository workerが同じScheduled Task又はexperience batchを二重claimしない。
+- [x] AC-095-3：`0052_steep_chimera.sql`を`pnpm db:migrate`で適用すれば、concern reevaluation batch tableが存在しSchedulerがclaimできる。
+- [x] AC-095-4：typecheck、lint、unit/integration testが通る。
 
 ## Tests
 
@@ -51,5 +51,6 @@ requires: human
 ## 実装メモ
 
 - full-query CTEと`tx.execute(sql\`...\`)`を`PostgresScheduleRepository`から除去した。候補select後に、status・due時刻・lease期限を再確認するDrizzle条件付きupdateを行うため、競合したworkerは`returning`が空となり対象を返さない。
-- 実DBへはまだ`0052_steep_chimera.sql`が未適用である。人が`pnpm db:migrate`、`pnpm db:grant:concerns`を実行した後に、Scheduler実行確認とレビュー・mergeを行う。
+- 実DBへの`pnpm db:migrate`は2026-11-26に人が適用済み。`pnpm db:grant:concerns`でアプリ接続Roleへ新tableのDML権限を付与した後に、Scheduler実行確認とレビュー・mergeを行う。
 - 検証済み：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm db:migrate:test`、`pnpm db:grant:concerns:test`、`pnpm test:integration`。
+- 実DBへの`pnpm db:grant:concerns`も2026-11-26に人が適用済み。新規batchがdueになった時、Drizzle Repositoryの条件付きclaimで処理される。
