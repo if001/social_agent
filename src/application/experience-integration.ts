@@ -81,9 +81,19 @@ export class ExperienceIntegration {
     if (this.repository.claim !== undefined && !await this.repository.claim(input.integrationId)) return;
     try {
       const first = ExperienceIntegrationOutputSchema.safeParse(await this.model.integrate(input, signal));
-      let output = first.success ? first.data : this.model.repair === undefined
-        ? (() => { throw first.error; })()
-        : ExperienceIntegrationOutputSchema.parse(await this.model.repair(input, first.error.issues, signal));
+      let output: ExperienceIntegrationOutput;
+      if (first.success) output = first.data;
+      else if (this.model.repair === undefined) throw first.error;
+      else {
+        const repaired = await this.model.repair(input, first.error.issues, signal);
+        const parsed = ExperienceIntegrationOutputSchema.safeParse(repaired);
+        if (parsed.success) output = parsed.data;
+        else {
+          const relationshipOnly = withoutInvalidRelationship(repaired, parsed.error.issues);
+          if (relationshipOnly === undefined) throw parsed.error;
+          output = relationshipOnly;
+        }
+      }
       if (output.relationship !== undefined && this.subjects.resolve(input.input.observation.actor) === undefined) output = { ...output, relationship: undefined };
       if (input.focusConcern === undefined && output.focusConcern !== undefined) output = { ...output, focusConcern: undefined };
       await this.repository.apply(input, output);
@@ -98,6 +108,16 @@ export class ExperienceIntegration {
     if (this.repository.pending === undefined) return;
     for (const input of await this.repository.pending(agentId)) await this.processReserved(input, signal);
   }
+}
+
+/** A Relationship is optional. Never discard the durable Event Experience merely
+ * because a repeated repair still cannot express that optional current state. */
+function withoutInvalidRelationship(raw: unknown, issues: readonly z.core.$ZodIssue[]): ExperienceIntegrationOutput | undefined {
+  if (typeof raw !== "object" || raw === null || !Object.prototype.hasOwnProperty.call(raw, "relationship")) return undefined;
+  if (issues.some((issue) => issue.path[0] !== "relationship")) return undefined;
+  const { relationship: _relationship, ...rest } = raw as Record<string, unknown>;
+  const parsed = ExperienceIntegrationOutputSchema.safeParse(rest);
+  return parsed.success ? parsed.data : undefined;
 }
 
 export interface ExperienceIntegrationSink {
