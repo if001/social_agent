@@ -3,6 +3,7 @@ import { ConcernNormalizationDecisionSchema } from "../../application/concern-no
 import { errorLogContext, noopLogger, type Logger } from "../../observability/logger.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { createOllamaChatModel, providerFailure, type OllamaChatConfig } from "./ollama-provider.js";
+import { parseModelJson } from "./model-json-parser.js";
 
 export const concernNormalizationSystemPrompt = `あなたは既存active Concernを現在の契約へ正規化する軽量保守担当です。
 
@@ -18,7 +19,7 @@ Concernは、複数EventにわたってAgentが現在も気に掛ける、一つ
 - 「正式版を完了させる」ではなく「その判別基準がどの条件で成り立つか確かめたい」
 - 「判別手順を確定する」ではなく「結果の不一致が何によって生じるか知りたい」
 
-分割、作成、終了、status変更は行いません。IDを推測または出力しません。Markdownや説明文を返さず、指定された構造化出力だけを返してください。`;
+分割、作成、終了、status変更は行いません。IDを推測または出力しません。Markdownや説明文を返さず、JSON objectだけを返してください。`;
 const concernNormalizationRepairPrompt = `${concernNormalizationSystemPrompt}\n直前の出力はschema検証に失敗しました。新しい意味判断を行わず、固定inputと直前出力を使い、descriptionとwhyItMattersを必須の文字列として修復してください。`;
 
 function contentOf(value: unknown): string {
@@ -42,9 +43,9 @@ export function createOllamaConcernNormalizationModel(config: OllamaChatConfig, 
         for (let attempt = 1; attempt <= 2; attempt += 1) {
           const payload = repair === undefined ? input : { input, ...repair };
           const result = await model.invoke([{ role: "system", content: repair === undefined ? concernNormalizationSystemPrompt : concernNormalizationRepairPrompt }, { role: "user", content: JSON.stringify(payload) }], { signal: effectiveSignal });
-          const text = contentOf(result.content).trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "");
+          const text = contentOf(result.content);
           if (text === "") throw new Error("Concern normalization returned empty content");
-          const raw: unknown = JSON.parse(text);
+          const raw = parseModelJson(text);
           const parsed = ConcernNormalizationDecisionSchema.safeParse(raw);
           if (parsed.success) {
             const decision = parsed.data;

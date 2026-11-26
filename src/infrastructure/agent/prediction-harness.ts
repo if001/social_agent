@@ -28,7 +28,7 @@ export const predictionSystemPrompt = `あなたはAgentのG1/G2予測担当で�
 - 前回の予測と評価を入力から参照し、候補ごとに評価する
 - 現在のユーザーをBackground Experienceの登場人物にしない
 - 入力にないID、事実、予測を作らない
-- 構造化出力だけを返す`;
+- JSON objectだけを返す`;
 
 const expectation = (value: unknown): "very_high" | "high" | "medium" | "low" | "very_low" => {
   if (typeof value !== "string") return "medium";

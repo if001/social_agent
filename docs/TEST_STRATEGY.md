@@ -221,12 +221,14 @@ Live testはproviderとモデルの非決定性を含む。失敗を単なる揺
 | NFR-18 | System | `tests/system/memory-update-event.test.ts`, `tests/system/g3-event.test.ts` | user-message優先、下位Eventの開始抑制 |
 | NFR-19 | Unit, Integration | `tests/unit/background-experience.test.ts`, `tests/integration/background-experience.test.ts` | YAML検証、段階順序、AI/if001プロフィール、共有経験不在、実在人物、分布、非上書き |
 | NFR-20 | Contract | `tests/contract/structured-output-description.test.ts` | G1/G2、G3、MainAgentのdescription保持 |
+| NFR-23 | Unit, Contract | `tests/unit/model-json-parser.test.ts`, `tests/contract/structured-output-description.test.ts` | JSON code fenceの共通処理、YAML・`key: value`・自由文・壊れたJSONの拒否、全通常Ollama promptのJSON要求 |
 
 ### Acceptance criteria
 
 | 要件 | レベル | テストファイル | 主な検証 |
 |---|---|---|---|
 | AC-1 | System, Unit | `tests/system/invalid-output.test.ts`, `tests/unit/domain-contracts.test.ts` | schema・境界・非 commit |
+| AC-24 | Unit, Contract | `tests/unit/model-json-parser.test.ts`, `tests/contract/structured-output-description.test.ts` | JSON code fenceの許容、JSON以外の構造の拒否、初回・repair promptのJSON要求 |
 | AC-2 | Live | `tests/live/ollama-user-response.test.ts`, `tests/live/ollama-reflection.test.ts` | 実 Ollama の応答と repair |
 | AC-3 | Live | `tests/live/production-context-user-response.test.ts` | production-like E2E |
 | AC-4 | Evaluation | `tests/evaluation/evaluation-runner.test.ts` | paired live evaluation |

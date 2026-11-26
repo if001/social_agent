@@ -1,14 +1,12 @@
 import { z } from "zod";
 
 import type { AgentHarness } from "../application/ports.js";
+import { parseJsonOutput } from "../domain/json-output.js";
 import { DomainError, type AgentCoreInput, type AgentCoreOutput, type AgentRunResult, type ToolExecutionRecord } from "../domain/contracts.js";
 import { RubricRatingSchema, type BehaviorLabel, type EvaluationScenario, type EvaluatorAdapter, type ScenarioExecutor, type ScenarioResult } from "./types.js";
 
 export function parseOllamaJsonContent(content: string): unknown {
-  const trimmed = content.trim();
-  const fenced = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/iu.exec(trimmed);
-  const json = fenced?.[1]?.trim() ?? trimmed;
-  try { return JSON.parse(json); } catch (error) { throw new DomainError("VALIDATION", "Ollama evaluation content was not JSON", { cause: error }); }
+  try { return parseJsonOutput(content); } catch (error) { throw new DomainError("VALIDATION", "Ollama evaluation content was not JSON", { cause: error }); }
 }
 async function chat(baseUrl: string, apiKey: string, model: string, prompt: string, signal: AbortSignal, timeoutMs: number, format: unknown = "json"): Promise<unknown> {
   let response: Response | undefined; let lastError: unknown;

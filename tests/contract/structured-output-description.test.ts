@@ -4,10 +4,21 @@ import { ConcernProposalSchema, G3OutputSchema, PredictionOutputSchema } from ".
 import { ConcernReflectorOutputSchema } from "../../src/application/reflection.js";
 import { ConcernNormalizationDecisionSchema, ConcernNormalizationModelInputSchema } from "../../src/application/concern-normalization.js";
 import { concernNormalizationSystemPrompt } from "../../src/infrastructure/agent/concern-normalization-model.js";
+import { concernImpactSystemPrompt } from "../../src/infrastructure/agent/concern-impact-harness.js";
+import { eventExperienceRepairSystemPrompt, experienceIntegrationRepairInstruction, experienceIntegrationSystemPrompt } from "../../src/infrastructure/agent/experience-integration-harness.js";
 import { AgentCoreModelOutputJsonSchema } from "../../src/infrastructure/agent/deep-agent-harness.js";
 import { modelJsonSchema } from "../../src/infrastructure/agent/model-json-schema.js";
+import { observationGateSystemPrompt } from "../../src/infrastructure/agent/observation-gate-model.js";
+import { predictionSystemPrompt } from "../../src/infrastructure/agent/prediction-harness.js";
+import { webSummarySystemPrompt } from "../../src/infrastructure/agent/web-summary-harness.js";
 
 describe("FR-65, NFR-20, AC-19: structured output descriptions", () => {
+  it("FR-65, NFR-23, AC-24: requires JSON from every normal structured-output prompt", () => {
+    for (const prompt of [concernImpactSystemPrompt, concernNormalizationSystemPrompt, eventExperienceRepairSystemPrompt, experienceIntegrationSystemPrompt, experienceIntegrationRepairInstruction, observationGateSystemPrompt, predictionSystemPrompt, webSummarySystemPrompt]) {
+      expect(prompt).toMatch(/JSON (?:object|payload)|JSON object/u);
+    }
+  });
+
   it("preserves field descriptions in the JSON Schema passed to the model", () => {
     const prediction = modelJsonSchema(PredictionOutputSchema);
     const serialized = JSON.stringify(prediction);
