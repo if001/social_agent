@@ -211,6 +211,7 @@ describe("Agent prompts", () => {
     expect(resolveEventSkills("internal", "idle")).toEqual(["idle", "concern-lifecycle"]);
     expect(resolveEventSkills("internal", "concern-due")).toEqual(["concern-due", "concern-lifecycle"]);
     expect(resolveEventSkills("internal", "concern-formation")).toEqual(["concern-formation", "concern-lifecycle"]);
+    expect(resolveEventSkills("internal", "prediction-g3-result")).toEqual(["prediction-g3-result"]);
     expect(resolveEventSkills("system", "scheduled-task")).toEqual(["scheduled-task"]);
     expect(completeAgentCoreSystemPrompt).not.toContain("external-change");
     expect(resolveEventSkills("time", undefined)).toEqual([]);
@@ -218,6 +219,16 @@ describe("Agent prompts", () => {
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=idle");
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=concern-due");
     expect(completeAgentCoreSystemPrompt).toContain("skill_read name=scheduled-task");
+    expect(completeAgentCoreSystemPrompt).toContain("skill_read name=prediction-g3-result");
+  });
+
+  it("FR-96: treats prediction context as optional evidence and distinguishes G3 facts from hypotheses", () => {
+    const g3Skill = skill("prediction-g3-result");
+    expect(completeAgentCoreSystemPrompt).toContain("predictionContextは同じ相手との予測・予測誤差");
+    expect(completeAgentCoreSystemPrompt).toContain("仮説を事実や共有経験として扱いません");
+    expect(g3Skill).toContain("作成を義務付けない");
+    expect(g3Skill).toContain("hypothesisを");
+    expect(g3Skill).toContain("no-external-action");
   });
 
   it("FR-47, AC-10: reads a skill through the Registry tool", async () => {

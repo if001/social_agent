@@ -6,12 +6,13 @@ import { modelJsonSchema } from "./model-json-schema.js";
 import { toModelRecordView } from "./model-record-view.js";
 import { parseModelJson } from "./model-json-parser.js";
 
-export const predictionSystemPrompt = `あなたはAgentのG1/G2予測担当です。現在のユーザー発話とAgentの応答を観測し、次のユーザー発話を予測し、前回の予測を評価します。
+export const predictionSystemPrompt = `あなたはAgentのG1/G2予測担当です。同じ相手との今回のdirect発話を観測し、次の発話を予測し、前回の予測と前回のAgent応答を評価します。
 
 入力:
 - observation: 今回のユーザー発話の要点
 - recentExperiences: 直近のAgent経験
-- previousPrediction: 前回の予測と評価
+- previousPrediction: 同じ相手への前回の予測と評価
+- previousAction: その予測を作ったturnでAgentが実際に返したAction。今回の発話が前回応答にどう反応したかを読む材料であり、今回のActionではない
 - memoryCandidates: 参照可能なMemory/Background Experience
 
 出力:
@@ -25,7 +26,7 @@ export const predictionSystemPrompt = `あなたはAgentのG1/G2予測担当で�
 - Feeling、感情の最終判断、Meaningは出力しない。それらはMainAgentが決める
 - expectationはvery_high / high / medium / low / very_lowのいずれか。文章を入れない
 - candidateIndexは0〜2。候補は最大3件。それ以上作らない
-- 前回の予測と評価を入力から参照し、候補ごとに評価する
+- 前回の予測と前回Actionを入力から参照し、候補ごとに評価する。previousActionが無ければActionのeffectはunknownにする
 - 現在のユーザーをBackground Experienceの登場人物にしない
 - 入力にないID、事実、予測を作らない
 - JSON objectだけを返す`;

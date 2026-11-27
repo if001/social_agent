@@ -36,21 +36,27 @@ describeDatabase("Prediction persistence", () => {
       await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ($1,'a','user-message','{}','test','completed',$2)", [eventId, occurredAt]);
       await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,started_at,finished_at) VALUES ($1,'a',$2,0,$3,$3)", [runId, eventId, occurredAt]);
     }
+    await pool.query("INSERT INTO event_subjects(event_id,subject_id) VALUES ('event-1','user-a'),('event-2','user-b'),('event-legacy','user-a')");
+    await pool.query("UPDATE agent_runs SET result=$1 WHERE id='run-1'", [{ output: { action: { type: "respond", content: "前回の返答" } } }]);
   });
   afterAll(async () => {
     await database.close();
   });
 
-  it("FR-48, FR-62, NFR-14: stores and loads prediction history per agent", async () => {
+  it("FR-48, FR-62, NFR-14: stores and loads prediction history per agent and subject", async () => {
     const repository = new PostgresPredictionRepository(createRuntimeDatabase(pool));
     await repository.save(record("prediction-1", "event-1", "2026-10-31T00:00:00.000Z"));
     await repository.save({ ...record("prediction-2", "event-2", "2026-10-31T01:00:00.000Z"), sourceRunId: "run-2", output: { ...record("prediction-2").output, predictionEvaluations: [{ group: "g2", candidateIndex: 0, match: "primary", surprise: "none", difference: "ずれなし", interpretation: "継続", uncertainty: "低い", observed: "継続", errorDirection: "matched", effect: "unchanged" }] } });
     const latest = await repository.latest("a");
     expect(latest?.id).toBe("prediction-2");
-    const context = await repository.context("a");
-    expect(context?.previousPrediction?.output.predictions.g1.candidates[0]?.content).toBe("技術の話を続ける");
-    expect(context?.recentExperienceEffect?.eventId).toBe("event-1");
-    expect(context?.agentId).toBe("a");
+    const userAContext = await repository.context("a", "user-a");
+    const userBContext = await repository.context("a", "user-b");
+    expect(userAContext?.previousPrediction?.id).toBe("prediction-1");
+    expect(userAContext?.previousAction).toEqual({ type: "respond", content: "前回の返答" });
+    expect(userBContext?.previousPrediction?.id).toBe("prediction-2");
+    expect(userBContext?.recentExperienceEffect?.eventId).toBe("event-2");
+    expect(userBContext?.agentId).toBe("a");
+    expect(await repository.context("a")).toBeUndefined();
     expect(await repository.latest("b")).toBeUndefined();
     expect((await pool.query<{ agent_id: string | null; source_event_id: string | null }>("SELECT agent_id,source_event_id FROM prediction_records WHERE id='prediction-2'")).rows[0]).toEqual({ agent_id: "a", source_event_id: "event-2" });
     expect((await pool.query<{ agent_id: string | null }>("SELECT agent_id FROM prediction_evaluations WHERE prediction_id='prediction-2'")).rows[0]?.agent_id).toBe("a");
@@ -65,7 +71,7 @@ describeDatabase("Prediction persistence", () => {
     await pool.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [legacy.id, legacy.agentId, legacy.sourceEventId, legacy.sourceRunId, legacy.output, legacy.createdAt]);
     const repository = new PostgresPredictionRepository(createRuntimeDatabase(pool));
     const loaded = await repository.latest("a");
-    const context = await repository.context("a");
+    const context = await repository.context("a", "user-a");
     expect(loaded?.id).toBe("prediction-legacy");
     expect(loaded?.output).not.toHaveProperty("remember");
     expect(loaded?.output).not.toHaveProperty("observationCandidates");
@@ -82,7 +88,7 @@ describeDatabase("Prediction persistence", () => {
     const claimed = await repository.claim("g3-task", "2026-10-31T00:00:01Z", "2026-10-31T00:00:30Z", 3);
     expect(claimed).toMatchObject({ status: "running", attempt: 1 });
     if (claimed?.leaseUntil === undefined) throw new Error("G3 task was not leased");
-    const result = { output: { hypothesisEvaluations: [], newHypotheses: [], findings: ["確認済み"], memories: [] }, toolEvidence: [] };
+    const result = { output: { findings: ["確認済み"], hypotheses: [] }, toolEvidence: [] };
     await expect(repository.saveResult("g3-task", "2026-10-31T00:00:29Z", result)).resolves.toBe(false);
     await expect(repository.saveResult("g3-task", claimed.leaseUntil, result)).resolves.toBe(true);
     await expect(repository.complete("g3-task", "2026-10-31T00:00:29Z", result, "2026-10-31T00:00:10Z")).resolves.toBe(false);

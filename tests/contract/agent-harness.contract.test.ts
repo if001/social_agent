@@ -78,7 +78,6 @@ describe("AgentHarness contract", () => {
           g3: { needsG3: false, targetLayers: [], priority: "medium" }
         }
       },
-      g3MemoryIntents: [],
       memoryCandidates: []
     };
     await new DeepAgentHarness({ invoker, registeredToolNames: new Set() }).run(input, new AbortController().signal);

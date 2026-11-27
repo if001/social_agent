@@ -232,7 +232,7 @@ export class AgentRuntime {
     if (committed === "committed" && this.options.prediction !== undefined) {
       const predictionStartedAt = Date.now();
       try {
-        await this.options.prediction.afterResponse({ event, input, result }, signal);
+        await this.options.prediction.afterResponse({ event, input }, signal);
       } catch (error) {
         logger.log("warn", "prediction.failed_after_commit", { elapsedMs: Date.now() - predictionStartedAt, ...errorLogContext(error) });
       }

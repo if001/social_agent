@@ -27,10 +27,9 @@ describe("FR-65, NFR-20, AC-19: structured output descriptions", () => {
     expect(serialized).toContain("expectation");
     expect(prediction).not.toHaveProperty("$schema");
     const g3 = modelJsonSchema(G3OutputSchema);
-    expect(JSON.stringify(g3)).toContain("前回仮説の評価");
-    expect(JSON.stringify(g3)).toContain("G3が意味づけたMemory候補");
-    expect(JSON.stringify(g3)).toContain("今後も再利用できる経験として残す短い内容");
-    expect(JSON.stringify(g3)).toContain("この候補を残す理由");
+    expect(JSON.stringify(g3)).toContain("確認済みの情報");
+    expect(JSON.stringify(g3)).toContain("未確定の解釈");
+    expect(Object.keys((g3.properties ?? {}) as Record<string, unknown>)).toEqual(["findings", "hypotheses"]);
   });
 
   it("keeps MainAgent and G1/G2 schema descriptions available for DeepAgent toolStrategy", () => {

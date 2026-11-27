@@ -2,7 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { PredictionRecord, PredictionRepository } from "../../application/prediction.js";
 import { normalizeLegacyPredictionOutput } from "../../application/legacy-prediction-normalization.js";
-import { PredictionContextSchema, PredictionOutputSchema, type PredictionContext } from "../../domain/contracts.js";
+import { FinalActionSchema, PredictionContextSchema, PredictionOutputSchema, type PredictionContext } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
 import { agentRuns, events, eventSubjects, predictionEvaluations, predictionRecords } from "./schema.js";
 
@@ -12,6 +12,7 @@ type Row = {
   sourceEventId: string;
   sourceRunId: string;
   output: unknown;
+  result: unknown;
   createdAt: Date;
 };
 
@@ -21,14 +22,26 @@ function parsedOutput(value: unknown) {
 
 export { normalizeLegacyPredictionOutput } from "../../application/legacy-prediction-normalization.js";
 
-const toRecord = (row: Row): PredictionRecord => ({
-  id: row.id,
-  agentId: row.agentId,
-  sourceEventId: row.sourceEventId,
-  sourceRunId: row.sourceRunId,
-  output: parsedOutput(row.output),
-  createdAt: row.createdAt.toISOString()
-});
+const sourceAction = (result: unknown) => {
+  if (typeof result !== "object" || result === null) return undefined;
+  const output = (result as Record<string, unknown>).output;
+  if (typeof output !== "object" || output === null) return undefined;
+  const parsed = FinalActionSchema.safeParse((output as Record<string, unknown>).action);
+  return parsed.success ? parsed.data : undefined;
+};
+
+const toRecord = (row: Row): PredictionRecord => {
+  const action = sourceAction(row.result);
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    sourceEventId: row.sourceEventId,
+    sourceRunId: row.sourceRunId,
+    output: parsedOutput(row.output),
+    ...(action === undefined ? {} : { sourceAction: action }),
+    createdAt: row.createdAt.toISOString()
+  };
+};
 
 export class PostgresPredictionRepository implements PredictionRepository {
   constructor(private readonly database: RuntimeDatabase) {}
@@ -82,6 +95,7 @@ export class PostgresPredictionRepository implements PredictionRepository {
       sourceEventId: sql<string>`coalesce(${events.id}, ${predictionRecords.sourceEventId})`,
       sourceRunId: predictionRecords.sourceRunId,
       output: predictionRecords.output,
+      result: agentRuns.result,
       createdAt: predictionRecords.createdAt
     }).from(predictionRecords)
       .leftJoin(agentRuns, eq(agentRuns.id, predictionRecords.sourceRunId))
@@ -97,8 +111,9 @@ export class PostgresPredictionRepository implements PredictionRepository {
     return row === undefined ? undefined : toRecord(row);
   }
 
-  async context(agentId: string): Promise<PredictionContext | undefined> {
-    const rows = await this.rows(agentId, 3);
+  async context(agentId: string, subjectId?: string): Promise<PredictionContext | undefined> {
+    if (subjectId === undefined) return undefined;
+    const rows = await this.rows(agentId, 3, subjectId);
     const latestRow = rows[0];
     if (latestRow === undefined) return undefined;
     const latest = toRecord(latestRow);
@@ -107,7 +122,7 @@ export class PostgresPredictionRepository implements PredictionRepository {
     return PredictionContextSchema.parse({
       agentId,
       previousPrediction: { id: latest.id, createdAt: latest.createdAt, output: latest.output },
-      g3MemoryIntents: [],
+      ...(latest.sourceAction === undefined ? {} : { previousAction: latest.sourceAction }),
       ...(effect === undefined ? {} : { recentExperienceEffect: {
         eventId: evaluatedRow?.sourceEventId ?? latest.sourceEventId,
         effect: effect.effect,
