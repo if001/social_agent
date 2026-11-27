@@ -50,9 +50,7 @@ export class PredictionLoop implements PredictionService {
         const deadline = AbortSignal.timeout(this.options.limits.deadlineMs);
         const predictionSignal = AbortSignal.any([signal, deadline]);
         const output = await withDeadline(this.options.model.predict({
-          agentId: input.event.agentId,
           observation: input.input.observation,
-          recentExperiences: input.input.recentExperiences,
           ...(previous === undefined ? {} : {
             previousPrediction: { id: previous.id, createdAt: previous.createdAt, output: previous.output },
             ...(previous.sourceAction === undefined ? {} : { previousAction: previous.sourceAction })
@@ -68,8 +66,8 @@ export class PredictionLoop implements PredictionService {
           output,
           createdAt: this.options.now().toISOString()
         });
-        logger.log("info", "prediction.saved", { g1Count: output.predictions.g1.candidates.length, g2Count: output.predictions.g2.candidates.length, evaluationCount: output.predictionEvaluations.length, needsG3: output.g3.needsG3 });
-        if (output.g3.needsG3 && this.options.g3Sink !== undefined) await this.options.g3Sink.enqueue({ agentId: input.event.agentId, ...(subjectId === undefined ? {} : { subjectId }), sourceEventId: input.event.id, sourceRunId: input.input.run.runId, sourcePredictionId: predictionId, observation: input.input.observation, prediction: output });
+        logger.log("info", "prediction.saved", { g1Count: output.predictions.g1.candidates.length, g2Count: output.predictions.g2.candidates.length, evaluationCount: output.predictionEvaluations.length, investigation: output.investigation !== undefined });
+        if (output.investigation !== undefined && this.options.g3Sink !== undefined) await this.options.g3Sink.enqueue({ agentId: input.event.agentId, ...(subjectId === undefined ? {} : { subjectId }), sourceEventId: input.event.id, sourceRunId: input.input.run.runId, sourcePredictionId: predictionId, observation: input.input.observation, prediction: output });
         return;
       } catch (error) {
         logger.log("warn", "prediction.attempt_failed", { remainingAttempts: remaining, ...errorLogContext(error) });

@@ -46,7 +46,7 @@ describe("production-like text UI user response", () => {
       });
       await pool.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ('legacy-prediction','live-e2e-agent','legacy-event','legacy-run',$1,now())", [JSON.stringify({
         predictions: { g1: { candidates: [] }, g2: { candidates: [] } }, predictionEvaluations: [],
-        g3: { needsG3: false, targetLayers: [], priority: "medium" }, remember: [], observationCandidates: []
+        investigation: undefined
       })]);
       const config = { ...loaded, botId: "live-e2e-agent", defaultOutputDestination: "text-user", runDeadlineMs: Math.max(loaded.runDeadlineMs, 300_000) };
       const composition = createBotComposition({ pool, config, queue, logger, limits: { maxToolCalls: 0, maxSteps: 2 } });

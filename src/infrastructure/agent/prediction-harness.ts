@@ -10,23 +10,21 @@ export const predictionSystemPrompt = `あなたはAgentのG1/G2予測担当で�
 
 入力:
 - observation: 今回のユーザー発話の要点
-- recentExperiences: 直近のAgent経験
 - previousPrediction: 同じ相手への前回の予測と評価
 - previousAction: その予測を作ったturnでAgentが実際に返したAction。今回の発話が前回応答にどう反応したかを読む材料であり、今回のActionではない
 - memoryCandidates: 参照可能なMemory/Background Experience
 
 出力:
 - predictions: { g1: { candidates: [...] }, g2: { candidates: [...] } } のobject。g1/g2を配列にしない
-- predictions.g1.candidates: 語彙、文法、表記、口調、言い回しの候補。各候補はcandidateIndex、feature、content、expectation、contextSummary、rationaleを持つ
-- predictions.g2.candidates: 意味、命題、会話行為の候補。各候補はcandidateIndex、speechAct、content、expectation、contextSummary、rationaleを持つ
-- predictionEvaluations: 前回予測の候補ごとの評価。group、candidateIndex、match、surprise、difference、interpretation、uncertainty、attribution、observed、errorDirection、effect、effectEvidenceを分ける
-- g3: needsG3、targetLayers（L4/L5/L6）、reason、priority（high/medium/low）
+- predictions.g1.candidates: 表層の予測候補。最大1件
+- predictions.g2.candidates: 意味・会話行為の予測候補。最大1件
+- predictionEvaluations: 前回予測の評価。group、match、surprise、interpretationだけを返す
+- investigation: 追加調査が必要な時だけ { reason } を返す
 
 制約:
 - Feeling、感情の最終判断、Meaningは出力しない。それらはMainAgentが決める
 - expectationはvery_high / high / medium / low / very_lowのいずれか。文章を入れない
-- candidateIndexは0〜2。候補は最大3件。それ以上作らない
-- 前回の予測と前回Actionを入力から参照し、候補ごとに評価する。previousActionが無ければActionのeffectはunknownにする
+- 各layerの候補は最大1件。前回の予測と前回Actionを入力から参照して評価する
 - 現在のユーザーをBackground Experienceの登場人物にしない
 - 入力にないID、事実、予測を作らない
 - JSON objectだけを返す`;
@@ -52,23 +50,21 @@ const candidateArray = (value: unknown): unknown[] => Array.isArray(value) ? val
 function normalizePrediction(raw: unknown): PredictionOutput {
   const root = objectOf(raw);
   const predictions = objectOf(root.predictions);
-  const g1 = candidateArray(predictions.g1).slice(0, 3).map((item, index) => {
+  const g1 = candidateArray(predictions.g1).slice(0, 1).map((item) => {
     const value = objectOf(item);
-    return { candidateIndex: index, feature: text(value.feature ?? value.aspect, "語彙・言い回し"), content: text(value.content ?? value.description, "次の発話を予測できなかった"), expectation: expectation(value.expectation), contextSummary: text(value.contextSummary ?? value.context, "現在の話題"), rationale: text(value.rationale ?? value.description, "入力から判断した") };
+    return { feature: text(value.feature ?? value.aspect, "語彙・言い回し"), content: text(value.content ?? value.description, "次の発話を予測できなかった"), expectation: expectation(value.expectation), contextSummary: text(value.contextSummary ?? value.context, "現在の話題"), rationale: text(value.rationale ?? value.description, "入力から判断した") };
   });
-  const g2 = candidateArray(predictions.g2).slice(0, 3).map((item, index) => {
+  const g2 = candidateArray(predictions.g2).slice(0, 1).map((item) => {
     const value = objectOf(item);
-    return { candidateIndex: index, speechAct: text(value.speechAct ?? value.speech_act ?? value.aspect, "不明"), content: text(value.content ?? value.proposition ?? value.description, "次の発話を予測できなかった"), expectation: expectation(value.expectation), contextSummary: text(value.contextSummary ?? value.context, "現在の話題"), rationale: text(value.rationale ?? value.description, "入力から判断した") };
+    return { speechAct: text(value.speechAct ?? value.speech_act ?? value.aspect, "不明"), content: text(value.content ?? value.proposition ?? value.description, "次の発話を予測できなかった"), expectation: expectation(value.expectation), contextSummary: text(value.contextSummary ?? value.context, "現在の話題"), rationale: text(value.rationale ?? value.description, "入力から判断した") };
   });
-  const predictionEvaluations = (Array.isArray(root.predictionEvaluations) ? root.predictionEvaluations : []).slice(0, 6).flatMap((item) => {
+  const predictionEvaluations = (Array.isArray(root.predictionEvaluations) ? root.predictionEvaluations : []).slice(0, 2).flatMap((item) => {
     const value = objectOf(item);
     if (value.group !== "g1" && value.group !== "g2") return [];
-    const candidateIndex = typeof value.candidateIndex === "number" && value.candidateIndex >= 0 && value.candidateIndex <= 2 ? value.candidateIndex : 0;
-    return [{ group: value.group, candidateIndex, match: ["primary", "alternative", "unexpected", "undecidable"].includes(String(value.match)) ? value.match as "primary" | "alternative" | "unexpected" | "undecidable" : "undecidable", surprise: ["none", "low", "medium", "high", "unknown"].includes(String(value.surprise)) ? value.surprise as "none" | "low" | "medium" | "high" | "unknown" : "unknown", difference: text(value.difference, "差異を判断できなかった"), interpretation: text(value.interpretation, "解釈を保留した"), uncertainty: text(value.uncertainty, "判断できない"), ...(typeof value.attribution === "string" && value.attribution.trim().length > 0 ? { attribution: value.attribution.trim() } : {}), observed: text(value.observed, "観測なし"), errorDirection: ["over", "under", "matched", "undecidable"].includes(String(value.errorDirection)) ? value.errorDirection as "over" | "under" | "matched" | "undecidable" : "undecidable", effect: ["reduced", "unchanged", "increased", "unknown"].includes(String(value.effect)) ? value.effect as "reduced" | "unchanged" | "increased" | "unknown" : "unknown", ...(typeof value.effectEvidence === "string" && value.effectEvidence.trim().length > 0 ? { effectEvidence: value.effectEvidence.trim() } : {}) }];
+    return [{ group: value.group, match: ["primary", "alternative", "unexpected", "undecidable"].includes(String(value.match)) ? value.match as "primary" | "alternative" | "unexpected" | "undecidable" : "undecidable", surprise: ["none", "low", "medium", "high", "unknown"].includes(String(value.surprise)) ? value.surprise as "none" | "low" | "medium" | "high" | "unknown" : "unknown", interpretation: text(value.interpretation, "解釈を保留した") }];
   });
-  const g3Raw = objectOf(root.g3);
-  const g3 = { needsG3: g3Raw.needsG3 === true, targetLayers: (Array.isArray(g3Raw.targetLayers) ? g3Raw.targetLayers : []).filter((value): value is "L4" | "L5" | "L6" => value === "L4" || value === "L5" || value === "L6"), priority: ["high", "medium", "low"].includes(String(g3Raw.priority)) ? g3Raw.priority as "high" | "medium" | "low" : "medium" as const, ...(typeof g3Raw.reason === "string" && g3Raw.reason.trim().length > 0 ? { reason: g3Raw.reason.trim() } : {}) };
-  return PredictionOutputSchema.parse({ predictions: { g1: { candidates: g1 }, g2: { candidates: g2 } }, predictionEvaluations, g3 });
+  const investigation = objectOf(root.investigation);
+  return PredictionOutputSchema.parse({ predictions: { g1: { candidates: g1 }, g2: { candidates: g2 } }, predictionEvaluations, ...(typeof investigation.reason === "string" && investigation.reason.trim().length > 0 ? { investigation: { reason: investigation.reason.trim() } } : {}) });
 }
 
 const contentOf = (value: unknown): string => {
@@ -92,12 +88,12 @@ export function createOllamaPredictionModel(config: OllamaChatConfig, logger: Lo
         ], { signal });
         const content = contentOf(result.content);
         const usage = objectOf(result.usage_metadata); const responseMeta = objectOf(result.response_metadata);
-        logger.log("info", "prediction.model_completed", { agentId: input.agentId, elapsedMs: Date.now() - startedAt, systemPromptChars: predictionSystemPrompt.length, inputChars: inputJson.length, outputChars: content.length, ...(typeof usage.input_tokens === "number" ? { inputTokens: usage.input_tokens } : {}), ...(typeof usage.output_tokens === "number" ? { outputTokens: usage.output_tokens } : {}), ...(typeof responseMeta.finish_reason === "string" ? { finishReason: responseMeta.finish_reason } : {}) });
+        logger.log("info", "prediction.model_completed", { elapsedMs: Date.now() - startedAt, systemPromptChars: predictionSystemPrompt.length, inputChars: inputJson.length, outputChars: content.length, ...(typeof usage.input_tokens === "number" ? { inputTokens: usage.input_tokens } : {}), ...(typeof usage.output_tokens === "number" ? { outputTokens: usage.output_tokens } : {}), ...(typeof responseMeta.finish_reason === "string" ? { finishReason: responseMeta.finish_reason } : {}) });
         if (content.trim().length === 0) throw providerFailure("G1/G2 prediction", new Error("Prediction returned empty content"), signal);
         return normalizePrediction(parseModelJson(content));
       } catch (error) {
         const failure = providerFailure("G1/G2 prediction", error, signal);
-        logger.log("warn", "prediction.failed", { agentId: input.agentId, ...errorLogContext(failure), aborted: signal.aborted });
+        logger.log("warn", "prediction.failed", { ...errorLogContext(failure), aborted: signal.aborted });
         throw failure;
       }
     }

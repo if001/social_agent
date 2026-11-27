@@ -1,4 +1,4 @@
-import type { AgentAction, AgentCoreInput, DomainEvent, PredictionContext, PredictionOutput, RecentExperience, RetrievedItem } from "../domain/contracts.js";
+import type { AgentAction, AgentCoreInput, DomainEvent, PredictionContext, PredictionOutput, RetrievedItem } from "../domain/contracts.js";
 
 export type PredictionRecord = {
   readonly id: string;
@@ -11,9 +11,7 @@ export type PredictionRecord = {
 };
 
 export type PredictionModelInput = {
-  readonly agentId: string;
   readonly observation: AgentCoreInput["observation"];
-  readonly recentExperiences: readonly RecentExperience[];
   readonly previousPrediction?: { readonly id: string; readonly createdAt: string; readonly output: PredictionOutput };
   readonly previousAction?: AgentAction;
   readonly memoryCandidates: readonly RetrievedItem[];

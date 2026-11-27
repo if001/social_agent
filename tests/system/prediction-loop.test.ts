@@ -11,11 +11,10 @@ import type { AgentCoreInput, DomainEvent, PredictionOutput } from "../../src/do
 
 const output: PredictionOutput = {
   predictions: {
-    g1: { candidates: [{ candidateIndex: 0, feature: "語彙", content: "次は技術の話を聞く", expectation: "medium", contextSummary: "技術の話題", rationale: "直前の話題" }] },
-    g2: { candidates: [{ candidateIndex: 0, speechAct: "質問", content: "技術について質問する", expectation: "medium", contextSummary: "技術の話題", rationale: "関心が続く" }] }
+    g1: { candidates: [{ feature: "語彙", content: "次は技術の話を聞く", expectation: "medium", contextSummary: "技術の話題", rationale: "直前の話題" }] },
+    g2: { candidates: [{ speechAct: "質問", content: "技術について質問する", expectation: "medium", contextSummary: "技術の話題", rationale: "関心が続く" }] }
   },
-  predictionEvaluations: [{ group: "g2", candidateIndex: 0, match: "primary", surprise: "none", difference: "大きなずれはない", interpretation: "話題を続けたい", uncertainty: "低い", observed: "技術の話題を続けた", errorDirection: "matched", effect: "unchanged" }],
-  g3: { needsG3: false, targetLayers: [], priority: "medium" }
+  predictionEvaluations: [{ group: "g2", match: "primary", surprise: "none", interpretation: "話題を続けたい" }]
 };
 
 const event = { id: "event-1", agentId: "a", kind: "message-received", occurredAt: "2026-10-31T00:00:00+00:00", payload: { addressing: "direct", subjectId: "user-main" }, correlationId: "c" } as unknown as DomainEvent;

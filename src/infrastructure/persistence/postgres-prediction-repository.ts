@@ -1,10 +1,9 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { PredictionRecord, PredictionRepository } from "../../application/prediction.js";
-import { normalizeLegacyPredictionOutput } from "../../application/legacy-prediction-normalization.js";
 import { FinalActionSchema, PredictionContextSchema, PredictionOutputSchema, type PredictionContext } from "../../domain/contracts.js";
 import type { RuntimeDatabase } from "./runtime-database.js";
-import { agentRuns, events, eventSubjects, predictionEvaluations, predictionRecords } from "./schema.js";
+import { agentRuns, events, eventSubjects, predictionRecords } from "./schema.js";
 
 type Row = {
   id: string;
@@ -16,11 +15,7 @@ type Row = {
   createdAt: Date;
 };
 
-function parsedOutput(value: unknown) {
-  return normalizeLegacyPredictionOutput(value);
-}
-
-export { normalizeLegacyPredictionOutput } from "../../application/legacy-prediction-normalization.js";
+function parsedOutput(value: unknown) { return PredictionOutputSchema.parse(value); }
 
 const sourceAction = (result: unknown) => {
   if (typeof result !== "object" || result === null) return undefined;
@@ -64,26 +59,6 @@ export class PostgresPredictionRepository implements PredictionRepository {
         output,
         createdAt: new Date(record.createdAt)
       });
-      if (output.predictionEvaluations.length > 0) {
-        await tx.insert(predictionEvaluations).values(output.predictionEvaluations.map((evaluation, index) => ({
-          id: `${record.id}:${String(index)}`,
-          predictionId: record.id,
-          agentId: record.agentId,
-          group: evaluation.group,
-          candidateIndex: evaluation.candidateIndex,
-          match: evaluation.match,
-          surprise: evaluation.surprise,
-          difference: evaluation.difference,
-          interpretation: evaluation.interpretation,
-          uncertainty: evaluation.uncertainty,
-          attribution: evaluation.attribution ?? null,
-          observed: evaluation.observed,
-          errorDirection: evaluation.errorDirection,
-          effect: evaluation.effect,
-          effectEvidence: evaluation.effectEvidence ?? null,
-          createdAt: new Date(record.createdAt)
-        })));
-      }
     });
   }
 
@@ -118,16 +93,10 @@ export class PostgresPredictionRepository implements PredictionRepository {
     if (latestRow === undefined) return undefined;
     const latest = toRecord(latestRow);
     const evaluatedRow = rows[1];
-    const effect = latest.output.predictionEvaluations[0];
     return PredictionContextSchema.parse({
       agentId,
       previousPrediction: { id: latest.id, createdAt: latest.createdAt, output: latest.output },
       ...(latest.sourceAction === undefined ? {} : { previousAction: latest.sourceAction }),
-      ...(effect === undefined ? {} : { recentExperienceEffect: {
-        eventId: evaluatedRow?.sourceEventId ?? latest.sourceEventId,
-        effect: effect.effect,
-        ...(effect.effectEvidence === undefined ? {} : { evidence: effect.effectEvidence })
-      } }),
       memoryCandidates: []
     });
   }

@@ -223,17 +223,15 @@ sequenceDiagram
     C-->>U: Action
     C->>P: 応答後の予測
     P-->>C: Prediction Context
-    P->>MU: MemoryIntent
-    MU->>MW: RAG候補 + MemoryWriteService
-    P->>G3: needsG3
-    G3-->>C: 仮説評価 + MemoryIntent
+    P->>G3: investigation.reason がある時だけ
+    G3-->>C: findings / hypotheses
     R->>MW: Formation / Reconciliation の確定Memory
 ```
 
 - G1/G2はdirect入力への応答後に追加のLLM callで同じ相手の次ターンを予測し、同一subjectからの次のdirect入力との誤差を1ターン遅れで評価する。
-- G1/G2は`predictionEvaluation`だけを返し、Feelingを出力しない。MainAgentがpredictionEvaluationをappraisalし、Feelingを確定する。
+- G1/G2は各層最大1件の予測と`match` / `surprise` / `interpretation`だけを返し、Feelingを出力しない。MainAgentがpredictionEvaluationをappraisalし、Feelingを確定する。
 - `memory-update` Eventは決定済みのMemoryIntentを適用するだけで、LLMを呼ばない。
-- G3はMainAgentとは別のDeepAgentであり、仮説評価とMemoryIntentをMainAgentへ渡す。
+- G3はMainAgentとは別のDeepAgentであり、根拠付きfindingと未確定hypothesisをMainAgentへ渡す。Memoryはその結果Event後のExperience Integrationだけが形成する。
 - Reflectionは専用のLLM処理であり、MainAgentのAgentHarnessを通らない。
 - Eventの優先順位は`message-received/human/direct`、`message-received/peer/direct`、`message-received/peer/observed`、memory-update、G3、reflectionの順とする。direct入力を待たせず、強制中断はしない。
 
