@@ -96,7 +96,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const experienceIntegration = new DirectExperienceIntegrationSink(new ExperienceIntegration(new PostgresExperienceIntegrationRepository(database, ids, () => clock.now(), memoryEmbedding, subjects), createOllamaExperienceIntegrationModel({ ...config.chat, toolRegistry }, logger), subjects, concernReevaluation), ids);
   const g3Service = new G3Service(new PostgresG3TaskRepository(database, config.botId), createOllamaG3Model({ ...config.chat, toolRegistry }), g3ResultSink, ids, () => clock.now(), config.runDeadlineMs, config.runDeadlineMs, 3);
   const g3Sink = new DirectG3Sink(g3Service, config.runDeadlineMs);
-  const prediction = new PredictionLoop({ repository: predictionRepository, model: createOllamaPredictionModel(config.chat, logger), ids, now: () => clock.now(), retrieval: retrievalService, memoryUpdateSink, g3Sink, limits: { deadlineMs: 180_000, maxAttempts: 1 }, logger });
+  const prediction = new PredictionLoop({ repository: predictionRepository, model: createOllamaPredictionModel(config.chat, logger), ids, now: () => clock.now(), retrieval: retrievalService, g3Sink, limits: { deadlineMs: 180_000, maxAttempts: 1 }, logger });
   const contextLoader = new PostgresAgentContextLoader({
     database, ids, tools: toolRegistry,
     embedding: embeddingProvider,

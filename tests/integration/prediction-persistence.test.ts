@@ -63,7 +63,7 @@ describeDatabase("Prediction persistence", () => {
   it("NFR-7, NFR-8: validates and persists the G3 work-item ownership snapshot", async () => {
     const predictions = new PostgresPredictionRepository(createRuntimeDatabase(pool));
     await predictions.save(record("prediction-g3", "event-1"));
-    const task: G3Task = { id: "g3-task", agentId: "a", sourcePredictionId: "prediction-g3", sourceEventId: "event-1", sourceRunId: "run-1", status: "pending", attempt: 0, deadlineAt: "2026-10-31T00:01:00Z", input: { agentId: "a", sourcePredictionId: "prediction-g3", sourceEventId: "event-1", sourceRunId: "run-1", observation: { eventId: "event-1", summary: "G3", facts: [], observedAt: "2026-10-31T00:00:00Z" }, prediction: record("prediction-g3").output }, createdAt: "2026-10-31T00:00:00Z" };
+    const task: G3Task = { id: "g3-task", agentId: "a", sourcePredictionId: "prediction-g3", sourceEventId: "event-1", sourceRunId: "run-1", status: "pending", attempt: 0, deadlineAt: "2026-10-31T00:01:00Z", input: { agentId: "a", sourcePredictionId: "prediction-g3", sourceEventId: "event-1", sourceRunId: "run-1", observation: { eventId: "event-1", summary: "G3", facts: [], observedAt: "2026-10-31T00:00:00Z" }, investigationReason: "不確かさを確認する", predictionEvaluations: [] }, createdAt: "2026-10-31T00:00:00Z" };
     const repository = new PostgresG3TaskRepository(createRuntimeDatabase(pool), "a");
     await repository.save(task);
     expect((await pool.query("SELECT agent_id,source_prediction_id,source_event_id,source_run_id,status,attempt,deadline_at,lease_until FROM g3_tasks WHERE id='g3-task'")).rows[0]).toMatchObject({ agent_id: "a", source_prediction_id: "prediction-g3", source_event_id: "event-1", source_run_id: "run-1", status: "pending", attempt: 0 });

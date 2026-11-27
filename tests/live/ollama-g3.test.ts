@@ -50,7 +50,7 @@ describe("live Ollama G3", () => {
         300_000,
         1
       );
-      const output = await service.run({ agentId: "live-g3-agent", sourceEventId: "live-g3-event", sourceRunId: "live-g3-run", sourcePredictionId: "live-g3-prediction", observation: { eventId: "live-g3-event", summary: "ユーザーは小さな展示を見に行き、予想より音の作品が印象に残ったと話した", facts: ["展示を見に行った", "音の作品が印象に残った"], observedAt: occurredAt }, prediction }, AbortSignal.timeout(300_000));
+      const output = await service.run({ agentId: "live-g3-agent", sourceEventId: "live-g3-event", sourceRunId: "live-g3-run", sourcePredictionId: "live-g3-prediction", observation: { eventId: "live-g3-event", summary: "ユーザーは小さな展示を見に行き、予想より音の作品が印象に残ったと話した", facts: ["展示を見に行った", "音の作品が印象に残った"], observedAt: occurredAt }, investigationReason: prediction.investigation.reason, predictionEvaluations: [] }, AbortSignal.timeout(300_000));
       const task = (await pool.query<{ status: string; output: unknown; failure_reason: string | null }>("SELECT status,output,failure_reason FROM g3_tasks WHERE id='live-g3-task'")).rows[0];
       if (output === undefined) throw new Error(`G3 task did not complete: ${JSON.stringify(task)}`);
       expect(output.findings).toBeInstanceOf(Array);

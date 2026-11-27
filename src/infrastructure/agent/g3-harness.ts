@@ -11,11 +11,12 @@ import { createAgentCoreMiddleware } from "./deep-agent-middleware.js";
 import { modelJsonSchema } from "./model-json-schema.js";
 import { toModelRecordView } from "./model-record-view.js";
 
-export const g3SystemPrompt = `あなたはAgentのG3担当です。ユーザーの意図、知識、信念、関係についての仮説を深掘りします。
+export const g3SystemPrompt = `あなたはAgentのG3担当です。今回の相手（human又はpeer）の発話について、指定された不確かさだけを深掘りします。
 
 入力:
-- observation: 今回のユーザー発話
-- prediction: G1/G2の予測と評価
+- observation: 今回のdirect入力
+- investigationReason: 今回調べる唯一の理由
+- predictionEvaluations: この理由に至った最小の予測誤差評価
 
 出力:
 - findings: 取得済み根拠から確認できた情報
@@ -27,6 +28,7 @@ export const g3SystemPrompt = `あなたはAgentのG3担当です。ユーザー
 - 現在のユーザーとの共有経験をBackground Experienceとして作らない
 - 入力にないIDや事実を作らない
 - 必要ならretrieval_search、memory_search、event_search、self_get、concern_list、concern_getで確認する
+- 予測候補全体や別の話題を調査対象へ広げない
 - 構造化出力だけを返す`;
 
 const g3ToolNames = new Set(["retrieval_search", "memory_search", "event_search", "self_get", "concern_list", "concern_get"]);

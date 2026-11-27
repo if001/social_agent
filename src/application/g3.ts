@@ -1,5 +1,5 @@
 import type { IdGenerator } from "./ports.js";
-import type { Observation, PredictionOutput } from "../domain/contracts.js";
+import type { Observation, PredictionEvaluation } from "../domain/contracts.js";
 import { errorLogContext } from "../observability/logger.js";
 
 export type G3Output = {
@@ -13,7 +13,10 @@ export type G3Input = {
   readonly sourceRunId: string;
   readonly sourcePredictionId: string;
   readonly observation: Observation;
-  readonly prediction: PredictionOutput;
+  /** The explicit uncertainty selected by G1/G2; it is G3's only objective. */
+  readonly investigationReason: string;
+  /** Minimal context for that uncertainty, not a second copy of prediction candidates. */
+  readonly predictionEvaluations: readonly PredictionEvaluation[];
 };
 /** Raw Tool evidence remains a Runtime-only audit pool.  The model never emits
  * its IDs and later model calls only receive the ID-free projection. */

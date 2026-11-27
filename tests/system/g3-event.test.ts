@@ -9,7 +9,7 @@ const prediction: PredictionOutput = {
   predictionEvaluations: [],
   investigation: { reason: "意図の不確かさを確認する" }
 };
-const input: G3Input = { agentId: "a", sourceEventId: "event-1", sourceRunId: "run-1", sourcePredictionId: "prediction-1", observation: { eventId: "event-1", summary: "技術の話", facts: [] } as never, prediction };
+const input: G3Input = { agentId: "a", sourceEventId: "event-1", sourceRunId: "run-1", sourcePredictionId: "prediction-1", observation: { eventId: "event-1", summary: "技術の話", facts: [] } as never, investigationReason: "意図の不確かさを確認する", predictionEvaluations: [] };
 const output: G3Output = { findings: ["関心が継続"], hypotheses: ["次は実装の話を聞く"] };
 const modelResult: G3ModelResult = { output, toolEvidence: [{ name: "retrieval_search", ok: true, result: { items: [{ id: "memory-1", summary: "技術の話" }] } }] };
 

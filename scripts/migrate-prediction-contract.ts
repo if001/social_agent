@@ -28,8 +28,10 @@ function migrateG3Task(value: unknown): MigratedG3Task {
   const task = value as Record<string, unknown>;
   if (typeof task.input !== "object" || task.input === null || Array.isArray(task.input)) throw new Error("G3 task input is not an object");
   const input = task.input as Record<string, unknown>;
+  const prediction = migratePredictionOutput(input.prediction);
+  const { prediction: _legacyPrediction, ...withoutLegacyPrediction } = input;
   return {
-    input: { ...input, prediction: migratePredictionOutput(input.prediction) },
+    input: { ...withoutLegacyPrediction, investigationReason: prediction.investigation?.reason ?? "旧G3 taskの調査理由は記録されていない", predictionEvaluations: prediction.predictionEvaluations },
     output: task.output === null ? null : migrateG3Output(task.output)
   };
 }

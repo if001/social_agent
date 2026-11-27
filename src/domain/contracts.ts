@@ -471,6 +471,7 @@ export const PredictionEvaluationSchema = z.object({
   surprise: z.enum(["none", "low", "medium", "high", "unknown"]).describe("予測と観測のずれの大きさ。離散値"),
   interpretation: NaturalLanguage.describe("予測と今回の発話のずれを、Agentがどう受け取ったか。観測事実と混ぜない")
 }).strict().describe("候補ごとの予測誤差評価。MeaningやFeelingは含めない");
+export type PredictionEvaluation = z.infer<typeof PredictionEvaluationSchema>;
 export const PredictionOutputSchema = z.object({
   predictions: z.object({
     g1: z.object({ candidates: z.array(G1PredictionCandidateSchema).max(1).describe("G1の予測候補。最大1件") }).strict(),
