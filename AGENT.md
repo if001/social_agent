@@ -113,6 +113,12 @@ pnpm debug:ui --env-file .env.ao
 pnpm page-ingest:start --env-file .env.page-ingest
 ```
 
+## テストDB
+実DBを使ったテストでは以下のDBが使えます。
+基本的にテストごとにcleanな状態で終了し、次のテストではcleanな状態から始められるようにしてください。
+
+TEST_POSTGRES_URL=postgresql://app_user:app_pw@localhost:5432/appdb_test
+TEST_ADMIN_POSTGRES_URL=postgresql://admin:admin@localhost:5432/appdb_test
 
 ## 修正時の方針
 修正の単位でbranchを作成、修正終了後にmain branchにmergeする。
