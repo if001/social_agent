@@ -198,10 +198,9 @@ export class PostgresAgentContextLoader {
       g3Summary: [...g3Output.data.findings.map((finding) => `finding: ${finding}`), ...g3Output.data.hypotheses.map((hypothesis) => `hypothesis: ${hypothesis}`)].join("\n").slice(0, 4_000),
       memoryCandidates: basePredictionContext?.memoryCandidates ?? []
     } : basePredictionContext;
-    const recentExperiencesWithEffect = predictionContext?.recentExperienceEffect === undefined ? recentExperiences : recentExperiences.map((item) => item.eventId === predictionContext.recentExperienceEffect?.eventId ? { ...item, effect: predictionContext.recentExperienceEffect.effect } : item);
     const built = AgentCoreInputSchema.parse(this.#builder.build({
       run: { runId: this.options.ids.next(), eventId: event.id, agentId: event.agentId, occurredAt: event.occurredAt, ...(runTransport === undefined ? {} : { transport: runTransport }) },
-      observation, recentExperiences: recentExperiencesWithEffect,
+      observation, recentExperiences,
       ...(priorAssessment === undefined ? {} : { previousAssessment: priorAssessment }),
       ...(priorDesire === undefined ? {} : { previousDesire: priorDesire }),
       ...(this.options.persona === undefined ? {} : { persona: this.options.persona }),

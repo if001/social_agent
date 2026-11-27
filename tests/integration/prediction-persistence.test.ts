@@ -14,11 +14,10 @@ const record = (id: string, sourceEventId = "event-1", createdAt = "2026-10-31T0
   id, agentId: "a", sourceEventId, sourceRunId: "run-1",
   output: {
     predictions: {
-      g1: { candidates: [{ candidateIndex: 0, feature: "語彙", content: "技術の話を続ける", expectation: "medium", contextSummary: "技術の話題", rationale: "直前の話題" }] },
-      g2: { candidates: [{ candidateIndex: 0, speechAct: "質問", content: "技術について質問する", expectation: "medium", contextSummary: "技術の話題", rationale: "関心が続く" }] }
+      g1: { candidates: [{ feature: "語彙", content: "技術の話を続ける", expectation: "medium", contextSummary: "技術の話題", rationale: "直前の話題" }] },
+      g2: { candidates: [{ speechAct: "質問", content: "技術について質問する", expectation: "medium", contextSummary: "技術の話題", rationale: "関心が続く" }] }
     },
     predictionEvaluations: [],
-    g3: { needsG3: false, targetLayers: [], priority: "medium" }
   },
   createdAt
 });
@@ -46,7 +45,7 @@ describeDatabase("Prediction persistence", () => {
   it("FR-48, FR-62, NFR-14: stores and loads prediction history per agent and subject", async () => {
     const repository = new PostgresPredictionRepository(createRuntimeDatabase(pool));
     await repository.save(record("prediction-1", "event-1", "2026-10-31T00:00:00.000Z"));
-    await repository.save({ ...record("prediction-2", "event-2", "2026-10-31T01:00:00.000Z"), sourceRunId: "run-2", output: { ...record("prediction-2").output, predictionEvaluations: [{ group: "g2", candidateIndex: 0, match: "primary", surprise: "none", difference: "ずれなし", interpretation: "継続", uncertainty: "低い", observed: "継続", errorDirection: "matched", effect: "unchanged" }] } });
+    await repository.save({ ...record("prediction-2", "event-2", "2026-10-31T01:00:00.000Z"), sourceRunId: "run-2", output: { ...record("prediction-2").output, predictionEvaluations: [{ group: "g2", match: "primary", surprise: "none", interpretation: "継続" }] } });
     const latest = await repository.latest("a");
     expect(latest?.id).toBe("prediction-2");
     const userAContext = await repository.context("a", "user-a");
@@ -54,28 +53,11 @@ describeDatabase("Prediction persistence", () => {
     expect(userAContext?.previousPrediction?.id).toBe("prediction-1");
     expect(userAContext?.previousAction).toEqual({ type: "respond", content: "前回の返答" });
     expect(userBContext?.previousPrediction?.id).toBe("prediction-2");
-    expect(userBContext?.recentExperienceEffect?.eventId).toBe("event-2");
     expect(userBContext?.agentId).toBe("a");
     expect(await repository.context("a")).toBeUndefined();
     expect(await repository.latest("b")).toBeUndefined();
     expect((await pool.query<{ agent_id: string | null; source_event_id: string | null }>("SELECT agent_id,source_event_id FROM prediction_records WHERE id='prediction-2'")).rows[0]).toEqual({ agent_id: "a", source_event_id: "event-2" });
-    expect((await pool.query<{ agent_id: string | null }>("SELECT agent_id FROM prediction_evaluations WHERE prediction_id='prediction-2'")).rows[0]?.agent_id).toBe("a");
     await expect(repository.save({ ...record("prediction-invalid"), agentId: "b" })).rejects.toThrow("Prediction source Run does not match");
-  });
-
-  it("normalizes obsolete stored fields from a real database record", async () => {
-    const legacy = {
-      ...record("prediction-legacy", "event-legacy", "2026-11-01T00:00:00.000Z"), sourceRunId: "run-legacy",
-      output: { ...record("prediction-legacy").output, remember: [{ content: "obsolete" }], observationCandidates: [{ summary: "obsolete" }] }
-    };
-    await pool.query("INSERT INTO prediction_records(id,agent_id,source_event_id,source_run_id,output,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [legacy.id, legacy.agentId, legacy.sourceEventId, legacy.sourceRunId, legacy.output, legacy.createdAt]);
-    const repository = new PostgresPredictionRepository(createRuntimeDatabase(pool));
-    const loaded = await repository.latest("a");
-    const context = await repository.context("a", "user-a");
-    expect(loaded?.id).toBe("prediction-legacy");
-    expect(loaded?.output).not.toHaveProperty("remember");
-    expect(loaded?.output).not.toHaveProperty("observationCandidates");
-    expect(context?.previousPrediction?.id).toBe("prediction-legacy");
   });
 
   it("NFR-7, NFR-8: validates and persists the G3 work-item ownership snapshot", async () => {

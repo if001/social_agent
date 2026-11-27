@@ -69,6 +69,7 @@ export type EventTrace = {
   readonly toolExecutions: readonly Record<string, unknown>[];
   readonly memoryMutations: readonly Record<string, unknown>[];
   readonly predictions: readonly Record<string, unknown>[];
+  /** Immutable audit data, projected from prediction_records.output. */
   readonly predictionEvaluations: readonly Record<string, unknown>[];
   readonly g3Tasks: readonly Record<string, unknown>[];
   readonly experienceIntegrations: readonly Record<string, unknown>[];
@@ -162,14 +163,11 @@ export class DebugUiRepository {
     const runs = await this.query<QueryResultRow>(`SELECT id,agent_id AS "agentId",event_id AS "eventId",input_state_version AS "inputStateVersion",input_snapshot AS "inputSnapshot",result,failure_reason AS "failureReason",started_at AS "startedAt",finished_at AS "finishedAt"
       FROM agent_runs WHERE agent_id=$1 AND event_id=$2 ORDER BY started_at DESC,id DESC LIMIT 1`, [agentId, eventId]);
     const run = runs[0]; const runId = typeof run?.id === "string" ? run.id : undefined;
-    const [stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents, concernActivities, gates, compositions] = await Promise.all([
+    const [stateChanges, toolExecutions, memoryMutations, predictions, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents, concernActivities, gates, compositions] = await Promise.all([
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,target,operation,before,after,reason,evidence_ids AS "evidenceIds",created_at AS "createdAt" FROM state_changes WHERE run_id=$1 ORDER BY created_at,id`, [runId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,tool_call_id AS "toolCallId",tool,input,result,error,error IS NULL AS ok,started_at AS "startedAt",finished_at AS "finishedAt" FROM tool_executions WHERE run_id=$1 ORDER BY started_at,id`, [runId]),
       this.query<QueryResultRow>(`SELECT id,memory_id AS "memoryId",operation,candidate_memory_id AS "candidateMemoryId",intent_index AS "intentIndex",intent,created_at AS "createdAt" FROM memory_mutations WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
       this.query<QueryResultRow>(`SELECT p.id,p.source_run_id AS "sourceRunId",p.output,p.created_at AS "createdAt" FROM prediction_records p LEFT JOIN agent_runs r ON r.id=p.source_run_id LEFT JOIN events e ON e.id=r.event_id WHERE COALESCE(e.agent_id,p.agent_id)=$1 AND COALESCE(e.id,p.source_event_id)=$2 ORDER BY p.created_at,p.id`, [agentId, eventId]),
-      this.query<QueryResultRow>(`SELECT pe.id,pe.prediction_id AS "predictionId",pe."group" AS "group",pe.candidate_index AS "candidateIndex",pe.match,pe.surprise,pe.difference,pe.interpretation,pe.uncertainty,pe.attribution,pe.observed,pe.error_direction AS "errorDirection",pe.effect,pe.effect_evidence AS "effectEvidence",pe.created_at AS "createdAt"
-        FROM prediction_evaluations pe JOIN prediction_records pr ON pr.id=pe.prediction_id LEFT JOIN agent_runs r ON r.id=pr.source_run_id LEFT JOIN events e ON e.id=r.event_id
-        WHERE COALESCE(e.agent_id,pr.agent_id,pe.agent_id)=$1 AND COALESCE(e.id,pr.source_event_id)=$2 ORDER BY pe.created_at,pe.id`, [agentId, eventId]),
       this.query<QueryResultRow>(`SELECT id,source_prediction_id AS "sourcePredictionId",status,input,output,failure_reason AS "failureReason",created_at AS "createdAt",completed_at AS "completedAt" FROM g3_tasks WHERE agent_id=$1 AND source_event_id=$2 ORDER BY created_at,id`, [agentId, eventId]),
       this.query<QueryResultRow>(`SELECT i.id,i.status,i.output,i.applied,i.failure_reason AS "failureReason",i.created_at AS "createdAt",i.completed_at AS "completedAt" FROM experience_integrations i JOIN agent_runs r ON r.id=i.source_run_id WHERE r.agent_id=$1 AND r.event_id=$2 ORDER BY i.created_at,i.id`, [agentId, eventId]),
       runId === undefined ? Promise.resolve([]) : this.query<QueryResultRow>(`SELECT id,execute_at AS "executeAt",instruction,reason,destination,status,attempt,execution_event_id AS "executionEventId",failure_reason AS "failureReason",updated_at AS "updatedAt" FROM scheduled_tasks WHERE agent_id=$1 AND source_run_id=$2 ORDER BY execute_at,id`, [agentId, runId]),
@@ -190,6 +188,7 @@ export class DebugUiRepository {
     ]);
     const observationGate = gates[0] as Record<string, unknown> | undefined;
     const conversationGoalComposition = compositions[0] as Record<string, unknown> | undefined;
+    const predictionEvaluations = predictions.flatMap((prediction) => { const output = prediction.output; return typeof output === "object" && output !== null && Array.isArray((output as Record<string, unknown>).predictionEvaluations) ? (output as Record<string, unknown>).predictionEvaluations as Record<string, unknown>[] : []; });
     return { event: observationGate === undefined && conversationGoalComposition === undefined ? event : { ...event, ...(observationGate === undefined ? {} : { observationGate }), ...(conversationGoalComposition === undefined ? {} : { conversationGoalComposition }) }, run, stateChanges, toolExecutions, memoryMutations, predictions, predictionEvaluations, g3Tasks, experienceIntegrations, scheduledTasks, outbox, derivedEvents, concernActivities, observationGate, conversationGoalComposition };
   }
 

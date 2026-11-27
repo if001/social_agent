@@ -228,7 +228,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 ## R9. 予測・予測誤差・背景経験
 
 - FR-48：G1/G2はdirectな`message-received`への応答後に、同じ相手からの次ターンの発話を予測し、同じ解決済みsubjectからの次のdirect入力で誤差を1ターン遅れで評価する。G1/G2入力は今回のdirect入力、同subjectの前回Prediction、そのPredictionを作ったsource Runの前回Action、限定された関連Memoryに限る。peer/observedと自律Eventは予測対象にしない。（C-30, C-32, C-33, C-48）
-- FR-49：G1/G2は1回のLLM callで、予測候補、predictionEvaluation、G3起動判断を返す。観測候補とrememberは返さず、長期経験の統合を担わない。（C-34, C-35, C-36, C-37, C-38、更新）
+- FR-49：G1/G2は1回のLLM callで、各G1/G2につき最大1件の予測候補、各層につき最大1件の`match` / `surprise` / `interpretation`評価、任意の`investigation.reason`だけを返す。`investigation`がある時だけG3を起動する。観測候補とrememberは返さず、長期経験の統合を担わない。（C-34, C-35, C-36, C-37, C-38、更新）
 - FR-50：G1/G2はFeelingを出力せず、FeelingはMainAgentだけが確定する。（C-65）
 - FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、取得根拠に基づくfindingと未確定hypothesisを通常Agent Loopへ渡す。G3自身はMemoryIntent、根拠Record ID又は永続Recordを直接指定しない。（C-39, C-40, C-42、更新）
 - FR-52：G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` EventはAgent自身に共有する動機がある場合だけ発話する。`no-external-action`を成功として扱う。`prediction-g3`はActionを生成しない。（C-41、更新）
@@ -246,7 +246,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-74：Conversation MemoryとBackground Experienceの既存Hybrid Retrievalは共通RetrievalServiceで継続する。Reconciliation用の関連Event検索は、Event IDによる直接参照とは別に、agent所有権、時刻、Event種別、subject、keyword、vectorを持つEvent projectionを検索対象とし、同じhybrid rankingの契約へ追加する。元Eventは監査の正本として保持し、projectionは検索専用の派生データとする。（C-10, C-20, C-27、追加）
 - FR-75：Tool Resultは監査記録として保持するが、通常のEvent projection・embedding・Reflection検索の対象にしない。Experience Integrationはcommit済みのEvent、Action、Tool結果、State変更からEvent固有のsummaryとfactsを形成し、Memory FormationとEvent検索はこのEvent Experienceだけを根拠にする。固定trigger reason、Feeling、未確認の推測だけからExperienceやMemoryを形成しない。Experience形成の失敗は親Eventのcommitを巻き戻さず、そのEventをMemory Formation対象から除外する。（C-10, C-16, C-22、追加）
 - FR-61：memory-update EventはsourceEventIdとintentIndexで冪等にし、部分的なintentだけをcommitしない。（C-50, C-52）
-- FR-62：predictionContextはAgentとsubjectに所有され、同subjectの前回Prediction、前回Action、誤差評価、G3要約、RecentExperienceのeffect、memoryCandidatesを持つ。subjectを解決できないEventはPrediction Contextを持たない。（C-51, C-62, C-66）
+- FR-62：predictionContextはAgentとsubjectに所有され、同subjectの前回Prediction、前回Action、誤差評価、G3要約、限定memoryCandidatesを持つ。G1/G2 model inputは今回のdirect入力、前回Prediction、前回Action、限定Memoryだけに縮小する。subjectを解決できないEventはPrediction Contextを持たない。（C-51, C-62, C-66）
 - FR-63：G1/G2の追加LLM callはNFRの例外とし、deadlineとcall予算を持つ。（C-70）
 - FR-64：予測Loopは旧continuity / memory分割後処理ではなく、Memory書込みはMemoryWriteServiceに集約する。（C-70）
 - FR-65：通常Ollamaの構造化出力はJSON Schemaのfield descriptionを`format`または`withStructuredOutput`で渡し、DeepAgentは`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。構造化出力のpayloadはJSONだけを返す契約とし、通常OllamaのpromptはJSON object又はJSON arrayだけを返すことを明示する。JSON code fenceで包まれたpayloadは共通parserが外してから読む。DeepAgentは構造化出力ToolのJSON argumentsだけを最終出力として扱う。descriptionはRuntime検証を置き換えない。（C-71、更新）

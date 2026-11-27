@@ -23,7 +23,7 @@ describe("FR-65, NFR-20, AC-19: structured output descriptions", () => {
     const prediction = modelJsonSchema(PredictionOutputSchema);
     const serialized = JSON.stringify(prediction);
     expect(serialized).toContain("次ターンのユーザー発話");
-    expect(serialized).toContain("candidateIndex");
+    expect(serialized).toContain("最大1件");
     expect(serialized).toContain("expectation");
     expect(prediction).not.toHaveProperty("$schema");
     const g3 = modelJsonSchema(G3OutputSchema);

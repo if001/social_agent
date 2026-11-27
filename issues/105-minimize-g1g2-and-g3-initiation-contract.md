@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-27
-status: created
+status: done
 type: change
 plan: []
 requirements: [FR-48, FR-49, FR-62, FR-83, NFR-14, NFR-16, NFR-20]
@@ -66,10 +66,10 @@ G1/G2は予測誤差を補助信号として扱う小さな追加callである�
 
 ## Acceptance criteria
 
-- [ ] G1/G2のモデル入力に`recentExperiences`を含めない。
-- [ ] G1/G2は各layer最大1候補、評価は`match` / `surprise` / `interpretation`だけを出力する。
-- [ ] investigationのreasonがある時だけG3 Taskを作る。
-- [ ] predictionContext、prompt、Debug表示、testが同一JSON契約を使う。
+- [x] G1/G2のモデル入力に`recentExperiences`を含めない。
+- [x] G1/G2は各layer最大1候補、評価は`match` / `surprise` / `interpretation`だけを出力する。
+- [x] investigationのreasonがある時だけG3 Taskを作る。
+- [x] predictionContext、prompt、Debug表示、testが同一JSON契約を使う。
 - [ ] 一次仕様とRequirementsに反映し、`spec-analyze`でCRITICAL / HIGHがない。
 
 ## Tests

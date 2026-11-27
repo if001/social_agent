@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-27
-status: created
+status: done
 type: change
 plan: []
 requirements: [FR-48, FR-49, FR-51, FR-62, NFR-8, NFR-11]
@@ -42,10 +42,10 @@ G3も旧出力を再実行対象に残し得る。現行契約へのdata migrati
 
 ## Acceptance criteria
 
-- [ ] dry-runで旧Prediction / G3 taskを件数・不正理由付きで報告する。
-- [ ] `--apply`は現行形式へ正規化し、不正又は未完了Recordがあればreader切替を中止する。
-- [ ] `normalizeLegacyPredictionOutput`、旧task fallback、旧形式testが削除される。
-- [ ] migration後、現行形式以外をreaderが受理しない。
+- [x] dry-runで旧Prediction / G3 taskを件数・不正理由付きで報告する。
+- [x] `--apply`は現行形式へ正規化し、不正又は未完了Recordがあればreader切替を中止する。
+- [x] `normalizeLegacyPredictionOutput`、旧task fallback、旧形式testが削除される。
+- [x] migration後、現行形式以外をreaderが受理しない。
 
 ## Tests
 

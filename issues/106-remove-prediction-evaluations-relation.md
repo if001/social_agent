@@ -1,6 +1,6 @@
 ---
 created_at: 2026-11-27
-status: created
+status: done
 type: change
 plan: []
 requirements: [FR-48, FR-49, FR-62, NFR-7, NFR-8, NFR-11]
@@ -41,10 +41,10 @@ requires: agent
 
 ## Acceptance criteria
 
-- [ ] evaluationは`prediction_records.output`だけに一度保存される。
-- [ ] Debug UIはrelationなしに評価を表示する。
-- [ ] Drizzle生成migrationでrelationを削除できる。
-- [ ] data migrationはdry-run既定で、完了確認後にのみdropを許可する。
+- [x] evaluationは`prediction_records.output`だけに一度保存される。
+- [x] Debug UIはrelationなしに評価を表示する。
+- [x] Drizzle生成migrationでrelationを削除できる。
+- [x] data migrationはdry-run既定で、完了確認後にのみdropを許可する。
 
 ## Tests
 

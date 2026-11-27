@@ -119,7 +119,7 @@ describe("embedding and context", () => {
 
   it("FR-62, NFR-14, AC-18: includes prediction context under the same owner and budget", () => {
     const input = agentCoreInputFixture();
-    const predictionOutput = { predictions: { g1: { candidates: [{ candidateIndex: 0, feature: "語彙", content: "次は技術の話", expectation: "medium" as const, contextSummary: "技術", rationale: "直前" }] }, g2: { candidates: [] } }, predictionEvaluations: [], remember: [], observationCandidates: [], g3: { needsG3: false, targetLayers: [], priority: "medium" as const } };
+    const predictionOutput = { predictions: { g1: { candidates: [{ feature: "語彙", content: "次は技術の話", expectation: "medium" as const, contextSummary: "技術", rationale: "直前" }] }, g2: { candidates: [] } }, predictionEvaluations: [] };
     input.predictionContext = { agentId: input.run.agentId, previousPrediction: { id: "prediction-1", createdAt: input.run.occurredAt, output: predictionOutput }, memoryCandidates: [] };
     const result = new ContextBuilder().build(input, { maxTokens: 4_500, maxMemories: 5, maxSocialContexts: 1 });
     expect(result.predictionContext?.previousPrediction?.id).toBe("prediction-1");

@@ -38,7 +38,7 @@ describe("live Ollama G3", () => {
       const occurredAt = new Date().toISOString();
       await pool.query("INSERT INTO events(id,agent_id,kind,observation,source,status,occurred_at) VALUES ('live-g3-event','live-g3-agent','user-message','{}','live-test','completed',$1)", [occurredAt]);
       await pool.query("INSERT INTO agent_runs(id,agent_id,event_id,input_state_version,started_at,finished_at) VALUES ('live-g3-run','live-g3-agent','live-g3-event',0,$1,$1)", [occurredAt]);
-      const prediction = { predictions: { g1: { candidates: [] }, g2: { candidates: [] } }, predictionEvaluations: [], g3: { needsG3: true as const, targetLayers: ["L4" as const], priority: "medium" as const } };
+      const prediction = { predictions: { g1: { candidates: [] }, g2: { candidates: [] } }, predictionEvaluations: [], investigation: { reason: "予測と観測のずれを確かめる" } };
       await new PostgresPredictionRepository(createRuntimeDatabase(pool)).save({ id: "live-g3-prediction", agentId: "live-g3-agent", sourceEventId: "live-g3-event", sourceRunId: "live-g3-run", output: prediction, createdAt: occurredAt });
       const service = new G3Service(
         new PostgresG3TaskRepository(createRuntimeDatabase(pool), "live-g3-agent"),

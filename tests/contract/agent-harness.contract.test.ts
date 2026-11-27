@@ -73,9 +73,8 @@ describe("AgentHarness contract", () => {
         id: "prediction-1",
         createdAt: fixtureInstant,
         output: {
-          predictions: { g1: { candidates: [{ candidateIndex: 0, feature: "語彙", content: "prediction marker", expectation: "medium", contextSummary: "文脈", rationale: "根拠" }] }, g2: { candidates: [] } },
+          predictions: { g1: { candidates: [{ feature: "語彙", content: "prediction marker", expectation: "medium", contextSummary: "文脈", rationale: "根拠" }] }, g2: { candidates: [] } },
           predictionEvaluations: [],
-          g3: { needsG3: false, targetLayers: [], priority: "medium" }
         }
       },
       memoryCandidates: []

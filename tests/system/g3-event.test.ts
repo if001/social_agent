@@ -7,7 +7,7 @@ import type { PredictionOutput } from "../../src/domain/contracts.js";
 const prediction: PredictionOutput = {
   predictions: { g1: { candidates: [] }, g2: { candidates: [] } },
   predictionEvaluations: [],
-  g3: { needsG3: true, targetLayers: ["L4"], priority: "high" }
+  investigation: { reason: "意図の不確かさを確認する" }
 };
 const input: G3Input = { agentId: "a", sourceEventId: "event-1", sourceRunId: "run-1", sourcePredictionId: "prediction-1", observation: { eventId: "event-1", summary: "技術の話", facts: [] } as never, prediction };
 const output: G3Output = { findings: ["関心が継続"], hypotheses: ["次は実装の話を聞く"] };

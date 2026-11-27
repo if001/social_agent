@@ -458,7 +458,6 @@ export type MemoryIntent = z.infer<typeof MemoryIntentSchema>;
 
 export const PredictionExpectationSchema = z.enum(["very_high", "high", "medium", "low", "very_low"]).describe("次ターンにこの候補が現れる期待度。確率値や校正済みスコアではなく離散値");
 const PredictionCandidateBase = {
-  candidateIndex: z.number().int().min(0).max(2).describe("このグループ内の候補位置。0始まりの構造的なIndexで、意味タグではない"),
   content: NaturalLanguage.describe("次ターンのユーザー発話として予測する自然言語の内容"),
   expectation: PredictionExpectationSchema,
   contextSummary: NaturalLanguage.describe("予測の前提にした話題、状況、関係の短い自然言語要約。タグにしない"),
@@ -468,30 +467,17 @@ export const G1PredictionCandidateSchema = z.object({ ...PredictionCandidateBase
 export const G2PredictionCandidateSchema = z.object({ ...PredictionCandidateBase, speechAct: NaturalLanguage.describe("質問、同意、拒否、保留、話題転換などの会話行為") }).strict().describe("G2の意味・命題・会話行為の次発話予測候補");
 export const PredictionEvaluationSchema = z.object({
   group: z.enum(["g1", "g2"]).describe("評価対象の予測グループ"),
-  candidateIndex: z.number().int().min(0).max(2).describe("評価対象の候補位置"),
   match: z.enum(["primary", "alternative", "unexpected", "undecidable"]).describe("観測が予測候補に一致したか。候補外はunexpected、判断不能はundecidable"),
   surprise: z.enum(["none", "low", "medium", "high", "unknown"]).describe("予測と観測のずれの大きさ。離散値"),
-  difference: NaturalLanguage.describe("予測と実際の観測の差異を自然言語で説明する"),
-  interpretation: NaturalLanguage.describe("Agentが実際の発話をどう受け取ったか。観測事実と混ぜない"),
-  uncertainty: NaturalLanguage.describe("解釈の不確実性。判断できない理由も書く"),
-  attribution: NaturalLanguage.optional().describe("不一致の原因についての仮説。判断できない場合は省略する"),
-  observed: NaturalLanguage.describe("実際に観測したユーザー発話の要点"),
-  errorDirection: z.enum(["over", "under", "matched", "undecidable"]).describe("予測が観測より過大、過小、一致、判断不能のどれか"),
-  effect: z.enum(["reduced", "unchanged", "increased", "unknown"]).describe("前ターンのActionがこの候補へ与えた影響。RuntimeがRecentExperienceへ投影する"),
-  effectEvidence: NaturalLanguage.optional().describe("effectの根拠。効果を判断できない場合は省略する")
+  interpretation: NaturalLanguage.describe("予測と今回の発話のずれを、Agentがどう受け取ったか。観測事実と混ぜない")
 }).strict().describe("候補ごとの予測誤差評価。MeaningやFeelingは含めない");
 export const PredictionOutputSchema = z.object({
   predictions: z.object({
-    g1: z.object({ candidates: z.array(G1PredictionCandidateSchema).max(3).describe("G1の予測候補。0〜3件") }).strict(),
-    g2: z.object({ candidates: z.array(G2PredictionCandidateSchema).max(3).describe("G2の予測候補。0〜3件") }).strict()
+    g1: z.object({ candidates: z.array(G1PredictionCandidateSchema).max(1).describe("G1の予測候補。最大1件") }).strict(),
+    g2: z.object({ candidates: z.array(G2PredictionCandidateSchema).max(1).describe("G2の予測候補。最大1件") }).strict()
   }).strict().describe("G1/G2の予測。必ずg1とg2を持つobjectで、配列を直接置かない"),
-  predictionEvaluations: z.array(PredictionEvaluationSchema).max(6).describe("前回予測の候補ごとの評価。前回予測がなければ空配列"),
-  g3: z.object({
-    needsG3: z.boolean().describe("G3で仮説を深掘りする必要があるか"),
-    targetLayers: z.array(z.enum(["L4", "L5", "L6"])).max(3).default([]).describe("G3で深掘りする層。L4は意図、L5は知識・信念、L6は関係・個人傾向"),
-    reason: NaturalLanguage.optional().describe("G3が必要な理由。不要なら省略する"),
-    priority: z.enum(["high", "medium", "low"]).default("medium").describe("G3の優先度")
-  }).strict().describe("G3起動判断")
+  predictionEvaluations: z.array(PredictionEvaluationSchema).max(2).describe("前回予測の層ごとの最小評価。前回予測がなければ空配列"),
+  investigation: z.object({ reason: NaturalLanguage.describe("G3で追加調査する具体的な不確かさ又は矛盾") }).strict().optional().describe("必要な場合だけG3を起動する調査理由")
 }).strict().describe("G1/G2の1回の構造化出力。predictions.g1.candidatesとpredictions.g2.candidatesを必ず持つ");
 export type PredictionOutput = z.infer<typeof PredictionOutputSchema>;
 
@@ -500,7 +486,6 @@ export const PredictionContextSchema = z.object({
   previousPrediction: z.object({ id: Id, createdAt: Instant, output: PredictionOutputSchema }).optional(),
   previousAction: FinalActionSchema.optional().describe("前回Predictionを作ったsource Runで確定したAction。今回の発話が前回応答にどう反応したかを読む補助信号であり、現在のActionを拘束しない"),
   g3Summary: NaturalLanguage.optional().describe("G3のfindingとhypothesisを区別して並べた短い要約。findingは取得済み根拠に基づく情報、hypothesisは未確定の解釈であり、どちらも発話・Feeling・保存を強制しない"),
-  recentExperienceEffect: z.object({ eventId: Id, effect: z.enum(["reduced", "unchanged", "increased", "unknown"]), evidence: NaturalLanguage.optional() }).optional(),
   memoryCandidates: z.array(RetrievedItemSchema).max(5).default([])
 }).strict();
 export type PredictionContext = z.infer<typeof PredictionContextSchema>;

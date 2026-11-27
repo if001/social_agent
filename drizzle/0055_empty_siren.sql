@@ -1,0 +1,1 @@
+DROP TABLE "app"."prediction_evaluations" CASCADE;

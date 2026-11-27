@@ -72,7 +72,9 @@ RunのAction、限定された関連Memoryである。今回のMainAgent Action�
 
 ## G1/G2
 
-出力は`predictions`、候補ごとの`predictionEvaluations`、`g3`起動判断だけを持つ。
+出力は各G1/G2で最大1件の`predictions`、層ごとの`predictionEvaluations`、任意の
+`investigation.reason`だけを持つ。評価は`match`、`surprise`、`interpretation`へ縮小し、
+`investigation`がある時だけG3を起動する。
 G1/G2はFeeling、Meaning、Memory候補、観測候補、subject ID、根拠Record IDを出力しない。
 評価はMainAgentへの補助信号であり、Feeling、発話、保存を義務付けない。
 

@@ -47,7 +47,7 @@ export class ContextBuilder {
               g1: { candidates: source.predictionContext.previousPrediction.output.predictions.g1.candidates.map((item) => ({ ...item, content: text(item.content, 800), contextSummary: text(item.contextSummary, 500), rationale: text(item.rationale, 500) })) },
               g2: { candidates: source.predictionContext.previousPrediction.output.predictions.g2.candidates.map((item) => ({ ...item, content: text(item.content, 800), contextSummary: text(item.contextSummary, 500), rationale: text(item.rationale, 500) })) }
             },
-            predictionEvaluations: source.predictionContext.previousPrediction.output.predictionEvaluations.slice(0, 6)
+            predictionEvaluations: source.predictionContext.previousPrediction.output.predictionEvaluations.slice(0, 2)
           }
         }
       })

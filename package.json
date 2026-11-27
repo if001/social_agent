@@ -42,7 +42,7 @@
     "concern:signals:migrate": "node --env-file=.env --import tsx scripts/migrate-concern-reevaluation-signals.ts",
     "state:compact": "node --env-file=.env --import tsx scripts/compact-current-state.ts",
     "experience:requeue:missing-event-experience": "node --env-file=.env --import tsx scripts/requeue-integrations-missing-event-experience.ts",
-    "prediction:normalize": "node --env-file=.env --import tsx scripts/normalize-legacy-predictions.ts",
+    "prediction:migrate": "node --env-file=.env --import tsx scripts/migrate-prediction-contract.ts",
     "start:all": "bash scripts/start-all.sh",
     "bot:start": "tsx src/bot.ts",
     "page-ingest:start": "tsx src/page-ingest.ts",
