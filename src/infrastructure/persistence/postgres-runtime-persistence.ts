@@ -85,7 +85,11 @@ export class PostgresRuntimePersistence implements RuntimePersistence {
     const correlationId = event.correlationId ?? event.id;
     const conversationId = conversationKey(event.agentId, correlationId);
     const isSocial = event.kind === "message-received";
-    const response = outgoing.some(({ payload }) => payload.type === "agent-response" && typeof payload.text === "string" && payload.text.trim() !== "");
+    const response = outgoing.some(({ payload }) => {
+      if (payload.type !== "agent-response" || typeof payload.text !== "string" || payload.text.trim() === "" || typeof payload.replyContext !== "object" || payload.replyContext === null) return false;
+      const messageId = (payload.replyContext as Record<string, unknown>).messageId;
+      return typeof messageId === "string" && messageId.trim() !== "";
+    });
     const peerInitiatedCandidate = event.kind !== "message-received" && input.conversation?.status === "candidate";
     const peerDelivery = outgoing.some(({ payload }) => typeof payload.peer === "object" && payload.peer !== null);
     const close = result.output.action.type === "no-external-action";

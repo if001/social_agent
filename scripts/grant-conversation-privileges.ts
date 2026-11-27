@@ -6,7 +6,7 @@ const quoteIdentifier = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export async function grantConversationPrivileges(admin: Pool, runtime: Pool): Promise<string> {
   const role = (await runtime.query<{ role: string }>("SELECT current_user AS role")).rows[0]?.role;
   if (role === undefined || role === "") throw new Error("Could not determine runtime database role");
-  await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.conversations, app.conversation_messages TO ${quoteIdentifier(role)}`);
+  await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE app.conversations, app.conversation_messages, app.conversation_goal_compositions TO ${quoteIdentifier(role)}`);
   return role;
 }
 
