@@ -18,15 +18,15 @@ describe("FR-48, FR-49, FR-50: prediction contracts", () => {
     expect(PredictionOutputSchema.safeParse({ ...output, predictionEvaluations: [{ ...output.predictionEvaluations[0], surprise: 0.5 }] }).success).toBe(false);
   });
 
-  it("FR-50, FR-62: parses a prediction context with previous prediction, G3 intents and effect", () => {
+  it("FR-50, FR-62: parses a prediction context with previous prediction, prior Action, and effect", () => {
     const context = PredictionContextSchema.parse({
       agentId: "a",
       previousPrediction: { id: "prediction-1", createdAt: "2026-10-31T00:00:00+00:00", output },
-      g3MemoryIntents: [],
+      previousAction: { type: "respond", content: "前回の返答" },
       recentExperienceEffect: { eventId: "event-1", effect: "unchanged" },
       memoryCandidates: []
     });
     expect(context.previousPrediction?.id).toBe("prediction-1");
-    expect(context.g3MemoryIntents).toEqual([]);
+    expect(context.previousAction).toEqual({ type: "respond", content: "前回の返答" });
   });
 });

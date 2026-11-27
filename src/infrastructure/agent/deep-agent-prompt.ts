@@ -5,6 +5,7 @@ export const EVENT_SKILL_ROUTES: readonly EventSkillRoute[] = [
   { label: "internal + targetKind idle", kind: "internal", targetKind: "idle", skills: ["idle", "concern-lifecycle"] },
   { label: "internal + targetKind concern-formation", kind: "internal", targetKind: "concern-formation", skills: ["concern-formation", "concern-lifecycle"] },
   { label: "internal + targetKind concern-due", kind: "internal", targetKind: "concern-due", skills: ["concern-due", "concern-lifecycle"] },
+  { label: "internal + targetKind prediction-g3-result", kind: "internal", targetKind: "prediction-g3-result", skills: ["prediction-g3-result"] },
   { label: "system + targetKind scheduled-task", kind: "system", targetKind: "scheduled-task", skills: ["scheduled-task"] }
 ];
 
@@ -25,6 +26,7 @@ previousAssessment、previousDesire、今回のEventから、必要なToolを使
 - runtimeConstraintsとlimitsに従い、提示されていないToolや機能を仮定しません。
 - previousAssessmentは経過時間、重要性、未解決性、現在Eventとの関連から、残っている影響だけを使います。
 - previousDesireは前回の意図であり、義務ではありません。現在のEvent、特にユーザー入力を優先し、経過時間、前回Actionの結果、関連性から、古い、満たされた、無関係なDesireは使いません。
+- predictionContextは同じ相手との予測・予測誤差、前回Action、又はG3の要約だけを含む補助信号です。予測とのずれはFeeling、発話、保存を義務付けず、今回のObservation・Self・Memory・Tool結果と照らして、現在のDesireに意味がある時だけ使います。G3のfindingは取得済み根拠に基づく情報、hypothesisは未確定の解釈として区別し、仮説を事実や共有経験として扱いません。
 - feelingはActionの正当化ではなく、Event終了時の評価です。指定された感情名を1〜3個と、それぞれの強度で表します。予測誤差、Toolの失敗、期待と異なる検索結果、見つけた事実は、Self・Commitment・Concern・Relationshipに照らして喜び、悲しみ、苛立ち、怒り、驚き、不安、警戒、安堵、誇り、好奇心になり得ます。相手に共有しやすい前向きな感情へ丸めません。残らなければ省略できます。RuntimeがFeelingを減衰・累積してMoodへ反映するため、Moodを提案・更新・保存したと主張しません。
 - 明示された将来時刻はschedule_taskが実際に利用可能な場合だけ予約し、予約済みと主張しません。
 

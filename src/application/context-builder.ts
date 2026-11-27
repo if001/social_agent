@@ -37,7 +37,6 @@ export class ContextBuilder {
     const boundedPersona = persona(source.persona);
     const predictionContext: PredictionContext | undefined = source.predictionContext === undefined ? undefined : {
       ...source.predictionContext,
-      g3MemoryIntents: source.predictionContext.g3MemoryIntents.slice(0, 5),
       memoryCandidates: source.predictionContext.memoryCandidates.slice(0, 5).map((item) => ({ ...item, content: text(item.content, 800) })),
       ...(source.predictionContext.previousPrediction === undefined ? {} : {
         previousPrediction: {

@@ -498,29 +498,17 @@ export type PredictionOutput = z.infer<typeof PredictionOutputSchema>;
 export const PredictionContextSchema = z.object({
   agentId: Id,
   previousPrediction: z.object({ id: Id, createdAt: Instant, output: PredictionOutputSchema }).optional(),
-  g3Summary: NaturalLanguage.optional(),
-  g3MemoryIntents: z.array(MemoryIntentSchema).max(5).default([]),
+  previousAction: FinalActionSchema.optional().describe("前回Predictionを作ったsource Runで確定したAction。今回の発話が前回応答にどう反応したかを読む補助信号であり、現在のActionを拘束しない"),
+  g3Summary: NaturalLanguage.optional().describe("G3のfindingとhypothesisを区別して並べた短い要約。findingは取得済み根拠に基づく情報、hypothesisは未確定の解釈であり、どちらも発話・Feeling・保存を強制しない"),
   recentExperienceEffect: z.object({ eventId: Id, effect: z.enum(["reduced", "unchanged", "increased", "unknown"]), evidence: NaturalLanguage.optional() }).optional(),
   memoryCandidates: z.array(RetrievedItemSchema).max(5).default([])
 }).strict();
 export type PredictionContext = z.infer<typeof PredictionContextSchema>;
 
-export const G3HypothesisEvaluationSchema = z.object({
-  statement: NaturalLanguage.describe("評価する前回仮説の内容"),
-  status: z.enum(["supported", "contradicted", "undecidable"]).describe("仮説が支持されたか、反証されたか、判断不能か"),
-  rationale: NaturalLanguage.describe("支持・反証・判断不能の理由")
-}).strict().describe("前回仮説の評価");
 export const G3OutputSchema = z.object({
-  hypothesisEvaluations: z.array(G3HypothesisEvaluationSchema).max(6).describe("前回仮説の評価。仮説がなければ空配列"),
-  newHypotheses: z.array(NaturalLanguage).max(5).describe("新しく立てた仮説"),
-  findings: z.array(NaturalLanguage).max(5).describe("ToolやMemoryから得た調査結果"),
-  memories: z.array(z.object({
-    content: NaturalLanguage.describe("今後も再利用できる経験として残す短い内容。入力又はTool結果に根拠がある事実・経験だけを書く"),
-    reason: NaturalLanguage.describe("この候補を残す理由。今回のObservation、予測評価、又はTool結果との関係を短く書く"),
-    target: MemoryIntentTargetSchema,
-    perspective: MemoryPerspectiveSchema
-  }).strict()).max(3).describe("G3が意味づけたMemory候補。根拠Event、subject、更新対象はRuntimeが検索結果から解決する")
-}).strict().describe("G3の構造化出力");
+  findings: z.array(NaturalLanguage).max(5).describe("取得済みTool又はMemory根拠に基づく確認済みの情報。根拠が足りなければ空配列にする"),
+  hypotheses: z.array(NaturalLanguage).max(5).describe("findingから導く未確定の解釈又は次に確かめたい仮説。事実として書かない")
+}).strict().describe("G3の構造化出力。Memory候補、永続ID、更新操作は含めない");
 export type G3EvaluationOutput = z.infer<typeof G3OutputSchema>;
 
 export const MemoryUpdatePayloadSchema = z.looseObject({

@@ -82,7 +82,7 @@ export function createBotComposition(options: BotCompositionOptions) {
   const fallbackG3Result: G3ResultSink = new MemoryG3ResultSink();
   const g3ResultSink: G3ResultSink = { async handle(result, g3Input) {
     if (runtimeRef.current === undefined) { await fallbackG3Result.handle(result, g3Input); return; }
-    await runtimeRef.current.process({ id: `${g3Input.sourcePredictionId}:g3-result`, agentId: g3Input.agentId, kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "prediction-g3-result", output: result.output, toolEvidence: result.toolEvidence, sourcePredictionId: g3Input.sourcePredictionId } }, AbortSignal.timeout(config.runDeadlineMs));
+    await runtimeRef.current.process({ id: `${g3Input.sourcePredictionId}:g3-result`, agentId: g3Input.agentId, kind: "internal", occurredAt: clock.now().toISOString(), payload: { targetKind: "prediction-g3-result", output: result.output, toolEvidence: result.toolEvidence, sourcePredictionId: g3Input.sourcePredictionId, ...(g3Input.subjectId === undefined ? {} : { subjectId: g3Input.subjectId }) } }, AbortSignal.timeout(config.runDeadlineMs));
   } };
   const webArchive = new PostgresWebArchive(database, embeddingProvider, createOllamaWebPageSummarizer(config.chat, logger), ids, () => clock.now(), config.embedding.model, config.webArchiveRoot);
   const configuredTools = [

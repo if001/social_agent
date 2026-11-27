@@ -205,7 +205,8 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-93：Concernの現在状態はAgentごとの`concerns` relationを正本とし、`concern_activities`の履歴とは分離する。明示的なremoveは履歴を失う物理削除ではなく`deleted_at`による論理削除とし、通常の判断入力、Tool、Reflectionは論理削除済みConcernを取得しない。Activityの所有AgentはConcernから導出し、重複したAgent IDや旧State JSONを正本として保持しない。（FR-6, FR-8, FR-25, NFR-7, NFR-8）
 - FR-89：Memoryの所有者は`agent_id`、対象はRuntime解決済みの`memory_subjects.subject_id`、因果根拠はEvent / Run / Memory evidenceで表す。Agent IDと任意情報源を兼ねる`sourceAgentId`は持たず、伝聞の説明が必要な場合は自然言語のMemory本文又は監査Eventに残す。既存値はmigrationで除去する。（C-09, C-10, C-24）
 - FR-83：G1/G2は予測候補、予測誤差の解釈、G3起動判断だけを出力し、Memory候補、観測候補、subject又は根拠Recordを出力しない。長期経験の保存はExperience Integration又はG3後の通常Agent Loopが担う。（追加）
-- FR-84：G3は仮説、発見、Memory候補を自然言語で返す。Runtimeはsource EventとG3実行中の非公開Tool evidence poolに限定して候補`content + reason`をHybrid Retrievalし、根拠Event・subject・更新可否を解決する。仮説評価の根拠もRuntimeが対応付け、根拠なしのMemory候補はno-op、根拠なしの仮説はundecidableとする。（追加）
+- FR-84：G3は取得根拠に基づくfindingと未確定hypothesisを自然言語で返す。RuntimeはG3実行中のTool evidenceを監査専用poolに保持し、G3結果は通常Agent Loopとその後のExperience Integrationだけが扱う。G3のfinding又はhypothesisだけでMemory、Relationship、Concernを直接確定しない。（追加）
+- FR-96：Main Agentは`predictionContext`を補助信号として扱う。同subjectの前回Prediction、前回Action、予測誤差、G3要約は、現在のObservation・Self・Memory・Tool結果と照らして意味がある時だけFeeling、Desire、Action又は保存判断に用いる。G3の`finding`は取得済み根拠に基づく情報、`hypothesis`は未確定の解釈として区別し、いずれもFeeling、発話、保存を強制しない。（C-48, C-51, C-62）
 - FR-85：Agent Coreは構造化Feeling、Desire、Actionだけを確定し、Memory、Relationship、Mood又は永続Record更新を直接出力しない。repairは初回と同一のID-free view、ID-free Tool evidence、検証エラー、ID-free invalid outputだけを用い、通常Toolを無効にする。ConcernはRuntime検証されるTool経由だけで提案できる。（更新）
 - FR-78：Memory Formationは固定batch内のEvent Experienceを入力として、LLMが`content`、`reason`、`kind`、`perspective`だけを持つ最大4件のMemory候補を出力する。Runtimeは候補の自然言語をqueryに固定batch内だけをHybrid Retrievalし、所有権、subject、種別規則、versioned score閾値を満たすEventを根拠として付与する。Memoryのsubjectsは解決済み根拠EventからRuntimeが導出する。根拠なし・候補不支持は正常なno-opとしてbatchを完了し、検索基盤障害・transaction競合だけをbatch再試行にする。（C-10, C-25、追加：意味づけと根拠選択を分離するため）
 - FR-79：Memory ReconciliationはRuntimeが再活性化理由ごとにHybrid Retrievalとcluster化で候補を集約し、選んだanchor Memoryごとに小さなReflectorを起動する。Reflectorは暗黙に束縛されたanchorだけについて`keep`、`update`、`split`と本文・理由・種別を出力し、他のMemoryを直接指定しない。Runtimeはanchorの`occurredAt`と既存根拠Eventの最大`occurredAt`の後に発生した関連Eventだけを検索して根拠と時系列を検証し、同時刻または過去のEventでは更新しない。episodicはkeepのみ、semantic / common-groundは後続Eventによる確認・訂正だけ、self-related / self-changeは少なくとも2件の独立した根拠Eventを満たす場合だけ更新・統合・分割できる。（C-03, C-10, C-15、追加：LLMの対象指定をなくしつつ局所的な再統合を行うため）
@@ -226,10 +227,10 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 
 ## R9. 予測・予測誤差・背景経験
 
-- FR-48：G1/G2はdirectな`message-received`への応答後に、同じ相手からの次ターンの発話を予測し、同じ解決済みsubjectからの次のdirect入力で誤差を1ターン遅れで評価する。peer/observedと自律Eventは予測対象にしない。保存済みPredictionに廃止済みroot fieldが残る場合は、既知のfieldだけを除去して現行契約として読む。（C-30, C-32, C-33, C-48）
+- FR-48：G1/G2はdirectな`message-received`への応答後に、同じ相手からの次ターンの発話を予測し、同じ解決済みsubjectからの次のdirect入力で誤差を1ターン遅れで評価する。G1/G2入力は今回のdirect入力、同subjectの前回Prediction、そのPredictionを作ったsource Runの前回Action、限定された関連Memoryに限る。peer/observedと自律Eventは予測対象にしない。（C-30, C-32, C-33, C-48）
 - FR-49：G1/G2は1回のLLM callで、予測候補、predictionEvaluation、G3起動判断を返す。観測候補とrememberは返さず、長期経験の統合を担わない。（C-34, C-35, C-36, C-37, C-38、更新）
 - FR-50：G1/G2はFeelingを出力せず、FeelingはMainAgentだけが確定する。（C-65）
-- FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、仮説評価、発見、自然言語のMemory候補を通常Agent Loopへ渡す。G3自身はMemoryIntent又は永続Recordを直接指定しない。（C-39, C-40, C-42、更新）
+- FR-51：G3はMainAgentとは別のDeepAgentとして遅延実行し、取得根拠に基づくfindingと未確定hypothesisを通常Agent Loopへ渡す。G3自身はMemoryIntent、根拠Record ID又は永続Recordを直接指定しない。（C-39, C-40, C-42、更新）
 - FR-52：G3結果のMainAgent再判断は通常Loopに通し、`prediction-g3-result` EventはAgent自身に共有する動機がある場合だけ発話する。`no-external-action`を成功として扱う。`prediction-g3`はActionを生成しない。（C-41、更新）
 - FR-53：背景経験はConversation Memoryと別Storeに保持し、起動前の初期化時だけYAMLで置換し、プロセス起動中は変更しない。（C-43, C-45）
 - FR-54：背景経験は、AIである自身と作成者if001のプロフィール、曖昧な段階、状況、複数ユーザーやif001との対話・探索、感じたこと、結果、学びを持ち、今回のユーザーとの共有経験を含めない。年齢、出身地、家族構成を持たない。（C-44, C-47）
@@ -245,7 +246,7 @@ Schema適合を人格らしさの成功条件にしない。pair比較または�
 - FR-74：Conversation MemoryとBackground Experienceの既存Hybrid Retrievalは共通RetrievalServiceで継続する。Reconciliation用の関連Event検索は、Event IDによる直接参照とは別に、agent所有権、時刻、Event種別、subject、keyword、vectorを持つEvent projectionを検索対象とし、同じhybrid rankingの契約へ追加する。元Eventは監査の正本として保持し、projectionは検索専用の派生データとする。（C-10, C-20, C-27、追加）
 - FR-75：Tool Resultは監査記録として保持するが、通常のEvent projection・embedding・Reflection検索の対象にしない。Experience Integrationはcommit済みのEvent、Action、Tool結果、State変更からEvent固有のsummaryとfactsを形成し、Memory FormationとEvent検索はこのEvent Experienceだけを根拠にする。固定trigger reason、Feeling、未確認の推測だけからExperienceやMemoryを形成しない。Experience形成の失敗は親Eventのcommitを巻き戻さず、そのEventをMemory Formation対象から除外する。（C-10, C-16, C-22、追加）
 - FR-61：memory-update EventはsourceEventIdとintentIndexで冪等にし、部分的なintentだけをcommitしない。（C-50, C-52）
-- FR-62：predictionContextは前回予測、誤差評価、G3要約とmemoryIntents、RecentExperienceのeffect、memoryCandidatesを持つ。（C-51, C-62, C-66）
+- FR-62：predictionContextはAgentとsubjectに所有され、同subjectの前回Prediction、前回Action、誤差評価、G3要約、RecentExperienceのeffect、memoryCandidatesを持つ。subjectを解決できないEventはPrediction Contextを持たない。（C-51, C-62, C-66）
 - FR-63：G1/G2の追加LLM callはNFRの例外とし、deadlineとcall予算を持つ。（C-70）
 - FR-64：予測Loopは旧continuity / memory分割後処理ではなく、Memory書込みはMemoryWriteServiceに集約する。（C-70）
 - FR-65：通常Ollamaの構造化出力はJSON Schemaのfield descriptionを`format`または`withStructuredOutput`で渡し、DeepAgentは`toolStrategy`のstructured output toolへ同じdescription付きJSON Schemaを渡す。構造化出力のpayloadはJSONだけを返す契約とし、通常OllamaのpromptはJSON object又はJSON arrayだけを返すことを明示する。JSON code fenceで包まれたpayloadは共通parserが外してから読む。DeepAgentは構造化出力ToolのJSON argumentsだけを最終出力として扱う。descriptionはRuntime検証を置き換えない。（C-71、更新）

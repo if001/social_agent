@@ -2,15 +2,13 @@ import type { IdGenerator } from "./ports.js";
 import type { Observation, PredictionOutput } from "../domain/contracts.js";
 import { errorLogContext } from "../observability/logger.js";
 
-export type G3HypothesisEvaluation = { readonly statement: string; readonly status: "supported" | "contradicted" | "undecidable"; readonly rationale: string };
 export type G3Output = {
-  readonly hypothesisEvaluations: readonly G3HypothesisEvaluation[];
-  readonly newHypotheses: readonly string[];
   readonly findings: readonly string[];
-  readonly memories: readonly { readonly content: string; readonly reason: string; readonly target: "episodic" | "semantic" | "self-related" | "self-change" | "common-ground"; readonly perspective: "self" | "user" }[];
+  readonly hypotheses: readonly string[];
 };
 export type G3Input = {
   readonly agentId: string;
+  readonly subjectId?: string;
   readonly sourceEventId: string;
   readonly sourceRunId: string;
   readonly sourcePredictionId: string;
@@ -78,8 +76,7 @@ export class G3Service {
 }
 
 export class MemoryG3ResultSink implements G3ResultSink {
-  /** Memory candidates are deliberately delivered to the ordinary Agent Loop;
-   * G3 has no direct persistence authority. */
+  /** G3 has no direct persistence authority; its result is delivered as a normal Event. */
   handle(): Promise<void> { return Promise.resolve(); }
 }
 

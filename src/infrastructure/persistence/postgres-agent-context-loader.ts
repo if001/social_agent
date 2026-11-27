@@ -188,14 +188,14 @@ export class PostgresAgentContextLoader {
     const state = { agentId: agent.id, updatedAt: agent.state_updated_at.toISOString(), ...AgentStateSchema.parse({ mood: agent.mood, concerns: currentConcerns, relationships: agent.relationships }) };
     const availableTools = this.options.tools.definitions();
     const runTransport = transport(event);
-    const loadedPredictionContext = this.options.predictionRepository === undefined ? undefined : await this.options.predictionRepository.context(event.agentId);
-    const basePredictionContext = loadedPredictionContext === undefined || loadedPredictionContext.memoryCandidates.length > 0 || this.options.retrievalService === undefined ? loadedPredictionContext : { ...loadedPredictionContext, memoryCandidates: [...await this.options.retrievalService.retrieve({ agentId: event.agentId, query: loadedPredictionContext.previousPrediction?.output.predictions.g2.candidates[0]?.content ?? observation.summary, scope: "all", limit: 5 }).catch(() => [])] };
+    const predictionSubjectId = typeof event.payload.subjectId === "string" ? event.payload.subjectId : undefined;
+    const loadedPredictionContext = this.options.predictionRepository === undefined || predictionSubjectId === undefined ? undefined : await this.options.predictionRepository.context(event.agentId, predictionSubjectId);
+    const basePredictionContext = loadedPredictionContext === undefined || predictionSubjectId === undefined || loadedPredictionContext.memoryCandidates.length > 0 || this.options.retrievalService === undefined ? loadedPredictionContext : { ...loadedPredictionContext, memoryCandidates: [...await this.options.retrievalService.retrieve({ agentId: event.agentId, query: loadedPredictionContext.previousPrediction?.output.predictions.g2.candidates[0]?.content ?? observation.summary, scope: "all", subjectIds: [predictionSubjectId], subjectFilter: true, limit: 5 }).catch(() => [])] };
     const g3Output = event.payload.targetKind === "prediction-g3-result" ? G3OutputSchema.safeParse(event.payload.output) : undefined;
     const predictionContext = g3Output?.success === true ? {
+      ...basePredictionContext,
       agentId: event.agentId,
-      ...(basePredictionContext?.previousPrediction === undefined ? {} : { previousPrediction: basePredictionContext.previousPrediction }),
-      g3Summary: [...g3Output.data.newHypotheses, ...g3Output.data.findings].join("\n").slice(0, 4_000),
-      g3MemoryIntents: [],
+      g3Summary: [...g3Output.data.findings.map((finding) => `finding: ${finding}`), ...g3Output.data.hypotheses.map((hypothesis) => `hypothesis: ${hypothesis}`)].join("\n").slice(0, 4_000),
       memoryCandidates: basePredictionContext?.memoryCandidates ?? []
     } : basePredictionContext;
     const recentExperiencesWithEffect = predictionContext?.recentExperienceEffect === undefined ? recentExperiences : recentExperiences.map((item) => item.eventId === predictionContext.recentExperienceEffect?.eventId ? { ...item, effect: predictionContext.recentExperienceEffect.effect } : item);

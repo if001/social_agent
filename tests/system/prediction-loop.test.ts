@@ -39,18 +39,30 @@ describe("FR-48, FR-49, FR-63, NFR-16, AC-11, AC-18: G1/G2 prediction loop", () 
     const previous: PredictionRecord = { id: "previous", agentId: "a", sourceEventId: "old", sourceRunId: "old-run", output: { ...output, predictionEvaluations: [] }, createdAt: "2026-10-30T00:00:00+00:00" };
     const { repo, saved, subjects } = repository(previous);
     const loop = new PredictionLoop({ repository: repo, model: model(output), ids: { next: () => "new-prediction" }, now: () => new Date("2026-10-31T01:00:00+00:00"), limits: { deadlineMs: 1_000, maxAttempts: 1 } });
-    await loop.afterResponse({ event, input, result: {} as never }, new AbortController().signal);
+    await loop.afterResponse({ event, input }, new AbortController().signal);
     expect(saved).toHaveLength(1);
     expect(subjects).toEqual(["user-main"]);
     expect(saved[0]?.output.predictionEvaluations).toEqual(output.predictionEvaluations);
   });
 
+  it("FR-48: passes only the previous prediction source Action to G1/G2", async () => {
+    const previous: PredictionRecord = {
+      id: "previous", agentId: "a", sourceEventId: "old", sourceRunId: "old-run",
+      output, sourceAction: { type: "respond", content: "前回の返答" }, createdAt: "2026-10-30T00:00:00+00:00"
+    };
+    const { repo } = repository(previous);
+    let received: Parameters<PredictionModel["predict"]>[0] | undefined;
+    const loop = new PredictionLoop({ repository: repo, model: { predict: (value) => { received = value; return Promise.resolve(output); } }, ids: { next: () => "new-prediction" }, now: () => new Date("2026-10-31T01:00:00+00:00"), limits: { deadlineMs: 1_000, maxAttempts: 1 } });
+    await loop.afterResponse({ event, input }, new AbortController().signal);
+    expect(received?.previousAction).toEqual({ type: "respond", content: "前回の返答" });
+  });
+
   it("FR-63, AC-11: skips non-user events and does not throw when the model fails", async () => {
     const { repo, saved } = repository();
     const loop = new PredictionLoop({ repository: repo, model: { predict: () => Promise.reject(new Error("provider")) }, ids: { next: () => "new" }, now: () => new Date(), limits: { deadlineMs: 1_000, maxAttempts: 1 } });
-    await expect(loop.afterResponse({ event: { ...event, kind: "internal" }, input, result: {} as never }, new AbortController().signal)).resolves.toBeUndefined();
+    await expect(loop.afterResponse({ event: { ...event, kind: "internal" }, input }, new AbortController().signal)).resolves.toBeUndefined();
     expect(saved).toHaveLength(0);
-    await expect(loop.afterResponse({ event, input, result: {} as never }, new AbortController().signal)).resolves.toBeUndefined();
+    await expect(loop.afterResponse({ event, input }, new AbortController().signal)).resolves.toBeUndefined();
     expect(saved).toHaveLength(0);
   });
 
@@ -67,7 +79,7 @@ describe("FR-48, FR-49, FR-63, NFR-16, AC-11, AC-18: G1/G2 prediction loop", () 
   it("FR-63, NFR-16: enforces the prediction deadline even if the provider ignores the signal", async () => {
     const { repo, saved } = repository();
     const loop = new PredictionLoop({ repository: repo, model: { predict: () => new Promise<PredictionOutput>(() => undefined) }, ids: { next: () => "new" }, now: () => new Date(), limits: { deadlineMs: 10, maxAttempts: 1 } });
-    await expect(loop.afterResponse({ event, input, result: {} as never }, new AbortController().signal)).resolves.toBeUndefined();
+    await expect(loop.afterResponse({ event, input }, new AbortController().signal)).resolves.toBeUndefined();
     expect(saved).toHaveLength(0);
   });
 
@@ -75,7 +87,7 @@ describe("FR-48, FR-49, FR-63, NFR-16, AC-11, AC-18: G1/G2 prediction loop", () 
     const { repo, saved } = repository();
     let calls = 0;
     const loop = new PredictionLoop({ repository: repo, model: { predict: () => { calls += 1; return calls === 1 ? Promise.reject(new Error("temporary")) : Promise.resolve(output); } }, ids: { next: () => "new" }, now: () => new Date(), limits: { deadlineMs: 1_000, maxAttempts: 2 } });
-    await loop.afterResponse({ event, input, result: {} as never }, new AbortController().signal);
+    await loop.afterResponse({ event, input }, new AbortController().signal);
     expect(calls).toBe(2);
     expect(saved).toHaveLength(1);
   });

@@ -18,12 +18,9 @@ export const g3SystemPrompt = `あなたはAgentのG3担当です。ユーザー
 - prediction: G1/G2の予測と評価
 
 出力:
-- hypothesisEvaluations: 前回仮説の支持、反証、判断不能。rationaleを含める。根拠RecordはRuntimeが対応付ける
-- newHypotheses: 新しい仮説
-- findings: 調査結果
-- memories: Memory候補。content、reason、target、perspectiveだけを返す。根拠Event、subject、更新対象はRuntimeが検索結果から解決する
-- 4つの配列を常に返す。該当しない項目は空配列にする
-- memoriesのtargetは episodic / semantic / self-related / self-change / common-ground のいずれか、perspectiveは self / user のいずれかだけを使う
+- findings: 取得済み根拠から確認できた情報
+- hypotheses: findingから導く未確定の解釈又は次に確かめたい仮説
+- 2つの配列を常に返す。該当しない項目は空配列にする
 
 制約:
 - Memoryを直接書き換えない
@@ -50,7 +47,7 @@ export function createOllamaG3Model(config: OllamaChatConfig & { readonly toolRe
   const tools = createDeepAgentTools(registry, () => new Date(), logger, toModelRecordView);
   const responseFormat = toolStrategy(modelJsonSchema(G3OutputSchema), { handleError: (error) => {
     logger.log("warn", "g3.structured_output_invalid", errorLogContext(error));
-    return "最終出力がSchema不一致です。本文やMarkdownを返さず、構造化出力専用Toolを1回だけ呼んでください。hypothesisEvaluations、newHypotheses、findings、memories の4配列を必ず返します。memoriesの各要素はcontent、reason、target、perspectiveだけとし、targetは episodic / semantic / self-related / self-change / common-ground、perspectiveは self / user のいずれかだけを使います。";
+    return "最終出力がSchema不一致です。本文やMarkdownを返さず、構造化出力専用Toolを1回だけ呼んでください。findings と hypotheses の2配列を必ず返します。findingsは取得済み根拠に基づく情報だけ、hypothesesは未確定の解釈だけを入れ、該当しなければ空配列にします。";
   } });
   const agent = createDeepAgent({ model, tools, systemPrompt: g3SystemPrompt, responseFormat, contextSchema: DeepAgentToolRunContextSchema, middleware: [createAgentCoreMiddleware(registry, logger, () => new Date(), { allowUnregisteredTools: false })] });
   return {
